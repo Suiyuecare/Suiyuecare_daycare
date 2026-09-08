@@ -13,10 +13,22 @@ export const bootstrapSql = String.raw`
     email text,
     encrypted_password text,
     email_confirmed_at timestamptz,
+    banned_until timestamptz,
+    deleted_at timestamptz,
+    is_anonymous boolean not null default false,
     raw_app_meta_data jsonb,
     raw_user_meta_data jsonb,
     created_at timestamptz,
     updated_at timestamptz
+  );
+  -- Minimal verified Supabase Auth metadata for local pre-MFA tests only.
+  -- Revoked hosted sessions are absent rows; auth.sessions has no revoked_at.
+  create table auth.sessions (
+    id uuid primary key,
+    user_id uuid not null references auth.users(id),
+    created_at timestamptz,
+    updated_at timestamptz,
+    not_after timestamptz
   );
   create function auth.jwt() returns jsonb language sql stable as $$
     select coalesce(
