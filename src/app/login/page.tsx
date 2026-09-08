@@ -58,6 +58,9 @@ export default function LoginPage() {
         <div className="login-panel__inner">
           <p className="eyebrow">安全登入</p>
           <h2>歡迎回來</h2>
+          <p role="note" aria-label="版本使用限制">
+            建置驗證版本：尚未完成正式營運驗收，請勿輸入或上傳真實個案資料。
+          </p>
           <p className="muted">請使用機構核發的帳號。家屬請切換至家屬入口。</p>
           <LoginForm demoMode={isDemoMode()} />
           <p className="login-help">
