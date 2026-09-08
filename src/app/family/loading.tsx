@@ -1,5 +1,5 @@
 import { ModuleLoading } from "@/components/app/module-loading";
 
 export default function Loading() {
-  return <main className="initial-loading" id="main-content"><ModuleLoading /></main>;
+  return <ModuleLoading title="正在載入家屬服務" />;
 }

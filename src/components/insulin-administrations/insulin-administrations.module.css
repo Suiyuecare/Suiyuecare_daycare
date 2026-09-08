@@ -1,5 +1,5 @@
 .workspace { display: grid; gap: 20px; min-width: 0; }
-.hero { align-items: start; background: linear-gradient(135deg, #f0fdfa, #eff6ff); border: 1px solid #bae6fd; border-radius: 20px; display: flex; justify-content: space-between; padding: clamp(20px, 4vw, 34px); }
+.hero { align-items: start; background: linear-gradient(135deg, var(--brand-soft), #eff6ff); border: 1px solid #bae6fd; border-radius: 20px; display: flex; justify-content: space-between; padding: clamp(20px, 4vw, 34px); }
 .hero h1 { font-size: clamp(28px, 4vw, 42px); margin: 6px 0 8px; }
 .hero p { line-height: 1.65; margin: 0; max-width: 760px; }
 .meta { align-items: flex-end; display: grid; font-size: 14px; gap: 6px; text-align: right; }

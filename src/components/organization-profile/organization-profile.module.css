@@ -6,8 +6,8 @@
 
 .hero {
   align-items: start;
-  background: linear-gradient(135deg, #f1f8f4, #f9fcfa);
-  border: 1px solid #c9ded1;
+  background: linear-gradient(135deg, var(--brand-soft), var(--surface-soft));
+  border: 1px solid var(--line);
   border-radius: 1.25rem;
   display: grid;
   gap: 1rem;
@@ -28,7 +28,7 @@
 
 .snapshotMeta {
   background: rgb(255 255 255 / 78%);
-  border: 1px solid #d7e6dc;
+  border: 1px solid var(--line);
   border-radius: 0.9rem;
   display: grid;
   font-size: 0.88rem;
@@ -66,13 +66,13 @@
   padding: 1rem;
 }
 
-.metrics svg { color: #2e7857; height: 1.35rem; width: 1.35rem; }
-.metrics span { color: #51625a; font-size: 0.9rem; }
+.metrics svg { color: var(--brand-strong); height: 1.35rem; width: 1.35rem; }
+.metrics span { color: var(--ink-muted); font-size: 0.9rem; }
 .metrics strong { font-size: clamp(1.35rem, 2vw, 2rem); overflow-wrap: anywhere; }
 
 .composer {
   background: #fff;
-  border: 1px solid #cfdcd4;
+  border: 1px solid var(--line);
   border-radius: 1rem;
   overflow: clip;
 }
@@ -85,7 +85,7 @@
 }
 
 .composer > form,
-.modeControls { border-top: 1px solid #e1e9e4; padding: 1rem; }
+.modeControls { border-top: 1px solid var(--line); padding: 1rem; }
 
 .modeControls,
 .formShell,
@@ -98,7 +98,7 @@
 .modeControls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .formShell { border: 0; margin: 0; padding: 0; }
 .sectionFields {
-  border: 1px solid #dce6e0;
+  border: 1px solid var(--line);
   border-radius: 0.85rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 1rem;
@@ -117,7 +117,7 @@
 .sectionFields label span,
 .modeControls label span,
 .decisionGrid label span,
-.filters label span { color: #42554b; font-size: 0.88rem; font-weight: 650; }
+.filters label span { color: var(--ink); font-size: 0.88rem; font-weight: 650; }
 
 .sectionFields input,
 .sectionFields select,
@@ -130,7 +130,7 @@
 .filters input,
 .filters select {
   background: #fff;
-  border: 1px solid #aebeb5;
+  border: 1px solid var(--line);
   border-radius: 0.65rem;
   font: inherit;
   font-size: 1rem;
@@ -146,7 +146,7 @@
 
 .repeatRow,
 .rateRow {
-  border: 1px dashed #c8d7cf;
+  border: 1px dashed var(--line);
   border-radius: 0.8rem;
   display: grid;
   gap: 0.75rem;
@@ -157,14 +157,14 @@
 .repeatRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .rateRow { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .inlineActions { display: flex; flex-wrap: wrap; gap: 0.6rem; grid-column: 1 / -1; }
-.inlineNote { color: #56665e; font-size: 0.9rem; grid-column: 1 / -1; margin: 0; }
+.inlineNote { color: var(--ink-muted); font-size: 0.9rem; grid-column: 1 / -1; margin: 0; }
 .formMessage { background: #eef8f1; border-radius: 0.7rem; margin: 0.8rem 0 0; padding: 0.75rem; }
 .decisionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .filters {
   align-items: end;
   background: #fff;
-  border: 1px solid #dce4df;
+  border: 1px solid var(--line);
   border-radius: 1rem;
   display: grid;
   gap: 0.8rem;
@@ -175,7 +175,7 @@
 .records,
 .history {
   background: #fff;
-  border: 1px solid #dce4df;
+  border: 1px solid var(--line);
   border-radius: 1rem;
   min-width: 0;
   padding: 1rem;
@@ -193,12 +193,12 @@
 .tableWrap { max-width: 100%; overflow-x: auto; }
 .table { border-collapse: collapse; min-width: 64rem; width: 100%; }
 .table th,
-.table td { border-bottom: 1px solid #e2e9e5; padding: 0.75rem; text-align: left; vertical-align: top; }
-.table th { background: #f5f8f6; font-size: 0.87rem; }
-.table small { color: #5c6b63; }
+.table td { border-bottom: 1px solid var(--line); padding: 0.75rem; text-align: left; vertical-align: top; }
+.table th { background: var(--surface-soft); font-size: 0.87rem; }
+.table small { color: var(--ink-muted); }
 .mobileCards { display: none; }
 .desktopDetails { display: grid; gap: 0.65rem; margin-top: 0.85rem; }
-.desktopDetails details { border: 1px solid #d7e2dc; border-radius: 0.8rem; padding: 0.2rem 0.8rem 0.8rem; }
+.desktopDetails details { border: 1px solid var(--line); border-radius: 0.8rem; padding: 0.2rem 0.8rem 0.8rem; }
 .desktopDetails summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 0.7rem 0; }
 
 .proposalGrid {
@@ -209,7 +209,7 @@
 
 .proposalGrid > article,
 .mobileCards > article {
-  border: 1px solid #d7e2dc;
+  border: 1px solid var(--line);
   border-radius: 0.9rem;
   min-width: 0;
   padding: 1rem;
@@ -224,17 +224,17 @@
 
 .details { display: grid; gap: 0.55rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .details div { min-width: 0; }
-.details dt { color: #66756d; font-size: 0.8rem; }
+.details dt { color: var(--ink-muted); font-size: 0.8rem; }
 .details dd { margin: 0.12rem 0 0; overflow-wrap: anywhere; }
 .contentLists { display: grid; gap: 0.8rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0.8rem 0; }
-.contentLists section { background: #f7faf8; border-radius: 0.7rem; padding: 0.75rem; }
+.contentLists section { background: var(--surface-soft); border-radius: 0.7rem; padding: 0.75rem; }
 .contentLists h4 { margin: 0 0 0.45rem; }
 .contentLists ul { margin: 0; padding-left: 1.1rem; }
 .contentLists li { margin: 0.35rem 0; overflow-wrap: anywhere; }
-.contentLists small { color: #5c6b63; display: block; }
+.contentLists small { color: var(--ink-muted); display: block; }
 
 .historyList { display: grid; gap: 0.65rem; list-style: none; margin: 0; padding: 0; }
-.historyList li { border-left: 4px solid #75a98e; background: #f7faf8; border-radius: 0 0.7rem 0.7rem 0; padding: 0.8rem; }
+.historyList li { border-left: 4px solid var(--brand-strong); background: var(--surface-soft); border-radius: 0 0.7rem 0.7rem 0; padding: 0.8rem; }
 .historyList li > div { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: space-between; }
 .historyList p { margin: 0.4rem 0; }
 

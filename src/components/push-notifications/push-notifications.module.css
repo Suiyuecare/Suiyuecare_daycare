@@ -14,7 +14,7 @@
 }
 
 .demoCallout {
-  border-color: #b9d9cf;
+  border-color: var(--line);
   background: var(--surface-mint);
   color: var(--brand-strong);
 }
@@ -110,7 +110,7 @@
 }
 
 .channelActive {
-  border-color: #97c7b9;
+  border-color: var(--brand-strong);
   background: var(--surface-mint);
 }
 
@@ -172,14 +172,14 @@
 }
 
 .recipientCard:has(input:checked) {
-  border-color: #97c7b9;
+  border-color: var(--brand-strong);
   background: var(--surface-mint);
 }
 
 .previewBox {
   display: grid;
   gap: 14px;
-  border: 1px solid #97c7b9;
+  border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface-mint);
   padding: 16px;

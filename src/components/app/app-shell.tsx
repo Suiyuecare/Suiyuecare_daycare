@@ -13,7 +13,6 @@ import {
   LogOut,
   Menu,
   MessageCircleMore,
-  Search,
   Settings2,
   ShieldCheck,
   Stethoscope,
@@ -21,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
@@ -30,6 +30,7 @@ import type { TenantContext } from "@/lib/domain/types";
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { BranchSwitcher } from "./branch-switcher";
+import { NavigationLink } from "./navigation-link";
 
 const moduleIcons = {
   workspace: LayoutDashboard,
@@ -59,14 +60,29 @@ export function AppShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [compactNavigation, setCompactNavigation] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
+  const menuOpener = useRef<HTMLButtonElement | null>(null);
   const menuClose = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
+  const availablePages = navigation.flatMap((group) => group.pages);
+  const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
+  const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
+  const notificationPage = availablePages.find((page) => page.number === 67);
+  const shortcuts = [2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const [groupRoute, setGroupRoute] = useState(pathname);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
       group.pages.some((page) => pathname === `/app/${page.slug}`),
     );
     return new Set(active ? [active.id] : ["workspace", "daily-care"]);
   });
+
+  // Derive a newly active module during navigation without an effect-driven flash.
+  // This never changes the server-filtered navigation or grants access to a page.
+  if (groupRoute !== pathname) {
+    setGroupRoute(pathname);
+    if (activeGroup) setOpenGroups((current) => new Set([...current, activeGroup.id]));
+  }
 
   function toggleGroup(id: string) {
     setOpenGroups((current) => {
@@ -80,12 +96,17 @@ export function AppShell({
   const closeMenu = useCallback(({ returnFocus = true }: { returnFocus?: boolean } = {}) => {
     setMenuOpen(false);
     if (returnFocus) {
-      requestAnimationFrame(() => menuTrigger.current?.focus());
+      requestAnimationFrame(() => (menuOpener.current ?? menuTrigger.current)?.focus());
     }
   }, []);
 
+  function openMenu(trigger: HTMLButtonElement) {
+    menuOpener.current = trigger;
+    setMenuOpen(true);
+  }
+
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 900px)");
+    const media = window.matchMedia("(max-width: 760px)");
     const update = () => setCompactNavigation(media.matches);
     update();
     media.addEventListener("change", update);
@@ -121,6 +142,13 @@ export function AppShell({
     return () => window.removeEventListener("keydown", handleKey);
   }, [closeMenu, compactNavigation, menuOpen]);
 
+  useEffect(() => {
+    if (!menuOpen || !compactNavigation) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [compactNavigation, menuOpen]);
+
   async function logout() {
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
@@ -151,10 +179,10 @@ export function AppShell({
         onClick={() => closeMenu()}
         type="button"
       />
-      <aside aria-label="主要功能" className="sidebar" data-open={menuOpen} inert={compactNavigation && !menuOpen ? true : undefined} ref={sidebar}>
+      <aside aria-label="主要功能" aria-modal={compactNavigation && menuOpen ? true : undefined} role={compactNavigation && menuOpen ? "dialog" : undefined} className="sidebar" data-open={menuOpen} inert={compactNavigation && !menuOpen ? true : undefined} ref={sidebar}>
         <div className="sidebar__header">
           <Link className="brand-lockup" href="/app/staff/workspace/dashboard">
-            <span className="brand-mark" aria-hidden="true"><HeartHandshake /></span>
+            <span className="brand-mark" aria-hidden="true"><Image src="/suiyue-logo-transparent.png" alt="" width={58} height={58} unoptimized /></span>
             <span><strong>{appBranding.brand}</strong><small>日照管理</small></span>
           </Link>
           <button className="icon-button mobile-menu-button" aria-label="關閉功能選單" onClick={() => closeMenu()} ref={menuClose} type="button">
@@ -177,9 +205,9 @@ export function AppShell({
                     {group.pages.map((page) => {
                       const href = `/app/${page.slug}`;
                       return (
-                        <Link aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} onClick={() => closeMenu({ returnFocus: false })}>
-                          <Icon aria-hidden="true" /><span>{page.title}</span>
-                        </Link>
+                        <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+                          <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
+                        </NavigationLink>
                       );
                     })}
                   </div>
@@ -196,19 +224,28 @@ export function AppShell({
           </div>
         </div>
       </aside>
-      <header className="topbar">
-        <button aria-label="開啟功能選單" className="icon-button mobile-menu-button" onClick={() => setMenuOpen(true)} ref={menuTrigger} type="button"><Menu /></button>
-        <label className="global-search">
-          <Search aria-hidden="true" />
-          <span className="sr-only">搜尋個案或功能</span>
-          <input placeholder="搜尋個案、功能或工作…" type="search" />
-          <kbd>⌘ K</kbd>
-        </label>
-        <span className="topbar__spacer" />
-        <time className="topbar__date">{dateLabel}</time>
-        <button aria-label="開啟通知" className="icon-button notification-button" type="button"><Bell /><span className="notification-dot" /></button>
-      </header>
-      <main className="main-stage" id="main-content" tabIndex={-1}>{children}</main>
+      <div className="app-main" inert={compactNavigation && menuOpen ? true : undefined}>
+        <header className="topbar">
+          <div className="topbar__heading">
+            <Image className="topbar__mobile-logo" src="/suiyue-logo-transparent.png" alt="" width={28} height={28} unoptimized />
+            <span className="topbar__system">日照管理</span><span className="topbar__divider" aria-hidden="true">｜</span>
+            <span className="topbar__title">{activePage?.title ?? appBranding.applicationName}</span>
+          </div>
+          {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
+          <div className="topbar__actions">{shortcuts.map((page, index) => <NavigationLink className={`button ${index === 0 ? "button--secondary" : "button--primary"}`} href={`/app/${page.slug}`} key={page.number} loadingLabel={page.title}>{page.title}</NavigationLink>)}</div>
+          <time className="topbar__date">{dateLabel}</time>
+          <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
+        </header>
+        <main className="main-stage" id="main-content" tabIndex={-1}>{children}</main>
+      </div>
+      <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
+        {mobilePages.map((page) => {
+          const Icon = moduleIcons[page.moduleId];
+          const label = page.number === 1 ? "首頁" : page.number === 2 ? "個案" : "量測";
+          return <NavigationLink href={`/app/${page.slug}`} aria-label={page.title} title={page.title} aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
+        })}
+        <button type="button" aria-label="更多功能" aria-expanded={menuOpen} onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
+      </nav>
     </div>
   );
 }

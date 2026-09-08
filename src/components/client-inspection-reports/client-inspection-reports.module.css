@@ -9,7 +9,7 @@
 .snapshotMeta dt { color: var(--color-text-muted); }
 .snapshotMeta dd { margin: 0; overflow-wrap: anywhere; }
 .notice, .warning { margin: 0; border-radius: .9rem; padding: .85rem 1rem; line-height: 1.6; }
-.notice { border: 1px solid #acd8c9; background: #edf8f4; color: #17483b; }
+.notice { border: 1px solid var(--line); background: var(--brand-soft); color: var(--brand-strong); }
 .warning { border: 1px solid #e5ba70; background: #fff7e8; color: #684209; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
 .metrics article { display: grid; grid-template-columns: auto 1fr; gap: .4rem .65rem; align-items: center; min-height: 8rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: 1rem; background: var(--color-surface); }

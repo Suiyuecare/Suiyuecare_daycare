@@ -1,6 +1,6 @@
 .demo, .security, .coverage { align-items: flex-start; }
 .demo svg, .security svg, .coverage svg { flex: 0 0 auto; }
-.security { background: #eef8f3; }
+.security { background: var(--brand-soft); }
 .coverage { background: #fff8e8; border-color: #dfc785; }
 .filters { grid-template-columns: repeat(4, minmax(150px, 1fr)) auto auto; }
 .table table { min-width: 1180px; }

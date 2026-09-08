@@ -1,6 +1,6 @@
 .demo, .security, .warning { align-items: flex-start; }
 .demo svg, .security svg, .warning svg { flex: 0 0 auto; }
-.security { background: #eef8f3; }
+.security { background: var(--brand-soft); }
 .warning { background: #fff8e8; border-color: #dfc785; }
 .filters { grid-template-columns: repeat(3, minmax(170px, 1fr)) auto auto; }
 .table table { min-width: 2460px; }

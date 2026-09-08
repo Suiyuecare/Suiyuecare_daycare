@@ -1,6 +1,6 @@
 .demo, .security, .offline { align-items: flex-start; }
 .demo svg, .offline svg { flex: 0 0 auto; }
-.security { background: #eef8f3; }
+.security { background: var(--brand-soft); }
 .offline { background: #fff8e8; border-color: #dfc785; }
 .filters { grid-template-columns: repeat(5, minmax(140px, 1fr)) auto auto; }
 .table table { min-width: 1180px; }
@@ -20,7 +20,7 @@
 .formMessage { color: var(--text-muted); margin: 10px 0 0; }
 .history { border-top: 1px solid var(--border, #d8e0dc); margin-top: 10px; }
 .history ol { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
-.history li { background: #f7faf8; border-radius: 10px; padding: 10px; }
+.history li { background: var(--surface-soft); border-radius: 10px; padding: 10px; }
 .history li > span { color: var(--text-muted); display: block; font-size: .875rem; margin-top: 4px; }
 .history p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .readOnly { color: var(--text-muted); font-size: .875rem; }
