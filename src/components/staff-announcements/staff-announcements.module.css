@@ -1,0 +1,47 @@
+.dialog { width: min(920px, calc(100vw - 32px)); }
+.confirmDialog { width: min(560px, calc(100vw - 32px)); }
+.dialogBody { display: grid; gap: 18px; }
+.formFields { border: 0; display: grid; gap: 16px; margin: 0; min-width: 0; padding: 0; }
+.twoColumns { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.audience { border: 1px solid var(--line); border-radius: 14px; display: grid; gap: 6px; max-height: 220px; min-width: 0; overflow: auto; padding: 12px; }
+.audience legend { font-weight: 700; padding: 0 6px; }
+.audience label { align-items: center; border-radius: 10px; display: flex; gap: 10px; min-height: 44px; padding: 6px 8px; }
+.audience label:hover { background: var(--surface-soft); }
+.audience input { height: 20px; min-width: 20px; width: 20px; }
+.audience span { display: grid; }
+.audience small { color: var(--ink-muted); }
+.actionBox { align-items: flex-start; display: grid; gap: 4px; min-width: 0; }
+.inlineNotice, .actionMessage { color: var(--success); font-size: .82rem; margin: 0; max-width: 320px; overflow-wrap: anywhere; }
+.rowActions { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 8px; min-width: 260px; }
+.securityCallout, .boundaryCallout, .demoCallout, .reauthCallout { margin-bottom: 14px; }
+.boundaryCallout { background: color-mix(in srgb, var(--surface) 86%, #dbeafe); }
+.demoCallout, .truncatedCallout { background: color-mix(in srgb, var(--surface) 84%, #fff1c2); }
+.reauthCallout { align-items: center; display: flex; justify-content: space-between; }
+.contentCell { min-width: 360px; max-width: 560px; }
+.contentCell > strong { display: block; }
+.contentCell p, .contentCompare p { margin: 5px 0 0; white-space: pre-wrap; }
+.contentCompare { display: grid; gap: 10px; }
+.contentCompare section { border-left: 3px solid var(--line); display: grid; gap: 3px; padding-left: 10px; }
+.contentCompare section:first-child { border-color: #d18b16; }
+.contentCompare span { color: var(--ink-muted); font-size: .78rem; font-weight: 700; }
+.table td { vertical-align: top; }
+.table td:nth-child(2) { min-width: 140px; }
+.table td:nth-child(3), .table td:nth-child(4) { min-width: 190px; }
+.recipientPanel { margin-top: 18px; }
+.detailTable { max-height: 520px; }
+.readBoundary { color: var(--ink-muted); font-size: .88rem; margin: 16px 0; }
+
+@media (max-width: 760px) {
+  .dialog, .confirmDialog { width: calc(100vw - 16px); }
+  .twoColumns { grid-template-columns: 1fr; }
+  .rowActions { min-width: 0; width: 100%; }
+  .rowActions > * { min-width: 0; }
+  .reauthCallout { align-items: flex-start; flex-direction: column; }
+  .audience { max-height: 190px; }
+}
+
+@media (max-width: 420px) {
+  .dialog, .confirmDialog { margin: 8px; width: calc(100vw - 16px); }
+  .rowActions :global(.button) { justify-content: center; min-height: 44px; width: 100%; }
+  .contentCompare section { overflow-wrap: anywhere; }
+}

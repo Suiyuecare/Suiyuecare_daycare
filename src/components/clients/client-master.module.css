@@ -1,0 +1,208 @@
+.securityCallout {
+  align-items: flex-start;
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.demoCallout {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.reauthCallout {
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.reauthCallout .buttonLink {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.authorityLegend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.authorityLegend article {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 11px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.authorityLegend svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: var(--brand);
+}
+
+.authorityLegend strong,
+.authorityLegend span {
+  display: block;
+}
+
+.authorityLegend strong {
+  font-size: .82rem;
+}
+
+.authorityLegend span {
+  margin-top: 4px;
+  color: var(--ink-muted);
+  font-size: .74rem;
+  line-height: 1.55;
+}
+
+.table table {
+  min-width: 940px;
+}
+
+.authority {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+}
+
+.authority small {
+  max-width: 210px;
+  color: var(--ink-faint);
+  font-size: .68rem;
+  line-height: 1.45;
+}
+
+.actionCell {
+  min-width: 132px;
+}
+
+.lockedAction {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-muted);
+  font-size: .74rem;
+  font-weight: 800;
+}
+
+.lockedAction svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dialog {
+  width: min(calc(100% - 28px), 660px);
+}
+
+.dialogSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.dialogSummary div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 11px 12px;
+}
+
+.dialogSummary dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.dialogSummary dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: .84rem;
+  font-weight: 900;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wideField {
+  grid-column: 1 / -1;
+}
+
+.successNotice {
+  margin: 0;
+  border-left: 4px solid var(--success);
+  border-radius: 8px;
+  background: var(--surface-mint);
+  padding: 10px 12px;
+  color: var(--success);
+  font-size: .84rem;
+  font-weight: 800;
+}
+
+.buttonLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 14px;
+  color: var(--brand);
+  font-size: .78rem;
+  font-weight: 900;
+}
+
+.buttonLink svg {
+  width: 17px;
+  height: 17px;
+}
+
+.cardAction {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.cardAction > * {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 760px) {
+  .authorityLegend {
+    grid-template-columns: 1fr;
+  }
+
+  .reauthCallout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reauthCallout .buttonLink {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  .fields,
+  .dialogSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .wideField {
+    grid-column: auto;
+  }
+}

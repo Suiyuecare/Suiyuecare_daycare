@@ -1,0 +1,179 @@
+.securityCallout,
+.demoCallout {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.securityCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.filters {
+  align-items: end;
+}
+
+.filters input[type="number"] {
+  width: 110px;
+}
+
+.table table {
+  min-width: 1320px;
+}
+
+.longText {
+  max-width: 240px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.missing,
+.stale {
+  color: var(--danger);
+  font-size: .76rem;
+}
+
+.truncated {
+  margin: 0 18px 16px;
+}
+
+.rowActions {
+  display: flex;
+  min-width: 330px;
+  align-items: center;
+  gap: 8px;
+}
+
+.actionSlot {
+  display: inline-flex;
+  align-items: center;
+}
+
+.actionButton {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.locked {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-muted);
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.locked svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dialog {
+  width: min(calc(100% - 28px), 760px);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wideField,
+.informationField {
+  grid-column: 1 / -1;
+}
+
+.informationField {
+  display: grid;
+  grid-template-columns: minmax(160px, .45fr) minmax(0, 1fr);
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.confirmBody {
+  display: grid;
+  gap: 16px;
+}
+
+.confirmBody > strong {
+  font-size: 1rem;
+}
+
+.confirmBody p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.cardGrid div {
+  min-width: 0;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.cardGrid dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.cardGrid dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: .8rem;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .filters {
+    align-items: stretch;
+  }
+
+  .filters > * {
+    width: 100%;
+  }
+
+  .filters input[type="number"] {
+    width: 100%;
+  }
+
+  .rowActions {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .rowActions > * {
+    flex: 1 1 130px;
+  }
+
+  .rowActions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .fields,
+  .informationField,
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .wideField,
+  .informationField {
+    grid-column: auto;
+  }
+}

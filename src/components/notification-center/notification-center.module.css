@@ -1,0 +1,298 @@
+.boundaryCallout,
+.demoCallout,
+.truncatedCallout {
+  margin-bottom: 14px;
+}
+
+.boundaryCallout {
+  border-color: #dfc58f;
+  background: var(--surface-warm);
+}
+
+.demoCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.truncatedCallout {
+  border-color: #dfc58f;
+}
+
+.metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.pendingMetric {
+  color: var(--ink-faint);
+}
+
+.filterPanel {
+  padding: 16px;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(130px, .8fr)) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.searchField {
+  min-width: 0;
+}
+
+.inputWithIcon {
+  position: relative;
+}
+
+.inputWithIcon svg {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  width: 18px;
+  height: 18px;
+  color: var(--ink-faint);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.inputWithIcon input {
+  width: 100%;
+  padding-left: 40px;
+}
+
+.filterActions {
+  display: flex;
+  gap: 8px;
+}
+
+.tableWrap {
+  max-height: min(66vh, 760px);
+  overflow: auto;
+}
+
+.table {
+  min-width: 1060px;
+}
+
+.table thead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+}
+
+.stack,
+.message,
+.actionBox {
+  display: grid;
+  gap: 5px;
+}
+
+.stack small,
+.message small,
+.muted {
+  color: var(--ink-faint);
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+.message {
+  max-width: 420px;
+}
+
+.message small {
+  line-height: 1.5;
+}
+
+.priority {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  padding: 4px 9px;
+  font-size: .75rem;
+  font-weight: 800;
+}
+
+.priorityCritical {
+  background: #fff0df;
+  color: #8a4b08;
+}
+
+.sourceLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 5px;
+  color: var(--brand-strong);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.sourceLink svg {
+  width: 15px;
+  height: 15px;
+}
+
+.completedAction {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.completedAction svg {
+  width: 17px;
+  height: 17px;
+}
+
+.successText {
+  color: var(--success);
+  font-weight: 800;
+}
+
+.errorText,
+.dialogError {
+  color: var(--danger);
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.dialog {
+  width: min(calc(100% - 28px), 600px);
+}
+
+.confirmSummary {
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.confirmSummary p {
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  line-height: 1.6;
+}
+
+.mobileCards {
+  display: none;
+}
+
+.mobileCard {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 15px;
+  box-shadow: var(--shadow-sm);
+}
+
+.mobileCard p,
+.mobileCard h3 {
+  margin: 0;
+}
+
+.mobileCard > p {
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTop p {
+  margin-bottom: 5px;
+}
+
+.mobileCard dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.mobileCard dl div {
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.mobileCard dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.mobileCard dd {
+  margin: 4px 0 0;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+@media (max-width: 1180px) {
+  .filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .filterActions {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 900px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tableWrap {
+    display: none;
+  }
+
+  .mobileCards {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 650px) {
+  .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .filterActions {
+    display: grid;
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .filterActions :global(.button) {
+    width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cardTop {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mobileCard dl {
+    grid-template-columns: 1fr;
+  }
+}

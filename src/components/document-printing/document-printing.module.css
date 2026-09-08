@@ -1,0 +1,258 @@
+.workspace {
+  display: grid;
+  gap: 1.2rem;
+  min-width: 0;
+}
+
+.hero {
+  align-items: start;
+  background: linear-gradient(135deg, #eef8f7, #fbfdfc);
+  border: 1px solid #c8dfdc;
+  border-radius: 1.2rem;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 0.34fr);
+  padding: clamp(1.1rem, 2vw, 1.7rem);
+}
+
+.hero h1,
+.sectionHeading h2,
+.reauth h2,
+.documentHeading h3,
+.jobCard h3 {
+  margin: 0;
+}
+
+.hero p { max-width: 72ch; }
+
+.snapshotMeta {
+  background: rgb(255 255 255 / 82%);
+  border: 1px solid #d5e6e3;
+  border-radius: 0.85rem;
+  display: grid;
+  font-size: 0.88rem;
+  gap: 0.35rem;
+  padding: 0.85rem;
+}
+
+.notice,
+.warning,
+.reauth {
+  border-radius: 0.85rem;
+  line-height: 1.65;
+  padding: 0.9rem 1rem;
+}
+
+.notice { background: #eef7ff; border: 1px solid #bddbf0; color: #164660; }
+.warning { background: #fff7e7; border: 1px solid #e9cf95; color: #694a0b; }
+.reauth { background: #fffaf0; border: 1px solid #e6d3a5; }
+.reauth p { margin-bottom: 0.8rem; }
+
+.metrics {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metrics article {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #dbe5e2;
+  border-radius: 0.95rem;
+  display: grid;
+  gap: 0.35rem;
+  min-height: 7.5rem;
+  padding: 1rem;
+}
+
+.metrics svg { color: #28736e; height: 1.35rem; width: 1.35rem; }
+.metrics span { color: #536460; font-size: 0.9rem; }
+.metrics strong { font-size: clamp(1.35rem, 2vw, 1.9rem); }
+
+.composer {
+  background: #fff;
+  border: 1px solid #cfdedb;
+  border-radius: 1rem;
+  overflow: clip;
+}
+
+.composer > summary,
+.documentDetails > summary {
+  cursor: pointer;
+  font-weight: 750;
+  min-height: 44px;
+  padding: 0.85rem 1rem;
+}
+
+.composer > form {
+  border-top: 1px solid #e0e9e6;
+  padding: 1rem;
+}
+
+.formGrid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.formGrid label,
+.filters label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.formGrid label span,
+.filters label span {
+  color: #415552;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.formGrid input,
+.formGrid select,
+.filters input,
+.filters select {
+  background: #fff;
+  border: 1px solid #aabdb9;
+  border-radius: 0.65rem;
+  font: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+  width: 100%;
+}
+
+.formNote { color: #53635f; font-size: 0.9rem; line-height: 1.6; }
+.formMessage { background: #edf8f2; border-radius: 0.7rem; padding: 0.75rem; }
+
+.filters {
+  align-items: end;
+  background: #fff;
+  border: 1px solid #dbe5e2;
+  border-radius: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(11rem, 1fr) minmax(10rem, 0.9fr)
+    minmax(9rem, 0.75fr) minmax(12rem, 1fr) auto auto;
+  padding: 1rem;
+}
+
+.records {
+  background: #fff;
+  border: 1px solid #dbe5e2;
+  border-radius: 1rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.sectionHeading {
+  align-items: end;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+
+.sectionHeading p { margin: 0; }
+.tableWrap { max-width: 100%; overflow-x: auto; }
+.table { border-collapse: collapse; min-width: 60rem; width: 100%; }
+.table th,
+.table td {
+  border-bottom: 1px solid #e1e9e6;
+  padding: 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.table th { background: #f4f8f7; font-size: 0.87rem; }
+.table small { color: #5b6b67; }
+
+.accessActions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.accessActions a { min-height: 44px; white-space: nowrap; }
+.accessUnavailable { color: #6d5a2d; display: inline-block; font-size: 0.88rem; max-width: 16rem; }
+
+.desktopDetails { display: grid; gap: 0.65rem; margin-top: 0.85rem; }
+.documentDetails {
+  border: 1px solid #d6e2df;
+  border-radius: 0.85rem;
+  padding: 0 0.8rem 0.8rem;
+}
+
+.documentHeading,
+.cardHeading {
+  align-items: start;
+  display: flex;
+  gap: 0.8rem;
+  justify-content: space-between;
+}
+
+.documentHeading code {
+  background: #f2f6f5;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  padding: 0.4rem;
+}
+
+.renderSection { margin-top: 0.9rem; }
+.renderSection h4 {
+  background: #eaf5f3;
+  border-radius: 0.55rem;
+  color: #1c514e;
+  margin: 0;
+  padding: 0.65rem;
+}
+.renderSection dl { margin: 0; }
+.renderSection dl > div {
+  border-bottom: 1px solid #e3e9e7;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
+  padding: 0.7rem;
+}
+.renderSection dt { font-weight: 700; }
+.renderSection dt small { color: #61716d; display: block; font-weight: 500; }
+.renderSection dd { margin: 0; overflow-wrap: anywhere; }
+.footerNote { color: #566762; font-size: 0.87rem; }
+
+.mobileCards { display: none; }
+.jobCard {
+  border: 1px solid #d6e2df;
+  border-radius: 0.85rem;
+  min-width: 0;
+  padding: 0.9rem;
+}
+.cardHeading > span { color: #3b5e59; font-weight: 700; white-space: nowrap; }
+.metaList {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.metaList dt { color: #62716e; font-size: 0.8rem; }
+.metaList dd { margin: 0.15rem 0 0; overflow-wrap: anywhere; }
+
+@media (max-width: 1120px) {
+  .hero { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .workspace { gap: 0.9rem; }
+  .hero,
+  .records { border-radius: 0.85rem; padding: 0.9rem; }
+  .metrics,
+  .formGrid,
+  .filters { grid-template-columns: 1fr; }
+  .metrics article { min-height: 6.2rem; }
+  .sectionHeading { align-items: start; flex-direction: column; }
+  .tableWrap,
+  .desktopDetails { display: none; }
+  .mobileCards { display: grid; gap: 0.8rem; }
+  .documentDetails { margin-top: 0.8rem; }
+  .documentHeading,
+  .cardHeading { flex-direction: column; }
+  .renderSection dl > div { grid-template-columns: 1fr; }
+  .accessActions { display: grid; }
+}

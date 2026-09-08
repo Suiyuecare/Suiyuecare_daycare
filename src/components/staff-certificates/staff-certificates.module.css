@@ -1,0 +1,57 @@
+.workspace { display: grid; gap: 1rem; }
+.hero { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.hero h1 { margin: .2rem 0; }
+.hero p { margin: .25rem 0; }
+.snapshotMeta { display: grid; gap: .25rem; min-width: 16rem; padding: .8rem; border: 1px solid var(--color-border); border-radius: 1rem; background: var(--color-surface); font-size: .9rem; }
+.notice, .warning { border-radius: .9rem; padding: .8rem 1rem; line-height: 1.55; }
+.notice { border: 1px solid #b7d6cb; background: #edf8f4; color: #17483b; }
+.warning { border: 1px solid #e4ba72; background: #fff7e8; color: #69430a; }
+.warning a { margin-left: .35rem; color: inherit; font-weight: 700; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.metrics article { display: grid; grid-template-columns: auto 1fr; gap: .45rem .65rem; align-items: center; min-height: 7.5rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: 1rem; background: var(--color-surface); }
+.metrics svg { width: 1.3rem; color: var(--color-primary); }
+.metrics strong { grid-column: 1 / -1; font-size: 1.45rem; }
+.composer, .exceptionForms, .records, .exceptions, .history { border: 1px solid var(--color-border); border-radius: 1rem; padding: 1rem; background: var(--color-surface); }
+.composer summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 750; }
+.formGrid, .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; margin-top: .75rem; }
+.formGrid label, .filters label, .topControl { display: grid; gap: .35rem; }
+.formGrid input, .formGrid select, .formGrid textarea, .filters input, .filters select, .topControl select { width: 100%; min-height: 44px; border: 1px solid var(--color-border); border-radius: .7rem; padding: .65rem .7rem; background: #fff; color: inherit; font: inherit; font-size: 1rem; }
+.formGrid textarea { resize: vertical; }
+.wide { grid-column: 1 / -1; }
+.topControl { max-width: 42rem; margin: .7rem 0; }
+.formMessage { margin: .75rem 0 0; padding: .65rem .8rem; border-radius: .7rem; background: #edf8f4; }
+.filters { align-items: end; padding: 1rem; border: 1px solid var(--color-border); border-radius: 1rem; background: var(--color-surface); }
+.resultHeader { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; }
+.resultHeader p { margin: 0; }
+.records h2, .exceptions h2, .history h2, .exceptionForms h2 { margin-top: 0; }
+.tableWrap { overflow-x: auto; }
+.table { width: 100%; min-width: 920px; border-collapse: collapse; }
+.table th, .table td { padding: .75rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-border); }
+.table th { font-size: .9rem; }
+.table small { color: var(--color-text-muted); }
+.mobileCards { display: none; }
+.exceptionGrid, .historyGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.exceptionGrid article, .historyGrid article, .mobileCards article { padding: .9rem; border: 1px solid var(--color-border); border-radius: .85rem; background: #fff; overflow-wrap: anywhere; }
+.exceptionGrid h3, .historyGrid h3 { margin: 0 0 .45rem; }
+.exceptionGrid dl, .historyGrid dl, .mobileCards dl { display: grid; gap: .4rem; margin: .65rem 0 0; }
+.exceptionGrid dl div, .historyGrid dl div, .mobileCards dl div { display: grid; grid-template-columns: 7.5rem 1fr; gap: .5rem; }
+.exceptionGrid dt, .historyGrid dt, .mobileCards dt { color: var(--color-text-muted); }
+.exceptionGrid dd, .historyGrid dd, .mobileCards dd { margin: 0; }
+.exceptionGrid ol { margin-bottom: 0; padding-left: 1.3rem; }
+
+@media (max-width: 900px) {
+  .hero { display: grid; }
+  .snapshotMeta { min-width: 0; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .formGrid, .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .exceptionGrid, .historyGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .metrics, .formGrid, .filters, .exceptionGrid, .historyGrid { grid-template-columns: 1fr; }
+  .wide { grid-column: auto; }
+  .tableWrap { display: none; }
+  .mobileCards { display: grid; gap: .7rem; }
+  .mobileCards h3 { margin: 0; }
+  .exceptionGrid dl div, .historyGrid dl div, .mobileCards dl div { grid-template-columns: 6.5rem 1fr; }
+}

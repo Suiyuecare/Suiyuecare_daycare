@@ -1,0 +1,47 @@
+.boundary, .pending { padding: 1rem 1.25rem; border: 1px solid #d8c599; border-radius: 14px; background: #fffaf0; color: #5a4522; }
+.boundary p, .pending p { margin: .45rem 0; }
+.filters, .editor { padding: 1.25rem; border: 1px solid #dbe5e3; border-radius: 16px; background: white; }
+.filters, .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.filters label, .fields label { display: grid; gap: .45rem; min-width: 0; font-weight: 600; }
+.filters input, .filters select, .fields input, .fields select, .fields textarea { min-width: 0; width: 100%; min-height: 44px; padding: .65rem .75rem; border: 1px solid #778d87; border-radius: 9px; background: white; color: #233d36; font: inherit; font-size: 16px; }
+.fields textarea { min-height: 112px; resize: vertical; }
+.fields input:disabled, .fields select:disabled, .fields textarea:disabled { background: #f2f4f3; color: #46534e; }
+.fields fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+.wide { grid-column: 1 / -1; }
+.actions { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+.actions button, .actions a, .filters button, .filters a, .editor button, .pending button { min-height: 44px; min-width: 44px; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+.metrics article { border: 1px solid #dbe5e3; border-radius: 14px; background: white; padding: 1rem; }
+.metrics strong { display: block; font-size: 2rem; color: #224f42; margin: .45rem 0; }
+.metrics p { margin: 0; font-size: .9rem; color: #4a5d56; }
+.sectionHeading, .cardHeading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.sectionHeading h2 { font-size: 1.3rem; font-weight: 700; }
+.cardHeading h3, .editor h2 { font-size: 1.15rem; font-weight: 700; }
+.records { display: grid; gap: 1rem; }
+.card { padding: 1.25rem; border: 1px solid #dbe5e3; border-radius: 16px; background: white; overflow-wrap: anywhere; }
+.card h3, .editor h2 { margin: 0 0 .5rem; }
+.card dl { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem 1.5rem; }
+.card dt { color: #4a5d56; font-size: .9rem; }
+.card dd { margin: .3rem 0 0; white-space: pre-wrap; }
+.pill { display: inline-flex; padding: .4rem .75rem; border: 1px solid #c0d5cc; border-radius: 999px; background: #edf5f1; color: #21483b; font-weight: 600; white-space: nowrap; }
+.history { margin: 1rem 0; border-top: 1px solid #dbe5e3; }
+.history summary { cursor: pointer; min-height: 44px; padding: .8rem .2rem; }
+.history ol { padding-left: 1.5rem; }
+.history li { margin-bottom: 1.25rem; }
+.history p { margin: .4rem 0; }
+.hash { font-family: monospace; font-size: .85rem; overflow-wrap: anywhere; }
+.hint { color: #465b53; font-size: .95rem; line-height: 1.6; }
+.check { display: flex !important; align-items: center; min-height: 44px; gap: .75rem; }
+.check input { width: 24px; height: 24px; min-height: 24px; flex: 0 0 24px; accent-color: #245342; }
+.editor fieldset { border: 0; padding: 0; margin: 1rem 0; min-width: 0; }
+.editor legend { margin-bottom: .75rem; font-weight: 600; }
+.editor h2:focus { outline: 3px solid #245342; outline-offset: 4px; }
+.status { padding: .8rem 1rem; background: #edf5f1; border-radius: 10px; color: #21483b; }
+@media (max-width: 760px) {
+  .filters, .fields, .card dl { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+  .sectionHeading, .cardHeading { flex-wrap: wrap; }
+  .filters, .editor, .card { padding: 1rem; }
+  .metrics strong { font-size: 1.65rem; }
+}
+.page { display: grid; gap: 1.25rem; }

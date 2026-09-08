@@ -1,0 +1,26 @@
+# Only application source/configuration should be sent to the isolated trial project.
+.env*
+.git
+.next
+node_modules
+.vercel
+/docs
+/tests
+/supabase
+/scripts
+/coverage
+/artifacts
+/output
+/test-results
+/playwright-report
+src/**/*.test.ts
+src/**/*.test.tsx
+*.log
+*.tsbuildinfo
+--full-page
+AGENTS.md
+CLAUDE.md
+*.html
+*.pdf
+*.docx
+*.xlsx

@@ -1,0 +1,76 @@
+import { projectClientMasterSnapshot } from "./master";
+
+const organizationId = "11111111-1111-4111-8111-111111111111";
+const branchId = "22222222-2222-4222-8222-222222222222";
+
+export function buildDemoClientMasterSnapshot() {
+  return projectClientMasterSnapshot({
+    expectedOrganizationId: organizationId,
+    expectedBranchId: branchId,
+    generatedAt: "2026-09-01T10:24:00+08:00",
+    demographicsReadable: true,
+    demo: true,
+    rows: [
+      {
+        id: "a1111111-1111-4111-8111-111111111111",
+        organization_id: organizationId,
+        branch_id: branchId,
+        client_code: "HX-021",
+        display_name: "陳O華",
+        date_of_birth: "1944-02-14",
+        status: "active",
+        admitted_on: "2025-04-01",
+        ended_on: null,
+        source_system: "central_html",
+        source_updated_at: "2026-08-31T08:00:00.000Z",
+        row_version: 3,
+        updated_at: "2026-08-31T08:00:00.000Z",
+      },
+      {
+        id: "a2222222-2222-4222-8222-222222222222",
+        organization_id: organizationId,
+        branch_id: branchId,
+        client_code: "LOCAL-022",
+        display_name: "林O英",
+        date_of_birth: "1941-09-03",
+        status: "active",
+        admitted_on: "2025-07-18",
+        ended_on: null,
+        source_system: "local",
+        source_updated_at: null,
+        row_version: 2,
+        updated_at: "2026-08-30T07:20:00.000Z",
+      },
+      {
+        id: "a3333333-3333-4333-8333-333333333333",
+        organization_id: organizationId,
+        branch_id: branchId,
+        client_code: "LOCAL-023",
+        display_name: "黃O生",
+        date_of_birth: "1948-12-26",
+        status: "suspended",
+        admitted_on: "2026-01-05",
+        ended_on: null,
+        source_system: "local",
+        source_updated_at: null,
+        row_version: 4,
+        updated_at: "2026-08-29T03:40:00.000Z",
+      },
+      {
+        id: "a4444444-4444-4444-8444-444444444444",
+        organization_id: organizationId,
+        branch_id: branchId,
+        client_code: "LOCAL-024",
+        display_name: "吳O美",
+        date_of_birth: "1946-06-11",
+        status: "closed",
+        admitted_on: "2025-02-09",
+        ended_on: "2026-08-12",
+        source_system: "local",
+        source_updated_at: null,
+        row_version: 7,
+        updated_at: "2026-08-12T08:20:00.000Z",
+      },
+    ],
+  });
+}

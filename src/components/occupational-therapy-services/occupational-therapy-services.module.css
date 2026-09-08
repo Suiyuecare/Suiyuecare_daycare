@@ -1,0 +1,62 @@
+.demo, .security, .offline, .manual { align-items: flex-start; }
+.demo svg, .offline svg, .manual svg { flex: 0 0 auto; }
+.security { background: #eef8f3; }
+.offline { background: #fff8e8; border-color: #dfc785; }
+.manual { background: #eef5ff; border-color: #9eb8d8; }
+.manual code { overflow-wrap: anywhere; }
+.filters { grid-template-columns: repeat(4, minmax(150px, 1fr)) auto auto; }
+.table table { min-width: 1280px; }
+.narrative { max-width: 330px; min-width: 230px; white-space: normal; }
+.measurements { min-width: 280px; white-space: normal; }
+.statuses { align-items: flex-start; display: flex; flex-direction: column; gap: 6px; }
+.statuses small { color: var(--text-muted); max-width: 230px; overflow-wrap: anywhere; }
+.actions { display: grid; gap: 8px; min-width: 195px; }
+.actionDetails { border: 1px solid var(--border, #d8e0dc); border-radius: 10px; padding: 0 10px 8px; }
+.actionDetails > summary, .history > summary { background: #fff; cursor: pointer; font-weight: 700; min-height: 44px; padding: 11px 0; }
+.actionDetails form { min-width: min(660px, 76vw); padding-top: 8px; }
+.actionGrid { border: 0; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; min-width: 0; padding: 0; }
+.actionGrid > label, .measurementRow label { display: grid; gap: 6px; min-width: 0; }
+.actionGrid input, .actionGrid select, .actionGrid textarea { border: 1px solid var(--border-strong, #aebcb5); border-radius: 10px; font: inherit; font-size: 16px; min-height: 44px; padding: 9px 11px; width: 100%; }
+.actionGrid textarea { min-height: 96px; resize: vertical; }
+.full, .warning, .fixedClient, .formReference { grid-column: 1 / -1; }
+.fixedClient { background: #f3f7f5; border-left: 4px solid #527b68; display: grid; gap: 4px; margin: 0; padding: 10px 12px; }
+.fixedClient small { color: var(--text-muted); }
+.formReference { color: var(--text-muted); margin: 0; overflow-wrap: anywhere; }
+.warning { background: #fff3e8; border-left: 4px solid #b55a24; color: #713714; margin: 0; padding: 10px 12px; }
+.formMessage { color: var(--text-muted); margin: 10px 0 0; }
+.measurementEditor { border: 1px solid var(--border, #d8e0dc); border-radius: 12px; display: grid; gap: 12px; min-width: 0; padding: 12px; }
+.measurementEditor > legend, .measurementRow legend { font-weight: 700; padding: 0 5px; }
+.measurementEditor > p { color: var(--text-muted); margin: 0; }
+.measurementList { display: grid; gap: 12px; }
+.measurementRow { border: 1px solid var(--border, #d8e0dc); border-radius: 10px; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; padding: 10px; }
+.measurementWide { grid-column: 1 / -1; }
+.measurementSummary, .narrativeList { display: grid; gap: 8px; margin: 0; }
+.measurementSummary div, .narrativeList div { border-bottom: 1px solid var(--border, #d8e0dc); padding-bottom: 7px; }
+.measurementSummary div:last-child, .narrativeList div:last-child { border-bottom: 0; }
+.measurementSummary dt, .narrativeList dt { color: var(--text-muted); font-size: .8125rem; }
+.measurementSummary dd, .narrativeList dd { display: grid; gap: 3px; margin: 3px 0 0; overflow-wrap: anywhere; }
+.measurementSummary dd span { color: var(--text-muted); }
+.history { border-top: 1px solid var(--border, #d8e0dc); margin-top: 10px; }
+.history ol { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.history li { background: #f7faf8; border-radius: 10px; padding: 10px; }
+.history li > span { color: var(--text-muted); display: block; font-size: .875rem; margin-top: 4px; }
+.history p { margin: 8px 0 0; overflow-wrap: anywhere; }
+.stale { color: #9a3e20; font-weight: 700; }
+.truncated { margin: 12px 16px 0; }
+.card dl { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card dl div { border-top: 1px solid var(--border, #d8e0dc); padding-top: 8px; }
+.card dt { color: var(--text-muted); font-size: .875rem; }
+.card dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.card .cardWide { grid-column: 1 / -1; }
+
+@media (max-width: 1120px) {
+  .filters { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .filters, .actionGrid, .measurementRow, .card dl { grid-template-columns: minmax(0, 1fr); }
+  .full, .warning, .fixedClient, .formReference, .measurementWide, .card .cardWide { grid-column: 1; }
+  .actionDetails form { min-width: 0; }
+  .actions { min-width: 0; }
+  .filters button, .filters a, .actionGrid button { min-height: 44px; width: 100%; }
+}

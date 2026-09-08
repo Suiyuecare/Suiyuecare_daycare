@@ -1,0 +1,299 @@
+.securityCallout,
+.demoCallout,
+.ruleCallout {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.securityCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.ruleCallout {
+  border-color: #d7c99a;
+  background: #fffaf0;
+}
+
+.filters {
+  align-items: end;
+}
+
+.table table {
+  min-width: 1480px;
+}
+
+.summaryCell {
+  min-width: 230px;
+  max-width: 320px;
+  white-space: normal;
+}
+
+.summaryCell strong,
+.summaryCell small {
+  display: block;
+}
+
+.summaryCell small {
+  margin-top: 5px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.missing,
+.stale,
+.lateEvidence,
+.timelineWarning {
+  color: var(--danger);
+  font-weight: 800;
+}
+
+.truncated {
+  margin: 0 18px 16px;
+}
+
+.timeline {
+  width: min(420px, 42vw);
+  min-width: 300px;
+}
+
+.timeline summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--brand);
+  cursor: pointer;
+  font-size: .76rem;
+  font-weight: 850;
+}
+
+.timeline summary span:last-child {
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.timeline ol {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  padding-bottom: 14px;
+}
+
+.timeline li:not(:last-child)::before {
+  position: absolute;
+  top: 13px;
+  bottom: 0;
+  left: 6px;
+  width: 2px;
+  background: var(--line);
+  content: "";
+}
+
+.timelineMarker {
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand);
+}
+
+.timelineHeading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 7px;
+  font-size: .76rem;
+}
+
+.timelineHeading time,
+.timeline small {
+  color: var(--ink-faint);
+  font-size: .7rem;
+}
+
+.timeline p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+  font-size: .78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.timeline small {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.rowActions {
+  display: flex;
+  min-width: 440px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actionSlot {
+  display: inline-flex;
+}
+
+.actionButton {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.locked {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-muted);
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.locked svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dialog {
+  width: min(calc(100% - 28px), 760px);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.full,
+.incidentContext {
+  grid-column: 1 / -1;
+}
+
+.incidentContext {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.incidentContext span {
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+  font-size: .78rem;
+}
+
+.lateField {
+  border: 1px solid #e6c16d;
+  border-radius: 12px;
+  background: #fffaf0;
+  padding: 12px;
+}
+
+.lateField small {
+  color: #7f5b11;
+  line-height: 1.4;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 12px 0;
+}
+
+.cardGrid div {
+  min-width: 0;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.cardGrid dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.cardGrid dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: .78rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.mobileSummary {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .filters {
+    align-items: stretch;
+  }
+
+  .filters > * {
+    width: 100%;
+  }
+
+  .timeline {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .rowActions > * {
+    flex: 1 1 130px;
+  }
+
+  .rowActions {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .rowActions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .fields,
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .full,
+  .incidentContext {
+    grid-column: auto;
+  }
+
+  .timeline summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

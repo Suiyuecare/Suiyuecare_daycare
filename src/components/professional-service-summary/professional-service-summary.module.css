@@ -1,0 +1,41 @@
+.demo, .security, .coverage { align-items: flex-start; }
+.demo svg, .security svg, .coverage svg { flex: 0 0 auto; }
+.security { background: #eef8f3; }
+.coverage { background: #fff8e8; border-color: #dfc785; }
+.filters { grid-template-columns: repeat(4, minmax(150px, 1fr)) auto auto; }
+.table table { min-width: 1180px; }
+.stack { align-items: flex-start; display: flex; flex-direction: column; gap: 6px; max-width: 250px; white-space: normal; }
+.stack span { overflow-wrap: anywhere; }
+.sourceActions { display: grid; gap: 6px; min-width: 190px; }
+.sourceActions > a { justify-content: space-between; }
+.details { border-top: 1px solid var(--border, #d8e0dc); }
+.details > summary { background: var(--surface, #fff); color: var(--ink, #17302d); cursor: pointer; font-weight: 700; min-height: 44px; padding: 11px 0; }
+.details dl { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.details dl div { border-top: 1px solid var(--border, #d8e0dc); padding-top: 7px; }
+.details dt { color: var(--text-muted); font-size: .8125rem; }
+.details dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.details .wide { grid-column: 1 / -1; }
+.hash { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .75rem; word-break: break-all; }
+.truncated { margin: 12px 16px 0; }
+.card dl { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card dl div { border-top: 1px solid var(--border, #d8e0dc); padding-top: 8px; }
+.card dt { color: var(--text-muted); font-size: .875rem; }
+.card dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.mobileSource { margin-top: 12px; min-height: 44px; width: 100%; }
+.sources { margin-top: 18px; }
+.sourceGrid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 16px; }
+.sourceGrid article { border: 1px solid var(--border, #d8e0dc); border-radius: 12px; min-width: 0; padding: 12px; }
+.sourceGrid article > div { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+.sourceGrid p { margin: 10px 0 6px; overflow-wrap: anywhere; }
+.sourceGrid small { color: var(--text-muted); overflow-wrap: anywhere; }
+
+@media (max-width: 1120px) {
+  .filters { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .sourceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .filters, .card dl, .sourceGrid { grid-template-columns: minmax(0, 1fr); }
+  .filters button, .filters a { min-height: 44px; width: 100%; }
+  .details .wide { grid-column: 1; }
+}

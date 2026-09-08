@@ -1,0 +1,329 @@
+.boundaryCallout,
+.demoCallout,
+.reauthCallout {
+  margin-bottom: 14px;
+}
+
+.boundaryCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.demoCallout {
+  border-color: #ecd6a8;
+  background: var(--surface-warm);
+}
+
+.reauthCallout {
+  align-items: center;
+}
+
+.reauthCallout :global(.button) {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.metrics {
+  margin-top: 18px;
+}
+
+.filters {
+  align-items: end;
+}
+
+.searchField {
+  align-self: end;
+}
+
+.tableWrap {
+  max-height: min(64vh, 760px);
+  overflow: auto;
+}
+
+.table {
+  min-width: 1360px;
+}
+
+.table thead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+}
+
+.medication,
+.lineage,
+.period,
+.lifecycle,
+.termination {
+  display: grid;
+  gap: 4px;
+}
+
+.medication {
+  min-width: 190px;
+}
+
+.medication small,
+.lineage small,
+.period small,
+.lifecycle small,
+.termination small,
+.cardGrid small {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.highRisk {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 26px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  padding: 4px 8px;
+  color: var(--danger);
+  font-size: .68rem;
+  font-weight: 900;
+}
+
+.scheduleTimes {
+  display: flex;
+  min-width: 140px;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.scheduleTimes span {
+  border-radius: 7px;
+  background: var(--surface-soft);
+  padding: 5px 7px;
+  font-size: .72rem;
+  font-weight: 850;
+}
+
+.actionGroup {
+  display: flex;
+  min-width: 190px;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.actionSlot {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.actionButton {
+  min-height: 44px;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+.lockedAction {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--ink-muted);
+  font-size: .74rem;
+  font-weight: 800;
+}
+
+.reauthLink {
+  min-height: 32px;
+  color: var(--brand);
+  font-size: .7rem;
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dialog {
+  width: min(calc(100% - 28px), 680px);
+}
+
+.dialogBody {
+  gap: 18px;
+}
+
+.securityCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.formGrid,
+.dialogSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.formGrid {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.wideField,
+.summaryWide {
+  grid-column: 1 / -1;
+}
+
+.dialogSummary {
+  margin: 0;
+}
+
+.dialogSummary div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.dialogSummary dt,
+.cardGrid dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.dialogSummary dd,
+.cardGrid dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-size: .82rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.successNotice {
+  margin: 0;
+  border-left: 4px solid var(--success);
+  border-radius: 8px;
+  background: #e4f2eb;
+  padding: 10px 12px;
+  color: var(--success);
+  font-size: .84rem;
+  font-weight: 800;
+}
+
+.mobileCards {
+  display: none;
+}
+
+.mobileCard {
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 15px;
+  box-shadow: var(--shadow-sm);
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTop h3 {
+  margin: 0 0 5px;
+  font-size: 1rem;
+}
+
+.cardTop p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 14px 0;
+}
+
+.cardGrid > div {
+  min-width: 0;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.cardWide {
+  grid-column: 1 / -1;
+}
+
+.mobileActions .actionGroup {
+  min-width: 0;
+}
+
+.mobileActions .actionButton {
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .filters {
+    align-items: stretch;
+  }
+
+  .filters :global(.field--compact) {
+    min-width: min(100%, 170px);
+    flex: 1;
+  }
+
+  .tableWrap {
+    display: none;
+  }
+
+  .mobileCards {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .reauthCallout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reauthCallout :global(.button) {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  .cardTop {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cardGrid,
+  .formGrid,
+  .dialogSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .wideField,
+  .summaryWide,
+  .cardWide {
+    grid-column: auto;
+  }
+
+  .mobileActions .actionGroup {
+    display: grid;
+    width: 100%;
+  }
+
+  .mobileActions .actionButton {
+    width: 100%;
+  }
+}

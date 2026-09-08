@@ -1,0 +1,437 @@
+.boundaryCallout,
+.retryCallout,
+.demoCallout,
+.reauthCallout,
+.truncatedCallout {
+  margin-bottom: 14px;
+}
+
+.boundaryCallout,
+.retryCallout,
+.truncatedCallout {
+  border-color: #dfc58f;
+  background: var(--surface-warm);
+}
+
+.demoCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.reauthCallout {
+  align-items: center;
+}
+
+.reauthCallout :global(.button) {
+  margin-left: auto;
+}
+
+.metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.composer {
+  overflow: visible;
+}
+
+.composerForm {
+  display: grid;
+  gap: 20px;
+  padding: 18px;
+}
+
+.composerForm fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.composerForm legend {
+  margin-bottom: 10px;
+  color: var(--ink);
+  font-size: .82rem;
+  font-weight: 900;
+}
+
+.channelGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.channelCard,
+.recipientCard {
+  display: flex;
+  min-width: 0;
+  min-height: 64px;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.channelCard input,
+.recipientCard input {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+}
+
+.channelCard span,
+.recipientCard span,
+.message,
+.stack,
+.deliveryStack {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.channelCard small,
+.recipientCard small,
+.message small,
+.stack small,
+.deliveryStack small,
+.table td > small {
+  color: var(--ink-faint);
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.channelCard:has(input:disabled) {
+  color: var(--ink-faint);
+}
+
+.channelActive {
+  border-color: #97c7b9;
+  background: var(--surface-mint);
+}
+
+.fieldsGrid {
+  display: grid;
+  grid-template-columns: minmax(180px, .7fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+
+.wideField {
+  grid-column: 1 / -1;
+}
+
+.wideField textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.counter {
+  justify-self: end;
+  color: var(--ink-faint);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.scheduleFieldset {
+  display: grid;
+  gap: 8px;
+}
+
+.scheduleFieldset :global(.field) {
+  max-width: 340px;
+  margin-top: 6px;
+}
+
+.recipientTools {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--ink-muted);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.recipientGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.recipientCard {
+  min-height: 72px;
+  cursor: pointer;
+}
+
+.recipientCard:has(input:checked) {
+  border-color: #97c7b9;
+  background: var(--surface-mint);
+}
+
+.previewBox {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #97c7b9;
+  border-radius: 14px;
+  background: var(--surface-mint);
+  padding: 16px;
+}
+
+.previewHeading,
+.actions,
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.previewHeading h3,
+.previewHeading p {
+  margin: 0;
+}
+
+.previewHeading p {
+  margin-bottom: 5px;
+}
+
+.previewBox ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.previewBox li {
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 7px 10px;
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.successCallout {
+  border-color: #97c7b9;
+  background: var(--surface-mint);
+}
+
+.lockedCallout {
+  border-color: var(--line);
+}
+
+.demoBoundary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.demoBoundary svg {
+  width: 18px;
+  height: 18px;
+}
+
+.actions {
+  justify-content: flex-end;
+}
+
+.filterPanel {
+  padding: 16px;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.3fr) repeat(3, minmax(150px, .8fr)) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.searchField {
+  min-width: 0;
+}
+
+.inputWithIcon {
+  position: relative;
+}
+
+.inputWithIcon svg {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  width: 18px;
+  height: 18px;
+  color: var(--ink-faint);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.inputWithIcon input {
+  width: 100%;
+  padding-left: 40px;
+}
+
+.filterActions {
+  display: flex;
+  gap: 8px;
+}
+
+.tableWrap {
+  max-height: min(66vh, 760px);
+  overflow: auto;
+}
+
+.table {
+  min-width: 1120px;
+}
+
+.table thead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+}
+
+.message {
+  max-width: 360px;
+}
+
+.mobileCards {
+  display: none;
+}
+
+.mobileCard {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 15px;
+  box-shadow: var(--shadow-sm);
+}
+
+.mobileCard h3,
+.mobileCard p {
+  margin: 0;
+}
+
+.mobileCard > p {
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.mobileCard dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.mobileCard dl div {
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.mobileCard dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.mobileCard dd {
+  margin: 4px 0 0;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+@media (max-width: 1180px) {
+  .channelGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .recipientGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .filterActions {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 900px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tableWrap {
+    display: none;
+  }
+
+  .mobileCards {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 650px) {
+  .channelGrid,
+  .recipientGrid,
+  .fieldsGrid,
+  .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .wideField,
+  .filterActions {
+    grid-column: auto;
+  }
+
+  .filterActions,
+  .actions,
+  .previewHeading,
+  .recipientTools,
+  .reauthCallout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filterActions :global(.button),
+  .actions :global(.button),
+  .recipientTools :global(.button),
+  .reauthCallout :global(.button) {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  .metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cardTop {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mobileCard dl {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,50 @@
+.demo, .security, .offline, .manual { align-items: flex-start; }
+.demo svg, .offline svg, .manual svg { flex: 0 0 auto; }
+.security { background: #eef8f3; }
+.offline { background: #fff8e8; border-color: #dfc785; }
+.manual { background: #eef5ff; border-color: #9eb8d8; }
+.manual code { overflow-wrap: anywhere; }
+.filters { grid-template-columns: repeat(3, minmax(150px, 1fr)) repeat(3, minmax(145px, 1fr)) auto auto; }
+.table table { min-width: 1180px; }
+.narrative { max-width: 340px; min-width: 230px; white-space: normal; }
+.statuses { align-items: flex-start; display: flex; flex-direction: column; gap: 6px; }
+.statuses small { color: var(--text-muted); }
+.actions { display: grid; gap: 8px; min-width: 190px; }
+.actionDetails { border: 1px solid var(--border, #d8e0dc); border-radius: 10px; padding: 0 10px 8px; }
+.actionDetails > summary, .history > summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 11px 0; }
+.actionDetails form { min-width: min(540px, 72vw); padding-top: 8px; }
+.actionGrid { border: 0; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; min-width: 0; padding: 0; }
+.actionGrid label { display: grid; gap: 6px; min-width: 0; }
+.actionGrid input, .actionGrid select, .actionGrid textarea { border: 1px solid var(--border-strong, #aebcb5); border-radius: 10px; font: inherit; font-size: 16px; min-height: 44px; padding: 9px 11px; width: 100%; }
+.actionGrid textarea { min-height: 104px; resize: vertical; }
+.full, .warning, .fixedClient, .formReference { grid-column: 1 / -1; }
+.fixedClient { background: #f3f7f5; border-left: 4px solid #527b68; display: grid; gap: 4px; margin: 0; padding: 10px 12px; }
+.fixedClient small { color: var(--text-muted); }
+.formReference { color: var(--text-muted); margin: 0; overflow-wrap: anywhere; }
+.check { align-items: center; align-self: end; display: flex !important; grid-template-columns: auto 1fr; min-height: 44px; }
+.check input { height: 20px; min-height: 20px; min-width: 20px; padding: 0; width: 20px; }
+.warning { background: #fff3e8; border-left: 4px solid #b55a24; color: #713714; margin: 0; padding: 10px 12px; }
+.formMessage { color: var(--text-muted); margin: 10px 0 0; }
+.history { border-top: 1px solid var(--border, #d8e0dc); margin-top: 10px; }
+.history ol { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.history li { background: #f7faf8; border-radius: 10px; padding: 10px; }
+.history li > span { color: var(--text-muted); display: block; font-size: .875rem; margin-top: 4px; }
+.history p { margin: 8px 0 0; overflow-wrap: anywhere; }
+.stale { color: #9a3e20; font-weight: 700; }
+.truncated { margin: 12px 16px 0; }
+.card dl { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card dl div { border-top: 1px solid var(--border, #d8e0dc); padding-top: 8px; }
+.card dt { color: var(--text-muted); font-size: .875rem; }
+.card dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+@media (max-width: 1280px) {
+  .filters { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .filters, .actionGrid, .card dl { grid-template-columns: minmax(0, 1fr); }
+  .full, .warning, .fixedClient, .formReference { grid-column: 1; }
+  .actionDetails form { min-width: 0; }
+  .actions { min-width: 0; }
+  .filters button, .filters a, .actionGrid button { min-height: 44px; width: 100%; }
+}

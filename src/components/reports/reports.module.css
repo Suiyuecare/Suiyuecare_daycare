@@ -1,0 +1,18 @@
+.workspace { display: grid; gap: 1.25rem; min-width: 0; }
+.notice, .card { background: var(--surface, #fff); border: 1px solid var(--border, #d5dbe3); border-radius: 1rem; padding: 1.25rem; overflow-wrap: anywhere; }
+.notice { background: #f3f7fa; color: #24394c; }
+.notice p, .card p { line-height: 1.7; }
+.notice h2, .card h2 { margin: .5rem 0; font-size: 1.25rem; }
+.filters { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; }
+.filters label { display: grid; gap: .5rem; font-weight: 600; }
+.filters input { min-height: 44px; min-width: 0; max-width: 100%; font-size: 16px; padding: .65rem; border: 1px solid #76899c; border-radius: .5rem; background: #fff; color: #24394c; }
+.filters button { min-height: 44px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.card { display: flex; flex-direction: column; gap: .5rem; }
+.card details { margin: .5rem 0; flex: 1; }
+.card summary { min-height: 44px; padding: .75rem 0; cursor: pointer; color: #254d72; font-weight: 600; }
+.card dt { font-weight: 700; margin-top: 1rem; }
+.card dd { margin: .5rem 0; line-height: 1.7; }
+.card a { min-height: 44px; white-space: normal; }
+.workspace :is(a, button, input, summary):focus-visible { outline: 3px solid #1b6096; outline-offset: 3px; }
+@media (max-width: 750px) { .grid { grid-template-columns: 1fr; } .filters { flex-direction: column; align-items: stretch; } .filters input { width: 100%; box-sizing: border-box; } }

@@ -1,0 +1,26 @@
+.workspace { display: grid; gap: 20px; min-width: 0; padding: 20px; overflow-wrap: anywhere; }
+.workspace h2, .workspace h3, .workspace p { margin: 0 0 10px; }
+.workspace h2 { font-size: 22px; }
+.workspace h3 { font-size: 18px; }
+.workspace p, .workspace li, .workspace dd { line-height: 1.65; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.metrics > div { padding: 14px; border: 1px solid #ced9dc; border-radius: 12px; background: #f7faf9; }
+.metrics dt { font-size: 15px; color: #385054; }
+.metrics dd { margin: 4px 0 0; font-size: 26px; font-weight: 700; color: #173d3c; }
+.notice { border: 1px solid #dbc89e; border-radius: 12px; padding: 18px; background: #fffbf2; color: #453923; }
+.notice ul { padding-left: 22px; margin: 12px 0; }
+.notice li { margin-bottom: 14px; }
+.filters { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; min-width: 0; }
+.filters label { display: grid; gap: 6px; min-width: 0; }
+.filters select { width: 100%; min-width: 0; min-height: 44px; font: inherit; font-size: 16px; border: 1px solid #9db1b4; border-radius: 8px; padding: 8px; background: white; color: #173d3c; }
+.workspace button, .workspace a { min-height: 44px; font-size: 16px; }
+.workspace summary { padding: 11px 0; min-height: 44px; cursor: pointer; font-size: 16px; }
+.workspace :is(button, a, select, summary):focus-visible { outline: 3px solid #00756a; outline-offset: 3px; }
+.fields { display: grid; gap: 12px; padding: 0; list-style: none; margin: 0; }
+.fields > li { border: 1px solid #cbd9d9; border-radius: 12px; padding: 16px; min-width: 0; background: white; }
+.fieldHeading { display: flex; justify-content: space-between; align-items: start; gap: 10px; flex-wrap: wrap; }
+.provenance { display: grid; gap: 12px; margin: 12px 0; }
+.provenance dt { font-weight: 600; color: #385054; }
+.provenance dd { margin: 4px 0 0; }
+.pagination { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 680px) { .workspace { padding: 14px; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters { grid-template-columns: minmax(0, 1fr); } }

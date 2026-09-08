@@ -1,0 +1,256 @@
+.boundaryCallout,
+.demoCallout,
+.reauthCallout {
+  margin-bottom: 14px;
+}
+
+.boundaryCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.demoCallout {
+  border-color: #ecd6a8;
+  background: var(--surface-warm);
+}
+
+.reauthCallout {
+  align-items: center;
+  border-color: #dfc58f;
+}
+
+.reauthCallout :global(.button) {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.tableWrap {
+  max-height: min(64vh, 720px);
+  overflow: auto;
+}
+
+.roleTable,
+.memberTable,
+.queueTable {
+  min-width: 920px;
+}
+
+.roleTable thead,
+.memberTable thead,
+.queueTable thead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+}
+
+.stack {
+  display: grid;
+  gap: 4px;
+}
+
+.stack small,
+.chips small,
+.inlineNotice {
+  color: var(--ink-faint);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.chips {
+  display: flex;
+  max-width: 600px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chips code,
+.chips span {
+  border-radius: 999px;
+  background: var(--surface-soft);
+  padding: 4px 8px;
+  color: var(--ink-muted);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.locked {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: .74rem;
+  font-weight: 800;
+}
+
+.locked svg {
+  width: 16px;
+  height: 16px;
+}
+
+.truncatedCallout {
+  margin: 12px;
+  border-color: #dfc58f;
+}
+
+.dialog {
+  width: min(calc(100% - 28px), 680px);
+}
+
+.dialogBody {
+  gap: 18px;
+}
+
+.securityCallout {
+  border-color: #b9d9cf;
+  background: var(--surface-mint);
+  color: var(--brand-strong);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wideField {
+  grid-column: 1 / -1;
+}
+
+.successNotice {
+  margin: 0;
+  border-left: 4px solid var(--success);
+  border-radius: 8px;
+  background: #e4f2eb;
+  padding: 10px 12px;
+  color: var(--success);
+  font-size: .84rem;
+  font-weight: 800;
+}
+
+.mobileCards {
+  display: none;
+}
+
+.mobileCard {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 15px;
+  box-shadow: var(--shadow-sm);
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTop p {
+  margin: 0 0 5px;
+}
+
+.cardCode,
+.cardLabel {
+  margin: 4px 0 0;
+  color: var(--ink-faint);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.cardLabel {
+  margin-bottom: 8px;
+}
+
+.mobileCard dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.mobileCard dl div {
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.mobileCard dt {
+  color: var(--ink-faint);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.mobileCard dd {
+  margin: 4px 0 0;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .queueTable {
+    display: none;
+  }
+
+  .queueTable + * {
+    display: none;
+  }
+
+  .panel:has(.queueTable) .tableWrap {
+    display: none;
+  }
+
+  .mobileCards {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 600px) {
+  .reauthCallout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reauthCallout :global(.button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .wideField {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cardTop {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mobileCard dl {
+    grid-template-columns: 1fr;
+  }
+}

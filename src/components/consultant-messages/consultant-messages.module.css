@@ -1,0 +1,216 @@
+.actionSlot {
+  display: inline-flex;
+}
+
+.dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.formBody {
+  display: grid;
+  gap: 18px;
+}
+
+.formFieldset {
+  border: 0;
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.recipientFieldset {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+}
+
+.recipientFieldset legend {
+  font-weight: 750;
+  padding: 0 6px;
+}
+
+.recipientFieldset p,
+.attachmentBoundary p,
+.messageCell p {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.recipientChoices {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recipientChoices label {
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-height: 54px;
+  padding: 10px 12px;
+}
+
+.recipientChoices span {
+  display: grid;
+  gap: 2px;
+}
+
+.recipientChoices small {
+  color: var(--text-muted);
+}
+
+.attachmentBoundary {
+  align-items: flex-start;
+  background: #fff8e7;
+  border: 1px solid #e5c46b;
+  border-radius: 14px;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+}
+
+.attachmentBoundary svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.attachmentBoundary h3 {
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+
+.demoCallout,
+.attachmentCallout {
+  background: #fff8e7;
+  border-color: #e5c46b;
+}
+
+.securityCallout {
+  background: #eef8f2;
+  border-color: #91c8a3;
+}
+
+.boundaryCallout {
+  background: #eef5ff;
+  border-color: #9fbce8;
+}
+
+.truncatedCallout {
+  margin: 0 20px 18px;
+}
+
+.metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.filters {
+  align-items: end;
+}
+
+.table td {
+  min-width: 150px;
+  vertical-align: top;
+}
+
+.table td:nth-child(2) {
+  min-width: 280px;
+}
+
+.messageCell {
+  display: grid;
+  gap: 8px;
+}
+
+.recipientList {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.recipientList li,
+.recipientList small {
+  display: block;
+}
+
+.recipientList small {
+  color: var(--text-muted);
+}
+
+.receiptActions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.receiptAction {
+  display: grid;
+  gap: 6px;
+}
+
+.receiptAction p {
+  max-width: 260px;
+}
+
+@media (max-width: 1180px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metrics > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recipientChoices {
+    grid-template-columns: 1fr;
+  }
+
+  .dialog {
+    width: calc(100vw - 20px);
+  }
+
+  .receiptActions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .receiptAction,
+  .receiptAction button {
+    width: 100%;
+  }
+
+  .mobileCards dl {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobileCards dl > div {
+    align-items: start;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .mobileCards dt {
+    color: var(--text-muted);
+  }
+
+  .mobileCards dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}

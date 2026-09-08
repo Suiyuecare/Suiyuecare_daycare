@@ -1,0 +1,123 @@
+.notice {
+  align-items: flex-start;
+}
+
+.notice svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.sourceList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.sourceList a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.filters {
+  grid-template-columns: minmax(180px, 1.2fr) repeat(2, minmax(170px, 1fr)) auto;
+}
+
+.table {
+  min-width: 980px;
+}
+
+.statusStack,
+.scoreStack,
+.followUp,
+.actions {
+  display: grid;
+  gap: 6px;
+}
+
+.statusStack small,
+.scoreStack small,
+.followUp small {
+  color: var(--text-muted);
+}
+
+.history {
+  margin-top: 10px;
+}
+
+.history summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 10px 0;
+}
+
+.history ol {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+
+.history li {
+  display: grid;
+  gap: 4px;
+}
+
+.history code {
+  overflow-wrap: anywhere;
+}
+
+.cards {
+  display: none;
+}
+
+.card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-card);
+}
+
+.card dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.card dl div {
+  display: grid;
+  gap: 3px;
+}
+
+.card dt {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.card dd {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .desktop {
+    display: none;
+  }
+
+  .cards {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .sourceList {
+    display: grid;
+  }
+}
