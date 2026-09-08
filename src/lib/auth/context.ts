@@ -69,6 +69,16 @@ export const getTenantContext = cache(
 
     if (userError || !user) return null;
 
+    // This singleton, database-owned binding is independent of editable
+    // profile/role data and also gates direct database access. Missing policy
+    // or unavailable RPC never falls back to a role/email check in JavaScript.
+    try {
+      const { data: allowed, error } = await supabase.rpc("is_executive_login_allowed");
+      if (error || allowed !== true) return null;
+    } catch {
+      return null;
+    }
+
     const { data: aalData } =
       await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 

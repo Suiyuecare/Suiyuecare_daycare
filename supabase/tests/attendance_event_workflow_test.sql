@@ -123,6 +123,15 @@ select ok(
 );
 
 select set_config('test.attendance_now', clock_timestamp()::text, true);
+-- Recent same-day events use a compact seconds window. During the first ten
+-- seconds of a Taipei day, anchor just before midnight so this fixture still
+-- tests one attendance day, not the separate cross-day business restriction.
+-- Real clock/MFA evidence and two-hour backfill tests keep attendance_now.
+select set_config('test.attendance_event_anchor', (
+  case when (current_setting('test.attendance_now')::timestamptz at time zone 'Asia/Taipei')::time < time '00:00:10'
+    then (date_trunc('day', current_setting('test.attendance_now')::timestamptz at time zone 'Asia/Taipei') at time zone 'Asia/Taipei') - interval '1 second'
+    else current_setting('test.attendance_now')::timestamptz
+  end)::text, true);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -254,7 +263,7 @@ select throws_ok(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '5 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '5 seconds',
     null,
     '88000000-0000-4000-8000-000000000001'
   )$$,
@@ -281,7 +290,7 @@ select is(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '5 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '5 seconds',
     null,
     '88000000-0000-4000-8000-000000000001'
   )),
@@ -298,7 +307,7 @@ select results_eq(
     from public.attendance_records
     where client_id = '84000000-0000-4000-8000-000000000001'$$,
   $$select
-      ((current_setting('test.attendance_now')::timestamptz - interval '5 minutes') at time zone 'Asia/Taipei')::date,
+      ((current_setting('test.attendance_event_anchor')::timestamptz - interval '5 seconds') at time zone 'Asia/Taipei')::date,
       'present'::text,
       'staff'::text,
       true$$,
@@ -313,7 +322,7 @@ select is(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '5 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '5 seconds',
     null,
     '88000000-0000-4000-8000-000000000001'
   )),
@@ -327,7 +336,7 @@ select throws_ok(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '4 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '4 seconds',
     null,
     '88000000-0000-4000-8000-000000000001'
   )$$,
@@ -342,7 +351,7 @@ select throws_ok(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '3 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '3 seconds',
     null,
     '88000000-0000-4000-8000-000000000002'
   )$$,
@@ -357,7 +366,7 @@ select is(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_out',
-    current_setting('test.attendance_now')::timestamptz - interval '1 minute',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '1 seconds',
     null,
     '88000000-0000-4000-8000-000000000003'
   )),
@@ -376,13 +385,13 @@ select results_eq(
       '82000000-0000-4000-8000-000000000001',
       '84000000-0000-4000-8000-000000000001',
       'check_out',
-      current_setting('test.attendance_now')::timestamptz - interval '1 minute',
+      current_setting('test.attendance_event_anchor')::timestamptz - interval '1 seconds',
       null,
       '88000000-0000-4000-8000-000000000003'
     )$$,
   $$select
-      current_setting('test.attendance_now')::timestamptz - interval '5 minutes',
-      current_setting('test.attendance_now')::timestamptz - interval '1 minute',
+      current_setting('test.attendance_event_anchor')::timestamptz - interval '5 seconds',
+      current_setting('test.attendance_event_anchor')::timestamptz - interval '1 seconds',
       'staff'::text,
       true$$,
   'check-out exact replay returns its original stored result'
@@ -394,7 +403,7 @@ select throws_ok(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000001',
     'check_out',
-    current_setting('test.attendance_now')::timestamptz,
+    current_setting('test.attendance_event_anchor')::timestamptz,
     null,
     '88000000-0000-4000-8000-000000000004'
   )$$,
@@ -409,7 +418,7 @@ select is(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000002',
     'absent',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds',
     null,
     '88000000-0000-4000-8000-000000000005'
   )),
@@ -423,7 +432,7 @@ select is(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000003',
     'leave',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds',
     null,
     '88000000-0000-4000-8000-000000000006'
   )),
@@ -437,7 +446,7 @@ select is(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000009',
     'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '5 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '5 seconds',
     null,
     '88000000-0000-4000-8000-000000000007'
   )),
@@ -451,7 +460,7 @@ select throws_ok(
     '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000009',
     'check_out',
-    current_setting('test.attendance_now')::timestamptz - interval '10 minutes',
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '10 seconds',
     null,
     '88000000-0000-4000-8000-000000000008'
   )$$,
@@ -464,7 +473,7 @@ select throws_ok(
   $$select * from public.record_attendance_event(
     '81000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000004', 'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes', null,
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds', null,
     '88000000-0000-4000-8000-000000000009'
   )$$,
   '23514', null, 'a suspended client cannot receive attendance'
@@ -474,7 +483,7 @@ select throws_ok(
   $$select * from public.record_attendance_event(
     '81000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000005', 'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes', null,
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds', null,
     '88000000-0000-4000-8000-000000000010'
   )$$,
   '23514', null, 'a client cannot attend before admission'
@@ -484,7 +493,7 @@ select throws_ok(
   $$select * from public.record_attendance_event(
     '81000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000006', 'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes', null,
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds', null,
     '88000000-0000-4000-8000-000000000011'
   )$$,
   '23514', null, 'a client cannot attend after the end date'
@@ -494,7 +503,7 @@ select throws_ok(
   $$select * from public.record_attendance_event(
     '81000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000002',
     '84000000-0000-4000-8000-000000000007', 'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes', null,
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds', null,
     '88000000-0000-4000-8000-000000000012'
   )$$,
   '42501', null, 'branch-scoped worker cannot write another branch'
@@ -504,7 +513,7 @@ select throws_ok(
   $$select * from public.record_attendance_event(
     '81000000-0000-4000-8000-000000000002', '82000000-0000-4000-8000-000000000003',
     '84000000-0000-4000-8000-000000000008', 'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes', null,
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds', null,
     '88000000-0000-4000-8000-000000000013'
   )$$,
   '42501', null, 'worker cannot write another tenant'
@@ -536,7 +545,7 @@ select throws_ok(
   $$select * from public.record_attendance_event(
     '81000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000001',
     '84000000-0000-4000-8000-000000000012', 'check_in',
-    current_setting('test.attendance_now')::timestamptz - interval '2 minutes', null,
+    current_setting('test.attendance_event_anchor')::timestamptz - interval '2 seconds', null,
     '88000000-0000-4000-8000-000000000015'
   )$$,
   '42501', null, 'assigned staff without attendance.write remains denied'

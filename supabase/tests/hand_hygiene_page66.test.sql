@@ -358,10 +358,12 @@ select results_eq(
 );
 
 -- 27
+-- The three fixture events span occurred_at - 2 minutes through occurred_at;
+-- this can cross Taipei midnight, so use both actual endpoint dates.
 select results_eq(
   $$select event_total from public.hand_hygiene_snapshot(
     '66020000-0000-4000-8000-000000000001','66030000-0000-4000-8000-000000000001',
-    (current_setting('test.hh_occurred')::timestamptz at time zone 'Asia/Taipei')::date,
+    ((current_setting('test.hh_occurred')::timestamptz-interval '2 minutes') at time zone 'Asia/Taipei')::date,
     (current_setting('test.hh_occurred')::timestamptz at time zone 'Asia/Taipei')::date,
     null,null,'all','all','search')$$,
   $$values (3::bigint)$$,

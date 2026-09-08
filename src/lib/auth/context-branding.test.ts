@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  demo: vi.fn(), preview: vi.fn(), client: vi.fn(), getUser: vi.fn(), aal: vi.fn(), from: vi.fn(),
+  demo: vi.fn(), preview: vi.fn(), client: vi.fn(), getUser: vi.fn(), aal: vi.fn(), from: vi.fn(), rpc: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/env", () => ({ isDemoMode: mocks.demo, isSyntheticPreviewMode: mocks.preview }));
@@ -40,9 +40,11 @@ beforeEach(() => {
   mocks.preview.mockReturnValue(false);
   mocks.getUser.mockResolvedValue({ data: { user: { id: USER } }, error: null });
   mocks.aal.mockResolvedValue({ data: { currentLevel: "aal2" } });
+  mocks.rpc.mockResolvedValue({ data: true, error: null });
   mocks.client.mockResolvedValue({
     auth: { getUser: mocks.getUser, mfa: { getAuthenticatorAssuranceLevel: mocks.aal } },
     from: mocks.from,
+    rpc: mocks.rpc,
   });
   setDatabaseNames();
 });
@@ -100,6 +102,21 @@ describe("branding cannot replace authenticated tenant identity", () => {
 
   it("does not supply identity data to an unauthenticated request", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    expect(await getTenantContext("staff")).toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it.each([false, null, "true", 1])("denies a non-approved Google session: %s", async (data) => {
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    expect(await getTenantContext("staff")).toBeNull();
+    expect(await getTenantContext("family")).toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the executive policy is missing or fails", async () => {
+    mocks.rpc.mockResolvedValue({ data: true, error: { code: "PGRST202" } });
+    expect(await getTenantContext("staff")).toBeNull();
+    mocks.rpc.mockRejectedValue(new Error("private details"));
     expect(await getTenantContext("staff")).toBeNull();
     expect(mocks.from).not.toHaveBeenCalled();
   });

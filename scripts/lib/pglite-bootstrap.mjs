@@ -28,7 +28,30 @@ export const bootstrapSql = String.raw`
     user_id uuid not null references auth.users(id),
     created_at timestamptz,
     updated_at timestamptz,
-    not_after timestamptz
+    not_after timestamptz,
+    aal text,
+    oauth_client_id uuid
+  );
+  -- Minimal provider/session-AMR columns verified against hosted catalog.
+  -- These are synthetic fixtures only, never a hosted Auth migration.
+  create table auth.identities (
+    id uuid primary key,
+    provider_id text not null,
+    user_id uuid not null references auth.users(id),
+    identity_data jsonb not null,
+    provider text not null,
+    created_at timestamptz,
+    updated_at timestamptz,
+    last_sign_in_at timestamptz,
+    unique(provider_id, provider)
+  );
+  create table auth.mfa_amr_claims (
+    id uuid primary key,
+    session_id uuid not null references auth.sessions(id),
+    created_at timestamptz not null,
+    updated_at timestamptz not null,
+    authentication_method text not null,
+    unique(session_id, authentication_method)
   );
   create function auth.jwt() returns jsonb language sql stable as $$
     select coalesce(

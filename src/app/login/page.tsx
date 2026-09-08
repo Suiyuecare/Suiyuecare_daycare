@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import { HeartHandshake, LockKeyhole, ShieldCheck } from "lucide-react";
 
-import { LoginForm } from "@/components/auth/login-form";
+import { GoogleLoginFeedback } from "@/components/auth/google-login-feedback";
 import { appBranding } from "@/lib/config/branding";
-import { isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
+import { env, isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
 import { SyntheticPreviewBanner } from "@/components/preview/synthetic-preview-banner";
 
 export const metadata: Metadata = {
@@ -57,12 +58,23 @@ export default function LoginPage() {
       <section className="login-panel" aria-label="帳號登入">
         <div className="login-panel__inner">
           <p className="eyebrow">安全登入</p>
-          <h2>歡迎回來</h2>
+          <h2>使用公司 Google 帳號登入</h2>
           <p role="note" aria-label="版本使用限制">
             建置驗證版本：尚未完成正式營運驗收，請勿輸入或上傳真實個案資料。
           </p>
-          <p className="muted">請使用機構核發的帳號。家屬請切換至家屬入口。</p>
-          <LoginForm demoMode={isDemoMode()} />
+          <p className="muted">目前僅開放已核准的執行長帳號。其他員工與家屬尚未開放登入；登入後仍須完成雙因素驗證。</p>
+          <Suspense fallback={null}><GoogleLoginFeedback /></Suspense>
+          <form className="auth-form" action="/auth/google" method="post" aria-label="公司 Google 登入">
+            <button className="button button--primary button--wide" type="submit"
+              disabled={!env.GOOGLE_LOGIN_ENABLED || isDemoMode()} aria-describedby="google-login-readiness">
+              使用 Google 登入
+            </button>
+            <p className="muted" id="google-login-readiness" role="status">
+              {env.GOOGLE_LOGIN_ENABLED && !isDemoMode()
+                ? "請選擇公司 Google 帳號。系統會再次核對帳號授權，不接受自行註冊或切換角色。"
+                : "Google 登入尚未完成設定，目前無法使用。請由系統管理員完成設定後再登入。"}
+            </p>
+          </form>
           <p className="login-help">
             無法登入或遺失驗證器時，請聯絡機構系統管理員。系統不會透過訊息向您索取密碼。
           </p>
