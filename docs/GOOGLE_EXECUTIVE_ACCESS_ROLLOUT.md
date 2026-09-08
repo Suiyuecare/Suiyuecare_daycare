@@ -24,6 +24,7 @@
 - 正式網址：`https://daycare.suiyuecare.com`。
 - Supabase：既有專案 `mmxqxsokpcdvuzmdhptg`；未遷移區域、升級方案或建立付費資源。
 - 雲端 migration：`20260908160122_executive_google_access_gate`。
+- 外鍵索引補充 migration：`20260908160716_executive_access_policy_user_id_index`；不改變登入授權。
 - Auth `site_url` 已設定正式網址；redirect allowlist 僅為 `https://daycare.suiyuecare.com/auth/callback`。
 - 自行註冊、email、phone、anonymous、manual identity linking、OAuth server 均停用。Google 尚未配置完成，因此目前沒有可用的登入 provider。
 - 核准 allowlist 仍為零筆，Auth users、profiles、memberships 仍為零筆。**尚未建立或啟用執行長帳號，不可宣稱已能登入。**
@@ -50,3 +51,21 @@
 ## 復原限制
 
 Google 設定失敗時維持登入停用與 default-deny，不得以重開密碼／手機、自行註冊、移除 gate 或降低 MFA 作為替代。登入問題不構成放寬臨床與簽署規則的理由。
+
+## 本次正式發佈證據
+
+- 日期：2026-09-09（Asia/Taipei）。部署 `dpl_GagJG1PvqXHjNfz4nm2fXFPC1uKt`，READY／production。
+- 執行碼 commit：`11b53f9e450ab2451e864a46d056542241210566`；本文件後續證據補充不改變已部署的執行碼。
+- 部署網址：`https://suiyue-daycare-preview-mffz9ise9-entrepreneur-9585s-projects.vercel.app`。
+- 已驗證正式 domain alias `daycare.suiyuecare.com` 指向上述部署與既有 Vercel 專案；function region `hnd1`，雲端建置約 74 秒。建置區域 `iad1` 不等於執行區域。
+- 採 production staged deploy → 受保護驗證 → promote，未關閉 deployment protection。第一個雲端建置因登入旗標帶換行而失敗，未推進正式 alias；改為精確 `false` 設定後重建成功，未放寬環境驗證。
+- 全套 Vitest：302 檔／2,979 tests；ESLint 零警告；TypeScript 與正式 build 通過。
+- 全套 pgTAP：96 migrations 編譯，94 檔／3,894 assertions 通過。115 項是未修改 gate 的 executive suite；其餘 3,779 項是上文已說明的 93 份 legacy 業務回歸。
+- 針對跨午夜修正三份測試 fixture：attendance、external health devices、hand hygiene；沒有修改正式出勤或設備業務規則。
+- 正式 89 頁匿名存取全數包含 Next 串流登入轉址及 no-store，沒有受保護頁面標題。串流轉址 HTTP 200 不等於授權成功；已用瀏覽器獨立確認日常照顧、家屬首頁、MFA 實際導航回登入頁。
+- 正式六個匿名 API 探測：MFA challenge、clients、claims export、role request、HTML import 均 401；有效格式但未授權的 reauth RPC 回 403；全部 private／no-store。空 reauth body 回 400 是既有輸入驗證，非已登入。
+- 同源／跨來源 Google 啟動、無效 callback 與未登入 MFA 共四項均返回登入，沒有啟動外部 OAuth。
+- 正式登入頁：1440px、390px Google 單一入口與停用說明正確，無帳密／電話欄位、無橫向溢出；按鈕高度 44px，字級 16px。固定錯誤訊息不回顯惡意參數。瀏覽器 console／error 為零，已檢視三張截圖。
+- 發佈後觀測：該部署最近 10 分鐘 error logs 查詢沒有結果；這僅為當下觀測，不代表已具備持續監控或 SLA 保證。
+- 尚未執行真人 Google → MFA → 機構頁測試，尚未完成公司 Cloud 授權或建立執行長帳號。**前台已發佈登入限制，不代表系統已可登入或可承載正式個案資料。**
+- 未推送 GitHub；程式與證據保留於隔離 release branch，原本的使用者 dirty checkout 未被覆寫。
