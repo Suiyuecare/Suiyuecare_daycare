@@ -44,6 +44,15 @@ describe("DashboardAutoRefresh", () => {
     expect(navigation.refresh).toHaveBeenCalledTimes(2);
   });
 
+  it("announces completion only when a newer snapshot arrives", () => {
+    const { rerender } = render(<DashboardAutoRefresh generatedAt="2026-09-10T01:00:00Z" />);
+    fireEvent.click(screen.getByRole("button", { name: "立即更新" }));
+    expect(screen.queryByText("工作清單已更新。")).not.toBeInTheDocument();
+    rerender(<DashboardAutoRefresh generatedAt="2026-09-10T01:01:00Z" />);
+    expect(screen.getByRole("status")).toHaveTextContent("工作清單已更新。");
+    expect(screen.queryByText("正在更新工作清單。")).not.toBeInTheDocument();
+  });
+
   it("pauses while hidden and catches up after returning to the foreground", () => {
     render(<DashboardAutoRefresh generatedAt="2026-09-02T08:00:00.000Z" />);
     Object.defineProperty(document, "visibilityState", {
@@ -68,6 +77,9 @@ describe("DashboardAutoRefresh", () => {
       configurable: true,
       value: false,
     });
+    act(() => window.dispatchEvent(new Event("offline")));
+    expect(screen.getByText("目前離線，清單可能不是最新。請恢復連線後更新。")).toBeVisible();
+    expect(screen.getByRole("button", { name: "立即更新" })).toBeDisabled();
 
     act(() => vi.advanceTimersByTime(DASHBOARD_REFRESH_INTERVAL_MS));
     expect(navigation.refresh).not.toHaveBeenCalled();

@@ -5,6 +5,8 @@ import { HeartPulse, ShieldCheck, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
+import { useCoreDraftGuard } from "./client-continuation";
+import { CoreCareReceiptError, parseVitalWriteReceipt } from "@/lib/core-care/write-receipts";
 
 type ClientOption = { id: string; name: string; code: string };
 
@@ -45,22 +47,29 @@ export function VitalSignComposer({
   serviceDate,
   enabled,
   demo,
+  selectedClientId,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
   enabled: boolean;
   demo: boolean;
+  selectedClientId?: string;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
+  const formRef = useRef<HTMLFormElement>(null);
+  const draft = useCoreDraftGuard();
+  const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   function open(event: MouseEvent<HTMLButtonElement>) {
+    if (!enabled || unavailableSelection) return;
     trigger.current = event.currentTarget;
+    formRef.current?.reset();
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
@@ -68,15 +77,22 @@ export function VitalSignComposer({
   }
 
   function close() {
+    if (!draft.discard()) return;
     dialog.current?.close();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
-    setError(null);
     const form = event.currentTarget;
     const data = new FormData(form);
+    const clientId = String(data.get("client_id") ?? "");
+    if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
+      setError("請重新選擇目前授權的個案；尚未送出量測。");
+      return;
+    }
+    if (!draft.begin()) return;
+    setPending(true);
+    setError(null);
     try {
       const values = {
         systolic: optionalNumber(data, "systolic"),
@@ -93,7 +109,7 @@ export function VitalSignComposer({
           "Idempotency-Key": idempotencyKey.current,
         },
         body: JSON.stringify({
-          client_id: String(data.get("client_id") ?? ""),
+          client_id: clientId,
           measured_at: taipeiLocalToIso(
             String(data.get("measured_at") ?? ""),
           ),
@@ -103,20 +119,24 @@ export function VitalSignComposer({
         }),
       });
       if (!response.ok) throw new Error("SAVE_FAILED");
+      const raw: unknown = await response.json().catch(() => null);
+      parseVitalWriteReceipt(raw, response.status, demo, values);
       form.reset();
-      close();
+      draft.saved();
+      dialog.current?.close();
       setNotice(
         demo
-          ? "展示量測已通過相同欄位與冪等驗證；展示資料不會永久保存。"
-          : "生命徵象已儲存；系統只標示量測資料，不會自動診斷。",
+          ? "展示量測已通過欄位與重送檢查；展示資料不會永久保存。"
+          : "生命徵象已儲存；可接續上方日誌步驟。量測資料不代表自動診斷。",
       );
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
-      setError(isClientFetchTimeoutError(caught)
+      setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message
-        : "量測未確認儲存。請檢查至少一項數值、成對血壓與最近 24 小時內的量測時間；直接重試會沿用同一冪等鍵。");
+        : "量測尚未確認儲存。請檢查至少一項數值、成對血壓與最近 24 小時內的時間。保留內容直接重試，系統會辨識同一次送出。");
     } finally {
+      draft.finish();
       setPending(false);
     }
   }
@@ -125,11 +145,12 @@ export function VitalSignComposer({
     <div className="core-composer">
       <button
         className="button button--primary"
-        disabled={!enabled || clients.length === 0}
+        disabled={!enabled || clients.length === 0 || unavailableSelection}
         onClick={open}
         title={
           !enabled
             ? "目前角色沒有新增生命徵象的權限"
+            : unavailableSelection ? "指定個案不在目前授權名單，請重新選擇"
             : clients.length === 0
               ? "沒有可量測的個案"
               : undefined
@@ -138,6 +159,7 @@ export function VitalSignComposer({
       >
         <HeartPulse aria-hidden="true" />新增量測
       </button>
+      {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
       {notice ? (
         <p className="core-composer__notice" role="status">
           {notice}
@@ -146,6 +168,7 @@ export function VitalSignComposer({
       <dialog
         aria-labelledby="vital-sign-dialog-title"
         className="core-dialog"
+        onCancel={(event) => { event.preventDefault(); close(); }}
         onClick={(event) => {
           if (event.target === event.currentTarget) close();
         }}
@@ -154,7 +177,11 @@ export function VitalSignComposer({
       >
         <form
           className="core-dialog__surface"
+          data-core-care-draft
+          ref={formRef}
+          key={`${serviceDate}:${selectedClientId ?? "none"}`}
           onChange={() => {
+            draft.changed();
             if (error) {
               idempotencyKey.current = crypto.randomUUID();
               setError(null);
@@ -164,20 +191,21 @@ export function VitalSignComposer({
         >
           <header className="drawer__header">
             <div>
-              <p className="eyebrow">專用量測交易</p>
+              <p className="eyebrow">第 2 步・量測</p>
               <h2 id="vital-sign-dialog-title">新增生命徵象</h2>
-              <p>量測時間固定以 Asia/Taipei 解讀，最多離線保留 24 小時。</p>
+              <p>沿用選定個案，確認實際量測時間與數值；時間以臺北時間解讀。</p>
             </div>
             <button
               aria-label="關閉"
               className="icon-button"
               onClick={close}
+              disabled={pending}
               type="button"
             >
               <X aria-hidden="true" />
             </button>
           </header>
-          <div className="drawer__body core-dialog__body">
+          <fieldset className="drawer__body core-dialog__body core-dialog__fields" disabled={pending}>
             <div className="callout core-care-callout">
               <ShieldCheck aria-hidden="true" />
               <span>
@@ -186,7 +214,8 @@ export function VitalSignComposer({
             </div>
             <label className="field">
               <span>個案 *</span>
-              <select defaultValue={clients[0]?.id} name="client_id" required>
+              <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required>
+                <option value="">請選擇個案</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.name}（{client.code}）
@@ -231,9 +260,9 @@ export function VitalSignComposer({
                 {error}
               </p>
             ) : null}
-          </div>
+          </fieldset>
           <footer className="drawer__footer">
-            <button className="button button--secondary" onClick={close} type="button">
+            <button className="button button--secondary" disabled={pending} onClick={close} type="button">
               取消
             </button>
             <button className="button button--primary" disabled={pending} type="submit">

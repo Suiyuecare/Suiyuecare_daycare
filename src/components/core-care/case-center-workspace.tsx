@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -8,13 +9,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import {
-  CaseCenterHistory,
-  CaseCenterWorkLink,
-} from "@/components/core-care/case-center-history";
+import { CaseCenterHistory } from "@/components/core-care/case-center-history";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import { caseCenterHref } from "@/lib/case-center/query";
+import { caseCenterServiceStatus } from "@/lib/case-center/projection";
 import type {
   CaseCenterClient,
   CaseCenterFilters,
@@ -22,6 +21,7 @@ import type {
   CaseCenterServiceStatus,
   CaseCenterSnapshot,
 } from "@/lib/case-center/types";
+import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 
 const lifecycleLabels: Record<CaseCenterLifecycleFilter, string> = {
   all: "全部生命週期",
@@ -60,9 +60,79 @@ function responsibility(client: CaseCenterClient) {
   return client.responsibility.people.map((person) => person.label).join("、");
 }
 
-function clientWorkHref(client: CaseCenterClient, date: string) {
+function clientSummaryHref(client: CaseCenterClient, date: string) {
   const params = new URLSearchParams({ date, client: client.id });
   return `/app/staff/service-management/daily-summary?${params.toString()}`;
+}
+
+function canStartClientWork(client: CaseCenterClient, date: string) {
+  return (
+    client.lifecycleStatus === "active" &&
+    client.lifecycleState === "active" &&
+    client.serviceStatus === "serving" &&
+    caseCenterServiceStatus({
+      status: client.lifecycleStatus,
+      admitted_on: client.admittedOn,
+      ended_on: client.endedOn,
+    }, date) === "serving"
+  );
+}
+
+function clientWorkNote(client: CaseCenterClient, date: string) {
+  if (client.lifecycleState === "pending_admission" || !client.admittedOn) {
+    return "尚未收案，請先完成收案。";
+  }
+  if (client.lifecycleState === "suspended" || client.serviceStatus === "paused") {
+    return "目前暫停服務，不開啟當日照顧。";
+  }
+  if (["transferred", "closed", "deceased"].includes(client.lifecycleState) ||
+      client.serviceStatus === "ended" || (client.endedOn && client.endedOn <= date)) {
+    return "服務已結束，僅供查閱紀錄。";
+  }
+  if (client.serviceStatus === "pending" || client.admittedOn > date) {
+    return "此日期尚未開始服務。";
+  }
+  return "當日工作尚未開放，請洽主管確認。";
+}
+
+function ClientWorkActions({
+  client,
+  date,
+  canOpenAttendance,
+  canViewSummary,
+}: {
+  client: CaseCenterClient;
+  date: string;
+  canOpenAttendance: boolean;
+  canViewSummary: boolean;
+}) {
+  const canStart = canOpenAttendance && canStartClientWork(client, date);
+  return (
+    <div className="case-center-actions">
+      {canStart ? (
+        <a
+          aria-label={`開始 ${client.displayName} 的當日工作（${formatDate(date)}）`}
+          className="button button--primary"
+          data-case-client-id={client.id}
+          href={dailyWorkflowHref(46, date, client.id)}
+        >
+          開始當日工作<ArrowRight aria-hidden="true" />
+        </a>
+      ) : (
+        <p className="case-center-action-note">{clientWorkNote(client, date)}</p>
+      )}
+      {!canStart && canViewSummary && (
+        <a
+          aria-label={`查看 ${client.displayName} 的當日紀錄（${formatDate(date)}）`}
+          className="button button--secondary"
+          data-case-client-id={client.id}
+          href={clientSummaryHref(client, date)}
+        >
+          查看當日紀錄
+        </a>
+      )}
+    </div>
+  );
 }
 
 function paginationHref(filters: CaseCenterFilters, page: number) {
@@ -74,11 +144,15 @@ export function CaseCenterWorkspace({
   snapshot,
   filters,
   loadError = false,
+  allowedDailyPages = [],
+  canViewSummary = false,
 }: {
   page: PageCatalogEntry;
   snapshot: CaseCenterSnapshot | null;
   filters: CaseCenterFilters;
   loadError?: boolean;
+  allowedDailyPages?: readonly number[];
+  canViewSummary?: boolean;
 }) {
   if (loadError || !snapshot) {
     return (
@@ -87,7 +161,7 @@ export function CaseCenterWorkspace({
           <CircleAlert aria-hidden="true" />
         </span>
         <h1>個案清單暫時無法載入</h1>
-        <p>系統不會改查其他分支，也不會把無權限或讀取失敗偽裝成 0 位。</p>
+        <p>請重新載入；若仍無法開啟，請聯絡主管確認存取權限。</p>
         <a className="button button--secondary" href={caseCenterHref(filters)}>
           重新載入
         </a>
@@ -116,6 +190,7 @@ export function CaseCenterWorkspace({
     responsible: "all",
     page: 1,
   });
+  const canOpenAttendance = allowedDailyPages.includes(46) && snapshot.serviceDate === filters.date;
 
   return (
     <>
@@ -130,33 +205,23 @@ export function CaseCenterWorkspace({
 
       <header className="page-heading">
         <div>
-          <p className="eyebrow">穩定個案 ID・分支資料範圍</p>
+          <p className="eyebrow">日常照顧</p>
           <h1>{page.title}</h1>
           <p className="page-heading__description">
-            每位個案只顯示一次；日期、篩選與頁碼保存在網址，返回時會還原位置。
+            先選擇個案，再接續當日的出勤、量測與照顧日誌。
           </p>
-        </div>
-        <div className="page-heading__actions">
-          <button
-            className="button button--primary"
-            disabled
-            title="收案與新增個案屬第 60、61 頁流程，尚未接線"
-            type="button"
-          >
-            新增個案（尚未開放）
-          </button>
+          <p className="data-table__secondary">服務日期：{formatDate(filters.date)}</p>
         </div>
       </header>
 
       <div className="callout core-care-callout">
         <ShieldCheck aria-hidden="true" />
         <span>
-          清單只使用目前機構、分支與資料列權限可見的個案。責任人資料
           {snapshot.access.assignments === "self_only"
-            ? "僅能確認自己的指派；其他指派會標示為權限受限。"
+            ? "可依「我」篩選自己的個案；負責人顯示「權限受限」時，請向主管確認，不代表尚未指派。"
             : snapshot.access.profileLabels === "names"
-              ? "可顯示授權範圍內的姓名。"
-              : "以人員代碼顯示，未擴張個資權限。"}
+              ? "服務中的個案可接續當日照顧；待收案、暫停或服務結束的個案，請先確認狀態或查看紀錄。"
+              : "負責人以人員代碼顯示；如需確認承辦人，請洽主管。"}
         </span>
       </div>
 
@@ -167,12 +232,12 @@ export function CaseCenterWorkspace({
             <strong>{snapshot.access.responsibleFilterRestricted ? "受限" : snapshot.total}</strong>
             {!snapshot.access.responsibleFilterRestricted && <span>人</span>}
           </div>
-          <p className="metric-card__foot">目前網址中的組合篩選</p>
+          <p className="metric-card__foot">搜尋與篩選後的個案數</p>
         </article>
         <article className="metric-card">
           <div className="metric-card__top"><span>可見個案</span></div>
           <div className="metric-card__value"><strong>{snapshot.visibleTotal}</strong><span>人</span></div>
-          <p className="metric-card__foot">目前分支，以穩定 ID 去重</p>
+          <p className="metric-card__foot">本分支可查看的個案</p>
         </article>
         <article className="metric-card">
           <div className="metric-card__top"><span>服務中</span></div>
@@ -187,7 +252,7 @@ export function CaseCenterWorkspace({
         <article className="metric-card">
           <div className="metric-card__top"><span>暫停／結束</span></div>
           <div className="metric-card__value"><strong>{snapshot.summary.paused + snapshot.summary.ended}</strong><span>人</span></div>
-          <p className="metric-card__foot">生命週期與服務日期一致判定</p>
+          <p className="metric-card__foot">此日期暫停或已結束服務</p>
         </article>
       </section>
 
@@ -257,7 +322,7 @@ export function CaseCenterWorkspace({
             <section className="empty-card core-care-state" role="alert">
               <CircleAlert aria-hidden="true" />
               <h2>無法使用這位責任人篩選</h2>
-              <p>目前角色只能查看自己的指派，系統不會把受限結果顯示為 0 位個案。</p>
+              <p>目前只能依自己的指派篩選。請改選「我」或清除負責人條件。</p>
               <Link
                 className="button button--secondary"
                 href={caseCenterHref({ ...filters, responsible: "all", page: 1 })}
@@ -297,11 +362,11 @@ export function CaseCenterWorkspace({
                         <small className="data-table__secondary">更新 {formatTimestamp(client.updatedAt)}</small>
                       </td>
                       <td>
-                        <CaseCenterWorkLink
-                          clientId={client.id}
-                          clientName={client.displayName}
-                          href={clientWorkHref(client, filters.date)}
-                          iconOnly
+                        <ClientWorkActions
+                          canOpenAttendance={canOpenAttendance}
+                          canViewSummary={canViewSummary}
+                          client={client}
+                          date={filters.date}
                         />
                       </td>
                     </tr>
@@ -322,10 +387,11 @@ export function CaseCenterWorkspace({
                     <div><dt>收案日</dt><dd>{formatDate(client.admittedOn)}</dd></div>
                     <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
                   </dl>
-                  <CaseCenterWorkLink
-                    clientId={client.id}
-                    clientName={client.displayName}
-                    href={clientWorkHref(client, filters.date)}
+                  <ClientWorkActions
+                    canOpenAttendance={canOpenAttendance}
+                    canViewSummary={canViewSummary}
+                    client={client}
+                    date={filters.date}
                   />
                 </article>
               ))}
@@ -336,7 +402,7 @@ export function CaseCenterWorkspace({
             <section className="empty-card core-care-state">
               <UsersRound aria-hidden="true" />
               <h2>沒有符合條件的個案</h2>
-              <p>調整搜尋或組合篩選；系統不會跨分支擴大查詢。</p>
+              <p>請調整姓名、個案代碼或篩選條件，再試一次。</p>
               <Link className="button button--secondary" href={clearHref}>清除篩選</Link>
             </section>
           </div>

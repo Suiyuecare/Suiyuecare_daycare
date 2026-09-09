@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
+import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
 import { OperationalWorkspace } from "@/components/workspace/operational-workspace";
 import { ImportWorkspace } from "@/components/imports/import-workspace";
 import { SyntheticImportPreview } from "@/components/imports/synthetic-import-preview";
@@ -710,6 +711,7 @@ export default async function StaffCatalogPage({
     }
     return (
       <DashboardWorkspace
+        canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         loadError={loadError}
         serviceDate={serviceDate}
         snapshot={snapshot}
@@ -732,6 +734,8 @@ export default async function StaffCatalogPage({
     }
     return (
       <CaseCenterWorkspace
+        allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
+        canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
         filters={filters}
         loadError={loadError}
         page={page}
@@ -1333,9 +1337,12 @@ export default async function StaffCatalogPage({
   }
 
   if (isCoreDailyPage(page)) {
-    const serviceDate = parseServiceDate(
-      typeof query.date === "string" ? query.date : undefined,
-    );
+    const { serviceDate, selectedClientId, invalid } = parseDailyWorkSelection(query);
+    if (invalid) return <section className="empty-card core-care-state" role="alert">
+      <h1>請重新選擇個案與日期</h1>
+      <p>連結中的個案或日期格式不正確，系統沒有替您選擇其他個案。</p>
+      <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
+    </section>;
     let snapshot = null;
     let loadError = false;
     try {
@@ -1344,18 +1351,12 @@ export default async function StaffCatalogPage({
       if (!(error instanceof CoreCareSnapshotError)) throw error;
       loadError = true;
     }
-    const selectedClientId =
-      typeof query.client === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-        query.client,
-      )
-        ? query.client
-        : undefined;
     if (snapshot && selectedClientId) {
       snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
     }
     return (
       <CoreDailyWorkspace
+        canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         canWrite={
           (page.number === 3 &&
             (context.demo || context.scopes.includes("health.write"))) ||

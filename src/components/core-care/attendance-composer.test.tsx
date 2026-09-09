@@ -26,7 +26,7 @@ describe("attendance composer receipt boundary", () => {
     }).format(new Date());
     render(<AttendanceComposer clients={[{
       id: "46000000-0000-4000-8000-000000000001", name: "合成個案", code: "D001", attendance: null,
-    }]} demo={false} enabled serviceDate={today} />);
+    }]} demo={false} enabled serviceDate={today} selectedClientId="46000000-0000-4000-8000-000000000001" />);
     fireEvent.click(screen.getByRole("button", { name: "登錄出勤" }));
     const dialog = screen.getByRole("dialog", { name: "簽到、簽退或登記未到" });
     fireEvent.click(within(dialog).getByRole("button", { name: "確認簽到" }));

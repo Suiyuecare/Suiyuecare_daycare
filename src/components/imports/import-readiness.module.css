@@ -23,4 +23,28 @@
 .provenance dt { font-weight: 600; color: var(--ink-muted); }
 .provenance dd { margin: 4px 0 0; }
 .pagination { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-@media (max-width: 680px) { .workspace { padding: 14px; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters { grid-template-columns: minmax(0, 1fr); } }
+.stages { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 24px; padding: 0; list-style: none; }
+.stages li { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); overflow-wrap: anywhere; }
+.stages span { display: block; margin-bottom: 8px; font-size: 14px; color: var(--ink-muted); }
+.stages strong { display: block; font-size: 18px; }
+.stages p { margin: 8px 0 0; font-size: 16px; line-height: 1.65; }
+.management { min-width: 0; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); overflow-wrap: anywhere; }
+.management summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 16px; font-weight: 600; }
+.management p, .management li, .management dd { line-height: 1.65; }
+.management summary:focus-visible, .nextSteps a:focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 3px; }
+.nextSteps { padding: 20px; min-width: 0; overflow-wrap: anywhere; }
+.nextSteps h2 { margin: 0 0 10px; font-size: 20px; }
+.nextSteps p, .nextSteps li { font-size: 16px; line-height: 1.65; }
+.nextSteps ol { padding-left: 22px; }
+.nextSteps li { margin-bottom: 14px; }
+.nextSteps a { min-height: 44px; font-size: 16px; white-space: normal; }
+@media (max-width: 680px) {
+  .workspace { padding: 14px; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters { grid-template-columns: minmax(0, 1fr); }
+  .stages { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .stages li { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 6px; padding: 12px; }
+  .stages span { margin: 0; line-height: 27px; }
+  .stages p { grid-column: 2; margin: 0; }
+  .nextSteps { padding: 14px; }
+}

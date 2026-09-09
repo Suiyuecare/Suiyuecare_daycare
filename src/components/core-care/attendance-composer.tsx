@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { parseAttendanceSuccess } from "@/lib/core-care/attendance-client";
 import type { AttendanceEventKind } from "@/lib/core-care/attendance-constants";
+import { useCoreDraftGuard } from "./client-continuation";
 
 type ClientOption = {
   id: string;
@@ -81,7 +82,7 @@ async function responseError(response: Response) {
     // A network intermediary may return a non-JSON response. Keep the safe
     // fallback below and never expose raw response content.
   }
-  return "出勤未確認完成。畫面內容仍保留，請以相同冪等鍵直接重試。";
+  return "出勤尚未確認儲存。請保留內容直接重試，系統會辨識同一次送出。";
 }
 
 export function AttendanceComposer({
@@ -89,24 +90,27 @@ export function AttendanceComposer({
   serviceDate,
   enabled,
   demo,
+  selectedClientId,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
   enabled: boolean;
   demo: boolean;
+  selectedClientId?: string;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
+  const draft = useCoreDraftGuard();
   const eligibleClients = useMemo(
     () => clients.filter((client) => allowedEvents(client).length > 0),
     [clients],
   );
-  const [clientId, setClientId] = useState(eligibleClients[0]?.id ?? "");
+  const [clientId, setClientId] = useState(selectedClientId ?? "");
   const selectedClient =
-    eligibleClients.find((client) => client.id === clientId) ??
-    eligibleClients[0];
+    eligibleClients.find((client) => client.id === clientId);
+  const unavailableSelection = selectedClientId !== undefined && !eligibleClients.some((client) => client.id === selectedClientId);
   const effectiveClientId = selectedClient?.id ?? "";
   const availableEvents = selectedClient ? allowedEvents(selectedClient) : [];
   const [eventKind, setEventKind] = useState<AttendanceEventKind>(
@@ -125,7 +129,7 @@ export function AttendanceComposer({
   const isBackfill = isBackfillCandidate(occurredAt);
 
   function resetForOpen() {
-    const firstClient = eligibleClients[0];
+    const firstClient = eligibleClients.find((client) => client.id === selectedClientId);
     const firstEvent = firstClient ? allowedEvents(firstClient)[0] : undefined;
     setClientId(firstClient?.id ?? "");
     setEventKind(firstEvent ?? "check_in");
@@ -137,16 +141,19 @@ export function AttendanceComposer({
   }
 
   function open(event: MouseEvent<HTMLButtonElement>) {
+    if (!enabled || unavailableSelection) return;
     trigger.current = event.currentTarget;
     resetForOpen();
     dialog.current?.showModal();
   }
 
   function close() {
+    if (!draft.discard()) return;
     dialog.current?.close();
   }
 
   function changed() {
+    draft.changed();
     if (error) {
       idempotencyKey.current = crypto.randomUUID();
       setError(null);
@@ -155,6 +162,7 @@ export function AttendanceComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!enabled || unavailableSelection || !selectedClient || !availableEvents.length || !draft.begin()) return;
     setPending(true);
     setError(null);
     try {
@@ -181,11 +189,12 @@ export function AttendanceComposer({
         occurredAt: normalizedOccurredAt,
       });
 
-      close();
+      draft.saved();
+      dialog.current?.close();
       setNotice(
         demo
           ? `展示${eventLabels[effectiveEventKind]}已通過相同驗證；展示資料不會永久保存。`
-          : `${eventLabels[effectiveEventKind]}已儲存${isBackfill ? "並標記為補登" : ""}。`,
+          : `${selectedClient.name}${eventLabels[effectiveEventKind]}已儲存${isBackfill ? "並標記為補登" : ""}。可接續上方量測步驟。`,
       );
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
@@ -193,9 +202,10 @@ export function AttendanceComposer({
       setError(
         submitError instanceof Error && submitError.message
           ? submitError.message
-          : "出勤未確認完成。畫面內容仍保留，請以相同冪等鍵直接重試。",
+          : "出勤尚未確認儲存。請保留內容直接重試，系統會辨識同一次送出。",
       );
     } finally {
+      draft.finish();
       setPending(false);
     }
   }
@@ -204,11 +214,13 @@ export function AttendanceComposer({
     <div className="core-composer">
       <button
         className="button button--primary"
-        disabled={!enabled || eligibleClients.length === 0}
+        disabled={!enabled || eligibleClients.length === 0 || unavailableSelection}
         onClick={open}
         title={
           !enabled
             ? "目前角色沒有登錄出勤的權限"
+            : unavailableSelection
+              ? "指定個案目前沒有可執行的出勤動作，請確認紀錄或重新選擇個案"
             : eligibleClients.length === 0
               ? "本服務日沒有可執行的出勤動作"
               : undefined
@@ -217,6 +229,7 @@ export function AttendanceComposer({
       >
         <ClipboardCheck aria-hidden="true" />登錄出勤
       </button>
+      {unavailableSelection ? <p role="status">指定個案目前無可用出勤動作；不會自動改為其他個案。</p> : null}
       {notice ? (
         <p className="core-composer__notice" role="status">
           {notice}
@@ -225,29 +238,31 @@ export function AttendanceComposer({
       <dialog
         aria-labelledby="attendance-dialog-title"
         className="core-dialog"
+        onCancel={(event) => { event.preventDefault(); close(); }}
         onClick={(event) => {
           if (event.target === event.currentTarget) close();
         }}
         onClose={() => trigger.current?.focus()}
         ref={dialog}
       >
-        <form className="core-dialog__surface" onSubmit={submit}>
+        <form className="core-dialog__surface" data-core-care-draft onSubmit={submit}>
           <header className="drawer__header">
             <div>
-              <p className="eyebrow">專用出勤交易</p>
+              <p className="eyebrow">第 1 步・出勤</p>
               <h2 id="attendance-dialog-title">簽到、簽退或登記未到</h2>
-              <p>服務日由事件時間依 Asia/Taipei 自動判定，不能由瀏覽器指定。</p>
+              <p>確認個案、簽到退動作與時間；服務日依臺北時間判定。</p>
             </div>
             <button
               aria-label="關閉"
               className="icon-button"
               onClick={close}
+              disabled={pending}
               type="button"
             >
               <X aria-hidden="true" />
             </button>
           </header>
-          <div className="drawer__body core-dialog__body">
+          <fieldset className="drawer__body core-dialog__body core-dialog__fields" disabled={pending}>
             <div className="callout core-care-callout">
               <ShieldCheck aria-hidden="true" />
               <span>
@@ -271,6 +286,7 @@ export function AttendanceComposer({
                 required
                 value={effectiveClientId}
               >
+                <option value="">請選擇個案</option>
                 {eligibleClients.map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.name}（{client.code}）
@@ -331,11 +347,12 @@ export function AttendanceComposer({
                 {error}
               </p>
             ) : null}
-          </div>
+          </fieldset>
           <footer className="drawer__footer">
             <button
               className="button button--secondary"
               onClick={close}
+              disabled={pending}
               type="button"
             >
               取消

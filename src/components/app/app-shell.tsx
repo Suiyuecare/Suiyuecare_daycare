@@ -67,7 +67,7 @@ export function AppShell({
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
   const notificationPage = availablePages.find((page) => page.number === 67);
-  const shortcuts = [2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const shortcuts = [1, 2].flatMap((number) => availablePages.filter((page) => page.number === number));
   const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
   const [groupRoute, setGroupRoute] = useState(pathname);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -232,7 +232,7 @@ export function AppShell({
             <span className="topbar__title">{activePage?.title ?? appBranding.applicationName}</span>
           </div>
           {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
-          <div className="topbar__actions">{shortcuts.map((page, index) => <NavigationLink className={`button ${index === 0 ? "button--secondary" : "button--primary"}`} href={`/app/${page.slug}`} key={page.number} loadingLabel={page.title}>{page.title}</NavigationLink>)}</div>
+          <div className="topbar__actions">{shortcuts.map((page) => <NavigationLink className="button button--secondary" href={`/app/${page.slug}`} key={page.number} loadingLabel={page.title}>{page.number === 1 ? "今日工作" : page.title}</NavigationLink>)}</div>
           <time className="topbar__date">{dateLabel}</time>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>
@@ -241,7 +241,7 @@ export function AppShell({
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
         {mobilePages.map((page) => {
           const Icon = moduleIcons[page.moduleId];
-          const label = page.number === 1 ? "首頁" : page.number === 2 ? "個案" : "量測";
+          const label = page.number === 1 ? "今日" : page.number === 2 ? "個案" : "量測";
           return <NavigationLink href={`/app/${page.slug}`} aria-label={page.title} title={page.title} aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
         })}
         <button type="button" aria-label="更多功能" aria-expanded={menuOpen} onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>

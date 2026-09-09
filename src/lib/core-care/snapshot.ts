@@ -5,6 +5,7 @@ import { loadAllClientDirectoryRows } from "@/lib/clients/directory";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 import { taipeiDayBoundsUtc } from "./date";
+import { isDailyWorkClient } from "./selection-query";
 import { buildDemoDailySnapshot } from "./demo";
 import {
   projectDailyCareSnapshot,
@@ -46,12 +47,7 @@ export async function loadDailyCareSnapshot(
         ? loadAllClientDirectoryRows(supabase, context, "core_daily").then(
             (rows): ClientSourceRow[] =>
               rows
-                .filter(
-                  (row) =>
-                    row.status === "active" &&
-                    row.admitted_on !== null &&
-                    row.ended_on === null,
-                )
+                .filter((row) => isDailyWorkClient(row, serviceDate))
                 .map((row) => ({
                   id: row.id,
                   client_code: row.client_code,
