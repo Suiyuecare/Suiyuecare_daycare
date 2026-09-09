@@ -2,7 +2,7 @@
 
 更新：2026-09-09（Asia/Taipei）。本文件不包含真實帳號識別值、Google subject、OAuth secret 或 Token。
 
-執行長本人已完成真實 Google OAuth，已確認 Google identity 與工作階段各 1 筆，並到達舊版 `/mfa`。使用者於 2026-09-09 16:10 明確要求取消登入第二層驗證；本機已改為 Google 登入後直接進工作台，重要操作仍另行驗證。**新版 build、SQL 驗證與正式發佈尚未全部完成；不能宣稱正式工作台已免登入 MFA，更不代表 89 頁全部免驗證、已完成正式營運驗收或可承載真實個案資料。**
+執行長本人已完成真實 Google OAuth，已確認 Google identity 與工作階段各 1 筆，並到達舊版 `/mfa`。依使用者於 2026-09-09 16:10 明確要求取消登入第二層驗證，Google 登入直達工作台的程式及最小唯讀 migration 現已正式發佈；重要操作仍另行驗證。**新版入口、匿名拒絕及部署驗證已通過，仍待本人重新整理後驗證實際工作台；不代表 89 頁全部免驗證、已完成正式營運驗收或可承載真實個案資料。** Portal 對應文案亦已同步發佈並核對正式產物。
 
 ## 範圍
 
@@ -12,7 +12,7 @@
 
 ## 已實作的安全邊界
 
-以下包含本機已完成、尚待此次正式發佈的登入政策調整；不可直接視為目前正式部署行為。
+以下登入政策調整已正式發佈，部署與雲端核對證據見下方本次 release note。本人新版工作台操作仍待驗證，不以部署成功替代。
 
 - 正常登入頁只有 Google 入口，無密碼、手機、家屬或自行註冊入口；合成資料唯讀展示維持原有隔離。
 - `/auth/google` 僅接受同源 POST，使用固定站點與固定 callback，不接受瀏覽器指定 email、角色或回跳網址。
@@ -47,10 +47,11 @@
 - 以單一、受稽核交易建立 active 真實機構／分支各 1 筆、profile 1 筆、membership 1 筆、既有 `organization_manager` 角色綁定 1 筆及 singleton allowlist 1 筆。核對固定日照 UUID／email／Google subject，但不在本文件或公開 source 記載其值。
 - 初始化共有 7 筆稽核：6 筆新增，加上既有角色觸發器造成的 membership 版本更新 1 筆。未新增臨床資格授權、護理／專業角色、證照或個案指派；臨床個案指派為 0，既有專業與獨立覆核條件不變。
 - 原有 inactive TEST 機構及隔離分支原封不動，未啟用、改名或轉為真實資料。新機構使用使用者已確認的名稱與臺北市資訊；UUID／slug 僅為內部識別碼。未知法定代碼、許可、地址與核定容量留空，未捏造正式機構核准版本。
-- `GOOGLE_LOGIN_ENABLED=true` 已於較早部署重建並發佈；正式登入按鈕已啟用。較早的帳號選擇頁探測與部署資料保留於下方歷史證據；不把它當成此次登入政策變更已發佈的證據。
+- `GOOGLE_LOGIN_ENABLED=true` 持續啟用；此次新部署已再次驗證正式 Google 按鈕及「Google 登入即可進入工作台」文案。較早部署資料保留於歷史區，不沿用其結果作為新部署證據。
 - 執行長本人現已完成真實 Google OAuth，雲端確認 Google identity 1 筆、session 1 筆，並到達舊版 `/mfa`。這次是真實身分連結與工作階段，不再是僅有預建帳號或 OAuth 起始導向；但工作台操作尚未完成端到端驗收。
 - 舊 MFA 頁自動設定產生 1 筆未驗證 TOTP，verified factor 為 0。依使用者取消登入第二層的要求，主代理透過受支援 Auth Admin API 撤銷該筆精確未驗證 factor；回讀 remaining factor 0、移除的 verified factor 0。過程未索取、記錄或代填使用者密碼／Token，亦未移除已驗證因素；不在文件記載帳號 UUID、Google subject 或 factor ID。
-- 目前沒有替本人完成 TOTP 驗證，也沒有把工作階段升級或偽裝為 AAL2。登入政策變更需與下節本機 migration／程式一起完成驗證及正式發佈；重要操作仍須符合各自原有條件。
+- 正式發佈後再次核對：factor 總數 0（unverified 0、verified 0），既有 auth session 1 筆保留；正式截圖亦未出現自動 QR，未以刪除使用者工作階段代替取消登入第二層。
+- 目前沒有替本人完成 TOTP 驗證，也沒有把工作階段升級或偽裝為 AAL2。登入政策變更已連同最小唯讀 migration 正式發佈；重要操作仍須符合各自原有條件。本人先前完成 Google OAuth 的證據不等於已驗證新版工作台，下一步仍由本人重新整理確認，不偽造或代建使用者 session。
 
 ## 外部待辦與啟用順序
 
@@ -61,16 +62,32 @@
 5. **已完成：**以單一交易建立實際機構／分支、profile、membership、既有 `organization_manager` 角色綁定及 singleton allowlist。不得將識別值提交到公開 source、啟用 TEST 機構或額外授予臨床資格。
 6. **已完成：**先確認 provider、固定 URI、預建單一帳號與核准綁定，再將 `GOOGLE_LOGIN_ENABLED=true`，重建、受保護驗證及發佈；此時才能提供真人 OAuth 入口。不能要求在入口停用時先完成真人 OAuth。
 7. **已完成：**執行長親自選擇公司 Google 帳號並完成授權，Supabase 建立／自動連結真實 Google identity；雲端確認單一 identity 與 session，本人到達舊版 `/mfa`。未索取或代填帳號密碼、OTP 或驗證器密碼。
-8. **本機已修改、發佈未完成：**依使用者 16:10 的明確政策變更，將 Google callback 與已授權 AAL1 tenant context 改為進工作台，加入最小唯讀投影 migration，保留所有其他 AAL2／資格／覆核條件；完成 build、SQL 測試、審查與正式發佈後才記錄上線。
-9. **待新版正式驗證：**完成實際 Google → AAL1 工作台（沒有自動 QR／驗證器設定）→ 僅授權唯讀投影 → API／RLS → 登出清除／session 撤銷的端到端驗證。明確敏感操作才前往 `?purpose=sensitive-action`，其他 Google 帳號、未驗證寫入、臨床資格與第二人覆核缺漏仍須被阻擋；不可把一般登入改動當成全部功能免 MFA。
+8. **已完成正式發佈：**依使用者 16:10 的明確政策變更，將 Google callback 與已授權 AAL1 tenant context 改為進工作台，加入最小唯讀投影 migration，保留所有其他 AAL2／資格／覆核條件。全套 build／SQL／Vitest 通過，完成候選受保護驗證、promote 及正式 domain 核對。
+9. **待本人驗證新版工作台：**請本人重新整理，確認實際 Google → AAL1 工作台沒有自動 QR／驗證器設定，再完成授權唯讀投影、API／RLS、登出清除／session 撤銷的端到端驗證。正式匿名拒絕已另行實測；不將匿名探測當成已登入流程。明確敏感操作才前往 `?purpose=sensitive-action`，其他 Google 帳號、未驗證寫入、臨床資格與第二人覆核缺漏仍須被阻擋；不可把一般登入改動當成全部功能免 MFA。
 
-## 登入政策變更與短版 release note（2026-09-09 16:10，尚未完成發佈）
+## 登入政策變更與正式 release note（2026-09-09，已發佈）
 
 - **變更依據：**使用者明確取消登入時的第二層驗證，這是經授權的登入政策變更，不是用放寬安全條件掩蓋 Google 設定故障。
-- **本機程式：**Google callback 成功固定回工作台；AAL1 不再自動導向 MFA；一般 `/mfa` 不掛載設定元件，重要操作需明確 purpose。CEO 單人入口、資料隔離及建置驗證版「勿輸入真實個案資料」提示保留。
-- **本機資料庫：**新增 `20260909081737_executive_read_only_login.sql`，僅讓通過既有單人 Google gate 的 AAL1 取得 tenant／dashboard 所需唯讀投影。沒有授予新的角色、scope、臨床資格或寫入能力；寫入、草稿、敏感查閱、簽署、匯出、申報及權限流程仍依各自原有 AAL2／近期驗證與資格覆核條件拒絕不足授權。
-- **已確認的本機結果：**主流程 ESLint、TypeScript 與全套 Vitest 已通過；Vitest 為 304 檔／2,999 tests。針對登入／MFA／連結的測試亦已通過，不把重疊測試數相加當成不同案例。
-- **尚未完成的驗證／發佈：**正式 build 及新增 SQL suite 正在執行，尚未取得此次全部 SQL／build 通過、migration 正式套用、新部署或正式工作台實測證據。本節不填猜測的部署 ID、commit 或成功結果；下方較早部署證據不適用此版登入行為。
+- **已發佈程式：**Google callback 成功固定回工作台；AAL1 不再自動導向 MFA；已授權人的一般 `/mfa` 不掛載設定元件，重要操作需明確 purpose。CEO 單人入口、資料隔離及建置驗證版「勿輸入真實個案資料」提示保留。
+- **資料庫版本對照：**本機 migration 為 `20260909081737_executive_read_only_login.sql`；hosted migration 已套用，version 為 `20260909083009`、name 為 `executive_read_only_login`。僅讓通過既有單人 Google gate 的 AAL1 取得 tenant／dashboard 所需唯讀投影，沒有授予新角色、scope、臨床資格或寫入能力。
+- **雲端唯讀邊界核對：**新增 12 個 SELECT policy、non-SELECT policy 0 個；authenticated 對原始 `public.clients` 的 SELECT 權限仍為 false，`active_memberships` 維持 `security_invoker` 與 `security_barrier`。寫入、草稿、敏感查閱、簽署、匯出、申報及權限流程仍依各自原有 AAL2／近期驗證及資格覆核條件執行。
+- **變更前後指紋一致：**原 write policy 定義 MD5 為 `d0e56975d239de3b6de4529cd8c161fe`；7 個 write／gate authority 定義 MD5 為 `169d2bb810859d35f0467376c9016d36`，均與部署前一致。這些是程式／policy 定義比對證據，不是使用者、文件或簽署內容雜湊。
+- **全套本機驗證：**ESLint、TypeScript、304 檔／2,999 項 Vitest 及 build 通過。全套資料庫為 97 migrations 編譯、95 份 SQL 測試／4,004 assertions 通過；其中 2 份未修改 gate 的正式 enforcement suites 共 225 項，另 93 份 legacy 業務回歸共 3,779 項，兩者口徑不可混用。針對性測試與全套重疊，不再相加。
+- **建置執行紀錄：**沙箱內的 Turbopack 建置停滯後中止，改於正常環境重建已通過；未把該環境停滯判為程式碼建置失敗。
+- **正式部署：**source／runtime commit 均為 `6700f06b6dc57f1180bdfe4948e096795973d997`；部署 `dpl_JCURJBEcXHi4zU5GRTDbgHXiH8kZ`；[部署網址](https://suiyue-daycare-preview-i2dsjm1dg-entrepreneur-9585s-projects.vercel.app)。採 staged deployment → 受保護驗證 → promote，未關閉 deployment protection。正式 domain `daycare.suiyuecare.com` 的 inspect 已核對指向此部署，function region `hnd1`；雲端 build 約 32 秒、整體部署約 52 秒。
+- **候選驗證：**6 項受保護候選部署檢查均通過。匿名 `/mfa` 與工作台可回 HTTP 200 的 Next 串流登入轉址，這不是授權成功，須同時核對轉址內容與 no-store。
+- **正式匿名及 API 驗證：**89 個工作頁面匿名存取均被拒絕並具有 no-store；`POST /api/clients` 為 401、無效 code callback 為 303、跨來源 `POST /auth/google` 為 303。這些為新部署實測，不沿用下方歷史結果。
+- **正式獨立瀏覽器 QA：**1440px／390px 均看到「Google 登入即可進入工作台」，按鈕 enabled、高度 44px、字級 16px；無水平溢出、登入 QR 或瀏覽器錯誤。匿名 `/mfa` 實際返回 `/login`，主流程已親自檢視兩張 PNG。
+- **發佈後觀測：**日照部署 `dpl_JCURJBEcXHi4zU5GRTDbgHXiH8kZ` 最近 10 分鐘 error logs 為 0 筆；僅代表該觀測窗口，不是持續監控或 SLA 保證。
+- **Portal 文案同步：**`main` commit `d332b9d3795a8e07707984c87c316b58a2a25762` 已完成 GitHub exact-commit 對應的 Vercel success，部署為 `dpl_8WLkBrTZHdg7yqakx9zJPKVJkHNe`，正式 `login.suiyuecare.com` alias 核對為同一 READY 部署。
+- **Portal 正式產物驗證：**正式及受保護部署的 `/assets/portal-B3Cmm6ES.js` SHA-256 均為 `847a8ee8b06805c3a42d62144a0177f0a963aec0c75a71d353c027855420d2ff`；8 項新文案標記及舊登入 MFA 文案移除檢查通過。未改動其他文章、Finance 或環境費用。
+- **尚未完成：**新版工作台仍待本人重新整理驗證；未偽造登入 session，也未宣稱重要操作免 AAL2。日照與 Portal 發佈不等於 89 頁全功能或正式營運驗收。
+
+### 安全 Advisors 留存事項
+
+- 發佈後檢查僅有原已存在的 143 筆 INFO `rls_enabled_no_policy` 與 1 筆 WARN leaked-password，與變更前相同；沒有為消除提示新增開放存取 policy、關閉 RLS 或升級付費方案。
+- RLS 無 policy 的提示須依每張表的預期資料存取設計審核，不以消除提示作為放寬存取的理由。[Supabase 官方 RLS no-policy 處理說明](https://supabase.com/docs/guides/observability/advisors?lint=0008_rls_enabled_no_policy)
+- 洩漏密碼防護保留原狀，目前日照仍是 Google-only 登入；本次不重開密碼登入或增加方案費用。正式安全驗收仍須記錄此 WARN 與後續處理決定，不宣稱所有安全提醒均已解決。[Supabase 官方密碼強度與洩漏密碼防護說明](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)
 
 ## 測試口徑
 
