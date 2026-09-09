@@ -22,7 +22,12 @@ describe("authenticated validation release entrance", () => {
     expect(html).toContain('action="/auth/google"');
     expect(html).toContain('method="post"');
     expect(html).toContain("目前僅開放已核准的執行長帳號");
-    expect(html).toContain("登入後仍須完成雙因素驗證");
+    expect(html).toContain("Google 登入即可進入工作台");
+    expect(html).toContain("分支與個案範圍隔離");
+    expect(html).toContain("重要操作仍須額外驗證");
+    expect(html).not.toContain("登入後仍須完成雙因素驗證");
+    expect(html).not.toContain("員工雙因素驗證");
+    expect(html).not.toMatch(/QR|qr.code|掃描|6 位數|驗證器|\/mfa/iu);
     expect(html).toContain("Google 登入尚未完成設定");
     expect(html).toContain('disabled=""');
     expect(html).not.toMatch(/<(?:input|textarea)\b/u);

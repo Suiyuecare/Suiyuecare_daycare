@@ -187,7 +187,7 @@ export function ClientMasterWorkspace({
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
           <span>目前可安全檢視，但新增或修改屬高風險操作，需要最近 15 分鐘內完成 AAL2 重新驗證。</span>
-          <Link className={styles.buttonLink} href="/mfa?audience=staff">
+          <Link className={styles.buttonLink} href="/mfa?audience=staff&purpose=sensitive-action">
             <ShieldCheck aria-hidden="true" />前往重新驗證
           </Link>
         </div>

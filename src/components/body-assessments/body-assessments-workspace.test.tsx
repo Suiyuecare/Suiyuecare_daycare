@@ -23,7 +23,7 @@ describe("body observation workspace", () => {
   });
   it("starts without preselected observations and points to actual staff MFA route", () => {
     view({ ...demo, demo: false });
-    expect(screen.getByRole("link", { name: "重新完成雙因素驗證" })).toHaveAttribute("href", "/mfa?audience=staff");
+    expect(screen.getByRole("link", { name: "重新完成雙因素驗證" })).toHaveAttribute("href", "/mfa?audience=staff&purpose=sensitive-action");
     fireEvent.click(screen.getByRole("button", { name: "新增評估草稿" }));
     expect(screen.queryByLabelText("觀察狀態")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "加入觀察部位" }));

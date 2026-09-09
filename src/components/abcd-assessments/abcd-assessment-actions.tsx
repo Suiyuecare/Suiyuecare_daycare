@@ -198,7 +198,7 @@ export function AbcdAssessmentActions({ canManage, hasRecentAal2, assessment, or
       <button className="button button--primary"
         disabled={state.kind === "working" || (recentRequired && !hasRecentAal2)}
         type="submit">鎖定版本並送出</button>
-    </fieldset>{recentRequired && !hasRecentAal2 ? <p className={styles.reauth}>簽署與更正需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff">重新驗證</Link></p> : null}
+    </fieldset>{recentRequired && !hasRecentAal2 ? <p className={styles.reauth}>簽署與更正需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link></p> : null}
     {state.kind !== "idle" ? <p className={state.kind === "error" ? styles.error : styles.message}
       role="status">{state.text}</p> : null}</form></details>;
 }

@@ -66,7 +66,7 @@ function resultUnknown(error: unknown) {
 function Reauth() {
   return <section className={styles.reauth}><h2>交通計畫操作前需重新驗證</h2>
     <p>建立、修訂、發布、駁回及衝突覆核，都需同一工作階段最近 15 分鐘 AAL2。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">前往雙重驗證</Link>
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
   </section>;
 }
 

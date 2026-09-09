@@ -216,7 +216,7 @@ export function FormRuleVersionsWorkspace({
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
           <span>送審與核准需要最近 15 分鐘內的雙因素重新驗證，且資料庫會再核對不可變驗證證據。</span>
-          <Link className="button button--secondary" href="/mfa?audience=staff">立即重新驗證</Link>
+          <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link>
         </div>
       ) : null}
       {snapshot.incomplete ? (

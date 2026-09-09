@@ -168,13 +168,6 @@ export async function requireTenantContext(
   if (!context) {
     redirect(`/login?audience=${audience}`);
   }
-  if (
-    audience === "staff" &&
-    !context.demo &&
-    context.assuranceLevel !== "aal2"
-  ) {
-    redirect("/mfa?audience=staff");
-  }
   return context;
 }
 

@@ -242,7 +242,7 @@ export function FormPublicationAction({
         </form>
       </dialog>
       {!enabled && disabledReason?.includes("重新驗證") ? (
-        <Link className={styles.reauthLink} href="/mfa?audience=staff">
+        <Link className={styles.reauthLink} href="/mfa?audience=staff&purpose=sensitive-action">
           重新驗證
         </Link>
       ) : null}

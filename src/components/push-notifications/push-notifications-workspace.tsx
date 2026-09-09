@@ -112,7 +112,7 @@ export function PushNotificationsWorkspace({
 
       <div className={`callout ${styles.boundaryCallout}`} role="status"><ShieldAlert aria-hidden="true" /><span><strong>第一版正式邊界：</strong>僅開放 in_app 站內員工通知。PWA、LINE、簡訊與家屬收件均停用；queue 只代表資料已持久化排入，絕不等同 sent、delivered 或 read。</span></div>
       <div className={`callout ${styles.retryCallout}`} role="status"><TriangleAlert aria-hidden="true" /><span><strong>部分失敗重試尚未交付：</strong>目前沒有 provider worker 與失敗 delivery 的個別重試交易，因此畫面只如實顯示 failed 數量，不提供會造成假成功的重試按鈕。</span></div>
-      {snapshot.demo ? <div className={`callout ${styles.demoCallout}`} role="status"><Inbox aria-hidden="true" /><span>目前為展示模式：收件者與歷史均為合成資料；可測試伺服器預覽，但不會建立任何通知。</span></div> : !hasRecentAal2 ? <div className={`callout ${styles.reauthCallout}`} role="status"><ShieldAlert aria-hidden="true" /><span>建立與排程需要最近 15 分鐘 AAL2 重新驗證；快照仍保持唯讀。</span><Link className="button button--secondary" href="/mfa?audience=staff">立即重新驗證</Link></div> : null}
+      {snapshot.demo ? <div className={`callout ${styles.demoCallout}`} role="status"><Inbox aria-hidden="true" /><span>目前為展示模式：收件者與歷史均為合成資料；可測試伺服器預覽，但不會建立任何通知。</span></div> : !hasRecentAal2 ? <div className={`callout ${styles.reauthCallout}`} role="status"><ShieldAlert aria-hidden="true" /><span>建立與排程需要最近 15 分鐘 AAL2 重新驗證；快照仍保持唯讀。</span><Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link></div> : null}
       {snapshot.notificationsTruncated ? <div className={`callout ${styles.truncatedCallout}`} role="status"><CircleAlert aria-hidden="true" /><span>歷史單次只載入最新 100 筆；目前共有 {snapshot.notificationTotal} 筆，以下篩選只作用於已載入資料。</span></div> : null}
 
       <section aria-label="通知建立摘要" className={`metric-grid ${styles.metrics}`}>

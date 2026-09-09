@@ -182,7 +182,7 @@ export function BehaviorEventActions({ canManage, canSign, hasRecentAal2, event 
       {operation === "sign" ? <p className={styles.wide}><strong>簽署確認：</strong>我確認這是人員人工記錄的事件內容，
         系統未自動診斷或從敘事推論，並同意以目前版本與內容雜湊建立不可變簽署證據。</p> : null}
       <button className="button button--primary" type="submit">鎖定版本並送出</button>
-    </fieldset>{recentRequired && !hasRecentAal2 ? <p className={styles.reauth}>簽署、更正與作廢需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff">重新驗證</Link></p> : null}
+    </fieldset>{recentRequired && !hasRecentAal2 ? <p className={styles.reauth}>簽署、更正與作廢需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link></p> : null}
     {state.kind !== "idle" ? <p className={state.kind === "error" ? styles.error : styles.message} role="status">{state.text}</p> : null}
   </form></details>;
 }

@@ -63,7 +63,7 @@ describe("Page83 integrations/audit read-only workspace", () => {
   it("does not display even a supplied snapshot before recent authentication", () => {
     view({ hasRecentAal2: false });
     expect(screen.getByRole("alert")).toHaveTextContent("需要重新驗證");
-    expect(screen.getByRole("link", { name: "立即重新驗證" })).toHaveAttribute("href", "/mfa?audience=staff");
+    expect(screen.getByRole("link", { name: "立即重新驗證" })).toHaveAttribute("href", "/mfa?audience=staff&purpose=sensitive-action");
     expect(screen.queryByText("9007199254740993")).not.toBeInTheDocument();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
   });

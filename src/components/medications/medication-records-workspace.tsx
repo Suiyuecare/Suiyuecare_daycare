@@ -164,7 +164,7 @@ export function MedicationRecordsWorkspace({
         <div className="callout medication-reauth-callout" role="status">
           <ShieldAlert aria-hidden="true" />
           <span>簽署與獨立覆核須在最近 15 分鐘內完成雙因素重新驗證。</span>
-          <Link className="button button--secondary" href="/mfa?audience=staff">立即重新驗證</Link>
+          <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link>
         </div>
       ) : null}
 

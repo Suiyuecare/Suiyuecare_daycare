@@ -270,7 +270,7 @@ export function DataInventoryWorkspace({ snapshot, canManage, canReview, hasRece
           <button className="button button--primary" disabled={unavailable || !canReview || !hasRecentAal2 || reviewBlocked || editor !== null}
             onClick={() => openEditor(item.key, "verify")}>人工覆核<span className="sr-only">：{item.label}</span></button>
         </div> : null}
-        {!snapshot.demo && !hasRecentAal2 && canReview && version?.reviewState !== "manually_verified" ? <p>覆核需最近 15 分鐘完成雙因素驗證。<Link href="/mfa?audience=staff">前往重新驗證</Link></p> : null}
+        {!snapshot.demo && !hasRecentAal2 && canReview && version?.reviewState !== "manually_verified" ? <p>覆核需最近 15 分鐘完成雙因素驗證。<Link href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link></p> : null}
         {!snapshot.demo && ownRecord && version?.reviewState !== "manually_verified" ? <p className={styles.muted}>您是本版內容登錄者，須由另一位具權限人員覆核。</p> : null}
         {isEditing ? <form className={styles.form} onSubmit={submit} aria-labelledby={`inventory-form-${item.key}`}>
           <h4 ref={editorHeading} tabIndex={-1} id={`inventory-form-${item.key}`}>{editor.mode === "save" ? "登錄／更新人工盤點" : "覆核人工盤點中繼資料"}：{item.label}</h4>

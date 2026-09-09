@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     // The server-owned, pinned identity allowlist is authoritative. Never grant membership here.
     const allowed = await supabase.rpc("is_executive_login_allowed");
     if (allowed.error || allowed.data !== true) throw new Error("GOOGLE_CALLBACK_DENIED");
-    return googleAuthRedirect("/mfa");
+    return googleAuthRedirect("/app/dashboard");
   } catch {
     if (supabase) {
       try { await supabase.auth.signOut({ scope: "local" }); } catch { /* Still clear this project's browser session. */ }

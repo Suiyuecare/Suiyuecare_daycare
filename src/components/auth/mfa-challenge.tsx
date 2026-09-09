@@ -195,7 +195,7 @@ export function MfaChallenge() {
     <form className="auth-form" onSubmit={verify}>
       {enrollment ? (
         <section className="mfa-enrollment" aria-labelledby="mfa-setup-heading">
-          <h2 id="mfa-setup-heading">第一次登入：設定驗證器</h2>
+          <h2 id="mfa-setup-heading">重要操作：設定驗證器</h2>
           <p className="muted">用驗證器 App 掃描 QR Code，再輸入顯示的 6 位數字。</p>
           <Image alt="雙因素驗證 QR Code" height={184} src={enrollment.qrCode} unoptimized width={184} />
           <details>

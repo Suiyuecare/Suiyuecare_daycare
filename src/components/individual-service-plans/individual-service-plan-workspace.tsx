@@ -61,7 +61,7 @@ export function IndividualServicePlanWorkspace({
       ) : (
         <div className={`callout ${styles.securityCallout}`}><ShieldCheck aria-hidden="true" /><span>畫面只讀取本分支且符合指派範圍的最小快照；簽署需要最近 15 分鐘 AAL2。更新時間 {formatTimestamp(snapshot.generatedAt)}。</span></div>
       )}
-      {!snapshot.demo && canWrite && !hasRecentAal2 ? <div className={`callout ${styles.reauthCallout}`} role="status"><ShieldCheck aria-hidden="true" /><span>目前可安全檢視；簽署新版本前請重新驗證。</span><Link className="button button--secondary" href="/mfa?audience=staff">前往重新驗證</Link></div> : null}
+      {!snapshot.demo && canWrite && !hasRecentAal2 ? <div className={`callout ${styles.reauthCallout}`} role="status"><ShieldCheck aria-hidden="true" /><span>目前可安全檢視；簽署新版本前請重新驗證。</span><Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link></div> : null}
       <section aria-label="計畫規則說明" className={styles.ruleGrid}>
         <article><CalendarRange aria-hidden="true" /><div><strong>台北月份分區</strong><span>預設值依 Asia/Taipei；切換月份只查該月，不會複製或覆寫其他月份。</span></div></article>
         <article><ShieldCheck aria-hidden="true" /><div><strong>人工內容邊界</strong><span>頻率與進度是人員輸入的文字／狀態；目前沒有已發布的完成率公式或自動照顧判斷。</span></div></article>

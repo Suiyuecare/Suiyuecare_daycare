@@ -76,7 +76,7 @@ describe("data inventory embedded workspace", () => {
     const { rerender } = render(<DataInventoryWorkspace {...baseProps} snapshot={snapshot} hasRecentAal2={false}/>);
     expect(screen.getByRole("button", { name: "人工覆核：個案基本資料" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "更新盤點：個案基本資料" })).toBeEnabled();
-    expect(screen.getAllByRole("link", { name: "前往重新驗證" })[0]).toHaveAttribute("href", "/mfa?audience=staff");
+    expect(screen.getAllByRole("link", { name: "前往重新驗證" })[0]).toHaveAttribute("href", "/mfa?audience=staff&purpose=sensitive-action");
     rerender(<DataInventoryWorkspace {...baseProps} snapshot={snapshot} actorUserId={inventoryIds.recorder}/>);
     expect(screen.getByRole("button", { name: "人工覆核：個案基本資料" })).toBeDisabled();
     expect(screen.getByText(/您是本版內容登錄者/)).toBeInTheDocument();

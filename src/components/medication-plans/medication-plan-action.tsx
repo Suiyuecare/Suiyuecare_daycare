@@ -436,7 +436,7 @@ export function MedicationPlanAction({
               </span>
             </label>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
-            {needsReauth ? <Link className={styles.reauthLink} href="/mfa?audience=staff">立即重新驗證</Link> : null}
+            {needsReauth ? <Link className={styles.reauthLink} href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link> : null}
             {notice ? <p className={styles.successNotice} role="status">{notice}</p> : null}
           </div>
           <footer className="drawer__footer">
@@ -450,7 +450,7 @@ export function MedicationPlanAction({
         </form>
       </dialog>
       {!enabled && highRiskAction && !demo && canManage && !hasRecentAal2 ? (
-        <Link className={styles.reauthLink} href="/mfa?audience=staff">重新驗證</Link>
+        <Link className={styles.reauthLink} href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link>
       ) : null}
     </div>
   );

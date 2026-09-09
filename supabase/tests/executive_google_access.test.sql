@@ -78,7 +78,7 @@ select throws_ok($$insert into private.executive_access_policy(allowed_user_id,a
 set local role authenticated;
 select is(pg_temp.executive_check('{}','aal1'),true,'pinned Google session may enter AAL1 MFA flow despite residual email identity');
 select is(public.can_begin_staff_mfa(),true,'eligible executive AAL1 can request existing MFA challenge');
-select is((select count(*)::integer from public.active_memberships),0,'AAL1 still cannot read tenant context');
+select is((select count(*)::integer from public.active_memberships),1,'approved AAL1 executive may read effective self tenant context without granting write assurance');
 select is(pg_temp.executive_check(),true,'matching Google plus TOTP session is admitted');
 select is((select count(*)::integer from public.active_memberships),1,'AAL2 reads only the existing assigned organization');
 select throws_ok($$select * from private.executive_access_policy$$,'42501',null,'allowlist cannot be enumerated through SQL role');

@@ -145,7 +145,7 @@ export function ClientToccWorkspace({
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
           <span>可安全檢視；單筆與批次簽署需要最近 15 分鐘內完成 AAL2 重新驗證。</span>
-          <Link className="button button--secondary" href="/mfa?audience=staff">前往重新驗證</Link>
+          <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link>
         </div>
       ) : null}
 

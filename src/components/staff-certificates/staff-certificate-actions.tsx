@@ -276,7 +276,7 @@ export function StaffCertificateExceptionForms({
     <h2 id="certificate-exception-heading">有限期間資格例外</h2>
     {!hasRecentAal2 ? <p className={styles.warning} role="alert">
       申請與每次核准都需要最近 15 分鐘的 AAL2 驗證。
-      <Link href="/mfa">前往重新驗證</Link>
+      <Link href="/mfa?purpose=sensitive-action">前往重新驗證</Link>
     </p> : null}
     <p role="note">例外須由兩名不同授權人員核准，申請人不能自批。即使完成兩次核准，受限制服務規則尚未發布，本頁仍不會宣稱可排入任何服務。</p>
     {eligibleRecords.length ? <details className={styles.composer}>

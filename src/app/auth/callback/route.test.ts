@@ -48,10 +48,11 @@ beforeEach(() => {
 });
 
 describe("CEO-only Google PKCE callback", () => {
-  it("exchanges exactly the flow-bound verifier, verifies user/claims and self-only allowlist, then always requires MFA", async () => {
+  it("verifies flow-bound PKCE, user/claims and self-only allowlist, then admits the actual AAL1 Google session to the dashboard", async () => {
     const response = await GET(request());
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("/mfa");
+    expect(response.headers.get("location")).toBe("/app/dashboard");
+    expect(CLAIMS.aal).toBe("aal1");
     expect(response.headers.get("cache-control")).toContain("private, no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(mocks.exchange).toHaveBeenCalledExactlyOnceWith("synthetic-pkce-code", { flowId: FLOW });
@@ -165,7 +166,7 @@ describe("CEO-only Google PKCE callback", () => {
   });
 
   it("consumes the initiation marker so refreshing the callback cannot exchange again", async () => {
-    expect((await GET(request())).headers.get("location")).toBe("/mfa");
+    expect((await GET(request())).headers.get("location")).toBe("/app/dashboard");
     await expectDenied(await GET(request()));
     expect(mocks.exchange).toHaveBeenCalledOnce();
   });

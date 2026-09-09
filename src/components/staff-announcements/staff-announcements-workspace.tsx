@@ -97,7 +97,7 @@ export function StaffAnnouncementsWorkspace({
     </header>
     {snapshot.demo ? <div className={`callout ${styles.demoCallout}`} role="status"><CircleAlert aria-hidden="true" /><span><strong>展示模式：</strong>以下均為合成資料；建立、發布、撤回與已讀 API 都會回絕，不會假裝成功。</span></div> : <div className={`callout ${styles.securityCallout}`}><ShieldCheck aria-hidden="true" /><span>本頁由單一 audited DB snapshot 回傳公告、全量統計及選定收件明細；更新 {formatTime(snapshot.generatedAt)}。</span></div>}
     <div className={`callout ${styles.boundaryCallout}`}><BellRing aria-hidden="true" /><span><strong>傳遞邊界：</strong>目前僅是員工登入入口公告及實際已讀回條，不代表通知送達，也未串接 LINE、PWA 推播、簡訊、家屬端或外部 provider。</span></div>
-    {snapshot.canManage && canPublish && !hasRecentAal2 && !snapshot.demo ? <div className={`callout ${styles.reauthCallout}`}><ShieldCheck aria-hidden="true" /><span>可建立草稿；發布與撤回前須完成最近 15 分鐘 AAL2。</span><Link className="button button--secondary" href="/mfa?audience=staff">前往重新驗證</Link></div> : null}
+    {snapshot.canManage && canPublish && !hasRecentAal2 && !snapshot.demo ? <div className={`callout ${styles.reauthCallout}`}><ShieldCheck aria-hidden="true" /><span>可建立草稿；發布與撤回前須完成最近 15 分鐘 AAL2。</span><Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link></div> : null}
     <section aria-label="公告摘要" className="metric-grid">
       {[
         ["草稿版本", snapshot.metrics.drafts, "則", <FilePenLine aria-hidden="true" key="draft" />],

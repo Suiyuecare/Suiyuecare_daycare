@@ -203,7 +203,7 @@ export function ClientTransitionComposer({
         <Plus aria-hidden="true" />建立個案異動
       </button>
       {!demo && canManage && !hasRecentAal2 ? (
-        <Link className="reauth-link" href="/mfa?audience=staff">
+        <Link className="reauth-link" href="/mfa?audience=staff&purpose=sensitive-action">
           <ShieldCheck aria-hidden="true" />完成近期雙因素驗證
         </Link>
       ) : null}
@@ -268,7 +268,7 @@ export function ClientTransitionComposer({
             {error ? (
               <div>
                 <p className="form-error" role="alert">{error}</p>
-                {needsReauth ? <Link className="reauth-link reauth-link--inline" href="/mfa?audience=staff"><ShieldCheck aria-hidden="true" />重新完成雙因素驗證</Link> : null}
+                {needsReauth ? <Link className="reauth-link reauth-link--inline" href="/mfa?audience=staff&purpose=sensitive-action"><ShieldCheck aria-hidden="true" />重新完成雙因素驗證</Link> : null}
               </div>
             ) : null}
             </fieldset>

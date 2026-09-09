@@ -199,7 +199,7 @@ export function CaseServiceRecordsWorkspace({ page, snapshot, filters, loadError
     {pendingCard}
     {!pending && state.message ? <p role={state.kind === "error" ? "alert" : "status"} className={styles.status}>{state.message}</p> : null}
     {canSign && !hasRecentAal2 ? <aside className={styles.boundary}><p>簽署與更正須在最近 15 分鐘完成 MFA；目前操作已關閉。</p>
-      <Link prefetch={false} href="/mfa?audience=staff" className="button button--secondary">立即重新驗證</Link></aside> : null}
+      <Link prefetch={false} href="/mfa?audience=staff&purpose=sensitive-action" className="button button--secondary">立即重新驗證</Link></aside> : null}
     {editor && ready ? <section className={styles.editor} aria-label="服務紀錄編輯區">
       <h2 ref={editorHeading} tabIndex={-1}>{title}</h2>
       {editor.record ? <p>{editor.record.clientDisplayName}・原版 v{editor.record.version}・{editor.record.serviceType}</p> : null}

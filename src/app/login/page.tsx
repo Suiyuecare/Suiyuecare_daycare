@@ -51,18 +51,18 @@ export default function LoginPage() {
           </li>
           <li>
             <LockKeyhole aria-hidden="true" />
-            員工雙因素驗證
+            重要操作額外驗證
           </li>
         </ul>
       </section>
       <section className="login-panel" aria-label="帳號登入">
         <div className="login-panel__inner">
           <p className="eyebrow">安全登入</p>
-          <h2>使用公司 Google 帳號登入</h2>
+          <h2>Google 登入即可進入工作台</h2>
           <p role="note" aria-label="版本使用限制">
             建置驗證版本：尚未完成正式營運驗收，請勿輸入或上傳真實個案資料。
           </p>
-          <p className="muted">目前僅開放已核准的執行長帳號。其他員工與家屬尚未開放登入；登入後仍須完成雙因素驗證。</p>
+          <p className="muted">目前僅開放已核准的執行長帳號。其他員工與家屬尚未開放登入；簽署、匯出與權限調整等重要操作仍須額外驗證。</p>
           <Suspense fallback={null}><GoogleLoginFeedback /></Suspense>
           <form className="auth-form" action="/auth/google" method="post" aria-label="公司 Google 登入">
             <button className="button button--primary button--wide" type="submit"
@@ -76,7 +76,7 @@ export default function LoginPage() {
             </p>
           </form>
           <p className="login-help">
-            無法登入或遺失驗證器時，請聯絡機構系統管理員。系統不會透過訊息向您索取密碼。
+            無法使用公司 Google 帳號登入時，請聯絡機構系統管理員。系統不會透過訊息向您索取密碼。
           </p>
         </div>
       </section>

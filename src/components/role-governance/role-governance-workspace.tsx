@@ -135,7 +135,7 @@ export function RoleGovernanceWorkspace({
       {snapshot.demo ? (
         <div className={`callout ${styles.demoCallout}`} role="status"><CircleAlert aria-hidden="true" /><span>目前為唯讀展示模式：姓名、角色、權限與申請皆為合成資料；建立申請與核准按鈕已停用，永不呼叫寫入 API。</span></div>
       ) : !hasRecentAal2 ? (
-        <div className={`callout ${styles.reauthCallout}`} role="status"><ShieldCheck aria-hidden="true" /><span>建立申請與核准都需要最近 15 分鐘內的雙因素重新驗證；API 與資料庫仍會再次核對不可變證據。</span><Link className="button button--secondary" href="/mfa?audience=staff">立即重新驗證</Link></div>
+        <div className={`callout ${styles.reauthCallout}`} role="status"><ShieldCheck aria-hidden="true" /><span>建立申請與核准都需要最近 15 分鐘內的雙因素重新驗證；API 與資料庫仍會再次核對不可變證據。</span><Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link></div>
       ) : null}
 
       <section aria-label="角色治理摘要" className={`metric-grid ${styles.metrics}`}>

@@ -2,28 +2,33 @@
 
 更新：2026-09-09（Asia/Taipei）。本文件不包含真實帳號識別值、Google subject、OAuth secret 或 Token。
 
-目前已完成 Google provider、首位管理員預建與正式入口啟用，正式按鈕可前往 Google 帳號選擇頁。**仍待執行長本人完成 OAuth、MFA 與工作台驗證；不代表已能使用全部功能或承載正式個案資料。**
+執行長本人已完成真實 Google OAuth，已確認 Google identity 與工作階段各 1 筆，並到達舊版 `/mfa`。使用者於 2026-09-09 16:10 明確要求取消登入第二層驗證；本機已改為 Google 登入後直接進工作台，重要操作仍另行驗證。**新版 build、SQL 驗證與正式發佈尚未全部完成；不能宣稱正式工作台已免登入 MFA，更不代表 89 頁全部免驗證、已完成正式營運驗收或可承載真實個案資料。**
 
 ## 範圍
 
 採用會計系統的「驗證 Google 身分 → 核准帳號綁定 → 機構角色／權限」模型；不修改會計系統、不共用兩個 Supabase 專案的 session、Auth UUID 或資料。日照只接受一名事先核准的執行長。
 
-登入授權不是臨床資格。既有 MFA、近期 AAL2、分支／個案範圍、專業資格、版本化簽署與第二位獨立覆核者的要求均保留。只有一名使用者時，需要第二人的流程仍不可完成。
+登入授權不是臨床資格。本次政策變更僅取消進入工作台的 MFA 門檻；寫入（含草稿）、敏感資料查閱、簽署、匯出、申報與權限調整仍依原有 AAL2／近期驗證、分支／個案範圍、專業資格、版本化簽署及獨立覆核條件執行。只有一名使用者時，需要第二人的流程仍不可完成。
 
 ## 已實作的安全邊界
 
+以下包含本機已完成、尚待此次正式發佈的登入政策調整；不可直接視為目前正式部署行為。
+
 - 正常登入頁只有 Google 入口，無密碼、手機、家屬或自行註冊入口；合成資料唯讀展示維持原有隔離。
 - `/auth/google` 僅接受同源 POST，使用固定站點與固定 callback，不接受瀏覽器指定 email、角色或回跳網址。
-- Supabase SDK 的 PKCE flowId 綁定短效 HttpOnly、Secure、SameSite=Lax cookie；callback 核對實際 user、JWT claims 與資料庫 allowlist，成功固定導向 `/mfa`。
+- Supabase SDK 的 PKCE flowId 綁定短效 HttpOnly、Secure、SameSite=Lax cookie；callback 核對實際 user、JWT claims 與資料庫 allowlist，成功固定導向 `/app/dashboard`，不再自動導向 MFA。
 - 拒絕時僅回傳固定、無個資的錯誤；清除本專案 Auth cookies，不干擾會計系統工作階段。
 - `private.executive_access_policy` 是只有一筆的封閉核准綁定；API 角色不能讀取或變更，缺少綁定即拒絕。
 - 比對固定日照 Auth UUID、email、Supabase 持有的 verified Google subject、實際 auth session 與 AMR；不依可編輯的 user metadata 授權。
 - 六個底層權限判斷加入相同入口限制，保留原 OID、ACL 與業務條件。MFA 入口與伺服器 tenant context 另行核對。
+- `requireTenantContext` 不再因真實 AAL1 而自動導向 MFA，也不把 AAL1 偽裝為 AAL2；`hasRecentAal2` 仍須取得原有伺服器／資料庫驗證證據。
+- 已授權人員直接開啟舊 `/mfa`、缺少或使用無效／多值 purpose 時，固定返回工作台，不掛載會啟動驗證器設定的元件。只有明確 `purpose=sensitive-action` 且通過伺服器授權，才顯示重要操作驗證頁。
+- 42 個既有重要操作／敏感資料查閱的手動驗證連結僅補上 purpose；不改變業務 canWrite、scope、專業資格或核准條件。驗證器標題改為「重要操作：設定驗證器」，保留既有設定、挑戰及驗證行為。
 - 外部 Google OAuth 憑證只可設定於 Supabase Auth；不得放入前端、公開 repository、Vercel 公開環境變數或紀錄檔。
 
 ## 前次停用發佈時的雲端狀態（歷史）
 
-以下是同日較早、公司 Google Cloud 尚未授權時的紀錄，已由下節目前狀態取代，不應再用來描述現在的入口。
+以下是同日較早、公司 Google Cloud 尚未授權時的紀錄，已由下節目前狀態取代，不應再用來描述現在的入口或帳號。
 
 - 正式網址：`https://daycare.suiyuecare.com`。
 - Supabase：既有專案 `mmxqxsokpcdvuzmdhptg`；未遷移區域、升級方案或建立付費資源。
@@ -42,8 +47,10 @@
 - 以單一、受稽核交易建立 active 真實機構／分支各 1 筆、profile 1 筆、membership 1 筆、既有 `organization_manager` 角色綁定 1 筆及 singleton allowlist 1 筆。核對固定日照 UUID／email／Google subject，但不在本文件或公開 source 記載其值。
 - 初始化共有 7 筆稽核：6 筆新增，加上既有角色觸發器造成的 membership 版本更新 1 筆。未新增臨床資格授權、護理／專業角色、證照或個案指派；臨床個案指派為 0，既有專業與獨立覆核條件不變。
 - 原有 inactive TEST 機構及隔離分支原封不動，未啟用、改名或轉為真實資料。新機構使用使用者已確認的名稱與臺北市資訊；UUID／slug 僅為內部識別碼。未知法定代碼、許可、地址與核定容量留空，未捏造正式機構核准版本。
-- `GOOGLE_LOGIN_ENABLED=true` 已重建並發佈；正式登入按鈕已啟用。已實測從正式入口前往 `accounts.google.com` 帳號選擇頁，這僅證明 OAuth 起始導向，不證明已完成 callback 交換、身分自動連結或登入。
-- Google identity 須由執行長本人後續完成真實 OAuth 才能建立。本人授權、首次 TOTP 設定／驗證、AAL2 工作台、直接 API／RLS 與登出撤銷仍待端到端驗證；不可宣稱全部功能已可使用。
+- `GOOGLE_LOGIN_ENABLED=true` 已於較早部署重建並發佈；正式登入按鈕已啟用。較早的帳號選擇頁探測與部署資料保留於下方歷史證據；不把它當成此次登入政策變更已發佈的證據。
+- 執行長本人現已完成真實 Google OAuth，雲端確認 Google identity 1 筆、session 1 筆，並到達舊版 `/mfa`。這次是真實身分連結與工作階段，不再是僅有預建帳號或 OAuth 起始導向；但工作台操作尚未完成端到端驗收。
+- 舊 MFA 頁自動設定產生 1 筆未驗證 TOTP，verified factor 為 0。依使用者取消登入第二層的要求，主代理透過受支援 Auth Admin API 撤銷該筆精確未驗證 factor；回讀 remaining factor 0、移除的 verified factor 0。過程未索取、記錄或代填使用者密碼／Token，亦未移除已驗證因素；不在文件記載帳號 UUID、Google subject 或 factor ID。
+- 目前沒有替本人完成 TOTP 驗證，也沒有把工作階段升級或偽裝為 AAL2。登入政策變更需與下節本機 migration／程式一起完成驗證及正式發佈；重要操作仍須符合各自原有條件。
 
 ## 外部待辦與啟用順序
 
@@ -53,8 +60,17 @@
 4. **已完成：**唯讀核對 Finance 核准執行長的 active 狀態與已驗證 Google identity，透過 Auth Admin API 預建單一、已確認 email 的日照帳號；不提供帳密登入、不寄測試信、不偽造 `auth.identities`。
 5. **已完成：**以單一交易建立實際機構／分支、profile、membership、既有 `organization_manager` 角色綁定及 singleton allowlist。不得將識別值提交到公開 source、啟用 TEST 機構或額外授予臨床資格。
 6. **已完成：**先確認 provider、固定 URI、預建單一帳號與核准綁定，再將 `GOOGLE_LOGIN_ENABLED=true`，重建、受保護驗證及發佈；此時才能提供真人 OAuth 入口。不能要求在入口停用時先完成真人 OAuth。
-7. **待本人完成：**由執行長親自選擇公司 Google 帳號並授權，讓 Supabase 建立／自動連結真實 Google identity，再核對原先固定的日照 UUID、email 與 subject；不得索取或代填帳號密碼、OTP 或驗證器密碼。
-8. **待驗證：**完成實際 Google → MFA 設定／登入 → 機構工作台 → API／RLS → 登出清除、session 撤銷的端到端驗證；測試其他 Google 帳號不得進入，且臨床資格、獨立覆核仍被阻擋。
+7. **已完成：**執行長親自選擇公司 Google 帳號並完成授權，Supabase 建立／自動連結真實 Google identity；雲端確認單一 identity 與 session，本人到達舊版 `/mfa`。未索取或代填帳號密碼、OTP 或驗證器密碼。
+8. **本機已修改、發佈未完成：**依使用者 16:10 的明確政策變更，將 Google callback 與已授權 AAL1 tenant context 改為進工作台，加入最小唯讀投影 migration，保留所有其他 AAL2／資格／覆核條件；完成 build、SQL 測試、審查與正式發佈後才記錄上線。
+9. **待新版正式驗證：**完成實際 Google → AAL1 工作台（沒有自動 QR／驗證器設定）→ 僅授權唯讀投影 → API／RLS → 登出清除／session 撤銷的端到端驗證。明確敏感操作才前往 `?purpose=sensitive-action`，其他 Google 帳號、未驗證寫入、臨床資格與第二人覆核缺漏仍須被阻擋；不可把一般登入改動當成全部功能免 MFA。
+
+## 登入政策變更與短版 release note（2026-09-09 16:10，尚未完成發佈）
+
+- **變更依據：**使用者明確取消登入時的第二層驗證，這是經授權的登入政策變更，不是用放寬安全條件掩蓋 Google 設定故障。
+- **本機程式：**Google callback 成功固定回工作台；AAL1 不再自動導向 MFA；一般 `/mfa` 不掛載設定元件，重要操作需明確 purpose。CEO 單人入口、資料隔離及建置驗證版「勿輸入真實個案資料」提示保留。
+- **本機資料庫：**新增 `20260909081737_executive_read_only_login.sql`，僅讓通過既有單人 Google gate 的 AAL1 取得 tenant／dashboard 所需唯讀投影。沒有授予新的角色、scope、臨床資格或寫入能力；寫入、草稿、敏感查閱、簽署、匯出、申報及權限流程仍依各自原有 AAL2／近期驗證與資格覆核條件拒絕不足授權。
+- **已確認的本機結果：**主流程 ESLint、TypeScript 與全套 Vitest 已通過；Vitest 為 304 檔／2,999 tests。針對登入／MFA／連結的測試亦已通過，不把重疊測試數相加當成不同案例。
+- **尚未完成的驗證／發佈：**正式 build 及新增 SQL suite 正在執行，尚未取得此次全部 SQL／build 通過、migration 正式套用、新部署或正式工作台實測證據。本節不填猜測的部署 ID、commit 或成功結果；下方較早部署證據不適用此版登入行為。
 
 ## 測試口徑
 
@@ -65,7 +81,7 @@
 
 ## 復原限制
 
-Google 設定失敗時維持登入停用與 default-deny，不得以重開密碼／手機、自行註冊、移除 gate 或降低 MFA 作為替代。登入問題不構成放寬臨床與簽署規則的理由。
+Google 設定失敗時維持登入停用與 default-deny，不得以重開密碼／手機、自行註冊或移除 gate 作為替代。本次僅有使用者明確授權的「取消登入 MFA、保留重要操作驗證」政策變更；不得擴大成其他 AAL2／近期驗證豁免。登入問題不構成放寬臨床、簽署或獨立覆核規則的理由。
 
 ## 前次停用狀態正式發佈證據（歷史）
 
@@ -87,7 +103,9 @@ Google 設定失敗時維持登入停用與 default-deny，不得以重開密碼
 - 尚未執行真人 Google → MFA → 機構頁測試，尚未完成公司 Cloud 授權或建立執行長帳號。**前台已發佈登入限制，不代表系統已可登入或可承載正式個案資料。**
 - 未推送 GitHub；程式與證據保留於隔離 release branch，原本的使用者 dirty checkout 未被覆寫。
 
-## 本次啟用入口的正式發佈證據（2026-09-09）
+## 較早啟用入口的正式發佈證據（2026-09-09，歷史）
+
+以下為此次 16:10 政策變更前的 Google → MFA 部署及其當時觀測，保留供追溯；不代表新版 Google → 工作台已發佈，也不代表最新 identity／factor 數量。
 
 - 正式網址：`https://daycare.suiyuecare.com`；部署 `dpl_3WsjAxQwn91rPhGyFRhubsiM8doC`，READY／production；Next.js `16.3.3`，建置部署約 39 秒。
 - 部署網址：`https://suiyue-daycare-preview-119756l9b-entrepreneur-9585s-projects.vercel.app`。
@@ -99,5 +117,5 @@ Google 設定失敗時維持登入停用與 default-deny，不得以重開密碼
 - 正式安全探測：跨來源 `POST /auth/google` 與無效 code 的 `/auth/callback` 均回傳 303、固定錯誤入口及 no-store；未授權 `POST /api/clients` 回傳 401／no-store。這些為本次 enabled 部署的實測，不沿用舊 disabled 部署結果。
 - 雲端唯讀確認：本次 onboarding 的六張資料表 RLS 均啟用；anon 無法讀取 allowlist，authenticated／service_role 無法更新 allowlist。既有 MFA、資料範圍與資料庫 gate 未放寬。
 - 該部署最近 10 分鐘錯誤紀錄查詢為 0 筆；僅代表本次觀測窗口，不能作為持續監控或 SLA 保證。
-- 本次最後核對時，真實 Google identity 為 0、MFA factor 為 0；仍等待本人完成 Google 授權及驗證器設定，不能以預建 Auth 帳號替代真人登入驗證。
-- **目前完成的是 provider 設定、預建授權與 OAuth 起始導向，不是本人登入成功。** 尚待使用者自行選帳號授權，完成 callback、自動連結、首次 MFA 與工作台驗證後，才能記錄該條完整登入流程通過；不得據此宣稱全部模組或正式個案作業已驗收。
+- 該次最後核對時，真實 Google identity 為 0、MFA factor 為 0；當時仍等待本人完成 Google 授權及驗證器設定，不能以預建 Auth 帳號替代真人登入驗證。最新已完成 OAuth 及清除未驗證因素的紀錄見上方目前雲端狀態。
+- **該次發佈僅完成 provider 設定、預建授權與 OAuth 起始導向，當時尚非本人登入成功。** 原先待本人完成 callback、自動連結、首次 MFA 與工作台的流程，現已由使用者明確變更為 Google → 工作台、重要操作另外驗證；舊部署證據不可用來宣稱新流程或全部模組／正式個案作業已驗收。

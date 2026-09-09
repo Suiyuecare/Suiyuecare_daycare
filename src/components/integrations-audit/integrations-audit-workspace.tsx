@@ -168,7 +168,7 @@ export function IntegrationsAuditWorkspace({ page, filters, snapshot, hasRecentA
   if (!hasRecentAal2) return <section className="empty-card core-care-state" role="alert">
     <ShieldCheck aria-hidden="true" /><h1>整合與稽核中心需要重新驗證</h1>
     <p>稽核查詢需要最近 15 分鐘、同一工作階段的雙因素驗證。驗證完成前不讀取或顯示稽核紀錄。</p>
-    <Link className="button button--primary" href="/mfa?audience=staff">立即重新驗證</Link>
+    <Link className="button button--primary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link>
   </section>;
   if (loadError || !snapshot) return <section className="empty-card core-care-state" role="alert">
     <AlertTriangle aria-hidden="true" /><h1>整合與稽核中心暫時無法載入</h1>
