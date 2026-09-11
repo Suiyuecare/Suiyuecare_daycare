@@ -27,6 +27,7 @@ import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import type { NavigationGroup } from "@/lib/catalog";
 import { appBranding } from "@/lib/config/branding";
 import type { TenantContext } from "@/lib/domain/types";
+import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/types";
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { BranchSwitcher } from "./branch-switcher";
@@ -49,10 +50,12 @@ const moduleIcons = {
 export function AppShell({
   context,
   navigation,
+  showStoreOverview = false,
   children,
 }: {
   context: TenantContext;
   navigation: readonly NavigationGroup[];
+  showStoreOverview?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -192,6 +195,11 @@ export function AppShell({
         <BranchSwitcher currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
           readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
         <nav className="sidebar__nav">
+          {showStoreOverview && <NavigationLink aria-current={pathname === STORE_OVERVIEW_PATH ? "page" : undefined}
+            className="nav-link" href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
+            onClick={() => closeMenu({ returnFocus: false })}>
+            <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
+          </NavigationLink>}
           {navigation.map((group) => {
             const Icon = moduleIcons[group.id];
             const expanded = openGroups.has(group.id);
@@ -229,7 +237,7 @@ export function AppShell({
           <div className="topbar__heading">
             <Image className="topbar__mobile-logo" src="/suiyue-logo-transparent.png" alt="" width={28} height={28} unoptimized />
             <span className="topbar__system">日照管理</span><span className="topbar__divider" aria-hidden="true">｜</span>
-            <span className="topbar__title">{activePage?.title ?? appBranding.applicationName}</span>
+            <span className="topbar__title">{showStoreOverview && pathname === STORE_OVERVIEW_PATH ? STORE_OVERVIEW_TITLE : activePage?.title ?? appBranding.applicationName}</span>
           </div>
           {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
           <div className="topbar__actions">{shortcuts.map((page) => <NavigationLink className="button button--secondary" href={`/app/${page.slug}`} key={page.number} loadingLabel={page.title}>{page.number === 1 ? "今日工作" : page.title}</NavigationLink>)}</div>

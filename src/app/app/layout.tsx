@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app/app-shell";
+import { canReadStoreOverview } from "@/lib/store-overview/access";
 import {
   filterNavigationByAccess,
   staffNavigationGroups,
@@ -10,8 +11,9 @@ import { SyntheticPreviewBanner } from "@/components/preview/synthetic-preview-b
 export default async function StaffLayout({ children }: LayoutProps<"/app">) {
   const context = await requireTenantContext("staff");
   const navigation = filterNavigationByAccess(staffNavigationGroups, context);
+  const showStoreOverview = await canReadStoreOverview(context);
   return (
-    <AppShell context={context} navigation={navigation}>
+    <AppShell context={context} navigation={navigation} showStoreOverview={showStoreOverview}>
       {isSyntheticPreviewMode() ? <SyntheticPreviewBanner /> : null}
       {children}
     </AppShell>

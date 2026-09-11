@@ -18,6 +18,11 @@ const serverEnvSchema = z.object({
   LINE_CHANNEL_SECRET: z.string().optional(),
   LINE_CHANNEL_ACCESS_TOKEN: z.string().optional(),
   SMS_PROVIDER: z.string().default("mock"),
+  FINANCE_STORE_SUMMARY_URL: z.string().optional(),
+  FINANCE_STORE_SUMMARY_TOKEN: z.string().optional(),
+  FINANCE_STORE_ORGANIZATION_ID: z.string().optional(),
+  FINANCE_STORE_BRANCH_ID: z.string().optional(),
+  FINANCE_STORE_ENTITY_ID: z.string().optional(),
   NEXT_PUBLIC_APP_ORIGIN: z.string().url().default("http://localhost:3000"),
 });
 
@@ -35,6 +40,11 @@ export const env = serverEnvSchema.parse({
   LINE_CHANNEL_SECRET: process.env.LINE_CHANNEL_SECRET,
   LINE_CHANNEL_ACCESS_TOKEN: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   SMS_PROVIDER: process.env.SMS_PROVIDER,
+  FINANCE_STORE_SUMMARY_URL: process.env.FINANCE_STORE_SUMMARY_URL,
+  FINANCE_STORE_SUMMARY_TOKEN: process.env.FINANCE_STORE_SUMMARY_TOKEN,
+  FINANCE_STORE_ORGANIZATION_ID: process.env.FINANCE_STORE_ORGANIZATION_ID,
+  FINANCE_STORE_BRANCH_ID: process.env.FINANCE_STORE_BRANCH_ID,
+  FINANCE_STORE_ENTITY_ID: process.env.FINANCE_STORE_ENTITY_ID,
   NEXT_PUBLIC_APP_ORIGIN: process.env.NEXT_PUBLIC_APP_ORIGIN,
 });
 

@@ -39,7 +39,9 @@ describe("isolated synthetic preview configuration", () => {
     "DATABASE_URL", "PGPASSWORD", "AWS_ACCESS_KEY_ID", "AWS_SHARED_CREDENTIALS_FILE",
     "AWS_WEB_IDENTITY_TOKEN_FILE", "HTML_ARCHIVE_BUCKET", "AWS_KMS_KEY_ID",
     "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN", "SMS_API_KEY",
-    "TWILIO_AUTH_TOKEN", "DOCUMENT_DOWNLOAD_SIGNING_SECRET", "SMS_PROVIDER"])(
+    "TWILIO_AUTH_TOKEN", "DOCUMENT_DOWNLOAD_SIGNING_SECRET", "SMS_PROVIDER",
+    "FINANCE_STORE_SUMMARY_URL", "FINANCE_STORE_SUMMARY_TOKEN", "FINANCE_STORE_ORGANIZATION_ID",
+    "FINANCE_STORE_BRANCH_ID", "FINANCE_STORE_ENTITY_ID"])(
     "rejects external setting %s without printing its value", (key) => {
       const secret = "do-not-echo-this-synthetic-value";
       try { validateSyntheticPreviewEnvironment({ ...preview, [key]: secret }); throw new Error("expected rejection"); }

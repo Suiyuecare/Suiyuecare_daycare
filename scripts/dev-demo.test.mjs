@@ -69,6 +69,11 @@ describe("safe local demo launcher", () => {
       "AWS_KMS_KEY_ID",
       "LINE_CHANNEL_SECRET",
       "LINE_CHANNEL_ACCESS_TOKEN",
+      "FINANCE_STORE_SUMMARY_URL",
+      "FINANCE_STORE_SUMMARY_TOKEN",
+      "FINANCE_STORE_ORGANIZATION_ID",
+      "FINANCE_STORE_BRANCH_ID",
+      "FINANCE_STORE_ENTITY_ID",
     ]));
   });
 
