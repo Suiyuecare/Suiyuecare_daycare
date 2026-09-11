@@ -26,8 +26,10 @@ export function ImportWorkspace() {
   const [serviceUnavailable, setServiceUnavailable] = useState(false);
   const uploadKey = useRef<string | null>(null);
   const reparseKey = useRef<string | null>(null);
+  const inFlight = useRef(false);
 
   function selectFile(event: ChangeEvent<HTMLInputElement>) {
+    if (inFlight.current) return;
     const selected = event.target.files?.[0] ?? null;
     setError(null);
     setNotice(null);
@@ -48,7 +50,8 @@ export function ImportWorkspace() {
   }
 
   async function upload() {
-    if (!file) return;
+    if (!file || inFlight.current) return;
+    inFlight.current = true;
     setPending(true);
     setError(null);
     setNotice(null);
@@ -60,6 +63,9 @@ export function ImportWorkspace() {
     body.set("idempotency_key", key);
 
     try {
+      const bytes = await file.arrayBuffer();
+      const fileSha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+        (value) => value.toString(16).padStart(2, "0")).join("");
       const response = await fetchWithTimeout("/api/imports/html", {
         method: "POST",
         headers: { "Idempotency-Key": key },
@@ -74,7 +80,7 @@ export function ImportWorkspace() {
         throw new Error(importErrorMessage(rawReceipt, "上傳結果無法確認；請保留檔案並以相同操作重試。"));
       }
       const receiptEnvelope = parseImportUploadEnvelope(rawReceipt, {
-        fileName: file.name, byteLength: file.size, httpStatus: response.status,
+        fileName: file.name, byteLength: file.size, fileSha256, httpStatus: response.status,
       });
       const previewResponse = await fetchWithTimeout(`/api/imports/${receiptEnvelope.data.batch.id}/preview`, { cache: "no-store" });
       const rawPreview: unknown = await previewResponse.json().catch(() => null);
@@ -88,18 +94,23 @@ export function ImportWorkspace() {
       const previewEnvelope = parseImportPreviewEnvelope(rawPreview, {
         batchId: receiptEnvelope.data.batch.id, httpStatus: previewResponse.status,
       });
+      if (previewEnvelope.data.batch.fileSha256 !== fileSha256 || previewEnvelope.data.batch.byteLength !== file.size) {
+        throw new Error("解析預覽與本次檔案不一致；請勿視為完成。");
+      }
       setPreview(previewEnvelope.data);
       setNotice(receiptEnvelope.data.duplicate ? "已找到相同檔案，未建立重複批次；僅載入解析預覽，正式入檔尚未完成。" : "已解析，可開始核對。正式入檔尚未完成，個案資料未更新。");
       uploadKey.current = null;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "匯入處理失敗，資料未變更。");
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   }
 
   async function reparse() {
-    if (!preview) return;
+    if (!preview || inFlight.current) return;
+    inFlight.current = true;
     setPending(true);
     setError(null);
     setNotice(null);
@@ -149,6 +160,7 @@ export function ImportWorkspace() {
     } catch (reparseError) {
       setError(reparseError instanceof Error ? reparseError.message : "重新解析結果未知；請以相同操作重試。");
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   }
@@ -164,7 +176,7 @@ export function ImportWorkspace() {
           <div className="panel__header"><div className="panel__title"><h2>1. 選擇中央系統下載檔</h2><p>支援 UTF-8 HTML，單檔上限 25MB</p></div><ShieldCheck /></div>
           <div className="panel__body">
             <label className="import-dropzone">
-              <input accept=".html,.htm,text/html" onChange={selectFile} type="file" />
+              <input accept=".html,.htm,text/html" disabled={pending} onChange={selectFile} type="file" />
               <span className="empty-card__icon"><UploadCloud /></span>
               <strong>{file ? file.name : "選擇或拖放 HTML 檔案"}</strong>
               <span>{file ? `${(file.size / 1024).toFixed(1)} KB・${preview ? "已取得解析預覽" : "尚未取得解析預覽"}` : "原始頁面不會在瀏覽器開啟，也不會連線到外部網址。"}</span>

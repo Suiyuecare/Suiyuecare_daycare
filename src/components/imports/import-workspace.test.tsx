@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { createHash, webcrypto } from "node:crypto";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImportWorkspace } from "./import-workspace";
 
@@ -12,7 +13,7 @@ const batch = {
   status: "parsed",
   fileName: "sample.html",
   byteLength: 31,
-  fileSha256: "a".repeat(64),
+  fileSha256: createHash("sha256").update(`<html>${"x".repeat(18)}</html>`).digest("hex"),
   contentFingerprint: "b".repeat(64),
   mappingVersion: "central-care-plan-html@1",
   createdAt: "2026-09-01T00:00:00.000Z",
@@ -37,6 +38,21 @@ function envelope(data: unknown) {
   return { requestId: "80000000-0000-4000-8000-000000000002", status: "ok", data, errors: [] };
 }
 
+beforeEach(() => {
+  vi.stubGlobal("crypto", webcrypto);
+  // jsdom's File lacks arrayBuffer; use its real FileReader, not fake content bytes.
+  vi.stubGlobal("File", class extends File {
+    override arrayBuffer(): Promise<ArrayBuffer> {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer).buffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(this);
+      });
+    }
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -44,6 +60,73 @@ afterEach(() => {
 });
 
 describe("ImportWorkspace retry boundary", () => {
+  it("rejects a same-name, same-size upload receipt with different bytes before requesting its preview", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(envelope({
+      status: "parsed", duplicate: false, replayed: false, batch: { ...batch, fileSha256: "c".repeat(64) },
+    })), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(envelope({
+        status: "parsed", duplicate: false, replayed: true, batch,
+      })), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(envelope({
+        batch, sections: [], fields: [], warnings: [], conflicts: [],
+      })), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ImportWorkspace />);
+    fireEvent.change(screen.getByLabelText(/選擇或拖放 HTML 檔案/u), {
+      target: { files: [new File([`<html>${"x".repeat(18)}</html>`], "sample.html", { type: "text/html" })] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "上傳並預覽" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("請勿視為完成");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("heading", { name: "2. 解析預覽" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上傳並預覽" }));
+    expect(await screen.findByRole("heading", { name: "2. 解析預覽" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1]![1]!.headers["Idempotency-Key"]).toBe(fetchMock.mock.calls[0]![1]!.headers["Idempotency-Key"]);
+  });
+
+  it("accepts a renamed duplicate replay only after hashing the selected file", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(envelope({
+        status: "duplicate", duplicate: true, replayed: true, batch: { ...batch, status: "duplicate" },
+      })), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(envelope({
+        batch, sections: [], fields: [], warnings: [], conflicts: [],
+      })), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ImportWorkspace />);
+    fireEvent.change(screen.getByLabelText(/選擇或拖放 HTML 檔案/u), {
+      target: { files: [new File([`<html>${"x".repeat(18)}</html>`], "renamed.html", { type: "text/html" })] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "上傳並預覽" }));
+    expect(await screen.findByRole("heading", { name: "2. 解析預覽" })).toBeInTheDocument();
+    expect(screen.getByText(/已找到相同檔案，未建立重複批次/u)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks file replacement and duplicate submissions while an upload is unresolved", async () => {
+    let resolveResponse!: (response: Response) => void;
+    const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>((resolve) => { resolveResponse = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ImportWorkspace />);
+    const input = screen.getByLabelText(/選擇或拖放 HTML 檔案/u);
+    fireEvent.change(input, {
+      target: { files: [new File([`<html>${"x".repeat(18)}</html>`], "sample.html", { type: "text/html" })] },
+    });
+    const upload = screen.getByRole("button", { name: "上傳並預覽" });
+    fireEvent.click(upload);
+    fireEvent.click(upload);
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { files: [new File(["other bytes"], "other.html", { type: "text/html" })] } });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("sample.html")).toBeInTheDocument();
+    expect(screen.queryByText("other.html")).not.toBeInTheDocument();
+    resolveResponse(new Response("{}", { status: 200 }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("請勿視為完成");
+    expect(input).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("describes all three stages before upload without adding a promotion action", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -82,7 +165,7 @@ describe("ImportWorkspace retry boundary", () => {
     const stagedBatch = { ...batch, status: "imported" };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(envelope({
-        status: "imported", duplicate: true, replayed: false, batch: stagedBatch,
+        status: "duplicate", duplicate: true, replayed: false, batch: { ...stagedBatch, status: "duplicate" },
       })), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify(envelope({
         batch: stagedBatch, sections: [], fields: [], warnings: [], conflicts: [],
@@ -97,7 +180,7 @@ describe("ImportWorkspace retry boundary", () => {
     expect(screen.getByText(/已找到相同檔案，未建立重複批次；僅載入解析預覽，正式入檔尚未完成/u)).toBeInTheDocument();
     expect(screen.queryByText("已匯入")).not.toBeInTheDocument();
     expect(screen.getByText("imported").closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText("a".repeat(64)).closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(batch.fileSha256).closest("details")).not.toHaveAttribute("open");
     expect(screen.queryByRole("button", { name: /核准|正式入檔/u })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
