@@ -69,7 +69,7 @@
 
 - **變更依據：**使用者明確取消登入時的第二層驗證，這是經授權的登入政策變更，不是用放寬安全條件掩蓋 Google 設定故障。
 - **已發佈程式：**Google callback 成功固定回工作台；AAL1 不再自動導向 MFA；已授權人的一般 `/mfa` 不掛載設定元件，重要操作需明確 purpose。CEO 單人入口、資料隔離及建置驗證版「勿輸入真實個案資料」提示保留。
-- **資料庫版本對照：**本機 migration 為 `20260909081737_executive_read_only_login.sql`；hosted migration 已套用，version 為 `20260909083009`、name 為 `executive_read_only_login`。僅讓通過既有單人 Google gate 的 AAL1 取得 tenant／dashboard 所需唯讀投影，沒有授予新角色、scope、臨床資格或寫入能力。
+- **資料庫版本對照：**原本本機 migration 為 `20260909081737_executive_read_only_login.sql`；hosted version 為 `20260909083009`、name 為 `executive_read_only_login`。2026-09-13 確認兩邊 SQL 內容雜湊完全相同後，僅將本機檔名對齊為 `20260909083009_executive_read_only_login.sql`，未修改 hosted 歷程或 SQL。僅讓通過既有單人 Google gate 的 AAL1 取得 tenant／dashboard 所需唯讀投影，沒有授予新角色、scope、臨床資格或寫入能力。
 - **雲端唯讀邊界核對：**新增 12 個 SELECT policy、non-SELECT policy 0 個；authenticated 對原始 `public.clients` 的 SELECT 權限仍為 false，`active_memberships` 維持 `security_invoker` 與 `security_barrier`。寫入、草稿、敏感查閱、簽署、匯出、申報及權限流程仍依各自原有 AAL2／近期驗證及資格覆核條件執行。
 - **變更前後指紋一致：**原 write policy 定義 MD5 為 `d0e56975d239de3b6de4529cd8c161fe`；7 個 write／gate authority 定義 MD5 為 `169d2bb810859d35f0467376c9016d36`，均與部署前一致。這些是程式／policy 定義比對證據，不是使用者、文件或簽署內容雜湊。
 - **全套本機驗證：**ESLint、TypeScript、304 檔／2,999 項 Vitest 及 build 通過。全套資料庫為 97 migrations 編譯、95 份 SQL 測試／4,004 assertions 通過；其中 2 份未修改 gate 的正式 enforcement suites 共 225 項，另 93 份 legacy 業務回歸共 3,779 項，兩者口徑不可混用。針對性測試與全套重疊，不再相加。

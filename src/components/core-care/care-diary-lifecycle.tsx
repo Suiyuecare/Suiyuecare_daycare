@@ -44,8 +44,12 @@ function DiaryEditor({ record, pending, onSave, onCancel }: { record: DiaryRecor
   </fieldset></form>;
 }
 
-type LifecycleProps = { clientId?: string; enabled: boolean; canSign: boolean; demo: boolean };
+type LifecycleProps = { clientId?: string; readEnabled?: boolean; enabled: boolean; canSign: boolean; demo: boolean };
 export function CareDiaryLifecycle(props: LifecycleProps) {
+  if (props.readEnabled === false) return <section className="panel" aria-labelledby="diary-read-mode-title">
+    <h2 id="diary-read-mode-title">日誌操作目前為查看模式</h2>
+    <p>可在下方查看既有日誌摘要；編輯、提交與簽署需要對應權限及身分驗證。</p>
+  </section>;
   return <CareDiaryClientLifecycle key={`${props.clientId ?? "none"}:${props.demo}`} {...props} />;
 }
 

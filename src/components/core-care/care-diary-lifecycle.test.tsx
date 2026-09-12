@@ -14,6 +14,21 @@ function mount() { return render(<CareDiaryLifecycle clientId={id} enabled canSi
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 beforeEach(() => { refresh.mockReset(); vi.spyOn(window, "confirm").mockReturnValue(true); });
 describe("care diary completion UI", () => {
+  it("shows read-mode guidance without fetching protected operations", () => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    render(<CareDiaryLifecycle clientId={id} readEnabled={false} enabled={false} canSign={false} demo={false} />);
+    expect(screen.getByRole("heading", { name: "日誌操作目前為查看模式" })).toBeVisible();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("unmounts loaded observations when operational access is lost", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(snapshot()); vi.stubGlobal("fetch", fetch);
+    const view = mount(); await screen.findByText("合成觀察");
+    view.rerender(<CareDiaryLifecycle clientId={id} readEnabled={false} enabled={false} canSign={false} demo={false} />);
+    expect(screen.queryByText("合成觀察")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "日誌操作目前為查看模式" })).toBeVisible();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it("rejects a valid-looking snapshot for another client before displaying its observations", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(snapshot({ ...record, client_id: nextId }))); mount();
     expect(await screen.findByRole("alert")).toHaveTextContent("目前無法載入日誌");
