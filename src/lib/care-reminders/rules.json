@@ -1,0 +1,6 @@
+[
+  {"id":"cms.explicit_meal_assistance","section":"ASSESSMENT_E","labels":["進食","吃飯","E1.吃飯 ※ (不包含自行準備食物、餐具或盛裝食物等)"],"values":["需要協助","需部分協助","完全依賴","2.需要一些協助 ※ 5分"],"title":"進食協助需確認","text":"請依現行已核准照顧計畫確認進食協助方式；本提醒不指定飲食質地或改變餐食。"},
+  {"id":"cms.explicit_transfer_assistance","section":"ASSESSMENT_E","labels":["移位","上下床移位","E8.移位"],"values":["需要協助","需部分協助","完全依賴","2.移位時需少部分協助或提醒 ※ 10分"],"title":"移位協助需確認","text":"移位前請確認現行照顧計畫中的協助方式、人力與輔具；未確認時請詢問負責專業人員。"},
+  {"id":"cms.explicit_toileting_assistance","section":"ASSESSMENT_E","labels":["如廁","上廁所","E7.上廁所"],"values":["需要協助","需部分協助","完全依賴","2.需協助整理衣物或使用衛生紙或需協助清理便盆(尿壺) ※ 5分"],"title":"如廁協助需確認","text":"請依現行照顧計畫確認如廁協助與隱私安排，並記錄當次實際觀察。"},
+  {"id":"cms.explicit_communication_assistance","section":"ASSESSMENT_C","labels":["溝通能力","表達能力","C4.個案表達能力(包含語言或非語言)"],"values":["需要協助","需部分協助","無法表達","2.僅可表達簡單的意思","3.雖能表達簡單的意思,但多數難以理解"],"title":"溝通方式需確認","text":"照顧前請確認個案適用的溝通方式，給予表達時間；無法確認需求時請向負責人核對。"}
+]

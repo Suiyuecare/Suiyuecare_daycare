@@ -82,7 +82,8 @@ describe("daily care selected-client handoff and source boundaries", () => {
     expect(screen.getByRole("button", { name: "新增日誌草稿" })).toBeDisabled();
     expect(screen.getByText(/新增紀錄需要對應權限及身分驗證/u)).toBeVisible();
     const rules = screen.getByText("查看身分驗證與資料規則").closest("details")!;
-    expect(rules.textContent).toContain("AAL2");
+    expect(rules.textContent).toContain("身分驗證");
+    expect(rules.textContent).not.toContain("AAL2");
     expect(rules.textContent).toContain("最近 15 分鐘");
   });
 });

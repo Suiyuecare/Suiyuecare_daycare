@@ -8,6 +8,7 @@ import {
   readJsonObject,
 } from "@/lib/integrations/http";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { assertOfflineCareScope } from "@/lib/offline/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +69,7 @@ function attendanceFailure(errorCode?: string) {
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
     const actor = await authorizeStaffRequest();
+    assertOfflineCareScope(request, actor);
     if (!actor.demo && !actor.scopes.includes("attendance.write")) {
       throw new IntegrationError(
         "ATTENDANCE_NOT_AUTHORIZED",

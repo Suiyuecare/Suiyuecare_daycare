@@ -30,6 +30,8 @@ export type MeasurementSourceRow = {
 
 export type CareDiarySourceRow = {
   id: string;
+  record_key?: string;
+  version?: number;
   client_id: string;
   status: DailyCareDiarySummary["status"];
   occurred_at: string;

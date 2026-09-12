@@ -21,6 +21,7 @@ import type {
   DailyClientSummary,
 } from "@/lib/core-care/types";
 import { dailyWorkflowHref, type DailyWorkflowPage } from "@/lib/core-care/workflow-links";
+import type { ReactNode } from "react";
 
 type Metric = { label: string; value: string; unit: string; foot: string };
 
@@ -154,6 +155,8 @@ export function CoreDailyWorkspace({
   snapshot,
   loadError = false,
   canViewManagementDetails = false,
+  clientAttention,
+  diaryLifecycle,
 }: {
   page: PageCatalogEntry;
   moduleTitle: string;
@@ -163,6 +166,8 @@ export function CoreDailyWorkspace({
   snapshot: DailyCareSnapshot | null;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
+  clientAttention?: ReactNode;
+  diaryLifecycle?: ReactNode;
 }) {
   const workflowPage = page.number as DailyWorkflowPage;
   const visibleClients = snapshot?.sourceAccess.clients ? snapshot.clients.map((client) => ({
@@ -189,11 +194,11 @@ export function CoreDailyWorkspace({
     } : null,
   }] : [];
   const composer = snapshot && selectedClient && pageSourceAllowed ? (
-    page.number === 3 ? <VitalSignComposer clients={composerClients} demo={snapshot.demo} enabled={canWrite}
+    page.number === 3 ? <VitalSignComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
       serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} />
-      : page.number === 6 ? <CareDiaryComposer clients={composerClients} demo={snapshot.demo} enabled={canWrite}
+      : page.number === 6 ? <CareDiaryComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
         serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} />
-        : page.number === 46 ? <AttendanceComposer clients={composerClients} demo={snapshot.demo} enabled={canWrite}
+        : page.number === 46 ? <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
           serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} /> : null
   ) : null;
 
@@ -226,7 +231,9 @@ export function CoreDailyWorkspace({
         <>
           <ClientContinuation key={`${serviceDate}:${selectedClientId ?? "none"}`} page={workflowPage}
             clients={visibleClients} selectedClientId={selectedClientId} serviceDate={snapshot.serviceDate} sourceAccess={snapshot.sourceAccess} action={composer} />
-          <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>更新於 {generatedAt}；未接今日排程，請先確認服務安排。</span></div>
+          {selectedClient && pageSourceAllowed ? clientAttention : null}
+          {selectedClient && page.number === 6 && pageSourceAllowed ? diaryLifecycle : null}
+          <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>更新於 {generatedAt}；本頁依服務日期顯示紀錄，當班安排請看「今日工作」。</span></div>
           {!canWrite ? <p className="callout core-care-callout" role="status">目前僅可查看；新增紀錄需要對應權限及身分驗證。補登與簽署另有驗證及覆核要求。</p> : null}
 
           {metrics.length ? <section aria-label="本頁摘要" className="metric-grid core-care-metrics">
@@ -284,7 +291,7 @@ export function CoreDailyWorkspace({
               <div className="panel__body"><section className="empty-card core-care-state"><Database aria-hidden="true" /><h2>這個服務日沒有可存取個案</h2><p>請確認分支、指派範圍與收案狀態；系統不會自動改查其他分支。</p></section></div>
             )}
           </section> : !invalidSelection && snapshot.sourceAccess.clients ? <section className="empty-card core-care-state" role="status"><ShieldCheck aria-hidden="true" /><h2>目前沒有本頁資料查看權限</h2><p>請聯絡主管確認權限。未取得的資料不會顯示成 0 或標示完成。</p></section> : null}
-          <details className="panel"><summary>查看身分驗證與資料規則</summary><div className="panel__body"><p>新增仍須具備對應寫入權限及 AAL2；補登、簽署等重要操作另須最近 15 分鐘重新驗證與適用覆核。無查閱權限不代表沒有紀錄，尚未發布的分母或異常門檻不會自行推算。</p>
+          <details className="panel"><summary>查看身分驗證與資料規則</summary><div className="panel__body"><p>新增仍須具備對應寫入權限及身分驗證；補登、簽署等重要操作另須最近 15 分鐘重新驗證與適用覆核。無查閱權限不代表沒有紀錄，尚未發布的分母或異常門檻不會自行推算。</p>
             {canViewManagementDetails ? <><p>{page.description}</p><p>來源更新時間：{snapshot.generatedAt}；同一服務日資料不等於已完成簽署或正式申報。</p></> : null}
           </div></details>
         </>

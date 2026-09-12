@@ -14,6 +14,7 @@ import type { ImportPreview } from "@/lib/imports/types";
 import { ImportReadinessPanel } from "./import-readiness-panel";
 import { ImportNextSteps, ImportStages } from "./import-stages";
 import styles from "./import-readiness.module.css";
+import { ImportReminderPreview } from "@/components/care-reminders/import-reminder-preview";
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
@@ -217,6 +218,7 @@ function ImportPreviewPanel({ preview }: { preview: ImportPreview }) {
       <ImportReadinessPanel key={`${preview.batch.id}:${preview.batch.version}`} input={{ fields: preview.fields,
         sections: preview.sections, warnings: preview.warnings, conflictCount: preview.conflicts.length,
         mappingVersion: preview.batch.mappingVersion }} />
+      <ImportReminderPreview preview={preview} />
     </section>
   );
 }

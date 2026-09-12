@@ -30,6 +30,7 @@ import type { TenantContext } from "@/lib/domain/types";
 import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/types";
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavigationLink } from "./navigation-link";
 
@@ -62,6 +63,9 @@ export function AppShell({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [compactNavigation, setCompactNavigation] = useState(false);
+  const [logoutState, setLogoutState] = useState<"idle" | "working" | "attention">("idle");
+  const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
+  const logoutRunning = useRef(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuOpener = useRef<HTMLButtonElement | null>(null);
   const menuClose = useRef<HTMLButtonElement>(null);
@@ -158,12 +162,30 @@ export function AppShell({
       router.refresh();
       return;
     }
-    await clearOfflineDrafts().catch(() => undefined);
-    await fetchWithTimeout("/api/context/branch", { method: "DELETE" }, 10_000).catch(() => undefined);
-    const supabase = createBrowserSupabaseClient();
-    if (supabase) await supabase.auth.signOut({ scope: "local" });
-    router.replace("/login");
-    router.refresh();
+    if (logoutRunning.current) return;
+    logoutRunning.current = true;
+    // Remove the entire patient/employee shell immediately, before network or
+    // IndexedDB work. A failed cleanup never restores the old sensitive view.
+    setMenuOpen(false); setLogoutState("working"); setLogoutResult(null);
+    const result = await runLogoutTasks({
+      clearCache: async () => { await clearOfflineDrafts(); return true; },
+      clearBranch: async () => {
+        const response = await fetchWithTimeout("/api/context/branch", { method: "DELETE" }, 10_000);
+        if (!response.ok) return false;
+        const receipt = await response.json();
+        return receipt?.status === "ok" && receipt?.data?.cleared === true;
+      },
+      signOut: async () => {
+        const supabase = createBrowserSupabaseClient();
+        if (!supabase) return false;
+        const response = await supabase.auth.signOut({ scope: "local" });
+        return !response.error;
+      },
+    });
+    logoutRunning.current = false;
+    if (result.cacheCleared && result.branchCleared && result.signedOut) {
+      router.replace("/login"); router.refresh();
+    } else { setLogoutResult(result); setLogoutState("attention"); }
   }
 
   const dateLabel = new Intl.DateTimeFormat("zh-TW", {
@@ -172,6 +194,19 @@ export function AppShell({
     day: "numeric",
     weekday: "short",
   }).format(new Date());
+
+  if (logoutState !== "idle") return <main className="main-stage" id="main-content" tabIndex={-1}>
+    <section className="empty-card" role={logoutState === "working" ? "status" : "alert"}>
+      <h1>{logoutState === "working" ? "正在安全登出" : "登出尚有事項需要確認"}</h1>
+      <p>本分頁已停止顯示個案與員工資料。</p>
+      {logoutState === "working" ? <p>正在清理裝置資料並結束登入；請稍候。</p> : <>
+        {!logoutResult?.cacheCleared && <p>裝置草稿尚未確認清除。請先重試；若仍失敗，請關閉其他日照系統分頁，並在瀏覽器設定中清除此網站的資料。完成前請勿將裝置交給他人或重新登入。</p>}
+        {!logoutResult?.signedOut && <p>尚未確認登入已結束，請保持此畫面並重試登出。</p>}
+        {!logoutResult?.branchCleared && <p>尚未確認作業分支狀態已清除，請一併重試。</p>}
+        <button className="button button--primary" type="button" onClick={logout}>重試清理並登出</button>
+      </>}
+    </section>
+  </main>;
 
   return (
     <div className="app-shell">

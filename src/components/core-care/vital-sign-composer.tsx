@@ -7,8 +7,12 @@ import { useRouter } from "next/navigation";
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { useCoreDraftGuard } from "./client-continuation";
 import { CoreCareReceiptError, parseVitalWriteReceipt } from "@/lib/core-care/write-receipts";
+import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
+import { useCareWriteAttempt } from "./use-care-write-attempt";
+import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
 
 type ClientOption = { id: string; name: string; code: string };
+type VitalRequest = { client_id: string; measured_at: string; values: Record<string, number> };
 
 function defaultTaipeiLocal(serviceDate: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -61,6 +65,9 @@ export function VitalSignComposer({
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
   const draft = useCoreDraftGuard();
+  const attempt = useCareWriteAttempt<VitalRequest>();
+  const offline = useOfflineCareForm({ kind: "vital-sign", serviceDate, enabled, demo,
+    allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +76,7 @@ export function VitalSignComposer({
   function open(event: MouseEvent<HTMLButtonElement>) {
     if (!enabled || unavailableSelection) return;
     trigger.current = event.currentTarget;
+    if (attempt.current()) { dialog.current?.showModal(); return; }
     formRef.current?.reset();
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
@@ -77,6 +85,8 @@ export function VitalSignComposer({
   }
 
   function close() {
+    if (pending) return;
+    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆量測結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
     if (!draft.discard()) return;
     dialog.current?.close();
   }
@@ -84,8 +94,9 @@ export function VitalSignComposer({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
+    const prior = attempt.current();
     const data = new FormData(form);
-    const clientId = String(data.get("client_id") ?? "");
+    const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
     if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
       setError("請重新選擇目前授權的個案；尚未送出量測。");
       return;
@@ -94,33 +105,38 @@ export function VitalSignComposer({
     setPending(true);
     setError(null);
     try {
-      const values = {
+      const values = prior?.body.values ?? {
         systolic: optionalNumber(data, "systolic"),
         diastolic: optionalNumber(data, "diastolic"),
         pulse: optionalNumber(data, "pulse"),
         temperature: optionalNumber(data, "temperature"),
         oxygen_saturation: optionalNumber(data, "oxygen_saturation"),
       };
+      const body = prior?.body ?? {
+        client_id: clientId,
+        measured_at: taipeiLocalToIso(String(data.get("measured_at") ?? "")),
+        values: Object.fromEntries(Object.entries(values).filter((entry): entry is [string, number] => typeof entry[1] === "number")),
+      };
+      if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
+        draft.saved(); dialog.current?.close();
+        setNotice("量測已保存在裝置等待送出；尚未確認儲存到系統。重新連線後會自動重試。");
+        return;
+      }
+      const frozen = attempt.prepare(body, idempotencyKey.current);
       const response = await fetchWithTimeout("/api/measurements", {
         method: "POST",
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey.current,
+          "Idempotency-Key": frozen.key,
         },
-        body: JSON.stringify({
-          client_id: clientId,
-          measured_at: taipeiLocalToIso(
-            String(data.get("measured_at") ?? ""),
-          ),
-          values: Object.fromEntries(
-            Object.entries(values).filter(([, value]) => value != null),
-          ),
-        }),
+        body: frozen.serialized,
       });
-      if (!response.ok) throw new Error("SAVE_FAILED");
+      if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
       const raw: unknown = await response.json().catch(() => null);
       parseVitalWriteReceipt(raw, response.status, demo, values);
+      await offline.saved();
+      attempt.confirmed();
       form.reset();
       draft.saved();
       dialog.current?.close();
@@ -132,6 +148,8 @@ export function VitalSignComposer({
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
+      const uncertain = attempt.failed();
+      if (uncertain) await offline.retainUnconfirmed(uncertain.body);
       setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message
         : "量測尚未確認儲存。請檢查至少一項數值、成對血壓與最近 24 小時內的時間。保留內容直接重試，系統會辨識同一次送出。");
@@ -181,11 +199,13 @@ export function VitalSignComposer({
           ref={formRef}
           key={`${serviceDate}:${selectedClientId ?? "none"}`}
           onChange={() => {
+            if (attempt.current()) return;
             draft.changed();
             if (error) {
               idempotencyKey.current = crypto.randomUUID();
               setError(null);
             }
+            void offline.capture();
           }}
           onSubmit={submit}
         >
@@ -205,7 +225,10 @@ export function VitalSignComposer({
               <X aria-hidden="true" />
             </button>
           </header>
-          <fieldset className="drawer__body core-dialog__body core-dialog__fields" disabled={pending}>
+          {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
+          <div className="drawer__body core-dialog__body">
+          <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
+            <OfflineCareFormNotice offline={offline} onRestore={() => draft.changed()} />
             <div className="callout core-care-callout">
               <ShieldCheck aria-hidden="true" />
               <span>
@@ -261,12 +284,13 @@ export function VitalSignComposer({
               </p>
             ) : null}
           </fieldset>
+          </div>
           <footer className="drawer__footer">
             <button className="button button--secondary" disabled={pending} onClick={close} type="button">
-              取消
+              {attempt.locked && !pending ? "稍後處理" : "取消"}
             </button>
             <button className="button button--primary" disabled={pending} type="submit">
-              {pending ? "儲存中…" : "儲存量測"}
+              {pending ? "儲存中…" : attempt.locked ? "重試原量測" : "儲存量測"}
             </button>
           </footer>
         </form>

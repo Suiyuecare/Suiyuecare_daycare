@@ -3,6 +3,7 @@ import "server-only";
 import type { TenantContext } from "@/lib/domain/types";
 import { loadAllClientDirectoryRows } from "@/lib/clients/directory";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { latestDiaryRevisions } from "@/lib/care-diary/revisions";
 
 import { taipeiDayBoundsUtc } from "./date";
 import { isDailyWorkClient } from "./selection-query";
@@ -87,7 +88,7 @@ export async function loadDailyCareSnapshot(
       sourceAccess.careDiaries
         ? supabase
         .from("care_records")
-        .select("id, client_id, status, occurred_at, data")
+        .select("id, record_key, version, client_id, status, occurred_at, data")
         .eq("organization_id", context.organizationId)
         .eq("branch_id", context.branchId)
         .eq("category", "staff/daily-care/care-diary")
@@ -124,7 +125,7 @@ export async function loadDailyCareSnapshot(
     clients: clientRows,
     attendance: attendance.data ?? [],
     measurements: measurements.data ?? [],
-    careDiaries: careDiaries.data ?? [],
+    careDiaries: latestDiaryRevisions(careDiaries.data ?? []),
     serviceEvents: serviceEvents.data ?? [],
     sourceAccess,
   });

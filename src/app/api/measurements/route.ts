@@ -12,6 +12,7 @@ import {
   vitalSetDatabaseKey,
 } from "@/lib/integrations/measurements";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { assertOfflineCareScope } from "@/lib/offline/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ type VitalRpcRow = {
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
     const actor = await authorizeStaffRequest();
+    assertOfflineCareScope(request, actor);
     if (!actor.demo && !actor.scopes.includes("health.write")) {
       throw new IntegrationError(
         "MEASUREMENT_NOT_AUTHORIZED",

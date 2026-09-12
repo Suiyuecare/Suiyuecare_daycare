@@ -105,6 +105,9 @@ import {
   loadDailyCareSnapshot,
 } from "@/lib/core-care/snapshot";
 import { isCoreDailyPage } from "@/lib/core-care/types";
+import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
+import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
+import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
 import { isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
 import {
   filterBloodGlucoseSnapshot,
@@ -701,6 +704,7 @@ export default async function StaffCatalogPage({
     const serviceDate = parseServiceDate(
       typeof query.date === "string" ? query.date : undefined,
     );
+    const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
     let snapshot = null;
     let loadError = false;
     try {
@@ -715,6 +719,7 @@ export default async function StaffCatalogPage({
         loadError={loadError}
         serviceDate={serviceDate}
         snapshot={snapshot}
+        roster={await rosterPromise}
       />
     );
   }
@@ -1356,6 +1361,11 @@ export default async function StaffCatalogPage({
     }
     return (
       <CoreDailyWorkspace
+        clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
+          ? <CareReminderCard clientId={selectedClientId} context={context} /> : undefined}
+        diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
+          ? <CareDiaryLifecycle clientId={selectedClientId} enabled={context.demo || context.scopes.includes("care_records.write")}
+            canSign={context.demo || context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         canWrite={
           (page.number === 3 &&

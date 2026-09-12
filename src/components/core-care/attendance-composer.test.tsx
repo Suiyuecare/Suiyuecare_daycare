@@ -32,7 +32,7 @@ describe("attendance composer receipt boundary", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "確認簽到" }));
     await within(dialog).findByRole("alert");
     expect(dialog.hasAttribute("open")).toBe(true);
-    fireEvent.click(within(dialog).getByRole("button", { name: "確認簽到" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "重試原出勤" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const first = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
     const second = (fetchMock.mock.calls[1]![1] as RequestInit).headers as Record<string, string>;

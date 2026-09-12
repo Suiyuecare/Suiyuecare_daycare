@@ -99,7 +99,7 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);
     expect(field).toHaveValue(spec.kind === "vitals" ? null : "");
   });
-  it("reuses the same key for an unchanged uncertain result and rotates only when content changes", async () => {
+  it("freezes the same body and key after an uncertain result, even on attempted edits", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response("", { status: 503 })));
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
@@ -111,11 +111,13 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const keys = () => fetchMock.mock.calls.map((call) => ((call[1] as RequestInit).headers as Record<string, string>)["Idempotency-Key"]);
     expect(keys()[1]).toBe(keys()[0]);
+    expect(field).toBeDisabled();
     fireEvent.change(field, { target: { value: spec.kind === "vitals" ? "76" : "更正合成內容" } });
     fireEvent.submit(form);
     await within(dialog).findByRole("alert");
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(keys()[2]).not.toBe(keys()[1]);
+    expect(keys()[2]).toBe(keys()[1]);
+    expect((fetchMock.mock.calls[2]![1] as RequestInit).body).toBe((fetchMock.mock.calls[0]![1] as RequestInit).body);
     expect(dialog).toHaveAttribute("open");
   });
   it("blocks duplicate submit, edit and cancellation during a pending write, then releases the draft", async () => {
@@ -139,6 +141,46 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(false);
     expect(confirm).not.toHaveBeenCalled();
+  });
+  it("server commit then lost response, close/reopen and attempted edit still retries one exact operation", async () => {
+    const committed = new Map<string, string>();
+    let first = true;
+    const fetchMock = vi.fn().mockImplementation(async (_url, init: RequestInit) => {
+      const key = (init.headers as Record<string, string>)["Idempotency-Key"]!;
+      const body = String(init.body);
+      if (committed.has(key)) expect(body).toBe(committed.get(key)); else committed.set(key, body);
+      if (first) { first = false; throw new DOMException("Response lost after commit", "TimeoutError"); }
+      const receipt = await successfulResponse(spec, init).json();
+      receipt.data.replayed = true;
+      return new Response(JSON.stringify(receipt), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock); mount(spec.kind);
+    const { dialog, form, field } = open(spec);
+    fireEvent.submit(form); await within(dialog).findByRole("alert");
+    expect(field).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "稍後處理" }));
+    expect(dialog).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
+    expect(field).toBeDisabled();
+    fireEvent.change(field, { target: { value: spec.kind === "vitals" ? "99" : "不得另存" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+    expect(fetchMock).toHaveBeenCalledTimes(2); expect(committed.size).toBe(1);
+    expect((fetchMock.mock.calls[1]![1] as RequestInit).body).toBe((fetchMock.mock.calls[0]![1] as RequestInit).body);
+  });
+  it("permits correcting the first definite validation rejection", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ requestId: "synthetic-request", status: "error", data: null, errors: [{ code: "INVALID_FIELDS", message: "請檢查欄位" }] }), { status: 422 }))); mount(spec.kind);
+    const { dialog, form, field } = open(spec); fireEvent.submit(form); await within(dialog).findByRole("alert");
+    expect(field).toBeEnabled();
+  });
+  it("later validation rejection cannot unlock an earlier unknown attempt", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("Network lost")).mockResolvedValueOnce(new Response(JSON.stringify({ requestId: "synthetic-request", status: "error", data: null, errors: [{ code: "INVALID_FIELDS", message: "請檢查欄位" }] }), { status: 422 }))); mount(spec.kind);
+    const { dialog, form, field } = open(spec); fireEvent.submit(form); await within(dialog).findByRole("alert");
+    fireEvent.submit(form); await within(dialog).findByRole("alert"); expect(field).toBeDisabled();
+  });
+  it("bare intermediary 400 cannot unlock a potentially committed operation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>Bad request</html>", { status: 400 }))); mount(spec.kind);
+    const { dialog, form, field } = open(spec); fireEvent.submit(form); await within(dialog).findByRole("alert"); expect(field).toBeDisabled();
   });
 });
 
@@ -167,7 +209,7 @@ describe.each(specs.filter((spec) => spec.kind !== "attendance"))("$kind forged 
     expect(dialog).toHaveAttribute("open");
     expect(field).toHaveValue(spec.kind === "vitals" ? 75 : spec.value);
     expect(responses[0]!.bodyUsed).toBe(true);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("結果尚未確認");
     fireEvent.submit(form);
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("結果未知");
     expect(fetchMock).toHaveBeenCalledTimes(2);
