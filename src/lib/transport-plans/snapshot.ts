@@ -29,7 +29,7 @@ export async function loadTransportPlanSnapshot(
   }
   const supabase = await createServerSupabaseClient();
   if (!supabase) throw new TransportPlanSnapshotError();
-  const { data, error } = await supabase.rpc("transport_trip_plan_snapshot", {
+  const { data, error } = await supabase.rpc("transport_trip_plan_snapshot_v2", {
     p_expected_organization_id: context.organizationId,
     p_expected_branch_id: context.branchId, p_service_date: filters.serviceDate,
     p_direction: filters.direction, p_vehicle_query: filters.vehicleQuery,

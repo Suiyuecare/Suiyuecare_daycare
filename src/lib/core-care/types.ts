@@ -34,6 +34,15 @@ export type DailyClientSummary = {
   careDiary: DailyCareDiarySummary | null;
   completedServiceCount: number;
   sourceCoverage: number;
+  applicability?: DailyApplicability;
+  sourceAccess?: Omit<DailyCareSnapshot["sourceAccess"], "clients">;
+};
+
+export type DailyApplicability = {
+  attendance: "expected" | "not_expected" | "unknown";
+  care: "expected" | "not_expected" | "unknown";
+  reason: "scheduled" | "arrived" | "leave_or_absent" | "not_scheduled" | "history_only" | "unknown";
+  eligible: boolean;
 };
 
 export type DailyCareSnapshot = {

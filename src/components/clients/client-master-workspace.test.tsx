@@ -35,7 +35,7 @@ describe("client master workspace states", () => {
     expect(screen.queryByText("陳O華")).toBeNull();
   });
 
-  it("keeps DOB masked and the combined form disabled without field authority", () => {
+  it("keeps DOB masked and intake links hidden without field authority", () => {
     const demo = buildDemoClientMasterSnapshot();
     const snapshot = {
       ...demo,
@@ -57,10 +57,16 @@ describe("client master workspace states", () => {
     );
     expect(screen.getAllByText("依角色遮罩").length).toBeGreaterThan(0);
     expect(screen.queryByText("1944/02/14")).toBeNull();
-    expect(
-      screen.getByRole("button", {
-        name: /新增本機個案：此表單包含生日欄位/u,
-      }),
-    ).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("link", { name: "個案匯入與收案" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "核對／補充資料" })).toBeNull();
+  });
+
+  it("routes local and central cases through intake without requiring reauth for reading", () => {
+    const snapshot = { ...buildDemoClientMasterSnapshot(), demo: false, demographicsReadable: true };
+    render(<ClientMasterWorkspace canCreate canManage hasRecentAal2={false} page={page} query="" snapshot={snapshot} source="all" status="all" />);
+    const links = screen.getAllByRole("link", { name: "核對／補充資料" });
+    for (const client of snapshot.clients) expect(links.some((link) => link.getAttribute("href") === `/app/client-intake?client=${client.id}`)).toBe(true);
+    expect(screen.queryByRole("button", { name: "編輯本機欄位" })).toBeNull();
+    expect(screen.getByRole("link", { name: "個案匯入與收案" }).getAttribute("href")).toBe("/app/client-intake");
   });
 });

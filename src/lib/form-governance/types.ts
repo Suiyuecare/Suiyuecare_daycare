@@ -1,7 +1,7 @@
 export const FORM_VERSION_STATUSES = ["draft", "published", "retired"] as const;
 export type FormVersionStatus = (typeof FORM_VERSION_STATUSES)[number];
 
-export type FormPublicationStatus = "pending" | "approved";
+export type FormPublicationStatus = "pending" | "approved" | "withdrawn" | "returned";
 export type FormGovernanceScopeFilter = "all" | "tenant" | "official";
 export type FormGovernanceStatusFilter =
   | "all"
@@ -24,6 +24,12 @@ export type FormPublicationEvidence = {
   approvedAt: string | null;
   approverLabel: string | null;
   approvedByCurrentUser: boolean;
+  branchName?: string;
+  baseRevision?: number;
+  previousRequestId?: string | null;
+  decisionReason?: string | null;
+  decidedAt?: string | null;
+  decidedByCurrentUser?: boolean;
 };
 
 export type FormGovernanceVersion = {
@@ -42,6 +48,8 @@ export type FormGovernanceVersion = {
   publishedAt: string | null;
   contentHash: string | null;
   publication: FormPublicationEvidence | null;
+  draftRevision?: number;
+  customBuilderEligible?: boolean;
 };
 
 export type FormGovernanceMetrics = {

@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { delimiter } from "node:path";
+import http from "node:http";
+import https from "node:https";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ImportError } from "./errors";
 import {
@@ -258,7 +260,7 @@ describe("import lifecycle", () => {
         },
       },
     );
-    expect(approved.status).toBe("imported");
+    expect(approved).toMatchObject({ staging_only: true, formally_imported: false, batch: { status: "ready_for_approval" } });
   });
 
   it("masks sensitive preview values and approves atomically with recent AAL2", async () => {
@@ -283,7 +285,7 @@ describe("import lifecycle", () => {
       upload.batch.id,
       { idempotencyKey: "approve-1", conflictResolutions: {} },
     );
-    expect(approved.status).toBe("imported");
+    expect(approved).toMatchObject({ staging_only: true, formally_imported: false, batch: { status: "ready_for_approval" } });
     expect(repository.size).toBe(1);
   });
 
@@ -341,31 +343,45 @@ describe.skipIf(liveSamplePaths.length === 0)("local read-only golden samples", 
   )(
     "statically parses a local sample without external requests",
     (path, expectedCount, sampleNumber) => {
-      const bytes = readFileSync(path);
-      const result = parseCentralCareHtml(
-        validateHtmlImportFile({
-          fileName: "local-sample.html",
-          mimeType: "text/html",
-          bytes,
-        }),
-        CURRENT_MAPPING_VERSION,
-      );
-      expect(result.sections).toHaveLength(expectedCount);
-      expect(result.security.externalRequestCount).toBe(0);
-      if (process.env.IMPORT_SAMPLE_REPORT === "true") {
-        console.info(
-          JSON.stringify({
-            sample: sampleNumber,
-            sections: result.sections.length,
-            fields: result.fields.length,
-            warnings: result.warnings.length,
-            conflicts: result.conflicts.length,
-            scriptElementsBlocked: result.security.scriptElementsBlocked,
-            externalReferencesBlocked:
-              result.security.externalReferencesBlocked,
-            externalRequestCount: result.security.externalRequestCount,
+      const blockedRequest = () => { throw new Error("NETWORK_REQUEST_BLOCKED_DURING_STATIC_PARSE"); };
+      const networkSpies = [
+        vi.spyOn(globalThis, "fetch").mockImplementation(blockedRequest),
+        vi.spyOn(http, "request").mockImplementation(blockedRequest),
+        vi.spyOn(http, "get").mockImplementation(blockedRequest),
+        vi.spyOn(https, "request").mockImplementation(blockedRequest),
+        vi.spyOn(https, "get").mockImplementation(blockedRequest),
+      ];
+      try {
+        const bytes = readFileSync(path);
+        const result = parseCentralCareHtml(
+          validateHtmlImportFile({
+            fileName: "local-sample.html",
+            mimeType: "text/html",
+            bytes,
           }),
+          CURRENT_MAPPING_VERSION,
         );
+        // Count-only failure output must not serialize actual source sections.
+        expect(result.sections.length).toBe(expectedCount);
+        expect(result.security.externalRequestCount).toBe(0);
+        for (const spy of networkSpies) expect(spy.mock.calls.length).toBe(0);
+        if (process.env.IMPORT_SAMPLE_REPORT === "true") {
+          console.info(
+            JSON.stringify({
+              sample: sampleNumber,
+              sections: result.sections.length,
+              fields: result.fields.length,
+              warnings: result.warnings.length,
+              conflicts: result.conflicts.length,
+              scriptElementsBlocked: result.security.scriptElementsBlocked,
+              externalReferencesBlocked:
+                result.security.externalReferencesBlocked,
+              externalRequestCount: result.security.externalRequestCount,
+            }),
+          );
+        }
+      } finally {
+        for (const spy of networkSpies) spy.mockRestore();
       }
     },
   );

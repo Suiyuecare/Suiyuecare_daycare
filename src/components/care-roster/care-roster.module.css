@@ -1,0 +1,17 @@
+.composer { padding: 20px; margin-block: 20px; }
+.composer summary { min-height: 44px; cursor: pointer; font-weight: 800; }
+.composer form, .composer fieldset { display: grid; gap: 16px; min-width: 0; }
+.composer fieldset { border: 0; padding: 0; margin-block: 16px; }
+.composer legend { margin-bottom: 12px; font-weight: 800; }
+.composer input:not([type="checkbox"]), .composer select { min-width: 0; width: 100%; font-size: 16px; }
+.composer :global(.checkbox-field) { display: flex; align-items: center; min-height: 44px; gap: 10px; font-size: 16px; line-height: 1.5; }
+.composer :global(.checkbox-field) input { width: 20px; height: 20px; flex: 0 0 20px; }
+.slots { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 12px; grid-column: 1 / -1; }
+.slots section { background: var(--surface-soft, #fff6e8); border-radius: 12px; padding: 12px; }
+.slots h4 { margin: 0 0 8px; font-size: 16px; }
+.slots ul { margin: 0; padding-left: 20px; line-height: 1.8; }
+.blocked { padding: 16px; border: 1px solid var(--border-color, #f2cdae); border-radius: 12px; }
+.blocked h3, .blocked p { margin-block: 0 12px; }
+.blocked ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; }
+.blocked li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+@media(min-width: 700px) { .composer :global(.form-grid) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; } .composer :global(.form-grid) fieldset, .composer :global(.form-grid) > :global(.checkbox-field) { grid-column: 1 / -1; } }

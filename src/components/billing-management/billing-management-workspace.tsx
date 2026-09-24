@@ -74,7 +74,7 @@ export function BillingManagementWorkspace({ canAdjust, canManage, canReconcile,
       <AlertTriangle aria-hidden="true" /></span><p className="eyebrow">載入失敗、無權限或篩選無效</p>
     <h1 id="billing-management-load-error">無法取得一致帳務快照</h1>
     <p>系統不會顯示未通過機構、分支、近期同工作階段 AAL2 與 billing.read 驗證的局部財務資料。</p>
-    <div><Link className="button button--primary" href="/mfa?audience=staff">重新完成雙重驗證</Link>{" "}
+    <div><Link className="button button--primary" href="/mfa?audience=staff&purpose=sensitive-action">重新完成雙重驗證</Link>{" "}
       <Link className="button button--secondary" href={basePath}>重新載入</Link></div></section>;
 
   return <div className={styles.workspace}>

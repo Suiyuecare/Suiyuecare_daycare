@@ -21,6 +21,7 @@ import type {
 const HISTORY_PAGE_SIZE = 50;
 
 export type ClientLifecycleReadOptions = {
+  clientId?: string | null;
   query: string;
   status: ClientLifecycleStatusFilter;
   eventKind: "all" | ClientTransitionKind;
@@ -56,6 +57,7 @@ function matchingClientIds(
           .toLocaleLowerCase("zh-TW")
           .includes(normalized);
       return (
+        (!options.clientId || client.id === options.clientId) &&
         matchesQuery &&
         (options.status === "all" ||
           clientServiceState({
@@ -139,7 +141,7 @@ export async function loadClientLifecycleSnapshot(
   let historyTotal = 0;
 
   const requiresClientFilter =
-    Boolean(options.query.trim()) || options.status !== "all";
+    Boolean(options.clientId) || Boolean(options.query.trim()) || options.status !== "all";
   if (clientIds.length || !requiresClientFilter) {
     const offset = (options.page - 1) * HISTORY_PAGE_SIZE;
     const fetchHistory = async (

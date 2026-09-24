@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import type { ImportBatchStatus } from "@/lib/domain/types";
 
@@ -14,6 +15,7 @@ import type {
   ImportBatchSummary,
   ImportPreview,
   ImportScope,
+  ImportStagingApprovalReceipt,
   ImportUploadReceipt,
   ReparseImportInput,
   SupportedMappingVersion,
@@ -121,7 +123,8 @@ export async function uploadHtmlImport(
   const validated = validateHtmlImportFile(file);
   const replay = await repository.findByOperationKey(actor, idempotencyKey);
   if (replay) {
-    if (replay.fileSha256 !== validated.sha256) {
+    if (replay.request.fileSha256 !== validated.sha256 ||
+        replay.request.fileName !== validated.fileName || replay.request.mimeType !== validated.mimeType) {
       throw new ImportError(
         "IDEMPOTENCY_KEY_REUSED",
         "同一冪等鍵不可用於不同內容的檔案。",
@@ -130,10 +133,10 @@ export async function uploadHtmlImport(
       );
     }
     return {
-      status: replay.status,
-      duplicate: false,
+      status: replay.duplicate ? "duplicate" : replay.batch.status,
+      duplicate: replay.duplicate,
       replayed: true,
-      batch: summarizeImportBatch(replay),
+      batch: summarizeImportBatch(replay.batch, replay.duplicate ? "duplicate" : undefined),
     };
   }
 
@@ -142,11 +145,14 @@ export async function uploadHtmlImport(
     validated.sha256,
   );
   if (exactDuplicate) {
+    const operation = await repository.registerDuplicateUpload(actor, exactDuplicate.id, {
+      fileSha256: validated.sha256, fileName: validated.fileName, mimeType: validated.mimeType,
+    }, idempotencyKey);
     return {
-      status: "duplicate",
-      duplicate: true,
-      replayed: false,
-      batch: summarizeImportBatch(exactDuplicate, "duplicate"),
+      status: operation.duplicate ? "duplicate" : operation.batch.status,
+      duplicate: operation.duplicate,
+      replayed: operation.replayed,
+      batch: summarizeImportBatch(operation.batch, operation.duplicate ? "duplicate" : undefined),
     };
   }
 
@@ -179,10 +185,10 @@ export async function uploadHtmlImport(
   };
   const created = await repository.create(record, idempotencyKey);
   return {
-    status: created.status,
-    duplicate: false,
-    replayed: false,
-    batch: summarizeImportBatch(created),
+    status: created.duplicate ? "duplicate" : created.batch.status,
+    duplicate: created.duplicate,
+    replayed: created.replayed,
+    batch: summarizeImportBatch(created.batch, created.duplicate ? "duplicate" : undefined),
   };
 }
 
@@ -249,14 +255,6 @@ export async function reparseHtmlImport(
   if (!batch) {
     throw new ImportError("IMPORT_NOT_FOUND", "找不到匯入批次。", 404);
   }
-  if (["imported", "superseded"].includes(batch.status)) {
-    throw new ImportError(
-      "IMMUTABLE_IMPORT",
-      "已核准或已被取代的匯入不可重新解析，請建立新批次。",
-      409,
-    );
-  }
-
   const originalBytes = await repository.readOriginal(actor, id);
   const validated = validateHtmlImportFile({
     fileName: batch.fileName,
@@ -271,6 +269,11 @@ export async function reparseHtmlImport(
     );
   }
   const parsed = parseCentralCareHtml(validated, input.mappingVersion);
+  const replay = await repository.findReparseOperation(actor, id, parsed, parsedStatus(parsed), input.idempotencyKey);
+  if (replay) return summarizeImportBatch(replay);
+  if (batch.approval || ["imported", "superseded"].includes(batch.status)) {
+    throw new ImportError("IMMUTABLE_IMPORT", "已核准或已被取代的匯入不可重新解析，請建立新批次。", 409);
+  }
   const updated = await repository.replaceParsedResult(
     actor,
     id,
@@ -287,7 +290,7 @@ export async function approveHtmlImport(
   actor: ImportActor,
   id: string,
   input: ApproveImportInput,
-) {
+): Promise<ImportStagingApprovalReceipt> {
   assertRecentAal2(actor);
   if (!input.idempotencyKey.trim()) {
     throw new ImportError(
@@ -302,15 +305,24 @@ export async function approveHtmlImport(
   if (!batch) {
     throw new ImportError("IMPORT_NOT_FOUND", "找不到匯入批次。", 404);
   }
-  if (batch.status === "imported" && batch.approval?.idempotencyKey === input.idempotencyKey) {
-    return summarizeImportBatch(batch);
-  }
   if (batch.status !== "ready_for_approval") {
     throw new ImportError(
       "IMPORT_NOT_READY",
       "請先完成未知欄位映射與驗證，再核准匯入。",
       409,
     );
+  }
+
+  // Decisions must describe this exact snapshot; silently ignoring unknown
+  // entries would lose reviewer intent and weaken idempotent payload binding.
+  if (Object.keys(input.conflictResolutions).some((key) =>
+    !batch.conflicts.some((conflict) => conflict.id === key))) {
+    throw new ImportError("UNKNOWN_CONFLICT_RESOLUTION", "核對項目已變更，請重新載入後再選擇。", 422);
+  }
+  if (batch.fields.length === 0 || batch.fields.some((field) => field.mappingState === "unknown") ||
+      batch.sections.some((section) => !section.recognized) ||
+      batch.warnings.some((warning) => warning.severity === "error")) {
+    throw new ImportError("IMPORT_NOT_READY", "尚有未完成的來源核對或解析錯誤，無法核准暫存。", 409);
   }
 
   for (const conflict of batch.conflicts) {
@@ -325,18 +337,36 @@ export async function approveHtmlImport(
     }
   }
 
+  const approvedAt = new Date().toISOString();
   const approved = await repository.approveAtomically(
     actor,
     id,
     batch.version,
     {
-      approvedAt: new Date().toISOString(),
+      approvedAt,
       approvedBy: actor.userId,
       idempotencyKey: input.idempotencyKey,
       conflictResolutions: input.conflictResolutions,
     },
   );
-  return summarizeImportBatch(approved);
+  const receiptTime = Date.parse(approved?.approval?.approvedAt ?? "");
+  const expectedVersion = batch.approval ? batch.version : batch.version + 1;
+  const decisions = (value: Record<string, string>) => Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
+  // Approval may only add its receipt/version; source data and scope must not change.
+  const basis = (value: ImportBatchRecord) => ({ ...value, version: 0, updatedAt: "", approval: null, operationKeys: {} });
+  if (!approved?.approval || approved.status !== "ready_for_approval" ||
+      approved.id !== id || approved.organizationId !== actor.organizationId || approved.branchId !== actor.branchId ||
+      approved.version !== expectedVersion || approved.updatedAt !== approved.approval.approvedAt ||
+      !Number.isFinite(receiptTime) || receiptTime < Date.parse(batch.createdAt) || receiptTime > Date.now() + 60_000 ||
+      (batch.approval !== null && approved.approval.approvedAt !== batch.approval.approvedAt) ||
+      approved.approval.approvedBy !== actor.userId ||
+      approved.approval.idempotencyKey !== input.idempotencyKey ||
+      !isDeepStrictEqual(decisions(approved.approval.conflictResolutions), decisions(input.conflictResolutions)) ||
+      !isDeepStrictEqual(approved.operationKeys, { ...batch.operationKeys, approve: input.idempotencyKey }) ||
+      !isDeepStrictEqual(basis(approved), basis(batch))) {
+    throw new ImportError("INVALID_STAGING_RECEIPT", "暫存核准結果無法確認，請勿視為正式入檔。", 503);
+  }
+  return { batch: summarizeImportBatch(approved), staging_only: true, formally_imported: false };
 }
 
 export { CURRENT_MAPPING_VERSION };

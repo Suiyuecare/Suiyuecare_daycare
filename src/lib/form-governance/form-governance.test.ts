@@ -15,6 +15,7 @@ import {
   filterFormGovernanceVersions,
   projectFormGovernanceSnapshot,
   type FormDefinitionSourceRow,
+  type FormPublicationSourceRow,
   type FormVersionSourceRow,
 } from "./projection";
 
@@ -205,6 +206,86 @@ describe("form publication parsers", () => {
 });
 
 describe("form governance projection", () => {
+  const retiredDefinition: FormDefinitionSourceRow = {
+    id: "82000000-0000-4000-8000-000000000001",
+    organization_id: "11111111-1111-4111-8111-111111111111",
+    form_key: "tenant.custom.care_diary",
+    name: "機構自訂照顧日誌",
+    category: "照顧表單",
+    is_official: false,
+  };
+  const retiredVersion: FormVersionSourceRow = {
+    id: versionId,
+    form_definition_id: retiredDefinition.id,
+    version: 1,
+    status: "retired",
+    effective_from: "2026-01-01",
+    effective_to: "2026-09-21",
+    schema_field_count: 3,
+    scoring_rule_count: 0,
+    published_at: "2025-12-20T03:00:00.000Z",
+    content_hash: "a".repeat(64),
+  };
+  const approvedPublication: FormPublicationSourceRow = {
+    id: requestId,
+    form_definition_id: retiredDefinition.id,
+    form_version_id: versionId,
+    status: "approved",
+    requested_at: "2025-12-19T03:00:00.000Z",
+    requested_by_current_user: true,
+    approved_at: retiredVersion.published_at,
+    approved_by_current_user: false,
+  };
+  function projectRetired(
+    version: FormVersionSourceRow = retiredVersion,
+    publication: FormPublicationSourceRow = approvedPublication,
+  ) {
+    return projectFormGovernanceSnapshot({
+      definitionRows: [retiredDefinition],
+      versionRows: [version],
+      publicationRows: [publication],
+      expectedOrganizationId: retiredDefinition.organization_id!,
+      expectedBranchId: "22222222-2222-4222-8222-222222222222",
+      today: "2026-09-22",
+      generatedAt: "2026-09-22T00:00:00.000Z",
+      demo: false,
+    });
+  }
+
+  it("keeps immutable publication evidence visible after an approved version is retired", () => {
+    const snapshot = projectRetired();
+    expect(snapshot.versions).toHaveLength(1);
+    expect(snapshot.versions[0]).toMatchObject({
+      status: "retired",
+      effectiveTo: "2026-09-21",
+      publishedAt: retiredVersion.published_at,
+      contentHash: retiredVersion.content_hash,
+      publication: {
+        id: requestId,
+        status: "approved",
+        requestedAt: approvedPublication.requested_at,
+        approvedAt: approvedPublication.approved_at,
+        requesterLabel: "本人申請",
+        approverLabel: "第二位授權人員",
+      },
+    });
+    expect(snapshot.metrics).toEqual({ active: 0, drafts: 0, pending: 0, upcoming: 0, overlapWarnings: 0 });
+    expect(filterFormGovernanceVersions(snapshot, {
+      query: "", status: "retired", scope: "tenant", category: "all",
+    })).toHaveLength(1);
+  });
+
+  it.each([
+    { label: "missing publication time", version: { ...retiredVersion, published_at: null }, publication: approvedPublication },
+    { label: "missing content hash", version: { ...retiredVersion, content_hash: null }, publication: approvedPublication },
+    { label: "missing approval time", version: retiredVersion, publication: { ...approvedPublication, approved_at: null } },
+    { label: "self approval", version: retiredVersion, publication: { ...approvedPublication, approved_by_current_user: true } },
+    { label: "pending request on a retired version", version: retiredVersion, publication: { ...approvedPublication, status: "pending", approved_at: null } },
+    { label: "approved request on a draft version", version: { ...retiredVersion, status: "draft", published_at: null, content_hash: null }, publication: approvedPublication },
+  ])("still rejects $label", ({ version, publication }) => {
+    expect(() => projectRetired(version, publication)).toThrow("INVALID_FORM_GOVERNANCE_PROJECTION");
+  });
+
   it("projects tenant and official versions with server-derived metrics", () => {
     const snapshot = buildDemoFormGovernanceSnapshot();
     expect(snapshot.demo).toBe(true);

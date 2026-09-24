@@ -61,7 +61,7 @@ export function ClientInspectionReportsWorkspace({
     <p className="eyebrow">敏感個案健康資料</p>
     <h1 id="client-report-aal2-heading">需要完成雙重驗證</h1>
     <p>所有員工查閱與建立個案檢查報告都需要 AAL2；目前不會載入任何結果、來源或附件欄位。</p>
-    <Link className="button button--primary" href="/mfa?audience=staff">前往雙重驗證</Link>
+    <Link className="button button--primary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
   </section>;
 
   if (loadError || !snapshot) return <section className="empty-card"
@@ -107,7 +107,7 @@ export function ClientInspectionReportsWorkspace({
     <ClientInspectionReportCreateForm canManage={canManage} snapshot={snapshot} />
     {canManage && !hasRecentAal2 ? <p className={styles.warning} role="status">
       建立原始版本可繼續；更正與作廢需在同一工作階段最近 15 分鐘內重新驗證。
-      <Link href="/mfa?audience=staff"> 前往重新驗證</Link>
+      <Link href="/mfa?audience=staff&purpose=sensitive-action"> 前往重新驗證</Link>
     </p> : null}
     <ClientInspectionReportRevisionForm canRevise={canManage && hasRecentAal2}
       snapshot={snapshot} />

@@ -1,0 +1,157 @@
+{
+  "success": true,
+  "data": {
+    "axeVersion": "4.12.1",
+    "counts": {
+      "inapplicable": 35,
+      "incomplete": 1,
+      "passes": 28,
+      "violations": 1
+    },
+    "incomplete": [
+      {
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+        "id": "color-contrast",
+        "impact": "serious",
+        "nodeCount": 17,
+        "nodes": [
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<strong>歲悅</strong>",
+            "target": [
+              ".brand-lockup > span:nth-child(2) > strong"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<small>日照管理</small>",
+            "target": [
+              ".brand-lockup > span:nth-child(2) > small"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>單店出勤與收支</span>",
+            "target": [
+              "a[href$=\"store-overview\"] > span:nth-child(2)"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>共用工作入口</span>",
+            "target": [
+              ".nav-group:nth-child(2) > .nav-group__label[type=\"button\"] > span"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>日常照顧</span>",
+            "target": [
+              ".nav-group:nth-child(3) > .nav-group__label[type=\"button\"] > span"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>評估量表</span>",
+            "target": [
+              ".nav-group:nth-child(4) > .nav-group__label[type=\"button\"] > span"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>品質與異常指標</span>",
+            "target": [
+              ".nav-group:nth-child(5) > .nav-group__label[type=\"button\"] > span"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>社工服務</span>",
+            "target": [
+              ".nav-group:nth-child(6) > .nav-group__label[type=\"button\"] > span"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>專業服務</span>",
+            "target": [
+              ".nav-group:nth-child(7) > .nav-group__label[type=\"button\"] > span"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+            "html": "<span>安心照顧與溝通</span>",
+            "target": [
+              ".nav-group:nth-child(8) > .nav-group__label[type=\"button\"] > span"
+            ]
+          }
+        ],
+        "tags": [
+          "cat.color",
+          "wcag2aa",
+          "wcag143",
+          "TTv5",
+          "TT13.c",
+          "EN-301-549",
+          "EN-9.1.4.3",
+          "ACT",
+          "RGAAv4",
+          "RGAA-3.2.1"
+        ]
+      }
+    ],
+    "lifecycle": {
+      "effectiveLaunch": {
+        "browserLaunched": true,
+        "engine": "chrome",
+        "launchHash": 7707568497978554000
+      },
+      "launched": false,
+      "relaunchedBrowser": false,
+      "restartedBackground": false,
+      "restoreStatus": "not_configured",
+      "reused": true,
+      "saveStatus": "not_attempted"
+    },
+    "url": "http://localhost:3113/app/staff/governance/roles-data-scopes",
+    "violations": [
+      {
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.12/color-contrast?application=axeAPI",
+        "id": "color-contrast",
+        "impact": "serious",
+        "nodeCount": 2,
+        "nodes": [
+          {
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1",
+            "html": "<span>角色與資料範圍</span>",
+            "target": [
+              ".nav-link[aria-current=\"page\"] > span:nth-child(2)"
+            ]
+          },
+          {
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.36 (foreground color: #ea880c, background color: #f7f3ec, font size: 9.4pt (12.48px), font weight: bold). Expected contrast ratio of 4.5:1",
+            "html": "<span aria-current=\"page\" class=\"context-bar__crumb\">角色與資料範圍</span>",
+            "target": [
+              ".context-bar__crumb"
+            ]
+          }
+        ],
+        "tags": [
+          "cat.color",
+          "wcag2aa",
+          "wcag143",
+          "TTv5",
+          "TT13.c",
+          "EN-301-549",
+          "EN-9.1.4.3",
+          "ACT",
+          "RGAAv4",
+          "RGAA-3.2.1"
+        ]
+      }
+    ]
+  },
+  "error": null
+}

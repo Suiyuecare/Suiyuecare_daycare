@@ -101,6 +101,97 @@ afterEach(() => {
 });
 
 describe("role governance request action", () => {
+  it.each(["branch_supervisor", "branch_director"])(
+    "blocks the system %s assignment to an organization-wide membership before sending",
+    (roleKey) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const selectedRole = { ...roles[1]!, roleKey };
+      const member = { ...memberships[0]!, branchId: null };
+      render(<RoleGovernanceRequestAction enabled memberships={[member]} permissions={permissions} roles={[selectedRole]} />);
+      fireEvent.click(screen.getByRole("button", { name: "建立變更申請" }));
+      fireEvent.change(screen.getByLabelText(/變更類型/u), { target: { value: "assign_role" } });
+      fireEvent.change(screen.getByLabelText(/成員/u), { target: { value: member.id } });
+      fireEvent.change(screen.getByLabelText(/角色/u), { target: { value: selectedRole.id } });
+      expect(screen.getByRole("alert").textContent)
+        .toBe("此職務須先建立指定據點的成員資格，不能指派至全機構範圍。");
+      expect(screen.getByRole("button", { name: "送出覆核" })).toHaveProperty("disabled", true);
+      const select = screen.getByLabelText(/角色/u);
+      expect(select.getAttribute("aria-invalid")).toBe("true");
+      expect(select.getAttribute("aria-describedby")).toBe(screen.getByRole("alert").id);
+      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.submit(screen.getByRole("dialog", { name: "建立變更申請" }).querySelector("form")!);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(member.branchId).toBeNull();
+    },
+  );
+
+  it.each(["branch_supervisor", "branch_director"])(
+    "allows a system %s request for an explicitly assigned branch without changing payload",
+    async (roleKey) => {
+      const fetchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
+      vi.stubGlobal("fetch", fetchMock);
+      const selectedRole = { ...roles[1]!, roleKey };
+      const member = memberships[0]!;
+      render(<RoleGovernanceRequestAction enabled memberships={[member]} permissions={permissions} roles={[selectedRole]} />);
+      fireEvent.click(screen.getByRole("button", { name: "建立變更申請" }));
+      fireEvent.change(screen.getByLabelText(/變更類型/u), { target: { value: "assign_role" } });
+      fireEvent.change(screen.getByLabelText(/成員/u), { target: { value: member.id } });
+      fireEvent.change(screen.getByLabelText(/角色/u), { target: { value: selectedRole.id } });
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByRole("button", { name: "送出覆核" })).toHaveProperty("disabled", false);
+      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.submit(screen.getByRole("dialog", { name: "建立變更申請" }).querySelector("form")!);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)))
+        .toEqual({ operation: "assign_role", target_role_id: selectedRole.id, target_membership_id: member.id });
+    },
+  );
+
+  it.each(["branch_supervisor", "branch_director"])(
+    "does not apply the system-only scope hint to a custom role keyed %s",
+    (roleKey) => {
+      const selectedRole = { ...roles[0]!, roleKey, name: "自訂職務" };
+      const member = { ...memberships[0]!, branchId: null };
+      render(<RoleGovernanceRequestAction enabled memberships={[member]} permissions={permissions} roles={[selectedRole]} />);
+      fireEvent.click(screen.getByRole("button", { name: "建立變更申請" }));
+      fireEvent.change(screen.getByLabelText(/變更類型/u), { target: { value: "assign_role" } });
+      fireEvent.change(screen.getByLabelText(/成員/u), { target: { value: member.id } });
+      fireEvent.change(screen.getByLabelText(/角色/u), { target: { value: selectedRole.id } });
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByRole("button", { name: "送出覆核" })).toHaveProperty("disabled", false);
+      expect(screen.getByRole("option", { name: "自訂職務・機構自訂" })).toBeTruthy();
+    },
+  );
+
+  it("does not prevent revoking a legacy single-site role from an organization-wide membership", () => {
+    const selectedRole = { ...roles[1]!, roleKey: "branch_director" };
+    const member = { ...memberships[0]!, branchId: null, roleIds: [selectedRole.id] };
+    render(<RoleGovernanceRequestAction enabled memberships={[member]} permissions={permissions} roles={[selectedRole]} />);
+    fireEvent.click(screen.getByRole("button", { name: "建立變更申請" }));
+    fireEvent.change(screen.getByLabelText(/變更類型/u), { target: { value: "revoke_role" } });
+    fireEvent.change(screen.getByLabelText(/成員/u), { target: { value: member.id } });
+    fireEvent.change(screen.getByLabelText(/角色/u), { target: { value: selectedRole.id } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "送出覆核" })).toHaveProperty("disabled", false);
+  });
+
+  it("changes only system option labels and retains custom labels and option IDs", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RoleGovernanceRequestAction enabled memberships={memberships} permissions={permissions} roles={roles} />);
+    fireEvent.click(screen.getByRole("button", { name: "建立變更申請" }));
+    fireEvent.change(screen.getByLabelText(/變更類型/u), { target: { value: "assign_role" } });
+    fireEvent.change(screen.getByLabelText(/成員/u), { target: { value: staffMemberId } });
+    const roleSelect = screen.getByLabelText(/角色/u);
+    expect(roleSelect.querySelector('option[value="10000000-0000-4000-8000-000000000002"]')?.textContent)
+      .toBe("全機構管理員（多點管理）・系統模板");
+    expect(roleSelect.querySelector(`option[value="${customRoleId}"]`)?.textContent)
+      .toBe("活動帶領人・機構自訂");
+    expect(screen.getByText(/送審或主任職稱本身不會授予兼任權限/u)).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("exposes a readable reason when demo writes are disabled", () => {
     render(
       <RoleGovernanceRequestAction

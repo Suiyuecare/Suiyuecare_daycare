@@ -1,0 +1,16 @@
+.body { display: grid; gap: 16px; }
+.list { list-style: none; padding: 0; display: grid; gap: 12px; margin: 0; }
+.card { border: 1px solid var(--border, #e8d9ca); border-radius: 16px; padding: 16px; overflow-wrap: anywhere; }
+.card > div:first-child { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.card p { margin: 12px 0; }
+.card dl { display: grid; gap: 6px; }
+.card dd { margin: 0 0 8px; }
+.card dt { font-weight: 600; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.actions button { min-height: 44px; white-space: normal; }
+.field { display: grid; gap: 8px; margin: 16px 0; }
+.field textarea,.field select { width: 100%; min-height: 48px; padding: 12px; font-size: 16px; border: 1px solid #a88a70; border-radius: 8px; }
+.check { display: flex; align-items: center; gap: 12px; min-height: 44px; margin: 16px 0; }
+.check input { width: 24px; height: 24px; flex-shrink: 0; }
+.review { padding-top: 16px; border-top: 1px solid var(--border, #e8d9ca); }
+.review summary,.card summary { min-height: 44px; cursor: pointer; padding: 10px 0; }

@@ -1,0 +1,4 @@
+.guard{width:min(540px,calc(100vw - 40px));max-height:calc(100dvh - 40px);border:1px solid #dba260;border-radius:20px;padding:28px;background:#fffaf2;color:#332f29;box-shadow:0 20px 70px #54331026;overflow:auto}
+.guard::backdrop{background:#fff8ee}
+.guard h2{font-size:24px;line-height:1.5;margin:0 0 16px}.guard p{font-size:16px;line-height:1.75;margin:12px 0}.guard button{min-height:44px;font-size:16px;margin-top:12px}.guard :focus-visible{outline:3px solid #965006;outline-offset:4px}
+@media(max-width:520px){.guard{padding:20px}}

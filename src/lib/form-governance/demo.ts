@@ -13,7 +13,7 @@ const definitions: FormDefinitionSourceRow[] = [
   {
     id: "82000000-0000-4000-8000-000000000001",
     organization_id: organizationId,
-    form_key: "tenant.care_diary",
+    form_key: "tenant.custom.care_diary",
     name: "機構自訂照顧日誌",
     category: "照顧表單",
     is_official: false,
@@ -155,7 +155,7 @@ const publications: FormPublicationSourceRow[] = [
 export function buildDemoFormGovernanceSnapshot() {
   return projectFormGovernanceSnapshot({
     definitionRows: definitions,
-    versionRows: versions,
+    versionRows: versions.map(version => ({ ...version, custom_builder_eligible: version.form_definition_id === definitions[0]!.id })),
     publicationRows: publications,
     expectedOrganizationId: organizationId,
     expectedBranchId: branchId,

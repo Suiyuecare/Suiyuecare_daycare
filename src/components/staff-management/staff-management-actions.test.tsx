@@ -130,6 +130,64 @@ describe("Page 59 staff management UI boundary", () => {
     expect(screen.getAllByText("合成員工甲").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("uses current system labels in employee views and filters without changing historical role evidence", () => {
+    const systemRole = { roleId: "10000000-0000-4000-8000-000000000002",
+      roleKey: "organization_manager", roleName: "舊版管理員", isSystem: true };
+    const customRole = { roleId: "59000000-0000-4000-8000-000000000088",
+      roleKey: "organization_manager", roleName: "機構自訂管理職", isSystem: false };
+    const snapshot = { ...liveSnapshot,
+      employees: liveSnapshot.employees.map((employee, index) => index === 0
+        ? { ...employee, roles: [systemRole, customRole], roleCount: 2 } : employee),
+      roleOptions: [...liveSnapshot.roleOptions, systemRole, customRole],
+      roleOptionTotal: liveSnapshot.roleOptionTotal + 2,
+      roleRequests: liveSnapshot.roleRequests.map((request) => ({ ...request,
+        roleName: "歷史護理申請職稱" })),
+    };
+    const before = JSON.stringify(snapshot);
+    render(<StaffManagementWorkspace canApproveEmployment={false} canApproveRoles={false}
+      canApproveTermination={false} canManageEmployment={false} canManageRoles={false}
+      canTerminate={false} currentUserId={REVIEWER} filters={filters} hasRecentAal2={false}
+      loadError={false} page={page} snapshot={snapshot} />);
+    const filter = within(screen.getByRole("form", { name: "篩選員工管理" }))
+      .getByLabelText("角色");
+    expect(filter.querySelector(`option[value="${systemRole.roleId}"]`))
+      .toHaveTextContent("全機構管理員（多點管理）");
+    expect(filter.querySelector(`option[value="${customRole.roleId}"]`))
+      .toHaveTextContent("機構自訂管理職");
+    expect(screen.getAllByText("全機構管理員（多點管理）、機構自訂管理職"))
+      .toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "歷史護理申請職稱" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "查看 11 種標準職務與管理範圍" }))
+      .not.toBeInTheDocument();
+    expect(JSON.stringify(snapshot)).toBe(before);
+  });
+
+  it("submits only the selected director role and never adds concurrent clinical roles automatically", async () => {
+    const directorRole = { roleId: "10000000-0000-4000-8000-000000000011",
+      roleKey: "branch_director", roleName: "機構主任", isSystem: true };
+    const snapshot = { ...liveSnapshot,
+      roleOptions: [...liveSnapshot.roleOptions, directorRole],
+      roleOptionTotal: liveSnapshot.roleOptionTotal + 1,
+    };
+    const fetchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<StaffRoleChangeForm canManageRoles hasRecentAal2 snapshot={snapshot} />);
+    fireEvent.change(screen.getByLabelText("員工"), {
+      target: { value: snapshot.employees[0]!.membershipId },
+    });
+    fireEvent.change(screen.getByLabelText("角色"), { target: { value: directorRole.roleId } });
+    expect(screen.getByText(/本次操作只處理所選的一個角色，不會連帶授權其他角色/u))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "凍結角色異動並送審" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sent(fetchMock.mock.calls[0]!).body).toEqual({
+      action: "request_role", operation: "assign_role",
+      target_membership_id: snapshot.employees[0]!.membershipId,
+      target_role_id: directorRole.roleId,
+      expected_membership_version: snapshot.employees[0]!.membershipVersion,
+    });
+  });
+
   it("retains exact operation and proposal keys after a 5xx unknown result", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({
       requestId: "59000000-0000-4000-8000-000000000098", status: "error",

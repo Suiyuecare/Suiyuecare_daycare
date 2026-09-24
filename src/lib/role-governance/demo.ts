@@ -1,3 +1,5 @@
+import { roleDisplayName } from "@/lib/domain/roles";
+
 import { projectRoleGovernanceSnapshot } from "./projection";
 
 const organizationId = "11111111-1111-4111-8111-111111111111";
@@ -17,7 +19,7 @@ export function buildDemoRoleGovernanceSnapshot() {
           id: "10000000-0000-4000-8000-000000000002",
           organization_id: null,
           role_key: "organization_manager",
-          name: "機構管理員",
+          name: roleDisplayName("organization_manager"),
           description: "跨分支治理角色",
           is_system: true,
           is_active: true,

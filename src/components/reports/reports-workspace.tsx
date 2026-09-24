@@ -1,13 +1,14 @@
 import Link from "next/link";
 
-import type { ReportEntry, ReportPeriods } from "@/lib/reports/entry";
+import type { OperationalReportLink, ReportEntry, ReportPeriods } from "@/lib/reports/entry";
 import styles from "./reports.module.css";
 
-export function ReportsWorkspace({ entries, periods, invalid, demo }: {
+export function ReportsWorkspace({ entries, periods, invalid, demo, operationalLinks = [] }: {
   entries: ReportEntry[];
   periods: ReportPeriods;
   invalid: boolean;
   demo: boolean;
+  operationalLinks?: OperationalReportLink[];
 }) {
   return <div className={styles.workspace}>
     <header className="page-heading">
@@ -19,7 +20,7 @@ export function ReportsWorkspace({ entries, periods, invalid, demo }: {
     </header>
     <aside className={styles.notice} aria-label="目前報表範圍">
       <strong>{demo ? "合成展示 · 報表入口試用" : "報表入口 · 部分功能已接線"}</strong>
-      <p>目前提供每日及每月來源彙整入口；尚未提供自訂統計、跨分支合併、正式財務／申報報表或此頁直接匯出。</p>
+      <p>提供每日／每月來源彙整，以及依權限開放的收案補件、員工資格與出缺勤月報；尚未提供自訂統計、跨分支合併、正式財務／申報報表或此頁直接匯出。</p>
       <p>本頁不載入個案資料、不重新計算總數，也不以頁面開啟時間假充資料更新時間。</p>
     </aside>
     <form action="/app/staff/operations/reports" method="get" className={styles.filters} aria-label="選擇報表期間">
@@ -53,6 +54,13 @@ export function ReportsWorkspace({ entries, periods, invalid, demo }: {
         </Link> : <p role="status">目前帳號沒有此來源的完整查閱權限，請聯絡機構權限管理員。</p>}
       </article>)}
       {entries.length === 0 && <p role="status">沒有可用的報表入口。請確認報表查閱權限。</p>}
+    </section>}
+    {!invalid && operationalLinks.length > 0 && <section aria-labelledby="operational-follow-up-reports">
+      <h2 id="operational-follow-up-reports">補件與營運追蹤</h2>
+      <div className={styles.grid}>{operationalLinks.map((entry) => <article className={styles.card} key={entry.id}>
+        <h3>{entry.title}</h3><p>{entry.description}</p><p>{entry.periodNote}</p>
+        <Link className="button button--secondary" href={entry.href} prefetch={false}>開啟{entry.title}</Link>
+      </article>)}</div>
     </section>}
     <section className={styles.notice} aria-label="尚未啟用的統計能力">
       <h2>正式統計仍待驗收</h2>

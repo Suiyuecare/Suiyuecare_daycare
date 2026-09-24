@@ -4,12 +4,16 @@ import type {
   DailyCareSnapshot,
   DailyClientSummary,
   DailyVitalSummary,
+  DailyApplicability,
 } from "./types";
 
 export type ClientSourceRow = {
   id: string;
   client_code: string;
   display_name: string;
+  eligibility?: "eligible" | "inactive" | "not_admitted";
+  scheduleStatus?: "scheduled" | "not_scheduled" | "unknown" | "ineligible";
+  sourceAccess?: DailyClientSummary["sourceAccess"];
 };
 
 export type AttendanceSourceRow = {
@@ -30,6 +34,8 @@ export type MeasurementSourceRow = {
 
 export type CareDiarySourceRow = {
   id: string;
+  record_key?: string;
+  version?: number;
   client_id: string;
   status: DailyCareDiarySummary["status"];
   occurred_at: string;
@@ -39,7 +45,18 @@ export type CareDiarySourceRow = {
 export type ServiceEventSourceRow = {
   client_id: string;
   status: string;
+  count?: number;
 };
+
+export function dailyApplicability(client: ClientSourceRow, attendance?: AttendanceSourceRow): DailyApplicability {
+  if (client.eligibility && client.eligibility !== "eligible") return { attendance: "not_expected", care: "not_expected", reason: "history_only", eligible: false };
+  if (client.sourceAccess?.attendance === false || !client.scheduleStatus) return { attendance: "unknown", care: "unknown", reason: "unknown", eligible: true };
+  if (attendance?.status === "present") return { attendance: "expected", care: "expected", reason: "arrived", eligible: true };
+  if (attendance?.status === "leave" || attendance?.status === "absent") return { attendance: client.scheduleStatus === "scheduled" ? "expected" : "not_expected", care: "not_expected", reason: "leave_or_absent", eligible: true };
+  if (client.scheduleStatus === "scheduled") return { attendance: "expected", care: "expected", reason: "scheduled", eligible: true };
+  if (client.scheduleStatus === "not_scheduled") return { attendance: "not_expected", care: "not_expected", reason: "not_scheduled", eligible: true };
+  return { attendance: "unknown", care: "unknown", reason: "unknown", eligible: true };
+}
 
 const vitalFieldByKind = new Map<
   string,
@@ -94,7 +111,7 @@ export function projectDailyCareSnapshot(input: {
     if (row.status !== "completed") continue;
     serviceCountByClient.set(
       row.client_id,
-      (serviceCountByClient.get(row.client_id) ?? 0) + 1,
+      (serviceCountByClient.get(row.client_id) ?? 0) + (row.count ?? 1),
     );
   }
 
@@ -161,6 +178,8 @@ export function projectDailyCareSnapshot(input: {
         : null,
       completedServiceCount,
       sourceCoverage,
+      applicability: dailyApplicability(client, attendanceRow),
+      sourceAccess: client.sourceAccess,
     };
   });
 
@@ -171,12 +190,10 @@ export function projectDailyCareSnapshot(input: {
     clients,
     sourceCounts: {
       activeClients: clients.length,
-      attendanceRecords: input.attendance.length,
+      attendanceRecords: clients.filter((client) => client.attendance).length,
       clientsWithMeasurements: clients.filter((client) => client.vitalSigns).length,
-      careDiaryRecords: input.careDiaries.length,
-      completedServiceEvents: input.serviceEvents.filter(
-        (event) => event.status === "completed",
-      ).length,
+      careDiaryRecords: clients.filter((client) => client.careDiary).length,
+      completedServiceEvents: clients.reduce((sum, client) => sum + client.completedServiceCount, 0),
     },
     sourceAccess: input.sourceAccess ?? {
       clients: true,

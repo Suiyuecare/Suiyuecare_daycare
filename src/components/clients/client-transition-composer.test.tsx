@@ -10,6 +10,10 @@ import { ClientTransitionComposer } from "./client-transition-composer";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
+vi.mock("@/lib/navigation/pending-operation-lock", () => ({
+  tryAcquirePendingOperation: () => vi.fn(),
+  tryAcquireViewTransition: () => vi.fn(),
+}));
 
 const client: ClientLifecycleClient = {
   id: "61000000-0000-4000-8000-000000000001",
@@ -45,7 +49,19 @@ afterEach(() => {
 });
 
 describe("client transition composer browser boundaries", () => {
-  it("keeps a mismatched 2xx open and reuses its key until the user edits", async () => {
+  it("permits Google-only formal admission and exposes no terminal actions", () => {
+    render(<ClientTransitionComposer canManage canRoutineAdmit clients={[client, { ...client, id: "61000000-0000-4000-8000-000000000002", admittedOn: null, serviceState: "pending_admission" }]} demo={false} hasRecentAal2={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "建立個案異動" }));
+    expect(screen.getByRole("dialog", { name: "建立個案異動" }).hasAttribute("open")).toBe(true);
+    expect(Array.from(screen.getByLabelText<HTMLSelectElement>(/^異動類型/u).options).map((option) => option.value)).toEqual(["admit"]);
+    expect(screen.queryByRole("link", { name: "完成近期雙因素驗證" })).toBeNull();
+  });
+  it("does not offer routine suspension, resumption, closure, transfer or death", () => {
+    render(<ClientTransitionComposer canManage canRoutineAdmit clients={[client]} demo={false} hasRecentAal2={false} />);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "建立個案異動" }).disabled).toBe(true);
+    expect(screen.getByRole("link", { name: "其他異動：完成近期雙因素驗證" }).getAttribute("href")).toContain("/mfa");
+  });
+  it("pins body, version and key after a mismatched 2xx, even if the DOM is changed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       requestId: "61000000-0000-4000-8000-000000000002",
       status: "ok",
@@ -102,7 +118,10 @@ describe("client transition composer browser boundaries", () => {
     fireEvent.submit(form!);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     const editedKey = new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get("Idempotency-Key");
-    expect(editedKey).not.toBe(firstKey);
+    expect(editedKey).toBe(firstKey);
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(fetchMock.mock.calls[0]?.[1]?.body);
+    expect(dialog.querySelector("fieldset")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "取消" })).toHaveProperty("disabled", true);
   });
 
   it("locks fields and prevents closing while the outcome is pending", async () => {

@@ -97,7 +97,7 @@ describe("Page 64 billing management UI boundary", () => {
   it("requires recent same-session AAL2 before any write form", () => {
     render(<BillingInvoiceForm canManage hasRecentAal2={false} snapshot={liveSnapshot} />);
     expect(screen.getByRole("heading", { name: "建立帳單前需重新驗證" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "前往雙重驗證" })).toHaveAttribute("href", "/mfa?audience=staff");
+    expect(screen.getByRole("link", { name: "前往雙重驗證" })).toHaveAttribute("href", "/mfa?audience=staff&purpose=sensitive-action");
   });
 
   it("retains exact operation and invoice keys after an unknown network result", async () => {

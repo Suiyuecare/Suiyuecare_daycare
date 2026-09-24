@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { staffPages } from "@/lib/catalog";
-import { buildReportEntries, parseReportPeriods } from "./entry";
+import { buildOperationalReportLinks, buildReportEntries, parseReportPeriods } from "./entry";
 
 afterEach(() => vi.useRealTimers());
 const periods = { date: "2026-09-08", month: "2026-08" };
@@ -9,6 +9,14 @@ const authorized = { demo: false, scopes: ["reports.read", "clients.read",
   "daily_service_summary.read", "professional_service_summary.read"] };
 
 describe("report entry query and source boundaries", () => {
+  it("links operational worklists only with source permissions and explicit owner admission", () => {
+    expect(buildOperationalReportLinks({ demo: false, scopes: ["reports.read"] }, periods)).toEqual([]);
+    const source = { demo: false, scopes: ["reports.read", "clients.read", "clients.demographics.read", "staff_certificates.read"] };
+    expect(buildOperationalReportLinks(source, periods).map((link) => link.id)).toEqual(["intake", "qualification"]);
+    expect(buildOperationalReportLinks(source, periods, true).at(-1)?.href).toBe("/app/store-attendance-month?month=2026-08");
+    expect(buildOperationalReportLinks({ demo: false, scopes: [] }, periods, true)).toEqual([]);
+    expect(buildOperationalReportLinks(source, { ...periods, month: "2026-99" }, true)).toEqual([]);
+  });
   it("uses Asia/Taipei defaults across a UTC day and month boundary", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-31T16:00:00Z"));

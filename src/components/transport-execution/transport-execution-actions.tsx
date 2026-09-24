@@ -201,7 +201,7 @@ export function TransportExecutionActions({ canComplete, canManageAny, canRecord
     {!hasRecentAal2 && (canRecordException || canComplete) ? <section className={styles.reauth}>
       <h2>例外處置與完成簽署需重新驗證</h2><p>一般開始／上下車仍依目前 AAL2 作業；
         例外及完成需同一工作階段最近 15 分鐘 AAL2。</p>
-      <Link className="button button--secondary" href="/mfa?audience=staff">前往雙重驗證</Link>
+      <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
     </section> : null}
   </section>;
 }

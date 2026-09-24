@@ -25,6 +25,10 @@ import type {
 } from "@/lib/form-governance/types";
 
 import { FormPublicationAction } from "./form-publication-action";
+import { CustomFormDraftEditor } from "./custom-form-draft-editor";
+import { FormLifecycleAction } from "./form-lifecycle-action";
+import { CustomPublicationReview } from "./custom-publication-review";
+import { buildDemoPublicationReview } from "@/lib/form-governance/publication-review-demo";
 import styles from "./form-rule-versions.module.css";
 
 const statusLabels: Record<FormGovernanceVersion["status"], string> = {
@@ -34,6 +38,8 @@ const statusLabels: Record<FormGovernanceVersion["status"], string> = {
 };
 
 function displayStatus(version: FormGovernanceVersion) {
+  if (version.publication?.status === "returned") return "已退回・待修改";
+  if (version.publication?.status === "withdrawn") return "已撤回・待修改";
   return version.publication?.status === "pending"
     ? "待第二人核准"
     : statusLabels[version.status];
@@ -74,6 +80,8 @@ function PublicationEvidence({ version }: { version: FormGovernanceVersion }) {
       <small>{formatDateTime(version.publication.requestedAt)}</small>
       {version.publication.approverLabel ? (
         <small>{version.publication.approverLabel}・{formatDateTime(version.publication.approvedAt)}</small>
+      ) : version.publication.status === "returned" || version.publication.status === "withdrawn" ? (
+        <small>{version.publication.status === "returned" ? "已退回修改" : "已撤回"}・{version.publication.decisionReason}</small>
       ) : (
         <small>等待獨立核准</small>
       )}
@@ -81,7 +89,7 @@ function PublicationEvidence({ version }: { version: FormGovernanceVersion }) {
   );
 }
 
-function Action({
+function PublicationAction({
   version,
   canManage,
   hasRecentAal2,
@@ -93,6 +101,7 @@ function Action({
   hasRecentAal2: boolean;
   instance: "desktop" | "mobile";
   blockedReason?: string;
+  demo?: boolean;
 }) {
   if (version.official) {
     return <span className={styles.lockedAction}><LockKeyhole aria-hidden="true" />官方版本唯讀</span>;
@@ -137,6 +146,21 @@ function Action({
       version={version}
     />
   );
+}
+
+function Action(props: Parameters<typeof PublicationAction>[0]) {
+  const demoHistory = props.demo ? buildDemoPublicationReview(props.version) : null;
+  const customBuilder = props.version.customBuilderEligible === true;
+  const editable = !props.version.official && props.version.status === "draft"
+    && (!props.version.publication || ["returned", "withdrawn"].includes(props.version.publication.status)) && customBuilder;
+  return <div className={styles.actionSlot}>
+    {!props.version.official && props.version.status !== "draft" && customBuilder ? <FormLifecycleAction version={props.version} instance={props.instance}
+      enabled={props.canManage && props.hasRecentAal2 && !props.blockedReason} disabledReason={props.blockedReason} /> : null}
+    {editable ? <CustomFormDraftEditor versionId={props.version.id} instance={props.instance}
+      enabled={props.canManage && props.hasRecentAal2 && !props.blockedReason} disabledReason={props.blockedReason} /> : null}
+    {!props.version.official && customBuilder ? <CustomPublicationReview version={props.version} instance={props.instance}
+      enabled={Boolean(demoHistory) || props.canManage && !props.blockedReason} canAct={props.canManage && props.hasRecentAal2 && !props.blockedReason} disabledReason={props.blockedReason} demoHistory={demoHistory} /> : <PublicationAction {...props} />}
+  </div>;
 }
 
 export function FormRuleVersionsWorkspace({
@@ -197,15 +221,14 @@ export function FormRuleVersionsWorkspace({
           </p>
         </div>
         <div className="page-heading__actions">
-          <button className="button button--secondary" disabled title="草稿建立與編輯 RPC 尚未開放" type="button">
-            <LockKeyhole aria-hidden="true" />建立草稿（尚未開放）
-          </button>
+          <Link className="button button--secondary" href="/app/client-forms">個案表單填答</Link>
+          <CustomFormDraftEditor enabled={canManage && !snapshot.incomplete} canSave={canManage && hasRecentAal2 && !blockedReason} disabledReason={blockedReason} />
         </div>
       </header>
 
       <div className={`callout ${styles.boundaryCallout}`}>
         <FileLock2 aria-hidden="true" />
-        <span>本階段只交付既有草稿的送審與獨立核准。表單版本的建立、編輯、測試及停用尚未交付，也不會透過頁面或管理員密鑰直接改寫資料；因此第 82 頁仍屬部分完成。</span>
+        <span>可建立機構自訂表單、試填、發布、複製改版及雙人覆核停用。支援文字、數字、日期、是／否與單選；不執行計分公式、不改官方版本。新版本保留表單名稱與類型，生效期間須另外確認；停用不刪除既有填答或改寫發布證據。已發布表單可至「個案表單填答」保存與簽署。</span>
       </div>
       {snapshot.demo ? (
         <div className={`callout ${styles.demoCallout}`} role="status">
@@ -216,7 +239,7 @@ export function FormRuleVersionsWorkspace({
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
           <span>送審與核准需要最近 15 分鐘內的雙因素重新驗證，且資料庫會再核對不可變驗證證據。</span>
-          <Link className="button button--secondary" href="/mfa?audience=staff">立即重新驗證</Link>
+          <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link>
         </div>
       ) : null}
       {snapshot.incomplete ? (
@@ -232,7 +255,7 @@ export function FormRuleVersionsWorkspace({
         {[
           { label: "目前有效", value: partialVersionMetric ? `至少 ${snapshot.metrics.active}` : snapshot.metrics.active, foot: partialVersionMetric ? "已載入部分，非總數" : `台北日期 ${snapshot.today}`, Icon: CheckCircle2 },
           { label: "草稿", value: partialVersionMetric ? `至少 ${snapshot.metrics.drafts}` : snapshot.metrics.drafts, foot: partialVersionMetric ? "已載入部分，非總數" : "不代表已發布", Icon: Files },
-          { label: "待核准", value: snapshot.pendingTotal, foot: "目前分支總數・優先載入", Icon: FileClock },
+          { label: "待核准", value: snapshot.pendingTotal, foot: "全機構表單總數・優先載入", Icon: FileClock },
           { label: "30 日內生效", value: partialVersionMetric ? `至少 ${snapshot.metrics.upcoming}` : snapshot.metrics.upcoming, foot: partialVersionMetric ? "已載入部分，非總數" : "已發布的未來版本", Icon: CalendarClock },
           { label: "期間重疊", value: partialVersionMetric ? `至少 ${snapshot.metrics.overlapWarnings}` : snapshot.metrics.overlapWarnings, foot: partialVersionMetric ? "已載入部分，非總數" : "發布及歷史版本", Icon: TriangleAlert },
         ].map(({ label, value, foot, Icon }) => (
@@ -286,7 +309,7 @@ export function FormRuleVersionsWorkspace({
                     <td><span className={styles.contentSummary}><strong>{version.schemaFieldCount} 欄位</strong><small>{version.scoringRuleCount} 項計分／規則</small>{version.contentHash ? <code title={version.contentHash}>雜湊 {version.contentHash.slice(0, 10)}…</code> : null}</span></td>
                     <td><PublicationEvidence version={version} /></td>
                     <td><span className={`status-pill ${version.publication?.status === "pending" ? "status-pill--warning" : version.status === "published" ? "status-pill--success" : version.status === "draft" ? "status-pill--info" : ""}`}>{displayStatus(version)}</span></td>
-                    <td><Action blockedReason={blockedReason} canManage={canManage} hasRecentAal2={hasRecentAal2} instance="desktop" version={version} /></td>
+                    <td><Action blockedReason={blockedReason} canManage={canManage} hasRecentAal2={hasRecentAal2} instance="desktop" version={version} demo={snapshot.demo} /></td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -305,7 +328,7 @@ export function FormRuleVersionsWorkspace({
                     <div><dt>發布時間</dt><dd>{formatDateTime(version.publishedAt)}</dd></div>
                     <div className={styles.cardWide}><dt>送審／核准證據</dt><dd><PublicationEvidence version={version} /></dd></div>
                   </dl>
-                  <Action blockedReason={blockedReason} canManage={canManage} hasRecentAal2={hasRecentAal2} instance="mobile" version={version} />
+                  <Action blockedReason={blockedReason} canManage={canManage} hasRecentAal2={hasRecentAal2} instance="mobile" version={version} demo={snapshot.demo} />
                 </article>
               ))}
             </div>

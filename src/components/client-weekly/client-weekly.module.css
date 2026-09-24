@@ -1,0 +1,23 @@
+.workspace { display: grid; gap: 1.25rem; color: #382f27; min-width: 0; }
+.workspace h2,.workspace h3 { margin: 0 0 .7rem; }
+.workspace p { line-height: 1.7; margin: .45rem 0 .8rem; }
+.workspace form { display: grid; gap: 1rem; min-width: 0; }
+.workspace fieldset { min-width: 0; border: 1px solid #e6c9a8; border-radius: 1rem; padding: 1rem; }
+.workspace legend { padding: 0 .4rem; font-weight: 700; }
+.workspace label { display: flex; flex-direction: column; gap: .45rem; min-width: 0; }
+.workspace input:not([type="checkbox"]),.workspace textarea { width: 100%; min-width: 0; min-height: 44px; padding: .65rem; border: 1px solid #ad8768; background: white; border-radius: .6rem; font-size: 16px; color: inherit; box-sizing: border-box; }
+.workspace textarea { min-height: 90px; resize: vertical; }
+.workspace button { min-height: 44px; padding: .7rem 1.1rem; border: 1px solid #9b460b; color: #fff; background: #9b460b; border-radius: .7rem; font-size: 16px; font-weight: 600; cursor: pointer; width: fit-content; max-width: 100%; }
+.workspace button:disabled { background: #f1e7db; color: #675a4e; border-color: #c7b59e; cursor: not-allowed; }
+.workspace :is(input,textarea,button):focus-visible { outline: 3px solid #715022; outline-offset: 3px; }
+.workspace .check { flex-direction: row; align-items: center; min-height: 44px; }
+.check input { width: 22px; height: 22px; accent-color: #9b460b; flex-shrink: 0; }
+.fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; margin-bottom: .75rem; }
+.week { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .9rem; margin: 1rem 0; }
+.day { background: #fffaf3; }
+.transport { border-top: 1px solid #e6c9a8; margin-top: .65rem; padding-top: .35rem; }
+.notice { padding: 1rem; border: 1px solid #cf9d6c; background: #fff4e1; border-radius: .8rem; overflow-wrap: anywhere; }
+.preview { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .65rem; }
+.preview li { min-width: 0; background: white; border: 1px solid #e6c9a8; border-radius: .6rem; padding: .75rem; display: flex; flex-direction: column; gap: .4rem; overflow-wrap: anywhere; font-size: .9rem; }
+@media (max-width: 1100px) { .week { grid-template-columns: minmax(0,1fr); } .preview { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 560px) { .fields { grid-template-columns: minmax(0,1fr); } .preview { grid-template-columns: minmax(0,1fr); } .workspace fieldset { padding: .8rem; } .workspace button { width: 100%; } }

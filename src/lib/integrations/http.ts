@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { TenantContext } from "@/lib/domain/types";
 import { fail } from "@/lib/api/response";
 import { getTenantContext, hasRecentAal2 } from "@/lib/auth/context";
+import { canUseRoutineCare, type RoutineCarePermission } from "@/lib/auth/routine-care";
 import {
   hasSupabaseAdminConfiguration,
   hasSupabaseConfiguration,
@@ -57,7 +58,9 @@ export async function readJsonObject(
   }
 }
 
-export async function authorizeStaffRequest(): Promise<TenantContext> {
+export async function authorizeStaffRequest(
+  options: { routinePermission?: RoutineCarePermission } = {},
+): Promise<TenantContext> {
   if (!isDemoMode() && !hasSupabaseConfiguration()) {
     throw new IntegrationError(
       "SERVICE_NOT_CONFIGURED",
@@ -69,10 +72,13 @@ export async function authorizeStaffRequest(): Promise<TenantContext> {
   if (!actor) {
     throw new IntegrationError("AUTH_REQUIRED", "請先登入。", 401);
   }
-  if (!actor.demo && actor.assuranceLevel !== "aal2") {
+  if (!actor.demo && actor.assuranceLevel !== "aal2" &&
+    (!options.routinePermission || !(await canUseRoutineCare(actor, options.routinePermission)))) {
     throw new IntegrationError(
-      "AAL2_REQUIRED",
-      "所有員工作業都必須先完成雙因素驗證。",
+      options.routinePermission ? "ROUTINE_CARE_NOT_AUTHORIZED" : "AAL2_REQUIRED",
+      options.routinePermission
+        ? "這個帳號尚未獲准處理此分支的日常紀錄，請聯絡主管確認授權。"
+        : "這項操作需要額外身分確認；一般照顧紀錄請使用今日工作入口。",
       403,
     );
   }

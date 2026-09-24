@@ -312,7 +312,7 @@ reset role;
 create temporary table external_health_second_times as select
   clock_timestamp()+interval '1 second' as measured_at,
   clock_timestamp()+interval '2 seconds' as received_at;
-grant select on external_health_second_times to service_role;
+grant select on external_health_second_times to authenticated, service_role;
 set local role service_role;
 select set_config('test.ehd_m2',(select measurement_id::text
   from public.ingest_external_health_measurement(
@@ -440,11 +440,13 @@ select results_eq(
 );
 
 -- 29
+-- Use the measured fixture dates rather than today's date: the first sample
+-- intentionally precedes now by five minutes and can be on yesterday's date.
 select results_eq(
   $$select measurement_total from public.external_health_device_snapshot(
     '65020000-0000-4000-8000-000000000001','65030000-0000-4000-8000-000000000001',
-    (clock_timestamp() at time zone 'Asia/Taipei')::date,
-    (clock_timestamp() at time zone 'Asia/Taipei')::date)$$,
+    (select (first_measured_at at time zone 'Asia/Taipei')::date from external_health_times),
+    (select (measured_at at time zone 'Asia/Taipei')::date from external_health_second_times))$$,
   $$values (2::bigint)$$,
   'Taipei date filters include both start and end dates'
 );

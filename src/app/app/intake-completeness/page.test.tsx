@@ -1,0 +1,10 @@
+import { beforeEach, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ context: vi.fn(), load: vi.fn() }));
+vi.mock("@/lib/auth/context", () => ({ requireTenantContext: mocks.context }));
+vi.mock("@/lib/intake-completeness/server", () => ({ loadIntakeCompleteness: mocks.load }));
+vi.mock("@/components/intake-completeness/intake-completeness-workspace", () => ({ IntakeCompletenessWorkspace: () => null }));
+import Page from "./page";
+const context = { organizationId: "a1000000-0000-4000-8000-000000000001", branchId: "b1000000-0000-4000-8000-000000000001", userId: "d1000000-0000-4000-8000-000000000001", branchName: "合成分支", roles: ["branch_supervisor"], scopes: ["clients.read", "clients.demographics.read"], demo: false };
+beforeEach(() => { vi.clearAllMocks(); mocks.context.mockResolvedValue(context); mocks.load.mockResolvedValue({ branchId: context.branchId }); });
+it("requires staff context and remounts data on identity/branch/permission change", async () => { const initial = await Page(); expect(mocks.context).toHaveBeenCalledWith("staff"); for (const change of [{ branchId: context.userId }, { userId: context.branchId }, { scopes: [...context.scopes, "health.read"] }]) { mocks.context.mockResolvedValue({ ...context, ...change }); expect((await Page()).key).not.toEqual(initial.key); } });
+it("never fabricates an empty successful report on database failure", async () => { mocks.load.mockRejectedValue(new Error("SECRET_DATABASE")); const page = await Page(); expect(page.props.initialSnapshot).toBeNull(); expect(page.props.initialError).toContain("無法核對"); expect(page.props.initialError).not.toContain("SECRET_DATABASE"); expect(page.props.scope.branchId).toEqual(context.branchId); });

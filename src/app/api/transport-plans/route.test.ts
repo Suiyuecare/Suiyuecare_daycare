@@ -149,6 +149,28 @@ describe("Page 47 transport-plan API boundary", () => {
     expect((await response.json()).errors[0].code).toBe("TRANSPORT_PLAN_RECEIPT_INVALID");
   });
 
+  it("cancels a published version using a scoped dedicated transaction", async () => {
+    stubs.readJsonObject.mockResolvedValue({ action: "cancel_trip", trip_version_id: tripId,
+      expected_trip_key: tripKey, expected_version: 1, expected_content_hash: hash,
+      expected_conflict_count: 0, expected_rule_version_id: ruleId, reason: "車輛故障取消並安排替代接送" });
+    stubs.maybeSingle.mockResolvedValue({ data: { ...saveReceipt, action: "cancel_trip", status: "cancelled" }, error: null });
+    const response = await PATCH(request("PATCH", "cancel_trip"));
+    expect(response.status).toBe(201);
+    expect((await response.json()).data).toMatchObject({ action: "cancel_trip", status: "cancelled", persisted: true });
+    expect(stubs.rpc).toHaveBeenCalledWith("cancel_transport_trip_plan", expect.objectContaining({
+      p_expected_organization_id: organizationId, p_expected_branch_id: branchId, p_idempotency_key: key,
+      p_payload: expect.objectContaining({ reason: "車輛故障取消並安排替代接送", expected_content_hash: hash }),
+    }));
+    expect(stubs.rpc.mock.calls[0][1]).not.toHaveProperty("p_action");
+  });
+
+  it("requires approval permission before accepting a cancellation body", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, scopes: actor.scopes.filter((scope) => scope !== "transport_plans.approve") });
+    const response = await PATCH(request("PATCH", "cancel_trip"));
+    expect(response.status).toBe(403);
+    expect(stubs.readJsonObject).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["42501", 403, "TRANSPORT_PLAN_NOT_AUTHORIZED"],
     ["55000", 503, "TRANSPORT_PLAN_RULES_NOT_CONFIGURED"],
@@ -157,6 +179,7 @@ describe("Page 47 transport-plan API boundary", () => {
     ["23514", 409, "TRANSPORT_PLAN_STATE_CONFLICT"],
     ["22023", 400, "INVALID_TRANSPORT_PLAN_OPERATION"],
     ["XX000", 409, "TRANSPORT_PLAN_RESULT_UNCERTAIN"],
+    ["P4701", 409, "TRANSPORT_TRIP_ALREADY_STARTED"],
   ])("maps database code %s without leaking details", async (code, status, expected) => {
     stubs.maybeSingle.mockResolvedValue({ data: null, error: { code } });
     const response = await POST(request("POST", "save_trip"));

@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  demo: vi.fn(), preview: vi.fn(), client: vi.fn(), getUser: vi.fn(), aal: vi.fn(), from: vi.fn(),
+  demo: vi.fn(), preview: vi.fn(), client: vi.fn(), getUser: vi.fn(), aal: vi.fn(), from: vi.fn(), rpc: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/env", () => ({ isDemoMode: mocks.demo, isSyntheticPreviewMode: mocks.preview }));
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: mocks.client }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock("next/navigation", () => ({ redirect: (path: string) => { throw new Error(`REDIRECT:${path}`); } }));
 
 import { demoBranding } from "@/lib/config/branding";
-import { getTenantContext } from "./context";
+import { getTenantContext, hasRecentAal2, requireTenantContext } from "./context";
 
 const ORG = "58000000-0000-4000-8000-000000000901";
 const BRANCH = "58000000-0000-4000-8000-000000000902";
@@ -40,9 +41,11 @@ beforeEach(() => {
   mocks.preview.mockReturnValue(false);
   mocks.getUser.mockResolvedValue({ data: { user: { id: USER } }, error: null });
   mocks.aal.mockResolvedValue({ data: { currentLevel: "aal2" } });
+  mocks.rpc.mockResolvedValue({ data: true, error: null });
   mocks.client.mockResolvedValue({
     auth: { getUser: mocks.getUser, mfa: { getAuthenticatorAssuranceLevel: mocks.aal } },
     from: mocks.from,
+    rpc: mocks.rpc,
   });
   setDatabaseNames();
 });
@@ -102,5 +105,66 @@ describe("branding cannot replace authenticated tenant identity", () => {
     mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
     expect(await getTenantContext("staff")).toBeNull();
     expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it.each([false, null, "true", 1])("denies a non-approved Google session: %s", async (data) => {
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    expect(await getTenantContext("staff")).toBeNull();
+    expect(await getTenantContext("family")).toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the executive policy is missing or fails", async () => {
+    mocks.rpc.mockResolvedValue({ data: true, error: { code: "PGRST202" } });
+    expect(await getTenantContext("staff")).toBeNull();
+    mocks.rpc.mockRejectedValue(new Error("private details"));
+    expect(await getTenantContext("staff")).toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("admits an approved AAL1 staff session without fabricating AAL2 or broadening its roles and scopes", async () => {
+    mocks.aal.mockResolvedValue({ data: { currentLevel: "aal1" } });
+    expect(await requireTenantContext("staff")).toMatchObject({
+      userId: USER, organizationId: ORG, branchId: BRANCH,
+      assuranceLevel: "aal1", recentAal2At: null, demo: false,
+      roles: ["branch_supervisor"], scopes: ["branch:read"],
+    });
+    expect(mocks.rpc).toHaveBeenCalledWith("is_staff_login_allowed");
+    expect(await hasRecentAal2()).toBe(false);
+    expect(mocks.rpc).not.toHaveBeenCalledWith("has_recent_aal2", expect.anything());
+  });
+
+  it("does not promote an unavailable assurance result to AAL2", async () => {
+    mocks.aal.mockResolvedValue({ data: null, error: { message: "unavailable" } });
+    expect(await requireTenantContext("staff")).toMatchObject({ assuranceLevel: "aal1", recentAal2At: null });
+    expect(await hasRecentAal2()).toBe(false);
+  });
+
+  it("still redirects missing or unapproved sessions to the fixed login entrance", async () => {
+    mocks.getUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+    await expect(requireTenantContext("staff")).rejects.toThrow("REDIRECT:/login?audience=staff");
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    await expect(requireTenantContext("staff")).rejects.toThrow("REDIRECT:/login?audience=staff");
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("does not admit staff membership through the family entrance", async () => {
+    mocks.aal.mockResolvedValue({ data: { currentLevel: "aal1" } });
+    await expect(requireTenantContext("family")).rejects.toThrow("REDIRECT:/login?audience=family");
+  });
+
+  it.each([true, false, null, "true"])("keeps the recent AAL2 evidence RPC authoritative (%s)", async (evidence) => {
+    mocks.rpc.mockImplementation(async (name: string) => ({
+      data: name === "is_staff_login_allowed" ? true : evidence, error: null,
+    }));
+    expect(await hasRecentAal2()).toBe(evidence === true);
+    expect(mocks.rpc).toHaveBeenCalledWith("has_recent_aal2", { max_age_minutes: 15 });
+  });
+
+  it("fails recent AAL2 closed on evidence RPC errors even if data is true", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: true,
+      error: name === "has_recent_aal2" ? { code: "PGRST202" } : null,
+    }));
+    expect(await hasRecentAal2()).toBe(false);
   });
 });

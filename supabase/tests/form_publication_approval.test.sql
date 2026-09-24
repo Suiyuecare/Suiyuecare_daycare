@@ -191,12 +191,10 @@ select ok(
 );
 
 select ok(
-  position('other.status' in pg_get_functiondef(
+  position('other.status in (''published'', ''retired'')' in pg_get_functiondef(
     'private.approve_form_publication_atomic(uuid,uuid,uuid,uuid)'::regprocedure
-  )) < position('retired' in pg_get_functiondef(
-    'private.approve_form_publication_atomic(uuid,uuid,uuid,uuid)'::regprocedure
-  ))
-  and position('retired' in pg_get_functiondef(
+  )) > 0
+  and position('other.status in (''published'', ''retired'')' in pg_get_functiondef(
     'private.approve_form_publication_atomic(uuid,uuid,uuid,uuid)'::regprocedure
   )) < position('published form effective periods cannot overlap' in pg_get_functiondef(
     'private.approve_form_publication_atomic(uuid,uuid,uuid,uuid)'::regprocedure
@@ -379,7 +377,7 @@ select throws_ok(
       'c7000000-0000-4000-8000-000000000001',
       'c8000000-0000-4000-8000-000000000004'
     )$$,
-  '42501', 'immutable AAL2 evidence is required for form publication',
+  '42501', 'form publication request is not permitted',
   'a recent event not exactly matching its challenge cannot author a request'
 );
 
@@ -500,7 +498,7 @@ select throws_ok(
        where request_idempotency_key = 'c8000000-0000-4000-8000-000000000010'),
       'c8100000-0000-4000-8000-000000000011'
     )$$,
-  '42501', 'independent immutable AAL2 evidence is required for form approval',
+  '42501', 'form publication approval is not permitted',
   'an approver with mismatched immutable evidence cannot publish'
 );
 

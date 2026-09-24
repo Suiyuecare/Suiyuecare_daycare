@@ -36,14 +36,14 @@
 .badges span, .action > span { background: #eef3f0; border-radius: 999px; color: #355045; font-size: .875rem; padding: 6px 10px; white-space: nowrap; }
 .danger { background: #fff0ec !important; color: #9e351f !important; }
 .success { background: #eaf7ef !important; color: #22623a !important; }
-.reason { background: #f4f6f5; border-radius: 10px; margin: 14px 0 0; padding: 10px 12px; }
+.reason { background: var(--surface-soft); border-radius: 10px; margin: 14px 0 0; padding: 10px 12px; }
 .summaryGrid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
 .summaryGrid section { border-top: 1px solid var(--border, #d8e0dc); min-width: 0; padding-top: 12px; }
 .summaryGrid h3, .actions h3 { align-items: center; display: flex; font-size: 1rem; gap: 6px; margin: 0 0 8px; }
 .summaryGrid h3 svg { height: 18px; width: 18px; }
 .summaryGrid p, .summaryGrid ol { margin: 4px 0; overflow-wrap: anywhere; padding-left: 20px; }
 .actions { border-top: 1px solid var(--border, #d8e0dc); margin-top: 14px; padding-top: 14px; }
-.action { align-items: start; background: #f8faf9; border-radius: 12px; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto; margin-top: 10px; padding: 12px; }
+.action { align-items: start; background: var(--surface-soft); border-radius: 12px; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto; margin-top: 10px; padding: 12px; }
 .action p { margin: 4px 0 0; }
 .actionForm { align-items: end; display: grid; gap: 10px; grid-column: 1 / -1; grid-template-columns: minmax(140px, .6fr) minmax(180px, 1fr) auto; }
 .inlineFieldset { align-items: end; border: 0; display: grid; gap: 10px; grid-column: 1 / -1; grid-template-columns: minmax(140px, .6fr) minmax(180px, 1fr) auto; margin: 0; min-width: 0; padding: 0; }

@@ -69,7 +69,7 @@ function parseTaipeiLocal(value: FormDataEntryValue | null) {
 function Reauth({ title }: { title: string }) {
   return <section className={styles.reauth}><h2>{title}</h2>
     <p>建立、發布、駁回或衝突覆核，都必須使用同一工作階段最近 15 分鐘內的雙重驗證。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">
       前往雙重驗證
     </Link></section>;
 }

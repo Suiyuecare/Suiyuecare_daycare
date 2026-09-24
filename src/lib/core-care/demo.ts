@@ -64,6 +64,7 @@ function demoClient(
     completedServiceCount: index % 3,
     sourceCoverage:
       Number(hasAttendance) + Number(hasVitals) + Number(hasDiary) + Number(index % 3 > 0),
+    applicability: { attendance: "expected", care: index === 3 ? "not_expected" : "expected", reason: index === 3 ? "leave_or_absent" : hasAttendance ? "arrived" : "scheduled", eligible: true },
   };
 }
 

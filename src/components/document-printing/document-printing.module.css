@@ -6,8 +6,8 @@
 
 .hero {
   align-items: start;
-  background: linear-gradient(135deg, #eef8f7, #fbfdfc);
-  border: 1px solid #c8dfdc;
+  background: linear-gradient(135deg, var(--brand-soft), var(--surface-soft));
+  border: 1px solid var(--line);
   border-radius: 1.2rem;
   display: grid;
   gap: 1rem;
@@ -27,7 +27,7 @@
 
 .snapshotMeta {
   background: rgb(255 255 255 / 82%);
-  border: 1px solid #d5e6e3;
+  border: 1px solid var(--line);
   border-radius: 0.85rem;
   display: grid;
   font-size: 0.88rem;
@@ -57,7 +57,7 @@
 .metrics article {
   align-items: center;
   background: #fff;
-  border: 1px solid #dbe5e2;
+  border: 1px solid var(--line);
   border-radius: 0.95rem;
   display: grid;
   gap: 0.35rem;
@@ -65,13 +65,13 @@
   padding: 1rem;
 }
 
-.metrics svg { color: #28736e; height: 1.35rem; width: 1.35rem; }
-.metrics span { color: #536460; font-size: 0.9rem; }
+.metrics svg { color: var(--brand-strong); height: 1.35rem; width: 1.35rem; }
+.metrics span { color: var(--ink-muted); font-size: 0.9rem; }
 .metrics strong { font-size: clamp(1.35rem, 2vw, 1.9rem); }
 
 .composer {
   background: #fff;
-  border: 1px solid #cfdedb;
+  border: 1px solid var(--line);
   border-radius: 1rem;
   overflow: clip;
 }
@@ -85,7 +85,7 @@
 }
 
 .composer > form {
-  border-top: 1px solid #e0e9e6;
+  border-top: 1px solid var(--line);
   padding: 1rem;
 }
 
@@ -104,7 +104,7 @@
 
 .formGrid label span,
 .filters label span {
-  color: #415552;
+  color: var(--ink);
   font-size: 0.88rem;
   font-weight: 650;
 }
@@ -114,7 +114,7 @@
 .filters input,
 .filters select {
   background: #fff;
-  border: 1px solid #aabdb9;
+  border: 1px solid var(--line);
   border-radius: 0.65rem;
   font: inherit;
   font-size: 1rem;
@@ -124,13 +124,13 @@
   width: 100%;
 }
 
-.formNote { color: #53635f; font-size: 0.9rem; line-height: 1.6; }
+.formNote { color: var(--ink-muted); font-size: 0.9rem; line-height: 1.6; }
 .formMessage { background: #edf8f2; border-radius: 0.7rem; padding: 0.75rem; }
 
 .filters {
   align-items: end;
   background: #fff;
-  border: 1px solid #dbe5e2;
+  border: 1px solid var(--line);
   border-radius: 1rem;
   display: grid;
   gap: 0.75rem;
@@ -141,7 +141,7 @@
 
 .records {
   background: #fff;
-  border: 1px solid #dbe5e2;
+  border: 1px solid var(--line);
   border-radius: 1rem;
   min-width: 0;
   padding: 1rem;
@@ -160,13 +160,13 @@
 .table { border-collapse: collapse; min-width: 60rem; width: 100%; }
 .table th,
 .table td {
-  border-bottom: 1px solid #e1e9e6;
+  border-bottom: 1px solid var(--line);
   padding: 0.75rem;
   text-align: left;
   vertical-align: top;
 }
-.table th { background: #f4f8f7; font-size: 0.87rem; }
-.table small { color: #5b6b67; }
+.table th { background: var(--surface-soft); font-size: 0.87rem; }
+.table small { color: var(--ink-muted); }
 
 .accessActions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .accessActions a { min-height: 44px; white-space: nowrap; }
@@ -174,7 +174,7 @@
 
 .desktopDetails { display: grid; gap: 0.65rem; margin-top: 0.85rem; }
 .documentDetails {
-  border: 1px solid #d6e2df;
+  border: 1px solid var(--line);
   border-radius: 0.85rem;
   padding: 0 0.8rem 0.8rem;
 }
@@ -188,7 +188,7 @@
 }
 
 .documentHeading code {
-  background: #f2f6f5;
+  background: var(--surface-soft);
   border-radius: 0.5rem;
   font-size: 0.8rem;
   overflow-wrap: anywhere;
@@ -197,39 +197,39 @@
 
 .renderSection { margin-top: 0.9rem; }
 .renderSection h4 {
-  background: #eaf5f3;
+  background: var(--surface-soft);
   border-radius: 0.55rem;
-  color: #1c514e;
+  color: var(--brand-strong);
   margin: 0;
   padding: 0.65rem;
 }
 .renderSection dl { margin: 0; }
 .renderSection dl > div {
-  border-bottom: 1px solid #e3e9e7;
+  border-bottom: 1px solid var(--line);
   display: grid;
   gap: 0.7rem;
   grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
   padding: 0.7rem;
 }
 .renderSection dt { font-weight: 700; }
-.renderSection dt small { color: #61716d; display: block; font-weight: 500; }
+.renderSection dt small { color: var(--ink-muted); display: block; font-weight: 500; }
 .renderSection dd { margin: 0; overflow-wrap: anywhere; }
-.footerNote { color: #566762; font-size: 0.87rem; }
+.footerNote { color: var(--ink-muted); font-size: 0.87rem; }
 
 .mobileCards { display: none; }
 .jobCard {
-  border: 1px solid #d6e2df;
+  border: 1px solid var(--line);
   border-radius: 0.85rem;
   min-width: 0;
   padding: 0.9rem;
 }
-.cardHeading > span { color: #3b5e59; font-weight: 700; white-space: nowrap; }
+.cardHeading > span { color: var(--ink-muted); font-weight: 700; white-space: nowrap; }
 .metaList {
   display: grid;
   gap: 0.55rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.metaList dt { color: #62716e; font-size: 0.8rem; }
+.metaList dt { color: var(--ink-muted); font-size: 0.8rem; }
 .metaList dd { margin: 0.15rem 0 0; overflow-wrap: anywhere; }
 
 @media (max-width: 1120px) {

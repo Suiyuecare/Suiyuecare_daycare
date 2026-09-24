@@ -7,11 +7,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { NavigationLink } from "@/components/app/navigation-link";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type {
   StaffManagementEmployee,
   StaffManagementFilters,
   StaffManagementSnapshot,
+  StaffRoleOption,
 } from "@/lib/staff-management/types";
 
 import {
@@ -22,6 +24,7 @@ import {
   StaffTerminationProposalForm,
 } from "./staff-management-actions";
 import styles from "./staff-management.module.css";
+import { currentStaffRoleName, staffRoleOptionName } from "./role-labels";
 
 const statusLabels = {
   invited: "受邀中", active: "在職", suspended: "暫停", ended: "已離職",
@@ -37,13 +40,16 @@ function formatTaipei(value: string) {
     minute: "2-digit", hourCycle: "h23" }).format(new Date(value));
 }
 
-function employeeDetails(employee: StaffManagementEmployee) {
+function employeeDetails(
+  employee: StaffManagementEmployee,
+  roleOptions: ReadonlyMap<string, StaffRoleOption>,
+) {
   return <dl className={styles.details}>
     <div><dt>聘僱類型</dt><dd>{employee.employmentTypeText ?? "尚未建立受治理版本"}</dd></div>
     <div><dt>職務</dt><dd>{employee.jobTitleText ?? "尚未建立受治理版本"}</dd></div>
     <div><dt>登錄狀態</dt><dd>{employee.registrationStatusText ?? "尚未建立受治理版本"}</dd></div>
     <div><dt>到職／迄日</dt><dd>{employee.membershipStartsOn} ～ {employee.membershipEndsOn ?? "未設定"}</dd></div>
-    <div><dt>角色</dt><dd>{employee.roles.length ? employee.roles.map((role) => role.roleName).join("、") : "未指派"}</dd></div>
+    <div><dt>角色</dt><dd>{employee.roles.length ? employee.roles.map((role) => currentStaffRoleName(role, roleOptions)).join("、") : "未指派"}</dd></div>
     <div><dt>帳號狀態</dt><dd>{employee.membershipStatus === "ended" ?
       "本系統已離職；遠端工作階段未驗證" : statusLabels[employee.membershipStatus]}</dd></div>
   </dl>;
@@ -88,6 +94,8 @@ export function StaffManagementWorkspace({
     </Link>
   </section>;
 
+  const roleOptionsById = new Map(snapshot.roleOptions.map((role) => [role.roleId, role]));
+
   return <div className={styles.workspace}>
     <header className={styles.hero}><div>
       <p className="eyebrow">第 {page.number} 頁 · 機構營運管理</p>
@@ -98,6 +106,13 @@ export function StaffManagementWorkspace({
       <time dateTime={snapshot.generatedAt}>更新 {formatTaipei(snapshot.generatedAt)}</time>
       <span>超過 5 分鐘請重新載入後再審核</span>
     </div></header>
+
+    <div className={styles.notice} role="note">
+      <strong>職稱與權限分開設定。</strong>機構主任可兼任護理或社工，但須分別核准對應角色並核對專業資格，不會自動取得兼任權限。
+      {snapshot.demo || canManageRoles ? <NavigationLink className={styles.roleGuideLink}
+        href="/app/staff/governance/roles-data-scopes#role-categories-heading"
+        loadingLabel="角色與資料範圍">查看 11 種標準職務與管理範圍</NavigationLink> : null}
+    </div>
 
     {snapshot.demo ? <div className={styles.notice} role="status">
       展示模式：以下姓名、員編、職務、資格與撤銷回執均為合成資料，只能檢視。
@@ -146,7 +161,7 @@ export function StaffManagementWorkspace({
       </select></label>
       <label><span>角色</span><select name="role" defaultValue={filters.roleId ?? "all"}>
         <option value="all">全部角色</option>{snapshot.roleOptions.map((role) =>
-          <option key={role.roleId} value={role.roleId}>{role.roleName}</option>)}</select></label>
+          <option key={role.roleId} value={role.roleId}>{staffRoleOptionName(role)}</option>)}</select></label>
       <label><span>證照事實</span><select name="qualification"
         defaultValue={filters.qualification}>
         <option value="all">全部</option><option value="has_expired">有明確過期</option>
@@ -177,7 +192,7 @@ export function StaffManagementWorkspace({
               <small>{employee.employeeCode ?? "未提供員編"} · v{employee.membershipVersion}</small></td>
             <td>{employee.jobTitleText ?? "未建立聘僱版本"}<br />
               <small>{employee.registrationStatusText ?? "無登錄狀態版本"}</small></td>
-            <td>{employee.roles.length ? employee.roles.map((role) => role.roleName).join("、") : "未指派"}</td>
+            <td>{employee.roles.length ? employee.roles.map((role) => currentStaffRoleName(role, roleOptionsById)).join("、") : "未指派"}</td>
             <td>{qualificationText(employee)}<br /><Link
               className={styles.certificateLink}
               href={`/app/staff/operations/staff-certificates?staff=${employee.membershipId}`}>
@@ -194,7 +209,7 @@ export function StaffManagementWorkspace({
             <div><h3>{employee.displayName}</h3><small>{employee.employeeCode ?? "未提供員編"} · v{employee.membershipVersion}</small></div>
             <span className={`${styles.pill} ${styles[`pill_${employee.membershipStatus}`]}`}>
               {statusLabels[employee.membershipStatus]}</span></div>
-            {employeeDetails(employee)}
+            {employeeDetails(employee, roleOptionsById)}
             <p><strong>證照：</strong>{qualificationText(employee)}</p>
             <Link className={styles.certificateLink}
               href={`/app/staff/operations/staff-certificates?staff=${employee.membershipId}`}>

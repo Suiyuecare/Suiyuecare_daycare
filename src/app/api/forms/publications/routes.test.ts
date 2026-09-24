@@ -10,6 +10,7 @@ const stubs = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/form-governance/lifecycle-auth", () => ({ requireCustomFormAal2: stubs.requireRecentAal2 }));
 
 vi.mock("@/lib/integrations/http", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/integrations/http")>();

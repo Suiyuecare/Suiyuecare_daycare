@@ -11,6 +11,7 @@ import {
   UserRoundPlus,
 } from "lucide-react";
 import Link from "next/link";
+import { IntakeEntryLink } from "@/components/client-intake/intake-entry-link";
 
 import { ClientTransitionComposer } from "@/components/clients/client-transition-composer";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -64,6 +65,7 @@ function formatTimestamp(value: string) {
 }
 
 function pageHref(input: {
+  clientId?: string | null;
   query: string;
   status: ClientLifecycleStatusFilter;
   eventKind: "all" | ClientTransitionKind;
@@ -71,6 +73,7 @@ function pageHref(input: {
   page: number;
 }) {
   const params = new URLSearchParams();
+  if (input.clientId) params.set("client", input.clientId);
   if (input.query) params.set("q", input.query);
   if (input.status !== "all") params.set("status", input.status);
   if (input.eventKind !== "all") params.set("event", input.eventKind);
@@ -81,6 +84,7 @@ function pageHref(input: {
 }
 
 export function ClientLifecycleWorkspace({
+  canOpenIntake = false,
   page,
   snapshot,
   query,
@@ -89,7 +93,9 @@ export function ClientLifecycleWorkspace({
   effectiveOn,
   canManage,
   hasRecentAal2,
+  canRoutineAdmit = false,
   loadError = false,
+  selectedClientId = null,
 }: {
   page: PageCatalogEntry;
   snapshot: ClientLifecycleSnapshot | null;
@@ -98,8 +104,11 @@ export function ClientLifecycleWorkspace({
   eventKind: "all" | ClientTransitionKind;
   effectiveOn: string | null;
   canManage: boolean;
+  canOpenIntake?: boolean;
   hasRecentAal2: boolean;
+  canRoutineAdmit?: boolean;
   loadError?: boolean;
+  selectedClientId?: string | null;
 }) {
   if (loadError || !snapshot) {
     return (
@@ -107,12 +116,13 @@ export function ClientLifecycleWorkspace({
         <span className="empty-card__icon empty-card__icon--warning"><CircleAlert aria-hidden="true" /></span>
         <h1>個案生命週期暫時無法載入</h1>
         <p>系統沒有擴大到其他分支，也沒有以展示歷程替代正式資料。</p>
-        <a className="button button--secondary" href="?">重新載入</a>
+        <a className="button button--secondary" href={selectedClientId ? `?client=${encodeURIComponent(selectedClientId)}` : "?"}>重新載入</a>
       </section>
     );
   }
 
   const transitions = filterClientLifecycleTransitions(snapshot, {
+    clientId: selectedClientId,
     query,
     status,
     eventKind,
@@ -123,9 +133,12 @@ export function ClientLifecycleWorkspace({
     Math.ceil(snapshot.historyTotal / snapshot.historyPageSize),
   );
   const transitionableClients = snapshot.clients.filter(
-    (client) => allowedClientTransitionKinds(client).length > 0,
+    (client) => (!selectedClientId || client.id === selectedClientId) && allowedClientTransitionKinds(client).length > 0,
   );
+  const selectedClient = selectedClientId ? snapshot.clients.find((client) => client.id === selectedClientId) : null;
+  const clearHref = selectedClientId ? `?client=${encodeURIComponent(selectedClientId)}` : "?";
   const baseLink = {
+    clientId: selectedClientId,
     query,
     status,
     eventKind,
@@ -137,12 +150,19 @@ export function ClientLifecycleWorkspace({
       <nav aria-label="所在位置" className="context-bar"><span>工作台</span><ChevronRight aria-hidden="true" /><span>機構營運管理</span><ChevronRight aria-hidden="true" /><span aria-current="page" className="context-bar__crumb">{page.title}</span></nav>
       <header className="page-heading core-care-heading">
         <div><p className="eyebrow">不可變個案歷程・頁面 {page.number}</p><h1>{page.title}</h1><p className="page-heading__description">逐筆呈現收案、暫停、恢復、轉出、結案與死亡事件；列表不包含身分證、出生日期、健康資料、聯絡資料或建立者帳號 ID。</p></div>
-        <div className="page-heading__actions"><ClientTransitionComposer canManage={canManage} clients={transitionableClients} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} /></div>
+        <div className="page-heading__actions"><IntakeEntryLink allowed={canOpenIntake} /><ClientTransitionComposer key={selectedClientId ?? "all"} canManage={canManage} canRoutineAdmit={canRoutineAdmit} clients={transitionableClients} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} lockedClientId={selectedClientId} /></div>
       </header>
 
-      <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>{snapshot.demo ? "目前為合成展示資料，異動功能保持唯讀。" : "每次異動都由伺服器重新驗證分支資料範圍、clients.manage、最近 15 分鐘 AAL2、合法狀態與 row_version；既有歷程不得修改或刪除。"}</span></div>
+      {selectedClientId ? <section className="panel"><div className="panel__body">
+        {selectedClient ? <><h2>目前處理：{selectedClient.displayName}（{selectedClient.clientCode}）</h2><p>服務狀態：{statusLabels[selectedClient.serviceState]}{selectedClient.admittedOn ? ` · 收案日 ${formatDate(selectedClient.admittedOn)}` : " · 尚無正式收案日"}</p>
+          <p>確認評估、應備文件與開始服務日後，才建立收案異動。儲存不會自動建立出勤、給藥、派車或申報。</p>
+          {canOpenIntake ? <Link className="button button--secondary" href={`/app/client-intake?client=${selectedClient.id}&step=weekly`}>回此個案的每週安排與文件</Link> : null}</> : <p role="alert">找不到所選個案或目前無權限。已停止帶入，不會改選其他個案；請回個案中心重新選擇。</p>}
+      </div></section> : null}
 
-      <section aria-label="個案異動摘要" className="metric-grid">
+      <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>{snapshot.demo ? "目前為合成展示資料，異動功能保持唯讀。" : "正式收案可由已核准 Google 帳號依個案管理權限完成；暫停、恢復、轉出、結案與死亡仍需最近 15 分鐘雙因素驗證。每次異動都重新驗證分支、個案、合法狀態與版本，既有歷程不得修改或刪除。"}</span></div>
+
+      {selectedClientId ? <p>分支整體摘要（以下五項不隨單一個案篩選）：</p> : null}
+      <section aria-label="分支個案異動摘要（不隨個案篩選）" className="metric-grid">
         {[
           ["本月收案", snapshot.metrics.admittedThisMonth, "件", "依生效日計算", <UserRoundPlus aria-hidden="true" key="admit" />],
           ["待收案", snapshot.metrics.pendingAdmission, "人", "已建檔、尚未收案", <UserRoundPlus aria-hidden="true" key="pending" />],
@@ -155,14 +175,15 @@ export function ClientLifecycleWorkspace({
       </section>
 
       <section className="panel">
-        <div className="panel__header"><div className="panel__title"><h2>不可變異動歷程</h2><p>共 {snapshot.historyTotal} 筆符合條件・快照 {formatTimestamp(snapshot.generatedAt)}</p></div></div>
+        <div className="panel__header"><div className="panel__title"><h2>{selectedClientId ? "此個案的異動歷程" : "不可變異動歷程"}</h2><p>共 {snapshot.historyTotal} 筆符合條件・快照 {formatTimestamp(snapshot.generatedAt)}</p></div></div>
         <form className="filter-bar" method="get">
+          {selectedClientId ? <input type="hidden" name="client" value={selectedClientId} /> : null}
           <label className="filter-search"><Search aria-hidden="true" /><span className="sr-only">搜尋個案代碼或姓名</span><input defaultValue={query} name="q" placeholder="搜尋個案代碼或姓名…" type="search" /></label>
           <label className="field field--compact"><span>目前狀態</span><select defaultValue={status} name="status"><option value="all">全部狀態</option><option value="pending_admission">待收案</option><option value="active">在案</option><option value="suspended">暫停</option><option value="transferred">已轉出</option><option value="closed">已結案</option><option value="deceased">死亡結案</option></select></label>
           <label className="field field--compact"><span>異動類型</span><select defaultValue={eventKind} name="event"><option value="all">全部異動</option>{Object.entries(eventLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className="field field--compact"><span>生效日期</span><input defaultValue={effectiveOn ?? ""} name="date" type="date" /></label>
           <button className="button button--secondary" type="submit">套用篩選</button>
-          <Link className="button button--quiet" href="?">清除</Link>
+          <Link className="button button--quiet" href={clearHref}>清除篩選</Link>
         </form>
         {transitions.length ? (
           <>
@@ -170,7 +191,7 @@ export function ClientLifecycleWorkspace({
             <div className="mobile-records core-care-mobile">{transitions.map((transition) => <article className="record-card" key={transition.id}><div className="record-card__top"><div><h3>{transition.clientName}</h3><span className="data-table__secondary">{transition.clientCode}</span></div><StatusPill status={eventLabels[transition.eventKind]} /></div><dl className="core-care-card-grid"><div><dt>生效日期</dt><dd>{formatDate(transition.effectiveOn)}</dd></div><div><dt>狀態</dt><dd>{statusLabels[transition.fromServiceState]} → {statusLabels[transition.toServiceState]}</dd></div><div><dt>建立者</dt><dd>{transition.actorLabel}</dd></div><div><dt>版本</dt><dd>v{transition.baseRowVersion} → v{transition.resultingRowVersion}</dd></div></dl><div className="lifecycle-card-copy"><strong>理由</strong><p>{transition.reason}</p><strong>交接</strong><p>{transition.handoffNote ?? "不適用"}</p></div><Link className="record-card__action" href={`/app/staff/operations/clients?q=${encodeURIComponent(transition.clientCode)}`}>查看個案主檔<ArrowRight aria-hidden="true" /></Link></article>)}</div>
           </>
         ) : (
-          <div className="panel__body"><section className="empty-card core-care-state"><Search aria-hidden="true" /><h2>沒有符合條件的異動歷程</h2><p>請調整個案、類型、日期或目前狀態；系統不會擴大到其他分支。</p><Link className="button button--secondary" href="?">清除篩選</Link></section></div>
+          <div className="panel__body"><section className="empty-card core-care-state"><Search aria-hidden="true" /><h2>沒有符合條件的異動歷程</h2><p>請調整類型、日期或目前狀態；系統不會擴大到其他個案或分支。</p><Link className="button button--secondary" href={clearHref}>清除篩選</Link></section></div>
         )}
         {totalPages > 1 ? (
           <nav aria-label="異動歷程分頁" className="pagination">

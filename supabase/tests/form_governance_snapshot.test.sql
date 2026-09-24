@@ -40,7 +40,7 @@ select ok(
 );
 
 select ok(
-  position('private.has_permission' in pg_get_functiondef(
+  position('private.has_custom_governance_permission' in pg_get_functiondef(
     'private.form_governance_snapshot_response(uuid,uuid)'::regprocedure
   )) > 0
   and position('branch.is_active' in pg_get_functiondef(
@@ -172,7 +172,7 @@ insert into public.form_publication_requests (
   'd2300000-0000-4000-8000-000000000001',
   'd2600000-0000-4000-8000-000000000001',
   'd2700000-0000-4000-8000-000000000001',
-  repeat('a', 64),
+  encode(sha256(convert_to(private.custom_publication_content('d2700000-0000-4000-8000-000000000001')::text,'UTF8')),'hex'),
   'pending',
   'd2100000-0000-4000-8000-000000000001',
   transaction_timestamp() - interval '10 seconds',

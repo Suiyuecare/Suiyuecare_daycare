@@ -34,7 +34,7 @@ export async function loadFormGovernanceSnapshot(context: TenantContext) {
   const supabase = await createServerSupabaseClient();
   if (!supabase) throw new FormGovernanceSnapshotError();
   const { data, error } = await supabase
-    .rpc("form_governance_snapshot", {
+    .rpc("form_governance_snapshot_v2", {
       p_expected_organization_id: context.organizationId,
       p_expected_branch_id: context.branchId,
     })
@@ -48,6 +48,10 @@ export async function loadFormGovernanceSnapshot(context: TenantContext) {
     ) {
       throw new Error("FORM_GOVERNANCE_SCOPE_MISMATCH");
     }
+    if (data.versions.some(row => !Number.isSafeInteger(row.draft_revision) || row.draft_revision! < 1 || typeof row.custom_builder_eligible !== "boolean")
+      || data.publications.some(row => !row.branch_id || !row.branch_name || row.base_revision === undefined
+        || row.previous_request_id === undefined || row.decision_reason === undefined || row.decided_at === undefined
+        || typeof row.decided_by_current_user !== "boolean")) throw new Error("FORM_GOVERNANCE_V2_INCOMPLETE");
     const generatedAt = new Date(data.generated_at);
     if (!Number.isFinite(generatedAt.getTime())) {
       throw new Error("FORM_GOVERNANCE_TIME_INVALID");

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { roleDisplayName } from "@/lib/domain/roles";
+import { formatCareTaipeiTime } from "@/lib/core-care/date";
 import {
   DATA_INVENTORY_ITEMS, INVENTORY_OWNERS, INVENTORY_REASONS, INVENTORY_SOURCES,
   RECONCILIATION_STATES, dataInventoryReviewBlockers, emptyDataInventoryContent,
@@ -23,8 +25,8 @@ const sourceLabels: Record<DataInventoryContent["source"], string> = {
   paper: "紙本紀錄", organization_file: "機構文件",
 };
 const ownerLabels: Record<DataInventoryContent["accountableRole"], string> = {
-  unassigned: "尚未指派", organization_manager: "機構管理員", branch_supervisor: "分支主管",
-  case_manager_social_worker: "個管／社工", nurse: "護理人員", finance_claims: "財務／申報人員",
+  unassigned: "尚未指派", organization_manager: roleDisplayName("organization_manager"), branch_supervisor: roleDisplayName("branch_supervisor"),
+  case_manager_social_worker: roleDisplayName("case_manager_social_worker"), nurse: roleDisplayName("nurse"), finance_claims: roleDisplayName("finance_claims"),
 };
 const reasonLabels: Record<DataInventoryContent["reasonCode"], string> = {
   none: "無／首次登錄", out_of_scope: "不在本次盤點範圍", no_historical_data: "無該類歷史資料",
@@ -49,7 +51,7 @@ export function inventoryDisplayStatus(itemKey: DataInventoryItemKey, version?: 
 }
 function dateTime(value: string | null) {
   if (!value) return "尚未紀錄";
-  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "short", hour12: false }).format(new Date(value));
+  return formatCareTaipeiTime(value);
 }
 function countText(value: number | null) { return value === null ? "尚未盤點（不是 0）" : value.toLocaleString("zh-TW"); }
 function isExpired(snapshot: DataInventorySnapshot | null) { return !snapshot || (!snapshot.demo && Date.now() >= Date.parse(snapshot.staleAfter)); }
@@ -270,7 +272,7 @@ export function DataInventoryWorkspace({ snapshot, canManage, canReview, hasRece
           <button className="button button--primary" disabled={unavailable || !canReview || !hasRecentAal2 || reviewBlocked || editor !== null}
             onClick={() => openEditor(item.key, "verify")}>人工覆核<span className="sr-only">：{item.label}</span></button>
         </div> : null}
-        {!snapshot.demo && !hasRecentAal2 && canReview && version?.reviewState !== "manually_verified" ? <p>覆核需最近 15 分鐘完成雙因素驗證。<Link href="/mfa?audience=staff">前往重新驗證</Link></p> : null}
+        {!snapshot.demo && !hasRecentAal2 && canReview && version?.reviewState !== "manually_verified" ? <p>覆核需最近 15 分鐘完成雙因素驗證。<Link href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link></p> : null}
         {!snapshot.demo && ownRecord && version?.reviewState !== "manually_verified" ? <p className={styles.muted}>您是本版內容登錄者，須由另一位具權限人員覆核。</p> : null}
         {isEditing ? <form className={styles.form} onSubmit={submit} aria-labelledby={`inventory-form-${item.key}`}>
           <h4 ref={editorHeading} tabIndex={-1} id={`inventory-form-${item.key}`}>{editor.mode === "save" ? "登錄／更新人工盤點" : "覆核人工盤點中繼資料"}：{item.label}</h4>

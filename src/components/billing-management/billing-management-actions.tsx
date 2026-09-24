@@ -61,7 +61,7 @@ async function submitBilling(method: "POST" | "PATCH", action: string,
 function Reauth({ title }: { title: string }) {
   return <section className={styles.reauth}><h2>{title}</h2>
     <p>帳單、付款、退款、調整、收據與對帳都要使用同一工作階段最近 15 分鐘內的雙重驗證。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">前往雙重驗證</Link>
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
   </section>;
 }
 

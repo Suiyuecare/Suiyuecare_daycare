@@ -307,7 +307,7 @@ export function ClientVaccinationBatchForm({ canManage, hasRecentAal2, snapshot 
     }}>
       {!recentVerification ? <p className={styles.reauth}>
         批次登錄需要最近 15 分鐘內完成雙因素驗證，草稿暫不送出。
-        <Link href="/mfa?audience=staff" target="_blank" rel="noopener noreferrer">另開分頁重新驗證</Link>
+        <Link href="/mfa?audience=staff&purpose=sensitive-action" target="_blank" rel="noopener noreferrer">另開分頁重新驗證</Link>
         <button className="button button--quiet" type="button" onClick={() => router.refresh()}>更新驗證狀態</button>
       </p> : null}
       {outcomeUnknown ? <p className={styles.warning} role="alert">
@@ -369,7 +369,7 @@ export function ClientVaccinationRevisionForm({
   const protectedSource = record.evidenceStatus === "provided" || record.sourceSystem !== "manual_entry";
   const correctionBlocked = action === "correct" && protectedSource;
   return <details className={styles.composer}><summary>建立更正版或作廢版本</summary>
-    {!hasRecentAal2 ? <p className={styles.reauth}>更正與作廢需要同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff">重新驗證</Link></p> : null}
+    {!hasRecentAal2 ? <p className={styles.reauth}>更正與作廢需要同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link></p> : null}
     <label className={styles.topControl}><span>目前終端版本</span><select
       disabled={pending} value={record.vaccinationKey} onChange={(event) => {
         setSelected(event.target.value); operation.rotateIfFailed(() => setMessage(null));

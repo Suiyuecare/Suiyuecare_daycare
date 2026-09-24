@@ -57,6 +57,16 @@ afterEach(() => {
 });
 
 describe("form publication browser boundary", () => {
+  it("preserves legacy publication for same-prefix forms not eligible for the custom builder", () => {
+    const snapshot = buildDemoFormGovernanceSnapshot(); snapshot.demo = false;
+    snapshot.versions = [{ ...version, formKey: "tenant.custom.legacy_probe", customBuilderEligible: false }];
+    render(<FormRuleVersionsWorkspace page={getPageBySlug("staff/governance/form-rule-versions")!} snapshot={snapshot}
+      filters={{ query: "", status: "all", scope: "all", category: "all" }} canManage hasRecentAal2 />);
+    expect(screen.getAllByRole("button", { name: "送出覆核" }).every(button => !(button as HTMLButtonElement).disabled)).toBe(true);
+    expect(screen.queryByRole("button", { name: "審閱欄位／送審歷程" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "編輯自訂草稿" })).toBeNull();
+  });
+
   it("keeps a malformed 2xx open and reuses the same idempotency key", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -166,9 +176,10 @@ describe("form publication browser boundary", () => {
     );
 
     expect(screen.getByText(/展示唯讀模式/u)).toBeTruthy();
-    expect(screen.getByText(/第 82 頁仍屬部分完成/u)).toBeTruthy();
+    expect(screen.getByText(/複製改版及雙人覆核停用/u)).toBeTruthy();
+    expect(screen.getByText(/不執行計分公式、不改官方版本/u)).toBeTruthy();
     const mutationButtons = screen.getAllByRole("button", {
-      name: /送出覆核|核准並發布/u,
+      name: /送出覆核|核准並發布|改版／停用歷程/u,
     });
     expect(mutationButtons.length).toBeGreaterThan(0);
     expect(
@@ -198,7 +209,7 @@ describe("form publication browser boundary", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/清單完整前已停用/u);
     expect(screen.getAllByText(/已載入部分，非總數/u)).toHaveLength(4);
     expect(
-      screen.getAllByRole("button", { name: /送出覆核|核准並發布/u })
+      screen.getAllByRole("button", { name: /送出覆核|核准並發布|審閱欄位／送審歷程/u })
         .every((button) => (button as HTMLButtonElement).disabled),
     ).toBe(true);
   });

@@ -7,7 +7,6 @@ import {
   ChevronRight,
   CircleAlert,
   Download,
-  Filter,
   Plus,
   Search,
   ShieldCheck,
@@ -17,13 +16,6 @@ import {
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { DemoRecord } from "@/lib/demo/fixtures";
 import { StatusPill } from "@/components/ui/status-pill";
-
-function metricValue(index: number, total: number) {
-  if (index === 0) return String(total);
-  if (index === 1) return String(Math.max(1, total - 2));
-  if (index === 2) return "2";
-  return index % 2 === 0 ? "1" : "3";
-}
 
 function taipeiDateTimeLocal(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -78,7 +70,7 @@ export function OperationalWorkspace({
 
   function openCreate(event: MouseEvent<HTMLButtonElement>) {
     if (!demo) {
-      setNotice("此頁的正式專用表單與個案資料來源尚未接線，因此維持唯讀，避免建立不完整紀錄。");
+      setNotice("本頁尚未開放新增紀錄，請先使用機構現行紀錄流程。");
       return;
     }
     drawerTrigger.current = event.currentTarget;
@@ -135,42 +127,53 @@ export function OperationalWorkspace({
           <p className="page-heading__description">{page.description}</p>
         </div>
         <div className="page-heading__actions">
-          <button className="button button--secondary" disabled={!demo} title={demo ? undefined : "正式匯出尚未接線"} type="button"><Download aria-hidden="true" />匯出</button>
-          <button className="button button--primary" disabled={!demo} onClick={openCreate} title={demo ? undefined : "正式專用表單尚未接線"} type="button"><Plus aria-hidden="true" />{demo ? page.primaryActions[0] ?? "新增紀錄" : "正式表單尚未接線"}</button>
+          <button className="button button--secondary" disabled title="本頁尚未開放匯出" type="button"><Download aria-hidden="true" />匯出（未開放）</button>
+          <button className="button button--primary" disabled={!demo} onClick={openCreate} title={demo ? undefined : "本頁尚未開放新增紀錄"} type="button"><Plus aria-hidden="true" />{demo ? page.primaryActions[0] ?? "新增紀錄" : "新增紀錄（未開放）"}</button>
         </div>
       </header>
 
-      {!demo ? (
-        <div className="callout" role="status"><CircleAlert aria-hidden="true" /><span>目前完成路由、權限與唯讀工作框架；本頁專用欄位、狀態機及正式寫入尚未驗收，因此不開放新增或匯出。</span></div>
+      {demo ? (
+        <div className="callout" role="note"><CircleAlert aria-hidden="true" /><span>展示模式：以下為合成示範紀錄，僅供操作練習，不代表真實個案、正式評估結果或機構統計；新增內容重新整理後會復原。</span></div>
       ) : null}
 
-      {notice ? (
+      {demo && notice ? (
         <div className="callout" role="status"><CheckCircle2 aria-hidden="true" /><span>{notice}</span></div>
       ) : null}
 
-      <section className="metric-grid" aria-label="本頁摘要">
-        {page.metrics.slice(0, 4).map((metric, index) => (
-          <article className="metric-card" key={metric}>
-            <div className="metric-card__top"><span>{metric}</span><span className="metric-card__icon"><CheckCircle2 aria-hidden="true" /></span></div>
-            <div className="metric-card__value"><strong>{metricValue(index, records.length)}</strong><span>{index === 0 ? "筆" : "件"}</span></div>
-            <p className="metric-card__foot">更新時間：今天 10:24</p>
+      {demo ? <section className="metric-grid" aria-label="展示清單摘要">
+        {[{ label: "展示紀錄", count: records.length }, ...["待處理", "需留意", "已完成"].map((status) => ({
+          label: `展示${status}`,
+          count: records.filter((record) => record.status === status).length,
+        }))].map((metric) => (
+          <article className="metric-card" key={metric.label}>
+            <div className="metric-card__top"><span>{metric.label}</span><span className="metric-card__icon"><CheckCircle2 aria-hidden="true" /></span></div>
+            <div className="metric-card__value"><strong>{metric.count}</strong><span>筆</span></div>
+            <p className="metric-card__foot">依本頁全部展示紀錄計算</p>
           </article>
         ))}
-      </section>
+      </section> : null}
 
       <section className="content-grid">
         <div className="panel">
           <div className="panel__header">
-            <div className="panel__title"><h2>工作清單</h2><p>{visibleRecords.length} 筆符合目前條件</p></div>
-            <button className="button button--quiet" type="button"><Filter aria-hidden="true" />更多篩選</button>
+            <div className="panel__title"><h2>工作清單</h2><p>{demo ? `${visibleRecords.length} 筆展示紀錄符合目前條件` : "紀錄與統計尚未提供"}</p></div>
           </div>
-          <div className="filter-bar">
+          {demo ? <div className="filter-bar">
             <label className="filter-search"><Search aria-hidden="true" /><span className="sr-only">搜尋本頁紀錄</span><input onChange={(event) => setQuery(event.target.value)} placeholder="搜尋個案或負責人…" type="search" value={query} /></label>
             {["全部", "待處理", "需留意", "已完成"].map((status) => (
-              <button aria-pressed={selectedStatus === status} className="filter-chip" key={status} onClick={() => setSelectedStatus(status)} type="button">{status}</button>
+              <button aria-pressed={selectedStatus === status} className="filter-chip" key={status} onClick={() => setSelectedStatus(status)} style={{ minHeight: 44 }} type="button">{status}</button>
             ))}
-          </div>
-          {visibleRecords.length ? (
+          </div> : null}
+          {!demo ? (
+            <div className="panel__body">
+              <section className="empty-card" role="status" aria-labelledby="workspace-unavailable-title">
+                <CircleAlert aria-hidden="true" />
+                <h2 id="workspace-unavailable-title">本頁尚未開放使用</h2>
+                <p>目前無法查看、新增或匯出紀錄，請先使用機構現行紀錄流程；需要協助時請聯絡主管。</p>
+                <p>尚未提供統計，不能據此判斷是否有待辦或已完成的紀錄。</p>
+              </section>
+            </div>
+          ) : visibleRecords.length ? (
             <>
               <div className="table-wrap">
                 <table className="data-table">
@@ -199,23 +202,29 @@ export function OperationalWorkspace({
             </>
           ) : (
             <div className="panel__body">
-              <section className="empty-card"><Search aria-hidden="true" /><h2>沒有符合條件的紀錄</h2><p>清除篩選，或使用主要動作建立第一筆紀錄。</p><button className="button button--secondary" onClick={() => { setQuery(""); setSelectedStatus("全部"); }} type="button">清除篩選</button></section>
+              <section className="empty-card"><Search aria-hidden="true" /><h2>沒有符合條件的展示紀錄</h2><p>清除篩選，或新增一筆展示草稿練習操作；不會建立正式紀錄。</p><button className="button button--secondary" onClick={() => { setQuery(""); setSelectedStatus("全部"); }} type="button">清除篩選</button></section>
             </div>
           )}
         </div>
-        <aside className="panel" aria-label="頁面規則">
-          <div className="panel__header"><div className="panel__title"><h2>工作規則</h2><p>提交前的必要確認</p></div><ShieldCheck aria-hidden="true" /></div>
+        <aside className="panel" aria-label="使用提醒">
+          <div className="panel__header"><div className="panel__title"><h2>使用提醒</h2><p>請勿以此頁取代正式紀錄</p></div><ShieldCheck aria-hidden="true" /></div>
           <div className="panel__body">
-            <div className="callout"><CircleAlert aria-hidden="true" /><span>{page.offline.note}</span></div>
-            <h3>驗收重點</h3>
-            <ul className="acceptance-list">{page.acceptance.map((item) => <li key={item}>{item}</li>)}</ul>
-            <h3>本頁可用篩選</h3>
-            <div className="filter-bar">{page.filters.map((filter) => <span className="filter-chip" key={filter}>{filter}</span>)}</div>
+            <div className="callout"><CircleAlert aria-hidden="true" /><span>{demo ? "展示草稿僅保留在目前頁面，重新整理後會復原。請勿輸入真實個案資料。" : "本頁尚未開放離線紀錄，也不會自動補存您在其他地方填寫的資料。"}</span></div>
+            <details>
+              <summary className="button button--quiet">管理參考：預定功能與驗收項目</summary>
+              <p>以下為建置目標，不代表功能已完成。</p>
+              <h3>驗收重點</h3>
+              <ul className="acceptance-list">{page.acceptance.map((item) => <li key={item}>{item}</li>)}</ul>
+              <h3>預定支援的篩選</h3>
+              <div className="filter-bar">{page.filters.map((filter) => <span className="filter-chip" key={filter}>{filter}</span>)}</div>
+              <h3>預定離線範圍</h3>
+              <p>{page.offline.note}</p>
+            </details>
           </div>
         </aside>
       </section>
 
-      {drawerOpen ? (
+      {demo && drawerOpen ? (
         <RecordDrawer page={page} record={selectedRecord} onClose={closeDrawer} onCreate={createRecord} />
       ) : null}
     </>
@@ -283,7 +292,7 @@ function RecordDrawer({
   return (
     <div className="drawer-backdrop" role="presentation">
       <section aria-labelledby="drawer-heading" aria-modal="true" className="drawer" ref={dialog} role="dialog">
-        <header className="drawer__header"><div><p className="eyebrow">{record ? "紀錄明細" : "建立草稿"}</p><h2 id="drawer-heading">{record ? record.primary : page.primaryActions[0] ?? page.title}</h2><p>{page.title}・伺服器時間將在送出時寫入</p></div><button aria-label="關閉" className="icon-button" onClick={onClose} ref={closeButton} type="button"><X /></button></header>
+        <header className="drawer__header"><div><p className="eyebrow">{record ? "展示紀錄明細" : "建立展示草稿"}</p><h2 id="drawer-heading">{record ? record.primary : page.primaryActions[0] ?? page.title}</h2><p>{page.title}・僅保留在本頁，不會寫入正式紀錄</p></div><button aria-label="關閉" className="icon-button" onClick={onClose} ref={closeButton} type="button"><X /></button></header>
         {record ? (
           <div className="drawer__body"><div className="callout"><ShieldCheck aria-hidden="true" /><span>此為去識別化展示紀錄。正式簽署紀錄只能建立更正版，不能直接覆寫。</span></div><dl>{page.columns.slice(0, 6).map((column, index) => <div className="field" key={column}><dt>{column}</dt><dd>{record.values[index] ?? "—"}</dd></div>)}</dl></div>
         ) : (

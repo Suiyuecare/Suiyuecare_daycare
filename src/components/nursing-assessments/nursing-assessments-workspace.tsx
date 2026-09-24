@@ -137,7 +137,7 @@ export function NursingAssessmentsWorkspace({ snapshot, canManage, canSign, hasR
           <button className="button button--primary" disabled={unavailable || !canSign || !hasRecentAal2 || mode !== null || selected?.versionId !== latest.versionId}
             onClick={() => { if (existing) void execute({ request: { ...existing, action: "sign" }, idempotencyKey: crypto.randomUUID() }); }}>簽署目前草稿</button></>
           : latest ? <button className="button button--secondary" disabled={unavailable || !canSign || !hasRecentAal2 || mode !== null} onClick={() => start("correct")}>追加更正版</button> : null}</div>
-      {!snapshot.demo && !hasRecentAal2 ? <p>簽署與更正需最近 15 分鐘完成雙因素驗證。<Link href="/mfa?audience=staff">前往重新驗證</Link></p> : null}
+      {!snapshot.demo && !hasRecentAal2 ? <p>簽署與更正需最近 15 分鐘完成雙因素驗證。<Link href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link></p> : null}
       {mode ? <form className={styles.form} onSubmit={submit}><h3>{mode === "create_draft" ? "新增人工護理評估" : mode === "revise_draft" ? "修訂草稿（追加版本）" : "更正已簽紀錄（追加簽署版本）"}</h3>
         <fieldset disabled={busy || pending !== null}><legend>評估內容</legend><label className={styles.field}>評估日期<input type="date" value={content.assessedOn} required onChange={(event) => setContent({ ...content, assessedOn: event.target.value })}/></label>
           {keys.map((key) => <fieldset key={key}><legend>{NURSING_DOMAIN_LABELS[key]}</legend><label className={styles.field}>紀錄狀態<select value={content.domains[key].state} onChange={(event) => {

@@ -8,9 +8,11 @@ import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fe
 import {
   parseTransportPlanMutation,
   parseTransportPlanReceipt,
+  transportPlanMutationPayload,
 } from "@/lib/transport-plans/parser";
 import type {
   DecideTransportTripInput,
+  CancelTransportTripInput,
   SaveTransportTripInput,
   TransportPlanSnapshot,
 } from "@/lib/transport-plans/types";
@@ -66,7 +68,7 @@ function resultUnknown(error: unknown) {
 function Reauth() {
   return <section className={styles.reauth}><h2>交通計畫操作前需重新驗證</h2>
     <p>建立、修訂、發布、駁回及衝突覆核，都需同一工作階段最近 15 分鐘 AAL2。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">前往雙重驗證</Link>
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
   </section>;
 }
 
@@ -145,7 +147,7 @@ export function TransportTripComposer({ canManage, hasRecentAal2, snapshot }: {
       <fieldset className={styles.formGrid} disabled={state.kind === "working"}>
         <label className={styles.wide}><span>操作</span><select value={selected}
           onChange={(event) => { setSelected(event.target.value); operation.changed(); }}>
-          <option value="new">建立新趟次</option>{snapshot.trips.map((trip) =>
+          <option value="new">建立新趟次</option>{snapshot.trips.filter((trip) => trip.status !== "cancelled").map((trip) =>
             <option key={trip.tripKey} value={trip.tripKey}>修訂：{trip.vehicle.name}・
               {localDateTime(trip.startsAt)}・v{trip.version}</option>)}</select></label>
         <label><span>方向</span><select defaultValue={existing?.direction ?? "pickup"}
@@ -189,6 +191,70 @@ export function TransportTripComposer({ canManage, hasRecentAal2, snapshot }: {
       </fieldset>
       {state.kind !== "idle" ? <p className={state.kind === "error" ?
         styles.error : styles.message} role="status">{state.text}</p> : null}
+    </form>
+  </details>;
+}
+
+export function TransportTripCancellation({ canApprove, hasRecentAal2, snapshot }: {
+  canApprove: boolean; hasRecentAal2: boolean; snapshot: TransportPlanSnapshot;
+}) {
+  const router = useRouter();
+  const pending = useRef<{ input: CancelTransportTripInput; body: string } | null>(null);
+  const busy = useRef(false);
+  const [hasPending, setHasPending] = useState(false);
+  const [state, setState] = useState<State>({ kind: "idle", text: "" });
+  const published = snapshot.trips.filter((trip) => trip.status !== "cancelled" && (trip.cancellationTarget || trip.status === "published"));
+  if (!canApprove || snapshot.demo || published.length === 0) return null;
+  if (!hasRecentAal2) return null;
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy.current) return;
+    busy.current = true;
+    setState({ kind: "working", text: "正在確認趟次版本與執行狀態…" });
+    try {
+      if (!pending.current) {
+        const form = new FormData(event.currentTarget);
+        const trip = published.find((item) => item.tripVersionId === form.get("trip"));
+        if (!trip) throw new Error("請重新選擇已發布趟次。");
+        const target = trip.cancellationTarget;
+        const input = parseTransportPlanMutation({ action: "cancel_trip", trip_version_id: target?.id ?? trip.tripVersionId,
+          expected_trip_key: trip.tripKey, expected_version: target?.version ?? trip.version, expected_content_hash: target?.hash ?? trip.contentHash,
+          expected_conflict_count: target?.conflictCount ?? trip.conflicts.length, expected_rule_version_id: target?.ruleId ?? trip.ruleVersionId,
+          reason: form.get("reason") }, crypto.randomUUID()) as CancelTransportTripInput;
+        pending.current = { input, body: JSON.stringify({ action: "cancel_trip", ...transportPlanMutationPayload(input) }) };
+        setHasPending(true);
+      }
+      const { input, body } = pending.current;
+      const response = await fetchWithTimeout("/api/transport-plans", { method: "PATCH", cache: "no-store",
+        headers: { "content-type": "application/json", "idempotency-key": input.idempotencyKey,
+          "x-transport-plan-operation": "cancel_trip" }, body });
+      const payload = await response.json() as { data?: Record<string, unknown>; errors?: { message?: string }[] };
+      if (!response.ok) throw new Error(payload.errors?.[0]?.message ?? "取消尚未確認，請用原內容重試或重新載入核對。");
+      const row = payload.data;
+      if (!row || row.persisted !== true || row.demo !== false) throw new Error("取消回執無效，請保留原操作重試。");
+      parseTransportPlanReceipt({ operation_id: row.operationId, action: row.action, decision: row.decision,
+        trip_version_id: row.tripVersionId, trip_key: row.tripKey, version: row.version, status: row.status,
+        conflict_count: row.conflictCount, content_hash: row.contentHash, rule_version_id: row.ruleVersionId,
+        committed_at: row.committedAt, replayed: row.replayed }, input);
+      pending.current = null;
+      setHasPending(false);
+      setState({ kind: "success", text: "趟次已取消並保留發布歷史；接送需求將重新列為待派，請安排替代接送並聯絡相關人員。" });
+      router.refresh();
+    } catch (error) {
+      setState({ kind: "error", text: resultUnknown(error) });
+    } finally { busy.current = false; }
+  }
+  return <details className={styles.composer}><summary>取消已發布趟次</summary>
+    <p>只可取消尚未開始的趟次；已有執行紀錄時，請記錄例外並確認乘客安全後完成趟次。外部通知仍需人工聯絡。</p>
+    <form onSubmit={submit}>
+      <fieldset className={styles.formGrid} disabled={state.kind === "working" || hasPending || state.kind === "success"}>
+        <label><span>取消趟次</span><select name="trip">{published.map((trip) => <option key={trip.tripVersionId} value={trip.tripVersionId}>
+          {trip.cancellationTarget?.vehicleName ?? trip.vehicle.name}・{localDateTime(trip.cancellationTarget?.startsAt ?? trip.startsAt)}・已發布 v{trip.cancellationTarget?.version ?? trip.version}</option>)}</select></label>
+        <label className={styles.wide}><span>取消理由（至少 8 字）</span><textarea name="reason" minLength={8} maxLength={1000} required rows={3} /></label>
+      </fieldset>
+      <button type="submit" className="button button--secondary" disabled={state.kind === "working" || state.kind === "success"}>
+        {hasPending ? "以原內容重試取消" : "確認取消趟次"}</button>
+      {state.text ? <p role="status" className={state.kind === "error" ? styles.error : styles.message}>{state.text}</p> : null}
     </form>
   </details>;
 }

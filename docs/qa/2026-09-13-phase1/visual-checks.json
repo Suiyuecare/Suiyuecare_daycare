@@ -1,0 +1,370 @@
+{
+  "environment": "local synthetic demo only",
+  "baseline": "c5716bb (application source 4064291)",
+  "checks": [
+    {
+      "phase": "before",
+      "name": "dashboard",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/workspace/dashboard",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "今天的照顧工作，一眼掌握。"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "organization",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/operations/organization",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "機構資料"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "diary",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/daily-care/care-diary",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "照顧日誌"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "vitals",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/daily-care/vital-signs",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "生命徵象紀錄"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "attendance",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/service-management/attendance",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "出勤管理"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "blood-glucose",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/daily-care/blood-glucose",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "血糖紀錄"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "login",
+      "width": 390,
+      "info": {
+        "path": "/login",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "每一筆紀錄，都接得上下一個照顧行動。"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "dashboard",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/workspace/dashboard",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "今天的照顧工作，一眼掌握。"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "organization",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/operations/organization",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "機構資料"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "diary",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/daily-care/care-diary",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "照顧日誌"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "vitals",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/daily-care/vital-signs",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "生命徵象紀錄"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "attendance",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/service-management/attendance",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "出勤管理"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "blood-glucose",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/daily-care/blood-glucose",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "血糖紀錄"
+      }
+    },
+    {
+      "phase": "before",
+      "name": "login",
+      "width": 1440,
+      "info": {
+        "path": "/login",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "每一筆紀錄，都接得上下一個照顧行動。"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "dashboard",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/workspace/dashboard",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "今天的照顧工作，一眼掌握。"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "organization",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/operations/organization",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "機構資料"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "diary",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/daily-care/care-diary",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "照顧日誌"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "vitals",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/daily-care/vital-signs",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "生命徵象紀錄"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "attendance",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/service-management/attendance",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "出勤管理"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "blood-glucose",
+      "width": 390,
+      "info": {
+        "path": "/app/staff/daily-care/blood-glucose",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "血糖紀錄"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "login",
+      "width": 390,
+      "info": {
+        "path": "/login",
+        "width": 390,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "每一筆紀錄，都接得上下一個照顧行動。"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "dashboard",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/workspace/dashboard",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "今天的照顧工作，一眼掌握。"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "organization",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/operations/organization",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "機構資料"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "diary",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/daily-care/care-diary",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "照顧日誌"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "vitals",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/daily-care/vital-signs",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "生命徵象紀錄"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "attendance",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/service-management/attendance",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "出勤管理"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "blood-glucose",
+      "width": 1440,
+      "info": {
+        "path": "/app/staff/daily-care/blood-glucose",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "血糖紀錄"
+      }
+    },
+    {
+      "phase": "after",
+      "name": "login",
+      "width": 1440,
+      "info": {
+        "path": "/login",
+        "width": 1440,
+        "overflow": false,
+        "errorOverlay": false,
+        "loading": false,
+        "h1": "每一筆紀錄，都接得上下一個照顧行動。"
+      }
+    }
+  ]
+}

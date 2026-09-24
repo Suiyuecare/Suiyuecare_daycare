@@ -69,6 +69,19 @@ export const getTenantContext = cache(
 
     if (userError || !user) return null;
 
+    // Admission is database-owned and independent of editable user metadata.
+    // Staff use the pinned CEO or individually approved Google identity gate.
+    // Family admission is not expanded by the staff rollout. Missing policy
+    // never falls back to an email/domain or JavaScript role check.
+    try {
+      const { data: allowed, error } = await supabase.rpc(
+        audience === "staff" ? "is_staff_login_allowed" : "is_executive_login_allowed",
+      );
+      if (error || allowed !== true) return null;
+    } catch {
+      return null;
+    }
+
     const { data: aalData } =
       await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
@@ -157,13 +170,6 @@ export async function requireTenantContext(
   const context = await getTenantContext(audience);
   if (!context) {
     redirect(`/login?audience=${audience}`);
-  }
-  if (
-    audience === "staff" &&
-    !context.demo &&
-    context.assuranceLevel !== "aal2"
-  ) {
-    redirect("/mfa?audience=staff");
   }
   return context;
 }

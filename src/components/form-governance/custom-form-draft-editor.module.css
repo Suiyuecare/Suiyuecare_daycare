@@ -1,0 +1,20 @@
+.dialog { width: min(860px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
+.dialog:not([open]) { display: none; }
+.dialog :global(.drawer__header) > button { flex-shrink: 0; white-space: nowrap; }
+.body { display: grid; gap: 20px; overflow-wrap: anywhere; }
+.fields { display: grid; gap: 14px; border: 1px solid var(--border, #ecdaca); border-radius: 12px; padding: 16px; min-width: 0; }
+.fields legend { font-weight: 700; padding: 0 8px; }
+.fields label { display: grid; gap: 6px; min-width: 0; }
+.fields input, .fields select, .fields textarea { width: 100%; min-height: 44px; font: inherit; font-size: 16px; box-sizing: border-box; border: 1px solid var(--border, #ecdaca); border-radius: 8px; padding: 10px; background: var(--surface, #fff); color: inherit; }
+.fields :is(input,select,textarea):focus-visible { outline: 3px solid var(--primary, #c55b09); outline-offset: 2px; }
+.fields .checkbox { display: flex; align-items: center; min-height: 44px; }
+.fields .checkbox input { width: 22px; min-height: 22px; }
+.fieldCard { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border: 1px solid var(--border, #ecdaca); border-radius: 8px; padding: 12px; min-width: 0; }
+.fields :disabled { opacity: .75; }
+.reviewFields { display: grid; gap: 12px; padding-inline-start: 24px; }
+.reviewFields li { padding: 12px; border: 1px solid var(--border, #ecdaca); border-radius: 8px; overflow-wrap: anywhere; }
+.reviewFields li > span { display: block; margin-top: 6px; }
+.reviewActions { display: flex; flex-wrap: wrap; gap: 12px; }
+.reviewSummary { display: flex; align-items: center; min-height: 44px; cursor: pointer; }
+.reviewSummary:focus-visible { outline: 3px solid var(--primary, #c55b09); outline-offset: 2px; }
+@media (max-width: 600px) { .fieldCard { grid-template-columns: 1fr; } .fields { padding: 10px; } }

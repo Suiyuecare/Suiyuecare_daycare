@@ -12,7 +12,7 @@ const required = ["src/lib/supabase/server.ts", "src/lib/supabase/browser.ts", "
   "src/lib/synthetic-preview/policy.ts", "src/lib/env.ts", "src/proxy.ts",
   "src/lib/data-inventory/snapshot.ts", "src/app/api/data-inventory/route.ts",
   "src/components/data-inventory/data-inventory-workspace.tsx", "src/components/imports/import-readiness-panel.tsx"];
-const prohibited = /(?:^|\/)\.env[^/]*$|^(?:supabase|docs|tests|scripts|output|artifacts|test-results|\.git|node_modules|\.next)\/|\.(?:html?|pdf|docx|xlsx|log|tsbuildinfo)$|\.test\.tsx?$/iu;
+const prohibited = /(?:^|\/)\.env[^/]*$|^(?:supabase|docs|tests|scripts|infra|output|artifacts|test-results|\.git|node_modules|\.next)\/|\.(?:html?|pdf|docx|xlsx|log|tsbuildinfo)$|\.test\.tsx?$/iu;
 const paths = new Set(); const files = []; let bytes = 0;
 for (const entry of manifest.files) {
   if (typeof entry.path !== "string" || isAbsolute(entry.path)) throw new Error("PREVIEW_MANIFEST_PATH_INVALID");

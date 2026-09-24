@@ -6,7 +6,7 @@
 .hero p { margin: .25rem 0; }
 .snapshotMeta { display: grid; flex: 0 1 18rem; gap: .25rem; width: 100%; min-width: 0; padding: .8rem; border: 1px solid var(--color-border); border-radius: 1rem; background: var(--color-surface); font-size: .9rem; }
 .notice, .warning { border-radius: .9rem; padding: .8rem 1rem; line-height: 1.55; }
-.notice { border: 1px solid #b7d6cb; background: #edf8f4; color: #17483b; }
+.notice { border: 1px solid var(--line); background: var(--brand-soft); color: var(--brand-strong); }
 .warning { border: 1px solid #e4ba72; background: #fff7e8; color: #69430a; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
 .metrics article { display: grid; grid-template-columns: auto 1fr; gap: .45rem .65rem; align-items: center; min-height: 7.5rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: 1rem; background: var(--color-surface); }

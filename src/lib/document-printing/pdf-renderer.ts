@@ -46,7 +46,7 @@ function stateValue(row: DocumentRenderRow) {
   return row.value ?? "";
 }
 
-function assertFontCoverage(model: DocumentRenderModel, fontBytes: Uint8Array) {
+function assertFontCoverage(model: DocumentRenderModel, fontBytes: Uint8Array, features?: Record<string, boolean>) {
   let sourceFont: ReturnType<typeof fontkit.create>;
   try {
     sourceFont = fontkit.create(fontBytes);
@@ -76,6 +76,15 @@ function assertFontCoverage(model: DocumentRenderModel, fontBytes: Uint8Array) {
     throw new Error(`DOCUMENT_FONT_GLYPH_MISSING:${unsupported.slice(0, 12)
       .map((codePoint) => `U+${codePoint.toString(16).toUpperCase()}`)
       .join(",")}`);
+  }
+  if (features) {
+    // pdf-lib's complete-font width map is derived from the font character set.
+    // A shaping-only glyph outside that map receives a default PDF width, which
+    // can make a line overflow despite passing widthOfTextAtSize during layout.
+    const widthMapped = new Set(sourceFont.characterSet.map(code => sourceFont.glyphForCodePoint(code).id));
+    if (sourceFont.layout(text.replace(/\s/gu, " "), { ...features }).glyphs.some(glyph => !widthMapped.has(glyph.id))) {
+      throw new Error("DOCUMENT_FONT_SHAPING_WIDTH_UNMAPPED");
+    }
   }
 }
 
@@ -171,12 +180,16 @@ export async function renderDocumentPdf(input: {
   fontBytes: Uint8Array;
   /** Opt-in only after a governed font has passed visual CJK subset QA. */
   subsetFont?: boolean;
+  /** Opt-in shaping profile for a pinned font with verified PDF glyph metrics. */
+  fontFeatures?: Record<string, boolean>;
+  /** Opt-in: keep a short table row together when it fits on a fresh page. */
+  keepShortRowsTogether?: boolean;
 }) {
   const model = parseDocumentRenderModel(input.model);
   if (input.fontBytes.byteLength < 1024) {
     throw new Error("DOCUMENT_FONT_ASSET_INVALID");
   }
-  assertFontCoverage(model, input.fontBytes);
+  assertFontCoverage(model, input.fontBytes, input.fontFeatures);
   const document = await PDFDocument.create();
   document.registerFontkit(fontkit);
   const font = await document.embedFont(input.fontBytes, {
@@ -184,6 +197,7 @@ export async function renderDocumentPdf(input: {
     // for otherwise valid fonts. Approved assets therefore embed completely
     // until that exact font SHA has a separately verified subset profile.
     subset: input.subsetFont ?? false,
+    features: input.fontFeatures ? { ...input.fontFeatures } : undefined,
   });
   const createdAt = new Date(model.generatedAt);
   document.setTitle(model.title);
@@ -235,6 +249,8 @@ export async function renderDocumentPdf(input: {
     for (const row of section.rows) {
       const labelLines = linesFor(row.label, font, 9, 128);
       const valueLines = linesFor(stateValue(row), font, 9, CONTENT_WIDTH - 158);
+      const wholeRowHeight = Math.max(24, Math.max(labelLines.length, valueLines.length) * 13 + 10);
+      if (input.keepShortRowsTogether && wholeRowHeight <= PAGE_HEIGHT - TOP - 48 - footer.contentBottom && y - wholeRowHeight < footer.contentBottom) newPage();
       let labelOffset = 0;
       let valueOffset = 0;
       let continuation = false;

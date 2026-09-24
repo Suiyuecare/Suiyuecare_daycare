@@ -254,7 +254,7 @@ export function OrganizationProfileProposalForm({
   if (!hasRecentAal2) return <section className={styles.reauth}>
     <h2>建立異動前需重新驗證</h2>
     <p>提案會凍結完整許可、費率、容量與聯絡版本，請先完成最近 15 分鐘內的雙重驗證。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">前往雙重驗證</Link>
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
   </section>;
   return <details className={styles.composer}>
     <summary>建立機構資料異動提案</summary>
@@ -373,7 +373,7 @@ export function OrganizationProfileDecisionForm({
   if (!canApprove || reviewable.length === 0) return null;
   if (!hasRecentAal2) return <section className={styles.reauth}>
     <h2>審核前需重新驗證</h2><p>核准或駁回必須由不同人員，並使用最近 15 分鐘內的雙重驗證。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">前往雙重驗證</Link>
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往雙重驗證</Link>
   </section>;
   const proposal = reviewable.find((item) => item.proposalId === selectedId) ?? reviewable[0]!;
   return <details className={styles.composer}>

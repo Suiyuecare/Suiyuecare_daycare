@@ -8,7 +8,7 @@
 
 .demo,
 .security {
-  border-color: #b9d9cf;
+  border-color: var(--line);
   background: var(--surface-mint);
   color: var(--brand-strong);
 }

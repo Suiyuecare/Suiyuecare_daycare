@@ -1,4 +1,5 @@
 import { ok } from "@/lib/api/response";
+import { authorizeCompletionActor, canUseRoutineCompletion } from "@/lib/auth/routine-completion";
 import {
   parseClientTransitionInput,
 } from "@/lib/clients/lifecycle";
@@ -7,7 +8,6 @@ import type {
 } from "@/lib/clients/types";
 import { IntegrationError } from "@/lib/integrations/errors";
 import {
-  authorizeStaffRequest,
   databaseFailure,
   handleIntegrationRoute,
   readJsonObject,
@@ -71,7 +71,7 @@ function transitionFailure(errorCode?: string) {
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
-    const actor = await authorizeStaffRequest();
+    const actor = await authorizeCompletionActor();
     if (actor.demo) {
       throw new IntegrationError(
         "DEMO_READ_ONLY",
@@ -86,13 +86,16 @@ export async function POST(request: Request) {
         403,
       );
     }
-    await requireRecentAal2(actor);
-
     const body = await readJsonObject(request, 32 * 1024);
     const input = parseClientTransitionInput(
       body,
       request.headers.get("idempotency-key"),
     );
+    // Only formal admission is routine. Suspension, resumption, transfer,
+    // closure and death keep the original recent AAL2 requirement.
+    if (input.eventKind !== "admit" || !(await canUseRoutineCompletion(actor, "admission.create", input.clientId))) {
+      await requireRecentAal2(actor);
+    }
     const supabase = await createServerSupabaseClient();
     if (!supabase) {
       throw databaseFailure(

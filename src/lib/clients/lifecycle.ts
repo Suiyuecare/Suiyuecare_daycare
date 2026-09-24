@@ -236,6 +236,7 @@ export function projectClientLifecycleSnapshot(input: {
 export function filterClientLifecycleTransitions(
   snapshot: ClientLifecycleSnapshot,
   options: {
+    clientId?: string | null;
     query: string;
     status: ClientLifecycleStatusFilter;
     eventKind: "all" | ClientTransitionKind;
@@ -254,6 +255,7 @@ export function filterClientLifecycleTransitions(
         .toLocaleLowerCase("zh-TW")
         .includes(normalizedQuery);
     return (
+      (!options.clientId || transition.clientId === options.clientId) &&
       matchesQuery &&
       (options.status === "all" || client?.serviceState === options.status) &&
       (options.eventKind === "all" ||

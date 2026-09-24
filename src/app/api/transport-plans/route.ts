@@ -21,7 +21,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type ApiRequestId = ReturnType<typeof import("node:crypto").randomUUID>;
-type DeclaredOperation = "save_trip" | "publish_trip" | "override_trip" | "reject_trip";
+type DeclaredOperation = "save_trip" | "publish_trip" | "override_trip" | "reject_trip" | "cancel_trip";
 
 function requireOperationHeader(request: Request, allowed: readonly DeclaredOperation[]) {
   const operation = request.headers.get("x-transport-plan-operation");
@@ -34,6 +34,8 @@ function requireOperationHeader(request: Request, allowed: readonly DeclaredOper
 }
 
 function transportFailure(code?: string) {
+  if (code === "P4701") return databaseFailure("TRANSPORT_TRIP_ALREADY_STARTED",
+    "趟次已有執行紀錄，不能取消。請在接送執行記錄例外並確認乘客安全後完成趟次。", 409);
   if (code === "42501") return databaseFailure(
     "TRANSPORT_PLAN_NOT_AUTHORIZED",
     "目前角色、機構、分支、個案範圍或工作階段不允許這項交通計畫操作。", 403,
@@ -86,9 +88,9 @@ async function execute(input: TransportPlanMutationInput, actor: TenantContext) 
   if (!supabase) throw databaseFailure(
     "SERVICE_NOT_CONFIGURED", "正式交通趟次計畫服務尚未設定。", 503,
   );
-  const { data, error } = await supabase.rpc("mutate_transport_trip_plan", {
+  const { data, error } = await supabase.rpc(input.action === "cancel_trip" ? "cancel_transport_trip_plan" : "mutate_transport_trip_plan", {
     p_expected_organization_id: actor.organizationId,
-    p_expected_branch_id: actor.branchId, p_action: input.action,
+    p_expected_branch_id: actor.branchId, ...(input.action === "cancel_trip" ? {} : { p_action: input.action }),
     p_payload: transportPlanMutationPayload(input),
     p_idempotency_key: input.idempotencyKey,
   }).maybeSingle();
@@ -109,7 +111,7 @@ async function mutate(
     await readJsonObject(request, TRANSPORT_PLAN_MUTATION_MAX_BYTES),
     request.headers.get("idempotency-key"),
   );
-  const expected = input.action === "save_trip" ? "save_trip" : `${input.decision}_trip`;
+  const expected = input.action !== "decide_trip" ? input.action : `${input.decision}_trip`;
   if (expected !== declared) throw new IntegrationError(
     "INVALID_TRANSPORT_PLAN_OPERATION",
     "交通計畫操作標頭與內容不一致。", 400, "action",
@@ -124,5 +126,5 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   return handleIntegrationRoute((requestId) => mutate(request,
-    ["publish_trip", "override_trip", "reject_trip"], requestId));
+    ["publish_trip", "override_trip", "reject_trip", "cancel_trip"], requestId));
 }

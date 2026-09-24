@@ -1,0 +1,283 @@
+{
+  "environment": "local synthetic demo only",
+  "formalWcagAcceptance": false,
+  "checks": [
+    {
+      "name": "dashboard",
+      "path": "/app/staff/workspace/dashboard",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 31,
+        "incomplete": 1,
+        "passes": 32,
+        "violations": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodeCount": 2,
+          "nodes": [
+            {
+              "target": [
+                ".nav-link[aria-current=\"page\"][href$=\"dashboard\"] > span:nth-child(2)"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".context-bar__crumb"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.36 (foreground color: #ea880c, background color: #f7f3ec, font size: 9.4pt (12.48px), font weight: bold). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 16
+        }
+      ]
+    },
+    {
+      "name": "organization",
+      "path": "/app/staff/operations/organization",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 30,
+        "incomplete": 1,
+        "passes": 33,
+        "violations": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodeCount": 1,
+          "nodes": [
+            {
+              "target": [
+                "a[aria-current=\"page\"] > span:nth-child(2)"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 23
+        }
+      ]
+    },
+    {
+      "name": "diary",
+      "path": "/app/staff/daily-care/care-diary",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 32,
+        "incomplete": 1,
+        "passes": 31,
+        "violations": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodeCount": 3,
+          "nodes": [
+            {
+              "target": [
+                ".nav-link[aria-current=\"page\"] > span:nth-child(2)"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".context-bar__crumb"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.36 (foreground color: #ea880c, background color: #f7f3ec, font size: 9.4pt (12.48px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".callout > span"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.46 (foreground color: #b45309, background color: #fff0d6, font size: 10.2pt (13.6px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 16
+        }
+      ]
+    },
+    {
+      "name": "vitals",
+      "path": "/app/staff/daily-care/vital-signs",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 32,
+        "incomplete": 1,
+        "passes": 31,
+        "violations": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodeCount": 3,
+          "nodes": [
+            {
+              "target": [
+                ".nav-link[aria-current=\"page\"] > span:nth-child(2)"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".context-bar__crumb"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.36 (foreground color: #ea880c, background color: #f7f3ec, font size: 9.4pt (12.48px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".callout > span"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.46 (foreground color: #b45309, background color: #fff0d6, font size: 10.2pt (13.6px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 16
+        }
+      ]
+    },
+    {
+      "name": "attendance",
+      "path": "/app/staff/service-management/attendance",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 32,
+        "incomplete": 1,
+        "passes": 31,
+        "violations": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodeCount": 3,
+          "nodes": [
+            {
+              "target": [
+                ".nav-link[aria-current=\"page\"] > span:nth-child(2)"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".context-bar__crumb"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.36 (foreground color: #ea880c, background color: #f7f3ec, font size: 9.4pt (12.48px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".callout > span"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.46 (foreground color: #b45309, background color: #fff0d6, font size: 10.2pt (13.6px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 17
+        }
+      ]
+    },
+    {
+      "name": "blood-glucose",
+      "path": "/app/staff/daily-care/blood-glucose",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 35,
+        "incomplete": 1,
+        "passes": 28,
+        "violations": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodeCount": 4,
+          "nodes": [
+            {
+              "target": [
+                ".nav-link[aria-current=\"page\"] > span:nth-child(2)"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".context-bar__crumb"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.36 (foreground color: #ea880c, background color: #f7f3ec, font size: 9.4pt (12.48px), font weight: bold). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                "#main-content > .callout.core-care-callout > span"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.46 (foreground color: #b45309, background color: #fff0d6, font size: 9.1pt (12.16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            {
+              "target": [
+                ".button--primary.button[type=\"button\"]"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.61 (foreground color: #ffffff, background color: #ea880c, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 19
+        }
+      ]
+    },
+    {
+      "name": "login",
+      "path": "/login",
+      "viewport": "1440x1000",
+      "axeVersion": "4.12.1",
+      "counts": {
+        "inapplicable": 39,
+        "incomplete": 1,
+        "passes": 24,
+        "violations": 0
+      },
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "nodeCount": 7
+        }
+      ]
+    }
+  ]
+}

@@ -41,7 +41,8 @@ export function validateSyntheticPreviewEnvironment(source: Environment): boolea
       fail("SYNTHETIC_PREVIEW_PROJECT_BINDING_REQUIRED");
     }
   }
-  if (Object.entries(source).some(([key, value]) => Boolean(value?.trim()) && externalKeys.test(key))) {
+  if (Object.entries(source).some(([key, value]) => Boolean(value?.trim()) &&
+      (externalKeys.test(key) || key.startsWith("FINANCE_STORE_") || key.startsWith("CLIENT_DOCUMENTS_")))) {
     fail("SYNTHETIC_PREVIEW_EXTERNAL_CONFIGURATION_FORBIDDEN");
   }
   if (source.SMS_PROVIDER && source.SMS_PROVIDER !== "mock") {

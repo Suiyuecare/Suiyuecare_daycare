@@ -159,6 +159,6 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
           <p className={styles.hash}>內容雜湊：{version.content_hash}</p></section>)}
       </details>
     </article>)}
-    {!snapshot.demo && <p><Link href="/mfa?audience=staff">重新完成雙因素驗證</Link></p>}
+    {!snapshot.demo && <p><Link href="/mfa?audience=staff&purpose=sensitive-action">重新完成雙因素驗證</Link></p>}
   </section>;
 }

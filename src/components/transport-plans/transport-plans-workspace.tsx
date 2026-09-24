@@ -11,12 +11,12 @@ import type {
   TransportTripPlan,
 } from "@/lib/transport-plans/types";
 
-import { TransportTripComposer, TransportTripDecision } from "./transport-plan-actions";
+import { TransportTripComposer, TransportTripDecision, TransportTripCancellation } from "./transport-plan-actions";
 import styles from "./transport-plans.module.css";
 
 const STATUS = {
   draft_ready: "待發布／無衝突", draft_conflicted: "待發布／有衝突",
-  published: "已發布", rejected: "已駁回",
+  published: "已發布", rejected: "已駁回", cancelled: "已取消",
 };
 const DIRECTION = { pickup: "到中心接入", dropoff: "由中心送回" };
 
@@ -49,6 +49,8 @@ function TripDetails({ trip }: { trip: TransportTripPlan }) {
     </p>}
     {trip.reviewedAt ? <p className={styles.review}>審核：{trip.reviewerDisplayName}・
       {taipei(trip.reviewedAt)}・{trip.reviewReason}</p> : null}
+    {trip.cancellation ? <p className={styles.review}>取消已發布 v{trip.cancellation.planVersion}：{trip.cancellation.actorName}・
+      {taipei(trip.cancellation.cancelledAt)}・{trip.cancellation.reason}。原發布與乘員歷史保留。</p> : null}
   </div>;
 }
 
@@ -87,6 +89,7 @@ export function TransportPlansWorkspace({ canApprove, canManage, canOverride,
       className={styles.warning} role="alert">所選日期沒有唯一有效的車輛容量與駕駛授權版本；所有建立、修訂與發布操作維持 fail closed。</div>}
     <div className={styles.warning} role="note">外部通知、匯出與 24 小時唯讀快取尚未配置；
       `not_configured` 不會被顯示成已通知、已下載或可離線。</div>
+    <TransportTripCancellation canApprove={canApprove} hasRecentAal2={hasRecentAal2} snapshot={snapshot} />
 
     <section aria-label="交通計畫摘要" className={styles.metrics}>
       <article><BusFront aria-hidden="true" /><span>趟次數</span>

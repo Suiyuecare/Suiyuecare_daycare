@@ -363,7 +363,7 @@ export function ClientServicePlanActions({ plan, snapshot, canManage, canApprove
       <button className="button button--primary" disabled={state.kind === "working" || (needsRecent && !hasRecentAal2)} type="submit">鎖定版本並送出</button>
     </fieldset>{pending ? <PendingResolution pending={pending} state={state} allowed={retryAllowed}
       onRetry={() => { if (retryAllowed) void execute(pending); }} label="以完全相同版本、內容與操作鍵重試" /> : null}
-    {needsRecent && !hasRecentAal2 ? <p className={styles.reauth}>核准、簽署與作廢需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff">重新驗證</Link></p> : null}
+    {needsRecent && !hasRecentAal2 ? <p className={styles.reauth}>核准、簽署與作廢需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link></p> : null}
     {!pending && state.kind !== "idle" ? <p className={state.kind === "error" || state.kind === "unknown" ? styles.error : styles.message}
       role="status">{state.message}</p> : null}</form></details>;
 }

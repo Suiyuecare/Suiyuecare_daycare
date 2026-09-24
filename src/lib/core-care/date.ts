@@ -1,5 +1,16 @@
 const SERVICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 
+/** Explicit separators avoid Node/browser ICU whitespace hydration differences. */
+export function formatCareTaipeiTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "時間待確認";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(date).map(({ type, value: part }) => [type, part]));
+  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
 export function taipeiToday(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",

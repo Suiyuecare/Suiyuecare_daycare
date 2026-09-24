@@ -137,7 +137,7 @@ function invalid(): never {
 
 export function parseImportUploadEnvelope(
   raw: unknown,
-  expected: { fileName: string; byteLength: number; httpStatus: number },
+  expected: { fileName: string; byteLength: number; httpStatus: number; fileSha256?: string },
 ): { requestId: string; data: ImportUploadReceipt } {
   const parsed = successEnvelope(uploadReceipt).safeParse(raw);
   if (!parsed.success) invalid();
@@ -145,8 +145,10 @@ export function parseImportUploadEnvelope(
   const expectedStatus = receipt.duplicate || receipt.replayed ? 200 : 201;
   if (expected.httpStatus !== expectedStatus ||
       receipt.status !== receipt.batch.status ||
-      (receipt.duplicate && receipt.replayed) ||
-      receipt.batch.fileName !== expected.fileName ||
+      (receipt.duplicate !== (receipt.status === "duplicate")) ||
+      (expected.fileSha256 !== undefined && receipt.batch.fileSha256 !== expected.fileSha256) ||
+      (receipt.batch.fileName !== expected.fileName &&
+        (!receipt.duplicate || expected.fileSha256 !== receipt.batch.fileSha256)) ||
       receipt.batch.byteLength !== expected.byteLength) invalid();
   return parsed.data;
 }

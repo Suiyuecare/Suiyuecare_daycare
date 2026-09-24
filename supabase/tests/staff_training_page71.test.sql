@@ -235,12 +235,15 @@ select throws_ok(
 );
 
 -- 11
+-- Use the same captured day for every field: now + 1 hour can cross midnight
+-- in Taipei and accidentally test date/start consistency instead of completion.
 select throws_ok(
   $$select * from public.append_staff_training_record(
     '71020000-0000-4000-8000-000000000001','71030000-0000-4000-8000-000000000001',
     'create','71070000-0000-4000-8000-000000000003',null,0,
-    '71040000-0000-4000-8000-000000000003','未完成課程',(clock_timestamp() at time zone 'Asia/Taipei')::date,
-    clock_timestamp()+interval '1 hour',clock_timestamp()+interval '2 hours',
+    '71040000-0000-4000-8000-000000000003','未完成課程',current_setting('test.training_day')::date + 11,
+    current_setting('test.training_start')::timestamptz + interval '11 days',
+    current_setting('test.training_start')::timestamptz + interval '11 days 1 hour',
     '機構自訂類型',1,10,'測試單位','missing',null,null,null,
     '71080000-0000-4000-8000-000000000003'
   )$$, '22023', 'future training completion cannot be recorded',

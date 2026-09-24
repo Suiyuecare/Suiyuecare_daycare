@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getPageBySlug } from "@/lib/catalog";
 import type { PageCatalogEntry } from "@/lib/catalog";
+import { careDiaryDataSchema } from "@/lib/care-diary/schema";
 
 import { IntegrationError } from "./errors";
 import {
@@ -14,7 +15,8 @@ import {
 
 /**
  * The generic JSON draft endpoint is deliberately limited to the one
- * unstructured, non-high-risk workflow it can validate safely. Measurements,
+ * care-diary draft workflow it can validate safely, including explicit quick
+ * observations. Measurements,
  * incidents, assessments, attendance, transport, services, medication,
  * claims and finance require dedicated schemas and endpoints.
  */
@@ -40,16 +42,6 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
     z.record(z.string(), jsonValueSchema),
   ]),
 );
-
-const careDiaryDataSchema = z
-  .object({
-    shift: z.enum(["morning", "afternoon", "full_day"]),
-    care_item: z.string().trim().min(1).max(120),
-    note: z.string().trim().max(2_000).default(""),
-    abnormal: z.boolean(),
-    follow_up: z.string().trim().max(1_000).optional(),
-  })
-  .strict();
 
 const recordDraftSchema = z
   .object({

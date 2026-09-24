@@ -8,6 +8,7 @@ node_modules
 /tests
 /supabase
 /scripts
+/infra
 /coverage
 /artifacts
 /output
@@ -15,6 +16,7 @@ node_modules
 /playwright-report
 src/**/*.test.ts
 src/**/*.test.tsx
+src/**/*.test-fixtures.ts
 *.log
 *.tsbuildinfo
 --full-page

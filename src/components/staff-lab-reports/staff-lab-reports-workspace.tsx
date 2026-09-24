@@ -57,7 +57,7 @@ export function StaffLabReportsWorkspace({
     <p className="eyebrow">敏感員工健康資料</p>
     <h1 id="staff-lab-report-reauth">需要重新完成雙重驗證</h1>
     <p>為保護員工檢驗結果，每次查閱與保存都必須使用同一工作階段最近 15 分鐘內的雙重驗證。此狀態下不會載入任何結果明細。</p>
-    <Link className="button button--primary" href="/mfa?audience=staff">
+    <Link className="button button--primary" href="/mfa?audience=staff&purpose=sensitive-action">
       前往雙重驗證
     </Link>
   </section>;

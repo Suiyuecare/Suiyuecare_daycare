@@ -157,18 +157,19 @@ function AuditEvents({ snapshot }: { snapshot: IntegrationsAuditSnapshot }) {
   </section>;
 }
 
-export function IntegrationsAuditWorkspace({ page, filters, snapshot, hasRecentAal2, loadError = false, dataInventory }: {
+export function IntegrationsAuditWorkspace({ page, filters, snapshot, hasRecentAal2, loadError = false, dataInventory, financeConfiguration }: {
   page: PageCatalogEntry;
   filters: IntegrationsAuditFilters;
   snapshot: IntegrationsAuditSnapshot | null;
   hasRecentAal2: boolean;
   loadError?: boolean;
   dataInventory?: ReactNode;
+  financeConfiguration?: ReactNode;
 }) {
   if (!hasRecentAal2) return <section className="empty-card core-care-state" role="alert">
     <ShieldCheck aria-hidden="true" /><h1>整合與稽核中心需要重新驗證</h1>
     <p>稽核查詢需要最近 15 分鐘、同一工作階段的雙因素驗證。驗證完成前不讀取或顯示稽核紀錄。</p>
-    <Link className="button button--primary" href="/mfa?audience=staff">立即重新驗證</Link>
+    <Link className="button button--primary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link>
   </section>;
   if (loadError || !snapshot) return <section className="empty-card core-care-state" role="alert">
     <AlertTriangle aria-hidden="true" /><h1>整合與稽核中心暫時無法載入</h1>
@@ -186,6 +187,7 @@ export function IntegrationsAuditWorkspace({ page, filters, snapshot, hasRecentA
       <span>展示模式：以下全部是合成紀錄，不代表正式連線、送達或合規驗收。</span></div> : null}
     <SnapshotFreshness expiresAt={snapshot.staleAfter} demo={snapshot.demo} />
     {dataInventory}
+    {financeConfiguration}
     <div className="metric-grid">
       {[ ["符合條件的來源", snapshot.inventoryMatchingTotal], ["整合事件", snapshot.signalMatchingTotal], ["稽核紀錄", snapshot.auditMatchingTotal] ].map(([label, total]) =>
         <article className="metric-card" key={label}><div className="metric-card__top">{label}</div>

@@ -5,8 +5,8 @@
 }
 
 .security {
-  border-color: #9bd6c0;
-  background: #f0fbf6;
+  border-color: var(--line);
+  background: var(--brand-soft);
 }
 
 .demo {

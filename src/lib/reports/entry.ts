@@ -14,6 +14,35 @@ export interface ReportEntry {
   limitation: string;
   href: string | null;
 }
+export interface OperationalReportLink {
+  id: "intake" | "qualification" | "attendance-month";
+  title: string; description: string; periodNote: string; href: string;
+}
+
+/** Source pages reauthorize; this list never reads records or expands a page permission. */
+export function buildOperationalReportLinks(context: Pick<TenantContext, "demo" | "scopes">,
+  periods: ReportPeriods, ownerAllowed = false): OperationalReportLink[] {
+  if (parseReportPeriods({ ...periods }).invalid ||
+    !canAccessCatalogPage(context, staffPages.find((page) => page.number === 70)!)) return [];
+  const permits = (...keys: string[]) => context.demo || keys.every((key) => context.scopes.includes(key));
+  const links: OperationalReportLink[] = [];
+  if (permits("clients.read", "clients.demographics.read")) links.push({
+    id: "intake", title: "收案與補件表", href: "/app/intake-completeness",
+    description: "找出聯絡、同意、文件及週表待補事項，直接帶回同一位個案處理。",
+    periodNote: "核對目前最新資料與今日效期，不套用上方歷史日期。",
+  });
+  if (permits("staff_certificates.read")) links.push({
+    id: "qualification", title: "員工證照到期與補件", href: "/app/staff-qualification-readiness",
+    description: "查看已過期、30 日內到期、登錄與證明待確認；沿用證照查閱權限與身分確認要求。",
+    periodNote: "依今日計算未來 30 日，不等於已核准服務資格。",
+  });
+  if (ownerAllowed) links.push({
+    id: "attendance-month", title: "出缺勤月報", href: `/app/store-attendance-month?month=${periods.month}`,
+    description: "單店每天已登記人數、月人次與不重複出席個案；依既有執行長權限開放。",
+    periodNote: `${periods.month}；不把未登記算成缺席，不推算出勤率。`,
+  });
+  return links;
+}
 
 /** Navigation only: no business records, report totals or synthetic timestamps. */
 export function parseReportPeriods(query: Record<string, string | string[] | undefined>) {

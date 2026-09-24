@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildReportEntries } from "@/lib/reports/entry";
+import { buildOperationalReportLinks, buildReportEntries } from "@/lib/reports/entry";
 import { ReportsWorkspace } from "./reports-workspace";
 
 afterEach(cleanup);
@@ -11,6 +11,16 @@ const periods = { date: "2026-09-08", month: "2026-08" };
 const entries = buildReportEntries({ demo: true, scopes: [] }, periods);
 
 describe("report entry workspace", () => {
+  it("shows actionable new reports, marks current-only periods, and hides them for invalid filters", () => {
+    const operationalLinks = buildOperationalReportLinks({ demo: true, scopes: [] }, periods, true);
+    const { rerender } = render(<ReportsWorkspace entries={entries} periods={periods} invalid={false} demo operationalLinks={operationalLinks} />);
+    expect(screen.getByRole("link", { name: "開啟收案與補件表" })).toHaveAttribute("href", "/app/intake-completeness");
+    expect(screen.getByRole("link", { name: "開啟員工證照到期與補件" })).toHaveAttribute("href", "/app/staff-qualification-readiness");
+    expect(screen.getByRole("link", { name: "開啟出缺勤月報" })).toHaveAttribute("href", "/app/store-attendance-month?month=2026-08");
+    expect(screen.getByText(/不套用上方歷史日期/)).toBeInTheDocument();
+    rerender(<ReportsWorkspace entries={entries} periods={periods} invalid demo operationalLinks={operationalLinks} />);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+  });
   it("offers labeled GET period controls and source links without fake report totals", () => {
     const { container } = render(<ReportsWorkspace entries={entries} periods={periods} invalid={false} demo />);
     expect(screen.getByRole("heading", { level: 1, name: "統計報表" })).toBeInTheDocument();

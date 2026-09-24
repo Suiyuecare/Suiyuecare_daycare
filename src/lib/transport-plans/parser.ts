@@ -51,7 +51,7 @@ const decide = z.object({
 }).strict();
 
 const receipt = z.object({
-  operation_id: uuid, action: z.enum(["save_trip", "decide_trip"]),
+  operation_id: uuid, action: z.enum(["save_trip", "decide_trip", "cancel_trip"]),
   decision: z.enum(["publish", "override", "reject"]).nullable(),
   trip_version_id: uuid, trip_key: uuid,
   version: z.number().int().positive().max(1_000_000),
@@ -97,20 +97,23 @@ export function parseTransportPlanMutation(
         pickupLabel: item.pickup_label, dropoffLabel: item.dropoff_label })),
       revisionReason: row.revision_reason, idempotencyKey: key.data } satisfies SaveTransportTripInput;
   }
-  if (action.data.action === "decide_trip") {
-    const parsed = decide.safeParse(value);
+  if (action.data.action === "decide_trip" || action.data.action === "cancel_trip") {
+    const cancelling = action.data.action === "cancel_trip";
+    const parsed = (cancelling ? decide.omit({ decision: true }).extend({ action: z.literal("cancel_trip") }) : decide).safeParse(value);
     if (!parsed.success) invalid("趟次審核內容無效。");
     const row = parsed.data;
-    if ((row.decision === "publish" && row.expected_conflict_count !== 0) ||
-      (row.decision === "override" && row.expected_conflict_count === 0)) {
+    if (("decision" in row && row.decision === "publish" && row.expected_conflict_count !== 0) ||
+      ("decision" in row && row.decision === "override" && row.expected_conflict_count === 0)) {
       invalid("發布方式與衝突數不一致。");
     }
-    return { action: row.action, decision: row.decision,
+    const common = {
       tripVersionId: row.trip_version_id, expectedTripKey: row.expected_trip_key,
       expectedVersion: row.expected_version, expectedContentHash: row.expected_content_hash,
       expectedConflictCount: row.expected_conflict_count,
       expectedRuleVersionId: row.expected_rule_version_id, reason: row.reason,
-      idempotencyKey: key.data } satisfies DecideTransportTripInput;
+      idempotencyKey: key.data };
+    if (row.action === "cancel_trip") return { ...common, action: "cancel_trip" };
+    return { ...common, action: "decide_trip", decision: row.decision } satisfies DecideTransportTripInput;
   }
   invalid("不支援的交通計畫操作。");
 }
@@ -127,7 +130,7 @@ export function transportPlanMutationPayload(input: TransportPlanMutationInput) 
       pickup_label: item.pickupLabel, dropoff_label: item.dropoffLabel })),
     revision_reason: input.revisionReason,
   };
-  return { decision: input.decision, trip_version_id: input.tripVersionId,
+  return { ...(input.action === "decide_trip" ? { decision: input.decision } : {}), trip_version_id: input.tripVersionId,
     expected_trip_key: input.expectedTripKey, expected_version: input.expectedVersion,
     expected_content_hash: input.expectedContentHash,
     expected_conflict_count: input.expectedConflictCount,
@@ -155,7 +158,12 @@ export function parseTransportPlanReceipt(
     row.rule_version_id === input.expectedRuleVersionId &&
     row.conflict_count === input.expectedConflictCount &&
     row.status === (input.decision === "reject" ? "rejected" : "published");
-  if (!saveMatches && !decisionMatches) throw new IntegrationError(
+  const cancelMatches = input.action === "cancel_trip" && row.action === "cancel_trip" &&
+    row.decision === null && row.status === "cancelled" && row.trip_version_id === input.tripVersionId &&
+    row.trip_key === input.expectedTripKey && row.version === input.expectedVersion &&
+    row.content_hash === input.expectedContentHash && row.rule_version_id === input.expectedRuleVersionId &&
+    row.conflict_count === input.expectedConflictCount;
+  if (!saveMatches && !decisionMatches && !cancelMatches) throw new IntegrationError(
     "TRANSPORT_PLAN_RECEIPT_INVALID",
     "交通計畫回執與送出內容不一致；請重新載入。", 502,
   );

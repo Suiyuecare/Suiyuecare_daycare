@@ -28,6 +28,7 @@ import type {
 } from "@/lib/role-governance/types";
 
 import styles from "./role-governance.module.css";
+import { currentGovernanceRoleName } from "./role-labels";
 
 const operationLabels: Record<RoleGovernanceOperation, string> = {
   create_role: "建立機構角色",
@@ -37,6 +38,7 @@ const operationLabels: Record<RoleGovernanceOperation, string> = {
   revoke_role: "撤銷成員角色",
   deactivate_role: "停用機構角色",
 };
+const singleSiteScopeMessage = "此職務須先建立指定據點的成員資格，不能指派至全機構範圍。";
 
 async function safeJson(response: Response): Promise<unknown> {
   try {
@@ -143,6 +145,10 @@ export function RoleGovernanceRequestAction({
   const selectedRole = roles.find((role) => role.id === targetRoleId) ?? null;
   const selectedMembership =
     memberships.find((membership) => membership.id === targetMembershipId) ?? null;
+  const singleSiteScopeMismatch = operation === "assign_role" &&
+    selectedRole?.system === true &&
+    (selectedRole.roleKey === "branch_supervisor" || selectedRole.roleKey === "branch_director") &&
+    selectedMembership?.branchId === null;
   const roleOptions = useMemo(() => {
     if (operation === "grant_permission" || operation === "revoke_permission" || operation === "deactivate_role") {
       return tenantRoles.filter((role) => role.active);
@@ -228,7 +234,7 @@ export function RoleGovernanceRequestAction({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending || completed) return;
+    if (pending || completed || singleSiteScopeMismatch) return;
     const expected = payload();
     if (!expected) {
       setError("請完成這項變更所需的角色、權限或成員欄位。");
@@ -318,8 +324,10 @@ export function RoleGovernanceRequestAction({
               <label className="field"><span>成員 *</span><select disabled={fieldsLocked} onChange={(event) => changed(() => { setTargetMembershipId(event.target.value); setTargetRoleId(""); })} required value={targetMembershipId}><option value="">請選擇成員</option>{memberships.map((membership) => <option disabled={operation === "assign_role" && !(["invited", "active"] as const).includes(membership.status as "invited" | "active")} key={membership.id} value={membership.id}>{membership.displayName}・{membership.status}</option>)}</select></label>
             ) : null}
             {operation !== "create_role" ? (
-              <label className="field"><span>角色 *</span><select disabled={fieldsLocked || ((operation === "assign_role" || operation === "revoke_role") && !selectedMembership)} onChange={(event) => changed(() => { setTargetRoleId(event.target.value); setPermissionKey(""); })} required value={targetRoleId}><option value="">請選擇角色</option>{roleOptions.map((role) => <option key={role.id} value={role.id}>{role.name}{role.system ? "・系統模板" : "・機構自訂"}</option>)}</select>{(operation === "assign_role" && selectedMembership && roleOptions.length === 0) ? <small className={styles.inlineNotice}>沒有符合此身分類型且尚未指派的有效角色。</small> : null}</label>
+              <label className="field"><span>角色 *</span><select aria-describedby={singleSiteScopeMismatch ? `${stableId}-single-site-scope` : undefined} aria-invalid={singleSiteScopeMismatch || undefined} disabled={fieldsLocked || ((operation === "assign_role" || operation === "revoke_role") && !selectedMembership)} onChange={(event) => changed(() => { setTargetRoleId(event.target.value); setPermissionKey(""); })} required value={targetRoleId}><option value="">請選擇角色</option>{roleOptions.map((role) => <option key={role.id} value={role.id}>{currentGovernanceRoleName(role)}{role.system ? "・系統模板" : "・機構自訂"}</option>)}</select>{(operation === "assign_role" && selectedMembership && roleOptions.length === 0) ? <small className={styles.inlineNotice}>沒有符合此身分類型且尚未指派的有效角色。</small> : null}</label>
             ) : null}
+            {singleSiteScopeMismatch ? <p className="form-error" id={`${stableId}-single-site-scope`} role="alert">{singleSiteScopeMessage}</p> : null}
+            {operation === "assign_role" ? <p className={styles.inlineNotice}>主任兼任護理或社工須分別送審對應角色，並核對專業資格；送審或主任職稱本身不會授予兼任權限。</p> : null}
             {(operation === "grant_permission" || operation === "revoke_permission") ? (
               <label className="field"><span>權限 *</span><select disabled={fieldsLocked || !selectedRole} onChange={(event) => changed(() => setPermissionKey(event.target.value))} required value={permissionKey}><option value="">請選擇權限</option>{permissionOptions.map((permission) => <option key={permission.key} value={permission.key}>{permission.key}・風險 {permission.riskLevel}</option>)}</select>{selectedRole && permissionOptions.length === 0 ? <small className={styles.inlineNotice}>此角色目前沒有可執行的這類權限變更。</small> : null}</label>
             ) : null}
@@ -328,7 +336,7 @@ export function RoleGovernanceRequestAction({
             {error ? <p className="form-error" role="alert">{error}</p> : null}
             {notice ? <p className={styles.successNotice} role="status">{notice}</p> : null}
           </div>
-          <footer className="drawer__footer"><button className="button button--secondary" disabled={pending} onClick={close} type="button">{completed ? "關閉" : "取消"}</button><button className="button button--primary" disabled={pending || completed} type="submit">{pending ? "確認中…" : completed ? "已送出" : uncertain ? "以相同內容重試" : "送出覆核"}</button></footer>
+          <footer className="drawer__footer"><button className="button button--secondary" disabled={pending} onClick={close} type="button">{completed ? "關閉" : "取消"}</button><button className="button button--primary" disabled={pending || completed || singleSiteScopeMismatch} type="submit">{pending ? "確認中…" : completed ? "已送出" : uncertain ? "以相同內容重試" : "送出覆核"}</button></footer>
         </form>
       </dialog>
     </>

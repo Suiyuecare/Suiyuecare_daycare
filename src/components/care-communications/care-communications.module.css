@@ -64,8 +64,8 @@
 
 .securityCallout,
 .consentCallout {
-  background: #eef8f2;
-  border-color: #91c8a3;
+  background: var(--brand-soft);
+  border-color: var(--line);
 }
 
 .boundaryCallout {

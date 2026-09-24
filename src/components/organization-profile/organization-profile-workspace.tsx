@@ -6,6 +6,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type {
@@ -66,7 +67,7 @@ function ContentLists({ value }: {
 
 export function OrganizationProfileWorkspace({
   canApprove, canManage, currentUserId, filters, hasRecentAal2,
-  loadError, page, snapshot,
+  loadError, page, snapshot, openingReadiness,
 }: {
   canApprove: boolean;
   canManage: boolean;
@@ -76,8 +77,9 @@ export function OrganizationProfileWorkspace({
   loadError: boolean;
   page: PageCatalogEntry;
   snapshot: OrganizationProfileSnapshot | null;
+  openingReadiness?: ReactNode;
 }) {
-  if (loadError || !snapshot) return <section className="empty-card"
+  if (loadError || !snapshot) return <>{openingReadiness}<section className="empty-card"
     aria-labelledby="organization-profile-load-error">
     <span className="empty-card__icon empty-card__icon--warning">
       <AlertTriangle aria-hidden="true" />
@@ -87,7 +89,7 @@ export function OrganizationProfileWorkspace({
     <p>系統不會顯示未完成機構、分支與頁面權限核對的局部資料。請確認網路、登入保證等級與資料範圍後重試。</p>
     <Link className="button button--secondary"
       href="/app/staff/operations/organization">重新載入</Link>
-  </section>;
+  </section></>;
 
   return <div className={styles.workspace}>
     <header className={styles.hero}><div>
@@ -100,6 +102,7 @@ export function OrganizationProfileWorkspace({
       <span>超過 5 分鐘請重新載入後再審核</span>
     </div></header>
 
+    {openingReadiness}
     <PilotConfigurationSummary demo={snapshot.demo} />
     {snapshot.demo ? <div className={styles.notice} role="status">
       展示模式：以下均為合成機構、許可、費率與聯絡資料，只能檢視，不會送出或生效。

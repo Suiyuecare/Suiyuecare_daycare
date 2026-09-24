@@ -32,6 +32,8 @@ export type FormVersionSourceRow = {
   scoring_rule_count: number;
   published_at: string | null;
   content_hash: string | null;
+  draft_revision?: number;
+  custom_builder_eligible?: boolean;
 };
 
 export type FormPublicationSourceRow = {
@@ -43,6 +45,13 @@ export type FormPublicationSourceRow = {
   requested_by_current_user: boolean;
   approved_at: string | null;
   approved_by_current_user: boolean;
+  branch_id?: string;
+  branch_name?: string;
+  base_revision?: number;
+  previous_request_id?: string | null;
+  decision_reason?: string | null;
+  decided_at?: string | null;
+  decided_by_current_user?: boolean;
 };
 
 export type FormGovernanceSnapshotSourceRow = {
@@ -230,6 +239,9 @@ export function projectFormGovernanceSnapshot(input: {
     const effectiveTo = optionalDate(row.effective_to);
     if (effectiveFrom && effectiveTo && effectiveTo < effectiveFrom) invalid();
     const publishedAt = optionalTimestamp(row.published_at);
+    if (row.draft_revision !== undefined && (!Number.isSafeInteger(row.draft_revision) || row.draft_revision < 1)) invalid();
+    if (row.custom_builder_eligible !== undefined && typeof row.custom_builder_eligible !== "boolean") invalid();
+    if (row.custom_builder_eligible === true && (definition.is_official || !/^tenant\.custom\.[a-z][a-z0-9_]{1,59}$/u.test(definition.form_key) || row.scoring_rule_count !== 0)) invalid();
     const contentHash = row.content_hash;
     if (contentHash !== null && !HASH_PATTERN.test(contentHash)) invalid();
     if (
@@ -256,6 +268,8 @@ export function projectFormGovernanceSnapshot(input: {
       publishedAt,
       contentHash,
       publication: null,
+      ...(row.draft_revision !== undefined ? { draftRevision: row.draft_revision } : {}),
+      ...(row.custom_builder_eligible !== undefined ? { customBuilderEligible: row.custom_builder_eligible } : {}),
     });
   }
 
@@ -274,7 +288,7 @@ export function projectFormGovernanceSnapshot(input: {
       definition.is_official ||
       !version ||
       version.definitionId !== definitionId ||
-      !["pending", "approved"].includes(row.status) ||
+      !["pending", "approved", "withdrawn", "returned"].includes(row.status) ||
       typeof row.requested_by_current_user !== "boolean" ||
       typeof row.approved_by_current_user !== "boolean"
     ) {
@@ -283,22 +297,32 @@ export function projectFormGovernanceSnapshot(input: {
     const requestedAt = timestamp(row.requested_at);
     const approvedAt = optionalTimestamp(row.approved_at);
     if (
-      (row.status === "pending" &&
+      (row.status !== "approved" &&
         (approvedAt !== null ||
           row.approved_by_current_user ||
           version.status !== "draft")) ||
       (row.status === "approved" &&
         (approvedAt === null ||
           (row.requested_by_current_user && row.approved_by_current_user) ||
-          version.status !== "published" ||
+          // Retirement preserves the original immutable publication evidence.
+          // Only a still-draft version is incompatible with an approved request.
+          !["published", "retired"].includes(version.status) ||
           version.contentHash === null))
     ) {
       invalid();
     }
+    const closed = row.status === "withdrawn" || row.status === "returned";
+    if (closed && (typeof row.decision_reason !== "string" || row.decision_reason.trim().length < 5
+      || row.decision_reason.length > 1000 || /[<>\u0000-\u001f\u007f]/u.test(row.decision_reason)
+      || !row.decided_at || typeof row.decided_by_current_user !== "boolean")) invalid();
+    if (row.branch_id !== undefined) uuid(row.branch_id);
+    if (row.base_revision !== undefined && (!Number.isSafeInteger(row.base_revision) || row.base_revision < 1)) invalid();
+    if (row.previous_request_id !== undefined && row.previous_request_id !== null) uuid(row.previous_request_id);
+    if (row.decided_at !== undefined && row.decided_at !== null) timestamp(row.decided_at);
     publicationIds.add(id);
     publicationByVersion.set(versionId, {
       id,
-      status: row.status as "pending" | "approved",
+      status: row.status as FormPublicationEvidence["status"],
       requestedAt,
       requesterLabel: actorLabel(row.requested_by_current_user, "requester"),
       requestedByCurrentUser: row.requested_by_current_user,
@@ -307,6 +331,12 @@ export function projectFormGovernanceSnapshot(input: {
         ? actorLabel(row.approved_by_current_user, "approver")
         : null,
       approvedByCurrentUser: row.approved_by_current_user,
+      ...(row.branch_name !== undefined ? { branchName: text(row.branch_name) } : {}),
+      ...(row.base_revision !== undefined ? { baseRevision: row.base_revision } : {}),
+      ...(row.previous_request_id !== undefined ? { previousRequestId: row.previous_request_id } : {}),
+      ...(row.decision_reason !== undefined ? { decisionReason: row.decision_reason } : {}),
+      ...(row.decided_at !== undefined ? { decidedAt: optionalTimestamp(row.decided_at) } : {}),
+      ...(row.decided_by_current_user !== undefined ? { decidedByCurrentUser: row.decided_by_current_user } : {}),
     });
   }
 

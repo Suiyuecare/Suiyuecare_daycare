@@ -1,0 +1,63 @@
+/* Matched to public Finance release 5f6820a; business notices remain daycare-specific. */
+.shell { display: grid; grid-template-columns: 43% minmax(0, 1fr); min-height: 100dvh; background: #fbfaf8; }
+.intro { display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden; padding: 42px; background: linear-gradient(145deg, #9a4f05 0%, #d97706 48%, #f1a234 100%); }
+.intro::before { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, rgba(255,255,255,.18), rgba(255,255,255,0) 34%), radial-gradient(circle at 25% 20%, rgba(255,255,255,.25), transparent 28%); pointer-events: none; }
+.introContent, .footer { position: relative; z-index: 1; }
+.brand { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; align-items: center; margin-bottom: 34px; }
+.brandLogo { display: flex; align-items: center; justify-content: center; width: 74px; height: 74px; padding: 5px; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,.92); border: 1px solid rgba(255,255,255,.75); box-shadow: 0 18px 44px rgba(92,46,0,.24); }
+.brandLogo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.brandName strong { display: block; color: #fff; font-size: 18px; font-weight: 700; }
+.brandName small { display: block; color: rgba(255,255,255,.85); font-size: 11px; letter-spacing: .05em; margin-top: 3px; }
+.title { margin: 0 0 12px; color: #fff; font-size: 25px; font-weight: 700; line-height: 1.25; letter-spacing: .01em; }
+.points { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; color: #fff; font-size: 12px; line-height: 1.6; }
+.points li { display: flex; gap: 8px; align-items: flex-start; }
+.points li::before { content: ""; width: 6px; height: 6px; border-radius: 6px; background: #fff; margin-top: 7px; flex-shrink: 0; }
+.versionNote { margin-top: 18px; padding: 12px 13px; border-radius: 12px; border: 1px solid rgba(255,255,255,.38); background: rgba(255,255,255,.14); box-shadow: 0 14px 34px rgba(92,46,0,.1); color: #fff; font-size: 12px; line-height: 1.7; }
+.versionNote strong { font-weight: 850; letter-spacing: .04em; }
+.versionNote ul { margin: 8px 0 0; padding-left: 18px; }
+.portalIntro { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin-top: 18px; padding: 12px 13px; border-radius: 10px; border: 1px solid rgba(255,255,255,.46); background: rgba(255,255,255,.18); color: #fff; text-decoration: none; box-shadow: 0 14px 34px rgba(92,46,0,.14); font-size: 12px; font-weight: 750; }
+.portalIntro:hover { background: rgba(255,255,255,.25); }
+.portalIntro:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+.footer { margin: 36px 0 0; font-size: 11px; color: #fff; letter-spacing: .08em; }
+/* Accessibility exception: Finance's small white copy on orange is below AA.
+   Keep its frame/gradient, but give operational copy a stable contrast surface. */
+.points, .versionNote, .portalIntro { color: #2f2a26; background: rgba(255,255,255,.82); }
+.points { padding: 12px 13px; border-radius: 12px; }
+.points li::before { background: currentColor; }
+.portalIntro:hover { background: rgba(255,255,255,.9); }
+.portalIntro:focus-visible { outline: 3px solid #2f2a26; outline-offset: -4px; }
+.footer { color: #2f2a26; }
+.loginArea { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 36px; min-width: 0; }
+.mobileBrand { display: none; }
+.panel { width: 100%; max-width: 320px; }
+.welcome { margin: 0 0 3px; color: #1e293b; font-size: 19px; font-weight: 500; line-height: 1.5; }
+.subtitle { margin: 0 0 18px; color: #6e6259; font-size: 12px; line-height: 1.6; }
+.accountGuide { background: #fff8ed; border: 1px solid #efd7b8; border-radius: 9px; padding: 10px 11px; margin-bottom: 12px; color: #6f4b21; line-height: 1.55; }
+.accountGuide strong { font-size: 12px; font-weight: 800; }
+.accountGuide p { font-size: 12px; margin: 3px 0 0; overflow-wrap: anywhere; }
+.googleButton { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; padding: 10px; border: 1px solid #e0d0b8; border-radius: 10px; background: #fff; color: #2f2a26; font-size: 13px; font-weight: 900; cursor: pointer; }
+.googleButton svg { flex-shrink: 0; }
+.googleButton:hover:not(:disabled) { border-color: #b45309; background: #fff7ed; }
+.googleButton:disabled { opacity: .6; cursor: not-allowed; }
+.readiness { margin: 10px 0 14px; color: #6e6259; font-size: 12px; line-height: 1.6; }
+.validationNotice { margin: 0; padding: 10px 11px; border: 1px solid #efd7b8; border-radius: 9px; background: #fff8ed; color: #7c3f00; font-size: 12px; line-height: 1.6; }
+.validationNotice strong { display: block; margin-bottom: 3px; }
+.portalLink { display: flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 10px; border: 1px solid #dfc9b1; border-radius: 10px; background: #fff; color: #8a4a07; text-decoration: none; font-size: 13px; font-weight: 750; }
+.portalLink:hover { background: #fff8ee; }
+.help { margin-top: 14px; border-top: 1px solid #eadbc8; padding-top: 6px; font-size: 12px; color: #6e6259; line-height: 1.65; }
+.help summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; color: #8a4a07; font-weight: 800; cursor: pointer; list-style: none; }
+.help summary::-webkit-details-marker { display: none; }
+.help summary::after { content: "＋"; font-size: 18px; }
+.help[open] summary::after { content: "－"; }
+.help p { margin: 6px 0 10px; }
+@media (max-width: 760px) {
+  .shell { display: flex; flex-direction: column; background: linear-gradient(150deg, #bc6300 0%, #f58a00 100%); }
+  .intro { display: none; }
+  .loginArea { flex: 1; align-items: stretch; justify-content: center; min-height: 100dvh; padding: 28px 24px 22px; }
+  .mobileBrand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .mobileBrand .brandLogo { width: 58px; height: 58px; background: #fff; flex-shrink: 0; }
+  .mobileBrand .brandName strong { font-size: 17px; }
+  .panel { max-width: none; padding: 22px; border-radius: 26px; background: #fffdfb; box-shadow: 0 18px 40px rgba(84,45,10,.17); }
+  .googleButton { min-height: 56px; font-size: 16px; }
+  .portalLink, .help summary { font-size: 14px; }
+}

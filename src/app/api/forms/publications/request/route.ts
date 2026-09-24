@@ -9,9 +9,9 @@ import {
   databaseFailure,
   handleIntegrationRoute,
   readJsonObject,
-  requireRecentAal2,
 } from "@/lib/integrations/http";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { requireCustomFormAal2 } from "@/lib/form-governance/lifecycle-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
         403,
       );
     }
-    await requireRecentAal2(actor);
+    await requireCustomFormAal2(actor);
     if (actor.demo) {
       throw new IntegrationError(
         "DEMO_READ_ONLY",

@@ -57,6 +57,8 @@ const trip = z.object({
   reviewed_by_user_id: uuid.nullable(), reviewer_display_name: text(160).nullable(),
   reviewed_at: timestamp.nullable(), review_reason: text(1_000).nullable(),
   notification_status: z.literal("not_configured"),
+  cancellation: z.object({ id: uuid, reason: text(1000), actorName: text(160), actorId: uuid, cancelledAt: timestamp, planVersionId: uuid, planVersion: positive }).strict().nullable().optional(),
+  cancellation_target: z.object({ id: uuid, version: positive, hash: sha256, conflictCount: integer, ruleId: uuid, startsAt: timestamp, vehicleName: text(160) }).strict().nullable().optional(),
 }).strict();
 const source = z.object({
   organization_id: uuid, branch_id: uuid, generated_at: timestamp,
@@ -128,12 +130,12 @@ export function projectTransportPlanSnapshot(input: {
     const isPending = item.status === "draft_ready" || item.status === "draft_conflicted";
     const capacityConflict = item.conflict_snapshot.some(({ code: itemCode }) =>
       itemCode === "vehicle_capacity_exceeded");
-    if (!matchesFilters(item, input.filters) ||
+    if ((item.status === "cancelled") !== Boolean(item.cancellation) || !matchesFilters(item, input.filters) ||
       Date.parse(item.ends_at) <= Date.parse(item.starts_at) ||
       Date.parse(item.ends_at) - Date.parse(item.starts_at) > 8 * 60 * 60 * 1000 ||
       !unique(passengerIds) || !unique(conflictKeys) ||
       (item.version === 1) !== (item.previous_version_id === null) ||
-      isPending === hasReview ||
+      (item.status !== "cancelled" && isPending === hasReview) ||
       (isPending &&
         (item.status === "draft_ready") !== (item.conflict_snapshot.length === 0)) ||
       capacityConflict !== (item.passenger_snapshot.length > item.vehicle_capacity) ||
@@ -144,9 +146,9 @@ export function projectTransportPlanSnapshot(input: {
 
   if (!row.trips_truncated && (
     row.passenger_total !== row.trips.reduce(
-      (total, item) => total + item.passenger_snapshot.length, 0) ||
+      (total, item) => total + (item.status === "cancelled" ? 0 : item.passenger_snapshot.length), 0) ||
     row.capacity_conflict_total !== row.trips.reduce((total, item) => total +
-      item.conflict_snapshot.filter(({ code: itemCode }) =>
+      (item.status === "cancelled" ? [] : item.conflict_snapshot).filter(({ code: itemCode }) =>
         itemCode === "vehicle_capacity_exceeded").length, 0) ||
     row.pending_publication_total !== row.trips.filter(({ status }) =>
       status === "draft_ready" || status === "draft_conflicted").length
@@ -192,6 +194,8 @@ export function projectTransportPlanSnapshot(input: {
       reviewerDisplayName: item.reviewer_display_name, reviewedAt: item.reviewed_at,
       reviewReason: item.review_reason,
       notificationStatus: item.notification_status,
+      cancellation: item.cancellation ?? null,
+      cancellationTarget: item.cancellation_target ?? null,
     })),
     matchingTripTotal: row.matching_trip_total,
     tripsTruncated: row.trips_truncated, passengerTotal: row.passenger_total,

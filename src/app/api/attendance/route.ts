@@ -8,6 +8,7 @@ import {
   readJsonObject,
 } from "@/lib/integrations/http";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { assertOfflineCareScope } from "@/lib/offline/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,7 +68,8 @@ function attendanceFailure(errorCode?: string) {
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
-    const actor = await authorizeStaffRequest();
+    const actor = await authorizeStaffRequest({ routinePermission: "attendance.write" });
+    assertOfflineCareScope(request, actor);
     if (!actor.demo && !actor.scopes.includes("attendance.write")) {
       throw new IntegrationError(
         "ATTENDANCE_NOT_AUTHORIZED",
@@ -80,6 +82,10 @@ export async function POST(request: Request) {
       await readJsonObject(request, 32 * 1024),
       request.headers.get("idempotency-key"),
     );
+    // The RPC resolves an exact committed retry before applying the backfill
+    // gate to new writes. HTTP age checks would strand a lost response once
+    // the original event becomes older than 15 minutes; never grant backfill
+    // authority here or replace the transactional recent-auth check.
     if (actor.demo) {
       return ok(
         {

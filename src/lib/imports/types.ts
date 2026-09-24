@@ -192,6 +192,20 @@ export interface ImportUploadReceipt {
   batch: ImportBatchSummary;
 }
 
+export interface ImportUploadRequestIdentity {
+  fileSha256: string;
+  fileName: string;
+  mimeType: string;
+}
+
+/** The requested filename can differ from the original batch for duplicate bytes. */
+export interface ImportUploadOperation {
+  batch: ImportBatchRecord;
+  request: ImportUploadRequestIdentity;
+  duplicate: boolean;
+  replayed: boolean;
+}
+
 export interface ReparseImportInput {
   mappingVersion: SupportedMappingVersion;
   idempotencyKey: string;
@@ -202,6 +216,13 @@ export interface ApproveImportInput {
   conflictResolutions: Record<string, string>;
 }
 
+/** A staging decision is not a write to any client or care-plan table. */
+export interface ImportStagingApprovalReceipt {
+  batch: ImportBatchSummary;
+  staging_only: true;
+  formally_imported: false;
+}
+
 export interface ImportBatchRepository {
   findById(scope: ImportScope, id: string): Promise<ImportBatchRecord | null>;
   findByFileHash(
@@ -209,16 +230,29 @@ export interface ImportBatchRepository {
     sha256: string,
   ): Promise<ImportBatchRecord | null>;
   findByOperationKey(
-    scope: ImportScope,
+    actor: ImportActor,
     idempotencyKey: string,
-  ): Promise<ImportBatchRecord | null>;
+  ): Promise<ImportUploadOperation | null>;
+  registerDuplicateUpload(
+    actor: ImportActor,
+    id: string,
+    request: ImportUploadRequestIdentity,
+    idempotencyKey: string,
+  ): Promise<ImportUploadOperation>;
   readOriginal(scope: ImportScope, id: string): Promise<Uint8Array>;
   create(
     record: ImportBatchRecord,
     idempotencyKey: string,
-  ): Promise<ImportBatchRecord>;
+  ): Promise<ImportUploadOperation>;
+  findReparseOperation(
+    actor: ImportActor,
+    id: string,
+    parsed: ParsedHtmlImport,
+    nextStatus: ImportBatchStatus,
+    idempotencyKey: string,
+  ): Promise<ImportBatchRecord | null>;
   replaceParsedResult(
-    scope: ImportScope,
+    actor: ImportActor,
     id: string,
     expectedVersion: number,
     parsed: ParsedHtmlImport,
@@ -235,8 +269,9 @@ export interface ImportBatchRepository {
 
 /**
  * Required production boundary. An adapter must implement tenant-scoped
- * reads, optimistic concurrency, a single transaction for approval/promotion,
+ * reads, optimistic concurrency, a single transaction for staging approval,
  * and encrypted WORM archiving before `create` succeeds.
+ * approveAtomically never promotes data into client or care-plan tables.
  */
 export interface ProductionImportStorage extends ImportBatchRepository {
   readonly kind: "production";

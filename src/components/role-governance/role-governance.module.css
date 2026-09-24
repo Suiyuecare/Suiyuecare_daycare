@@ -5,7 +5,7 @@
 }
 
 .boundaryCallout {
-  border-color: #b9d9cf;
+  border-color: var(--line);
   background: var(--surface-mint);
   color: var(--brand-strong);
 }
@@ -33,6 +33,11 @@
 .tableWrap {
   max-height: min(64vh, 720px);
   overflow: auto;
+}
+
+.tableWrap:focus-visible {
+  outline: 3px solid var(--brand-strong);
+  outline-offset: -3px;
 }
 
 .roleTable,
@@ -108,7 +113,7 @@
 }
 
 .securityCallout {
-  border-color: #b9d9cf;
+  border-color: var(--line);
   background: var(--surface-mint);
   color: var(--brand-strong);
 }
@@ -201,15 +206,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .queueTable {
-    display: none;
-  }
-
-  .queueTable + * {
-    display: none;
-  }
-
-  .panel:has(.queueTable) .tableWrap {
+  .tableWrap {
     display: none;
   }
 
@@ -251,6 +248,78 @@
   }
 
   .mobileCard dl {
+    grid-template-columns: 1fr;
+  }
+}
+.categoryGuide {
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 18px;
+}
+
+.categoryGuide h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.categoryGuide p {
+  margin: 10px 0;
+  color: var(--ink-muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.categoryGuide summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--brand-strong);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.categoryGuide summary:focus-visible {
+  outline: 3px solid var(--brand-strong);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.categoryList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.categoryList > div {
+  min-width: 0;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.categoryList dt {
+  font-weight: 800;
+}
+
+.categoryList dd {
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.categoryScope {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--brand-strong);
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .categoryList {
     grid-template-columns: 1fr;
   }
 }

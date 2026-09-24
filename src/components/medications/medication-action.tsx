@@ -429,7 +429,7 @@ export function MedicationAction({
             </label>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
             {needsReauth ? (
-              <Link className="reauth-link reauth-link--inline" href="/mfa?audience=staff">
+              <Link className="reauth-link reauth-link--inline" href="/mfa?audience=staff&purpose=sensitive-action">
                 <ShieldCheck aria-hidden="true" />重新完成雙因素驗證
               </Link>
             ) : null}

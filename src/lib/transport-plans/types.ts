@@ -1,6 +1,6 @@
 export const TRANSPORT_DIRECTIONS = ["pickup", "dropoff"] as const;
 export const TRANSPORT_PLAN_STATUSES = [
-  "draft_ready", "draft_conflicted", "published", "rejected",
+  "draft_ready", "draft_conflicted", "published", "rejected", "cancelled",
 ] as const;
 export const TRANSPORT_PLAN_STATUS_FILTERS = ["all", ...TRANSPORT_PLAN_STATUSES] as const;
 
@@ -79,6 +79,8 @@ export type TransportTripPlan = {
   reviewedAt: string | null;
   reviewReason: string | null;
   notificationStatus: "not_configured";
+  cancellation?: { id: string; reason: string; actorName: string; actorId: string; cancelledAt: string; planVersionId: string; planVersion: number } | null;
+  cancellationTarget?: { id: string; version: number; hash: string; conflictCount: number; ruleId: string; startsAt: string; vehicleName: string } | null;
 };
 
 export type TransportPlanSnapshot = {
@@ -144,11 +146,12 @@ export type DecideTransportTripInput = {
   idempotencyKey: string;
 };
 
-export type TransportPlanMutationInput = SaveTransportTripInput | DecideTransportTripInput;
+export type CancelTransportTripInput = Omit<DecideTransportTripInput, "action" | "decision"> & { action: "cancel_trip" };
+export type TransportPlanMutationInput = SaveTransportTripInput | DecideTransportTripInput | CancelTransportTripInput;
 
 export type TransportPlanMutationReceipt = {
   operationId: string;
-  action: "save_trip" | "decide_trip";
+  action: "save_trip" | "decide_trip" | "cancel_trip";
   decision: "publish" | "override" | "reject" | null;
   tripVersionId: string;
   tripKey: string;

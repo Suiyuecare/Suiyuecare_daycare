@@ -14,6 +14,15 @@ const startReview = () => fireEvent.click(screen.getByRole("button", { name: "�
 afterEach(() => { cleanup(); refresh.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("data inventory embedded workspace", () => {
+  it("uses standard owner labels while retaining existing responsibility keys", () => {
+    render(<DataInventoryWorkspace {...baseProps} snapshot={inventoryTestSnapshot()}/>);
+    startNew();
+    expect(screen.getByRole("option", { name: "全機構管理員（多點管理）" })).toHaveValue("organization_manager");
+    expect(screen.getByRole("option", { name: "機構管理員（單點管理）" })).toHaveValue("branch_supervisor");
+    expect(screen.getByRole("option", { name: "社工人員" })).toHaveValue("case_manager_social_worker");
+    expect(screen.getByRole("option", { name: "財務人員" })).toHaveValue("finance_claims");
+    expect(screen.queryByRole("option", { name: "機構主任" })).not.toBeInTheDocument();
+  });
   it("shows 12 fixed requirements, six categories and honest read-only synthetic boundaries", () => {
     const { container } = render(<DataInventoryWorkspace {...baseProps} snapshot={{ ...inventoryTestSnapshot(), demo: true }}/>);
     expect(screen.getByRole("heading", { level: 2, name: "資料盤點與缺漏追蹤" })).toBeInTheDocument();
@@ -32,6 +41,8 @@ describe("data inventory embedded workspace", () => {
       generatedAt: "2026-01-01T00:00:00Z", staleAfter: "2026-01-01T00:05:00Z" }}/>);
     expect(screen.queryByText(/資料已過期或剛完成操作/)).not.toBeInTheDocument();
     expect(screen.getByText(/非正式資料更新時間/)).toBeInTheDocument();
+    expect(screen.getByText(/合成示例快照/)).toHaveTextContent("2026/01/01 08:00:00");
+    expect(screen.getByText(/合成示例快照/).textContent).not.toMatch(/[\u00a0\u2009\u202f]/u);
   });
   it("filters locally and offers an actionable empty state without fetching", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
@@ -76,7 +87,7 @@ describe("data inventory embedded workspace", () => {
     const { rerender } = render(<DataInventoryWorkspace {...baseProps} snapshot={snapshot} hasRecentAal2={false}/>);
     expect(screen.getByRole("button", { name: "人工覆核：個案基本資料" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "更新盤點：個案基本資料" })).toBeEnabled();
-    expect(screen.getAllByRole("link", { name: "前往重新驗證" })[0]).toHaveAttribute("href", "/mfa?audience=staff");
+    expect(screen.getAllByRole("link", { name: "前往重新驗證" })[0]).toHaveAttribute("href", "/mfa?audience=staff&purpose=sensitive-action");
     rerender(<DataInventoryWorkspace {...baseProps} snapshot={snapshot} actorUserId={inventoryIds.recorder}/>);
     expect(screen.getByRole("button", { name: "人工覆核：個案基本資料" })).toBeDisabled();
     expect(screen.getByText(/您是本版內容登錄者/)).toBeInTheDocument();

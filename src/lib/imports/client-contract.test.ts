@@ -28,6 +28,23 @@ describe("import browser response contracts", () => {
     expect(() => parseImportUploadEnvelope(raw, { fileName: "sample.html", byteLength: 31, httpStatus: 200 })).toThrow(ImportClientContractError);
   });
 
+  it("accepts an immutable duplicate replay and a renamed duplicate only with the exact content hash", () => {
+    const raw = wrap({ status: "duplicate", duplicate: true, replayed: true, batch: { ...batch, status: "duplicate" } });
+    const expected = { fileName: "renamed.html", byteLength: 31, fileSha256: batch.fileSha256, httpStatus: 200 };
+    expect(parseImportUploadEnvelope(raw, expected).data).toMatchObject({ duplicate: true, replayed: true });
+    expect(() => parseImportUploadEnvelope(raw, { ...expected, fileSha256: "c".repeat(64) })).toThrow(ImportClientContractError);
+    expect(() => parseImportUploadEnvelope(raw, { ...expected, fileSha256: undefined })).toThrow(ImportClientContractError);
+    expect(() => parseImportUploadEnvelope(raw, { ...expected, byteLength: 32 })).toThrow(ImportClientContractError);
+    expect(() => parseImportUploadEnvelope(wrap({ status: "parsed", duplicate: false, replayed: true, batch }), expected)).toThrow(ImportClientContractError);
+  });
+
+  it("rejects mismatched bytes even when the returned filename and size match", () => {
+    const raw = wrap({ status: "parsed", duplicate: false, replayed: false, batch });
+    expect(() => parseImportUploadEnvelope(raw, {
+      fileName: batch.fileName, byteLength: batch.byteLength, httpStatus: 201, fileSha256: "c".repeat(64),
+    })).toThrow(ImportClientContractError);
+  });
+
   it("requires preview counts and identity to match the returned arrays", () => {
     const previewData = { batch, sections: [], fields: [], warnings: [], conflicts: [] };
     const raw = wrap(previewData);

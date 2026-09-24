@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const actor = await authorizeStaffRequest();
     if (actor.demo) throw new IntegrationError("DEMO_READ_ONLY", "試用模式不保存資料。", 403);
     if (!actor.scopes.includes("audit.view") || !actor.roles.some((r) => r === "organization_manager" || r === "branch_supervisor")) throw new IntegrationError(
-      "DATA_INVENTORY_NOT_AUTHORIZED", "僅具稽核權限的機構或分支主管可操作盤點。", 403);
+      "DATA_INVENTORY_NOT_AUTHORIZED", "僅具稽核權限的管理員可操作盤點。", 403);
     const input = parseDataInventoryMutation(await readJsonObject(request, 12_000), request.headers.get("idempotency-key"));
     if (input.request.action === "verify") await requireRecentAal2(actor);
     const supabase = await createServerSupabaseClient();

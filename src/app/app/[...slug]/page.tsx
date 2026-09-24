@@ -1,13 +1,24 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { DailyExpectedClients, DailyExpectedClientsLoading } from "@/components/client-weekly/daily-expected-clients";
 import { ShieldX } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
+import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
+import { canUseRoutineCare } from "@/lib/auth/routine-care";
+import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
+import { OpeningReadinessWorkspace } from "@/components/opening-readiness/opening-readiness-workspace";
+import { loadOpeningReadinessSnapshot } from "@/lib/opening-readiness/snapshot";
+import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
 import { OperationalWorkspace } from "@/components/workspace/operational-workspace";
 import { ImportWorkspace } from "@/components/imports/import-workspace";
 import { SyntheticImportPreview } from "@/components/imports/synthetic-import-preview";
 import { IntegrationsAuditWorkspace } from "@/components/integrations-audit/integrations-audit-workspace";
+import { FinanceConfigurationPanel } from "@/components/integrations-audit/finance-configuration-panel";
+import { inspectFinanceConfiguration } from "@/lib/store-overview/finance-configuration";
+import { canReadStoreOverview } from "@/lib/store-overview/access";
 import { DataInventoryWorkspace } from "@/components/data-inventory/data-inventory-workspace";
 import { loadDataInventorySnapshot } from "@/lib/data-inventory/snapshot";
 import type { DataInventorySnapshot } from "@/lib/data-inventory/types";
@@ -34,6 +45,7 @@ import { MedicationPlansWorkspace } from "@/components/medication-plans/medicati
 import { ClaimsWorkspace } from "@/components/service-management/claims-workspace";
 import { ServiceUsageWorkspace } from "@/components/service-management/service-usage-workspace";
 import { FormRuleVersionsWorkspace } from "@/components/form-governance/form-rule-versions-workspace";
+import { hasCustomFormGovernanceAccess } from "@/lib/form-governance/lifecycle-auth";
 import { RoleGovernanceWorkspace } from "@/components/role-governance/role-governance-workspace";
 import { NotificationCenterWorkspace } from "@/components/notification-center/notification-center-workspace";
 import { PushNotificationsWorkspace } from "@/components/push-notifications/push-notifications-workspace";
@@ -104,7 +116,10 @@ import {
   loadDailyCareSnapshot,
 } from "@/lib/core-care/snapshot";
 import { isCoreDailyPage } from "@/lib/core-care/types";
-import { isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
+import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
+import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
+import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
+import { env, isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
 import {
   filterBloodGlucoseSnapshot,
 } from "@/lib/blood-glucose/projection";
@@ -643,7 +658,7 @@ import {
 } from "@/lib/transport-execution/snapshot";
 import { parseFeedbackComplaintFilters } from "@/lib/feedback-complaints/query";
 import { ReportsWorkspace } from "@/components/reports/reports-workspace";
-import { buildReportEntries, parseReportPeriods } from "@/lib/reports/entry";
+import { buildOperationalReportLinks, buildReportEntries, parseReportPeriods } from "@/lib/reports/entry";
 import { BodyAssessmentsWorkspace } from "@/components/body-assessments/body-assessments-workspace";
 import { parseBodyAssessmentFilters } from "@/lib/body-assessments/query";
 import { BodyAssessmentSnapshotError, loadBodyAssessmentSnapshot } from "@/lib/body-assessments/snapshot";
@@ -700,6 +715,7 @@ export default async function StaffCatalogPage({
     const serviceDate = parseServiceDate(
       typeof query.date === "string" ? query.date : undefined,
     );
+    const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
     let snapshot = null;
     let loadError = false;
     try {
@@ -709,11 +725,15 @@ export default async function StaffCatalogPage({
       loadError = true;
     }
     return (
-      <DashboardWorkspace
+      <><DashboardWorkspace
+        canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
+        canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         loadError={loadError}
         serviceDate={serviceDate}
         snapshot={snapshot}
+        roster={await rosterPromise}
       />
+      <Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={serviceDate} /></Suspense></>
     );
   }
 
@@ -732,6 +752,9 @@ export default async function StaffCatalogPage({
     }
     return (
       <CaseCenterWorkspace
+        canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
+        allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
+        canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
         filters={filters}
         loadError={loadError}
         page={page}
@@ -790,7 +813,9 @@ export default async function StaffCatalogPage({
     return (
       <BloodGlucoseWorkspace
         allClients={allClients}
-        canWrite={context.demo || context.scopes.includes("health.write")}
+        canWrite={context.demo || (context.assuranceLevel === "aal2" && context.scopes.includes("health.write"))}
+        writeUnavailableReason={!context.demo && context.assuranceLevel !== "aal2"
+          ? "本批一般帳號尚未開放新增血糖紀錄。您可查閱授權資料；需要登錄時，請交由已核准且完成身分確認的人員處理。" : undefined}
         loadError={loadError}
         mealContext={mealContext}
         measurementStatus={measurementStatus}
@@ -1333,9 +1358,12 @@ export default async function StaffCatalogPage({
   }
 
   if (isCoreDailyPage(page)) {
-    const serviceDate = parseServiceDate(
-      typeof query.date === "string" ? query.date : undefined,
-    );
+    const { serviceDate, selectedClientId, selectedShift, invalid } = parseDailyWorkSelection(query);
+    if (invalid) return <section className="empty-card core-care-state" role="alert">
+      <h1>請重新選擇個案、日期與班別</h1>
+      <p>連結中的個案、日期或班別格式不正確，系統沒有替您選擇其他個案或班別。</p>
+      <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
+    </section>;
     let snapshot = null;
     let loadError = false;
     try {
@@ -1344,31 +1372,31 @@ export default async function StaffCatalogPage({
       if (!(error instanceof CoreCareSnapshotError)) throw error;
       loadError = true;
     }
-    const selectedClientId =
-      typeof query.client === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-        query.client,
-      )
-        ? query.client
-        : undefined;
     if (snapshot && selectedClientId) {
       snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
     }
+    const writePermission = page.number === 3 ? "health.write" : page.number === 6
+      ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
+    const [canWriteRoutine, canReadDiary] = await Promise.all([
+      writePermission ? canUseRoutineCare(context, writePermission) : Promise.resolve(false),
+      page.number === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
+    ]);
     return (
       <CoreDailyWorkspace
-        canWrite={
-          (page.number === 3 &&
-            (context.demo || context.scopes.includes("health.write"))) ||
-          (page.number === 6 &&
-            (context.demo || context.scopes.includes("care_records.write"))) ||
-          (page.number === 46 &&
-            (context.demo || context.scopes.includes("attendance.write")))
-        }
+        clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
+          ? <CareReminderCard clientId={selectedClientId} context={context} /> : undefined}
+        diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
+          ? <CareDiaryLifecycle clientId={selectedClientId} readEnabled={canReadDiary} enabled={canWriteRoutine}
+            canRevise={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.write")}
+            canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
+        canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
+        canWrite={canWriteRoutine}
         loadError={loadError}
         moduleTitle={getModule(page.moduleId).title}
         page={page}
         serviceDate={serviceDate}
         selectedClientId={selectedClientId}
+        selectedShift={selectedShift}
         snapshot={snapshot}
       />
     );
@@ -1408,10 +1436,10 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
-    return <TransportPlansWorkspace canApprove={canApprove} canManage={canManage}
+    return <><TransportPlansWorkspace canApprove={canApprove} canManage={canManage}
       canOverride={canOverride} currentUserId={context.userId} filters={filters}
       hasRecentAal2={recentAal2} loadError={loadError} page={page}
-      snapshot={snapshot} />;
+      snapshot={snapshot} /><Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={filters.serviceDate} mode="transport" /></Suspense></>;
   }
 
   if (page.number === 48) {
@@ -1576,7 +1604,10 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
+    const openingReadiness = !invalidFilters && canViewOpeningReadiness(context)
+      ? await loadOpeningReadinessSnapshot(context, effectiveOn ?? parseServiceDate(undefined)) : null;
     return <OrganizationProfileWorkspace canApprove={canApprove}
+      openingReadiness={openingReadiness ? <div id="opening-readiness"><OpeningReadinessWorkspace snapshot={openingReadiness} /></div> : undefined}
       canManage={canManage} currentUserId={context.userId} filters={filters}
       hasRecentAal2={recentAal2} loadError={loadError} page={page}
       snapshot={snapshot} />;
@@ -2407,6 +2438,9 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 61) {
+    // Invalid or unavailable deep links must not silently target another client.
+    const requestedClientId = typeof query.client === "string" ? query.client.toLowerCase() : query.client ? "invalid" : null;
+    const clientId = requestedClientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(requestedClientId) ? requestedClientId : requestedClientId ? "invalid" : null;
     const requestedStatus =
       typeof query.status === "string" ? query.status : "all";
     const status: ClientLifecycleStatusFilter =
@@ -2446,6 +2480,7 @@ export default async function StaffCatalogPage({
     try {
       [snapshot, recentAal2] = await Promise.all([
         loadClientLifecycleSnapshot(context, {
+          clientId,
           query: searchQuery,
           status,
           eventKind,
@@ -2460,6 +2495,10 @@ export default async function StaffCatalogPage({
     }
     return (
       <ClientLifecycleWorkspace
+        key={JSON.stringify([context.organizationId, context.branchId, context.userId, [...context.scopes].sort(), clientId])}
+        selectedClientId={clientId}
+        canRoutineAdmit={await canUseRoutineCompletion(context, "admission.create", clientId === "all" ? null : clientId)}
+        canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
         canManage={canManage}
         effectiveOn={effectiveOn}
         eventKind={eventKind}
@@ -3834,9 +3873,12 @@ export default async function StaffCatalogPage({
     }
     const canManage = context.demo || context.scopes.includes("forms.manage");
     const recentAal2 =
-      context.demo || (canManage ? await hasRecentAal2() : false);
+      context.demo || (canManage ? await hasCustomFormGovernanceAccess(context, true) : false);
     return (
       <FormRuleVersionsWorkspace
+        key={[context.organizationId, context.branchId, context.userId,
+          [...context.roles].sort().join(","), [...context.scopes].sort().join(","),
+          context.assuranceLevel, String(recentAal2)].join(":")}
         canManage={canManage}
         filters={filters}
         hasRecentAal2={recentAal2}
@@ -3890,6 +3932,7 @@ export default async function StaffCatalogPage({
   if (page.number === 70) {
     const { periods, invalid } = parseReportPeriods(query);
     return <ReportsWorkspace demo={context.demo} invalid={invalid} periods={periods}
+      operationalLinks={invalid ? [] : buildOperationalReportLinks(context, periods, await canReadStoreOverview(context))}
       entries={invalid ? [] : buildReportEntries(context, periods)} />;
   }
 
@@ -3931,11 +3974,15 @@ export default async function StaffCatalogPage({
     }
     return <IntegrationsAuditWorkspace filters={filters} hasRecentAal2={recentAal2}
       loadError={loadError} page={page} snapshot={snapshot}
+      financeConfiguration={snapshot && !loadError && recentAal2 && canReadInventory ?
+        <FinanceConfigurationPanel
+          check={inspectFinanceConfiguration(isSyntheticReadMode() ? {} : env, context)}
+          canOpenOverview={await canReadStoreOverview(context)} /> : null}
       dataInventory={canReadInventory ? <DataInventoryWorkspace snapshot={dataInventorySnapshot}
         canManage={!context.demo && recentAal2} canReview={!context.demo && recentAal2}
         hasRecentAal2={recentAal2} actorUserId={context.userId} loadError={dataInventoryError} /> :
         <section id="data-inventory" className="callout" role="note"><h2>資料盤點與缺漏追蹤</h2>
-          <p>資料盤點僅限具有稽核查閱權限的機構管理員或分支主管；目前沒有權限，未讀取盤點資料。</p></section>} />;
+          <p>資料盤點僅限具有稽核查閱權限的管理員；目前沒有權限，未讀取盤點資料。</p></section>} />;
   }
 
   return (

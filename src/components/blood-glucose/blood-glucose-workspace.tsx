@@ -53,6 +53,7 @@ export function BloodGlucoseWorkspace({
   mealContext,
   measurementStatus,
   canWrite,
+  writeUnavailableReason,
   loadError = false,
 }: {
   page: PageCatalogEntry;
@@ -63,6 +64,7 @@ export function BloodGlucoseWorkspace({
   mealContext?: BloodGlucoseMealContext;
   measurementStatus: BloodGlucoseMeasurementStatus;
   canWrite: boolean;
+  writeUnavailableReason?: string;
   loadError?: boolean;
 }) {
   if (loadError || !snapshot) {
@@ -168,6 +170,7 @@ export function BloodGlucoseWorkspace({
       </section>
 
       <section className="panel">
+        {!canWrite && writeUnavailableReason ? <p className="callout" role="note">{writeUnavailableReason}</p> : null}
         <div className="panel__header">
           <div className="panel__title">
             <h2>{serviceDate} 血糖紀錄</h2>

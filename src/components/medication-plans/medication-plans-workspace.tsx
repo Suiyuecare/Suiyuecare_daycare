@@ -210,7 +210,7 @@ export function MedicationPlansWorkspace({
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
           <span>獨立核准與停藥需要最近 15 分鐘內 AAL2；草稿與送審仍會由資料庫核對角色、分支、個案指派與精確版本。</span>
-          <Link className="button button--secondary" href="/mfa?audience=staff">立即重新驗證</Link>
+          <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">立即重新驗證</Link>
         </div>
       ) : null}
 

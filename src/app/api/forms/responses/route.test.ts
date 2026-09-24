@@ -1,0 +1,34 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { IntegrationError } from "@/lib/integrations/errors";
+const mocks = vi.hoisted(() => ({ authorize: vi.fn(), reauth: vi.fn(), db: vi.fn(), rpc: vi.fn() }));
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/integrations/http", async (original) => ({ ...await original<typeof import("@/lib/integrations/http")>(), authorizeStaffRequest: mocks.authorize, requireRecentAal2: mocks.reauth }));
+vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: mocks.db }));
+import { POST, GET } from "./route";
+const clientId = "d9500000-0000-4000-8000-000000000001";
+const actor = { userId: "d8100000-0000-4000-8000-000000000001", organizationId: "d8500000-0000-4000-8000-000000000001", branchId: "d8600000-0000-4000-8000-000000000001", scopes: ["care_records.read", "care_records.write", "care_records.sign"], demo: false };
+const input = { action: "save", formVersionId: "d9400000-0000-4000-8000-000000000002", previousId: null, baseRevision: null, serviceDate: "2026-09-22", answers: {}, reason: null };
+const key = "d9600000-0000-4000-8000-000000000001";
+const request = (body: unknown = { clientId, input }) => new Request("https://example.invalid/api/forms/responses", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body) });
+describe("custom response API", () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.authorize.mockResolvedValue(actor); mocks.reauth.mockResolvedValue(undefined); mocks.db.mockResolvedValue({ rpc: (...args: unknown[]) => ({ abortSignal: () => mocks.rpc(...args) }) }); mocks.rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "SECRET" } }); });
+  it("binds server tenant and only routine write for draft", async () => { expect((await POST(request())).status).toBe(403); expect(mocks.authorize).toHaveBeenCalledWith({ routinePermission: "care_records.write" }); expect(mocks.rpc).toHaveBeenCalledWith("write_custom_form_response", { p_org: actor.organizationId, p_branch: actor.branchId, p_client: clientId, p_key: key, p_input: input }); expect(mocks.reauth).not.toHaveBeenCalled(); });
+  it.each(["{}", "not-json", JSON.stringify({ clientId, input })])("rejects anonymous requests before reading the body: %s", async (body) => {
+    mocks.authorize.mockRejectedValue(new IntegrationError("AUTH_REQUIRED", "請先登入。", 401));
+    const req = new Request("https://example.invalid/api/forms/responses", { method: "POST", body });
+    const read = vi.spyOn(req, "text");
+    const response = await POST(req);
+    expect(response.status).toBe(401);
+    expect((await response.json()).errors[0].code).toBe("AUTH_REQUIRED");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(read).not.toHaveBeenCalled();
+    expect(mocks.db).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it.each([{}, { clientId, input, organizationId: actor.organizationId }, { clientId, input: { ...input, schema: {} } }])("rejects malformed/spoofed request", async (body) => { expect((await POST(request(body))).status).toBe(400); expect(mocks.rpc).not.toHaveBeenCalled(); });
+  it.each([{ ...actor, demo: true }, { ...actor, scopes: [] }])("denies demo and unprivileged before database", async (context) => { mocks.authorize.mockResolvedValue(context); expect((await POST(request())).status).toBe(403); expect(mocks.db).not.toHaveBeenCalled(); });
+  it("retains explicit recent reauth for signature", async () => { mocks.reauth.mockRejectedValue(new IntegrationError("AAL2_REQUIRED", "重新驗證", 403)); expect((await POST(request({ clientId, input: { ...input, action: "sign", answers: null, previousId: key, baseRevision: 1 } }))).status).toBe(403); expect(mocks.authorize).toHaveBeenCalledWith({}); expect(mocks.rpc).not.toHaveBeenCalled(); });
+  it.each([["40001",409],["23505",409],["23514",409],["22023",400],["XX000",503]])("sanitizes SQL %s", async (code, expected) => { mocks.rpc.mockResolvedValue({ data: null, error: { code, message: "SECRET_RAW" } }); const response = await POST(request()); expect(response.status).toBe(expected); expect(await response.text()).not.toContain("SECRET_RAW"); expect(response.headers.get("cache-control")).toContain("no-store"); });
+  it("requires strict cursor and no duplicate client query", async () => { for (const query of [`clientId=${clientId}&clientId=${key}`, `clientId=${clientId}&beforeId=${key}`, `clientId=${clientId}&tenant=other`]) expect((await GET(new Request(`https://example.invalid/api/forms/responses?${query}`))).status).toBe(400); expect(mocks.rpc).not.toHaveBeenCalled(); });
+  it("malformed success is not persisted success", async () => { mocks.rpc.mockResolvedValue({ data: { success: true }, error: null }); expect((await POST(request())).status).toBe(409); });
+});

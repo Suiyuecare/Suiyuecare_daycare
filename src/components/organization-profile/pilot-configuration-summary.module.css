@@ -1,10 +1,10 @@
 .panel {
   min-width: 0;
   padding: clamp(1rem, 3vw, 1.5rem);
-  border: 1px solid #b9cfc6;
+  border: 1px solid var(--line);
   border-radius: 1rem;
-  background: #f3f8f5;
-  color: #243d35;
+  background: var(--surface-soft);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1rem; }
@@ -12,19 +12,19 @@
 .heading h2 { margin: .35rem 0 0; font-size: clamp(1.15rem, 2vw, 1.4rem); line-height: 1.6; }
 .status { display: inline-block; padding: .4rem .65rem; border: 1px solid #bbcbbf; border-radius: .5rem; background: #fff; font-size: 1rem; }
 .facts { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 1rem 0; }
-.facts dt { font-size: 1rem; color: #4c6258; }
+.facts dt { font-size: 1rem; color: var(--ink-muted); }
 .facts dd { margin: .3rem 0 0; font-weight: 600; }
 .boundary { margin: 1rem 0; line-height: 1.75; }
-.details { margin-top: .75rem; padding-top: .35rem; border-top: 1px solid #c8d7cf; }
+.details { margin-top: .75rem; padding-top: .35rem; border-top: 1px solid var(--line); }
 .details summary { min-height: 44px; padding: .65rem .25rem; cursor: pointer; font-size: 1rem; line-height: 1.6; font-weight: 600; }
-.details summary:focus-visible, .details a:focus-visible { outline: 3px solid #1f6b5f; outline-offset: 3px; border-radius: .25rem; }
+.details summary:focus-visible, .details a:focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 3px; border-radius: .25rem; }
 .details p, .details li { line-height: 1.75; font-size: 1rem; }
 .details > ul { padding-left: 1.4rem; }
 .details > ul > li { margin-bottom: .65rem; }
 .details li > span { margin-left: .5rem; }
 .sources { list-style: none; padding-left: 0 !important; }
-.sources > li { padding: 1rem; border-radius: .65rem; background: #fff; border: 1px solid #d6e0d9; }
+.sources > li { padding: 1rem; border-radius: .65rem; background: #fff; border: 1px solid var(--line); }
 .sources h3 { margin: 0; font-size: 1rem; }
-.sources a { display: inline-block; min-height: 44px; padding: .55rem 0; color: #15554a; text-decoration: underline; text-underline-offset: .18em; }
+.sources a { display: inline-block; min-height: 44px; padding: .55rem 0; color: var(--brand-strong); text-decoration: underline; text-underline-offset: .18em; }
 .sources p { margin: .5rem 0; }
 .sources ul { padding-left: 1.3rem; }

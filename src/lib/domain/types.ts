@@ -4,6 +4,7 @@ export type RoleKey =
   | "platform_ops"
   | "organization_manager"
   | "branch_supervisor"
+  | "branch_director"
   | "case_manager_social_worker"
   | "nurse"
   | "care_worker"

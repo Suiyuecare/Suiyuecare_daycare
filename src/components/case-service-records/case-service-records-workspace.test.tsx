@@ -113,7 +113,7 @@ describe("Page50 dedicated workspace and exact-retry boundary", () => {
     expect(screen.getByRole("button", { name: "核對並簽署" })).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "建立更正版" }).every((item) => item.hasAttribute("disabled"))).toBe(true);
     expect(screen.getByRole("button", { name: "新增服務紀錄" })).toBeEnabled();
-    expect(screen.getByRole("link", { name: "立即重新驗證" })).toHaveAttribute("href", "/mfa?audience=staff");
+    expect(screen.getByRole("link", { name: "立即重新驗證" })).toHaveAttribute("href", "/mfa?audience=staff&purpose=sensitive-action");
   });
 
   it("does not offer another author's draft revision even to a permitted co-worker", () => {

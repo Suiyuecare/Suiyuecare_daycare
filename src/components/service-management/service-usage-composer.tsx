@@ -204,7 +204,7 @@ export function ServiceUsageComposer({
         <FileSignature aria-hidden="true" />完成並簽署服務
       </button>
       {!demo && canComplete && !hasRecentAal2 ? (
-        <Link className="reauth-link" href="/mfa?audience=staff">
+        <Link className="reauth-link" href="/mfa?audience=staff&purpose=sensitive-action">
           <ShieldCheck aria-hidden="true" />完成近期雙因素驗證
         </Link>
       ) : null}
@@ -321,7 +321,7 @@ export function ServiceUsageComposer({
               <div>
                 <p className="form-error" role="alert">{error}</p>
                 {needsReauth ? (
-                  <Link className="reauth-link reauth-link--inline" href="/mfa?audience=staff">
+                  <Link className="reauth-link reauth-link--inline" href="/mfa?audience=staff&purpose=sensitive-action">
                     <ShieldCheck aria-hidden="true" />重新完成雙因素驗證
                   </Link>
                 ) : null}

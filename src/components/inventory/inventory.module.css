@@ -34,13 +34,13 @@
 .card dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 .itemSection h2 { margin-top: 0; }
 .itemCards { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.itemCards article { background: #f8faf9; border-radius: 12px; min-width: 0; padding: 12px; }
+.itemCards article { background: var(--surface-soft); border-radius: 12px; min-width: 0; padding: 12px; }
 .itemCards p { margin: 8px 0; }
 .statusForm { display: grid; gap: 8px; }
 .inlineFieldset { align-items: end; border: 0; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto; margin: 0; min-width: 0; padding: 0; }
 .ledger > header svg { color: var(--brand-600, #35715b); }
 .ledgerRows { display: grid; gap: 10px; }
-.ledgerRows article { background: #f8faf9; border-radius: 12px; min-width: 0; padding: 12px; }
+.ledgerRows article { background: var(--surface-soft); border-radius: 12px; min-width: 0; padding: 12px; }
 .ledgerRows article p { margin: 6px 0 0; overflow-wrap: anywhere; }
 .ledgerRows time { color: var(--text-muted); white-space: nowrap; }
 .redacted { color: #7a3e24; font-weight: 600; }

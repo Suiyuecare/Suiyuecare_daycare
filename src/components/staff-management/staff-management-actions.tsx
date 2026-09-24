@@ -20,6 +20,7 @@ import {
 import type { StaffManagementSnapshot } from "@/lib/staff-management/types";
 
 import styles from "./staff-management.module.css";
+import { staffRoleOptionName } from "./role-labels";
 
 function messageFor(error: unknown) {
   if (isClientFetchTimeoutError(error) ||
@@ -54,7 +55,7 @@ async function readResponse(response: Response) {
 function Reauth({ title }: { title: string }) {
   return <section className={styles.reauth}><h2>{title}</h2>
     <p>這項操作必須使用同一工作階段最近 15 分鐘內的雙重驗證。</p>
-    <Link className="button button--secondary" href="/mfa?audience=staff">
+    <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">
       前往雙重驗證
     </Link></section>;
 }
@@ -321,7 +322,8 @@ export function StaffRoleChangeForm({ canManageRoles, hasRecentAal2, snapshot }:
       </select></label>
       <label className={styles.wide}><span>角色</span><select name="role" required defaultValue="">
         <option value="" disabled>選擇角色</option>{snapshot.roleOptions.map((role) =>
-          <option key={role.roleId} value={role.roleId}>{role.roleName}</option>)}</select></label>
+          <option key={role.roleId} value={role.roleId}>{staffRoleOptionName(role)}</option>)}</select></label>
+      <p className={styles.wide}>主任兼任護理或社工須分別送審對應角色，並核對專業資格；本次操作只處理所選的一個角色，不會連帶授權其他角色。</p>
       <button className="button button--primary" type="submit">
         {pending ? "送審中…" : "凍結角色異動並送審"}
       </button>

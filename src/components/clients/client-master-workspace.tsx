@@ -10,6 +10,7 @@ import {
   UserRoundCheck,
 } from "lucide-react";
 import Link from "next/link";
+import { IntakeEntryLink } from "@/components/client-intake/intake-entry-link";
 
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
@@ -22,7 +23,6 @@ import type {
   ClientMasterStatusFilter,
 } from "@/lib/clients/master-types";
 
-import { ClientMasterAction } from "./client-master-action";
 import styles from "./client-master.module.css";
 
 const statusLabels: Record<ClientMasterServiceState, string> = {
@@ -76,31 +76,14 @@ function LockedAction({ client }: { client: ClientMasterItem }) {
 
 function RowAction({
   client,
-  instance,
-  canManage,
-  hasRecentAal2,
-  demo,
-  today,
+  canOpenIntake,
 }: {
   client: ClientMasterItem;
-  instance: string;
-  canManage: boolean;
-  hasRecentAal2: boolean;
-  demo: boolean;
-  today: string;
+  canOpenIntake: boolean;
 }) {
+  if (canOpenIntake) return <Link className="button button--secondary" href={`/app/client-intake?client=${encodeURIComponent(client.id)}`}>核對／補充資料</Link>;
   if (!client.editable) return <LockedAction client={client} />;
-  return (
-    <ClientMasterAction
-      canManage={canManage}
-      client={client}
-      demo={demo}
-      hasRecentAal2={hasRecentAal2}
-      instance={instance}
-      kind="edit"
-      today={today}
-    />
-  );
+  return <span className={styles.lockedAction}>需基本資料查閱權限</span>;
 }
 
 export function ClientMasterWorkspace({
@@ -110,7 +93,6 @@ export function ClientMasterWorkspace({
   status,
   source,
   canManage,
-  canCreate,
   hasRecentAal2,
   loadError = false,
 }: {
@@ -136,12 +118,6 @@ export function ClientMasterWorkspace({
   }
 
   const clients = filterClientMasterItems(snapshot, { query, status, source });
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(snapshot.generatedAt));
 
   return (
     <>
@@ -155,19 +131,11 @@ export function ClientMasterWorkspace({
           <p className="eyebrow">資料主權個案主檔・頁面 {page.number}</p>
           <h1>{page.title}</h1>
           <p className="page-heading__description">
-            目前垂直片管理最小必要身分欄位；中央系統資料只讀，本機資料使用版本鎖、UUID 冪等鍵與最近 15 分鐘 AAL2 更新。
+            查看機構個案清單。新增 CMS 個案、補聯絡資料、安排每週到站與上傳文件，請從「個案匯入與收案」接續處理。
           </p>
         </div>
         <div className="page-heading__actions">
-          <ClientMasterAction
-            canCreate={canCreate}
-            canManage={canManage}
-            demo={snapshot.demo}
-            hasRecentAal2={hasRecentAal2}
-            instance="header"
-            kind="create"
-            today={today}
-          />
+          <IntakeEntryLink allowed={snapshot.demo || snapshot.demographicsReadable} />
         </div>
       </header>
 
@@ -187,7 +155,7 @@ export function ClientMasterWorkspace({
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
           <span>目前可安全檢視，但新增或修改屬高風險操作，需要最近 15 分鐘內完成 AAL2 重新驗證。</span>
-          <Link className={styles.buttonLink} href="/mfa?audience=staff">
+          <Link className={styles.buttonLink} href="/mfa?audience=staff&purpose=sensitive-action">
             <ShieldCheck aria-hidden="true" />前往重新驗證
           </Link>
         </div>
@@ -200,7 +168,7 @@ export function ClientMasterWorkspace({
         </article>
         <article>
           <Database aria-hidden="true" />
-          <div><strong>本機可編輯欄位</strong><span>此版只開放個案代碼、顯示姓名、出生日期；來源、分支、狀態、建立人、密文與版本都不能由瀏覽器指定。</span></div>
+          <div><strong>機構補充資料</strong><span>由「核對／補充資料」統一更新基本資料與聯絡人；中央欄位維持保護，更新會留下版本。</span></div>
         </article>
       </section>
 
@@ -275,7 +243,7 @@ export function ClientMasterWorkspace({
                       <td><StatusPill status={statusLabels[client.serviceState]} /></td>
                       <td><span className={styles.authority}><StatusPill status={sourceLabel(client)} /><small>{client.sourceAuthority === "central" ? `來源 ${client.sourceSystem}・更新 ${formatTimestamp(client.sourceUpdatedAt)}` : "僅三個本機欄位可更新"}</small></span></td>
                       <td>v{client.rowVersion}<small className="data-table__secondary">{formatTimestamp(client.updatedAt)}</small></td>
-                      <td className={styles.actionCell}><RowAction canManage={canManage} client={client} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} instance={`desktop-${client.id}`} today={today} /></td>
+                      <td className={styles.actionCell}><RowAction client={client} canOpenIntake={snapshot.demo || snapshot.demographicsReadable} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -291,7 +259,7 @@ export function ClientMasterWorkspace({
                     <div><dt>資料主權</dt><dd>{sourceLabel(client)}</dd></div>
                     <div><dt>最後更新</dt><dd>{formatTimestamp(client.updatedAt)}</dd></div>
                   </dl>
-                  <div className={styles.cardAction}><RowAction canManage={canManage} client={client} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} instance={`mobile-${client.id}`} today={today} /></div>
+                  <div className={styles.cardAction}><RowAction client={client} canOpenIntake={snapshot.demo || snapshot.demographicsReadable} /></div>
                 </article>
               ))}
             </div>
