@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   Bell,
   BookOpenCheck,
@@ -32,6 +32,8 @@ import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
+import { roleDisplayName } from "@/lib/domain/roles";
+import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavigationLink } from "./navigation-link";
 
@@ -66,16 +68,20 @@ export function AppShell({
   const [compactNavigation, setCompactNavigation] = useState(false);
   const [logoutState, setLogoutState] = useState<"idle" | "working" | "attention">("idle");
   const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
+  const [refreshPending, startRefreshTransition] = useTransition();
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
   const logoutRunning = useRef(false);
+  const refreshLease = useRef<(() => void) | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuOpener = useRef<HTMLButtonElement | null>(null);
   const menuClose = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
+  const operationPending = usePendingOperations();
+  const viewPending = useViewTransitionPending();
   const availablePages = navigation.flatMap((group) => group.pages);
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
   const notificationPage = availablePages.find((page) => page.number === 67);
-  const shortcuts = [1, 2].flatMap((number) => availablePages.filter((page) => page.number === number));
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
   const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
   const [groupRoute, setGroupRoute] = useState(pathname);
@@ -85,6 +91,22 @@ export function AppShell({
     );
     return new Set(active ? [active.id] : ["workspace", "daily-care"]);
   });
+  const primaryRoleLabel = context.roles[0] ? roleDisplayName(context.roles[0]) : "已登入";
+  const runtimeLabel = context.demo ? "合成資料" : "正式系統";
+  const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
+    ? STORE_OVERVIEW_TITLE
+    : activePage?.title ?? appBranding.applicationName;
+
+  useEffect(() => {
+    if (!refreshPending && refreshLease.current) {
+      refreshLease.current();
+      refreshLease.current = null;
+    }
+  }, [refreshPending, refreshEpoch]);
+  useEffect(() => () => {
+    refreshLease.current?.();
+    refreshLease.current = null;
+  }, []);
 
   // Derive a newly active module during navigation without an effect-driven flash.
   // This never changes the server-filtered navigation or grants access to a page.
@@ -190,12 +212,19 @@ export function AppShell({
     } else { setLogoutResult(result); setLogoutState("attention"); }
   }
 
-  const dateLabel = new Intl.DateTimeFormat("zh-TW", {
-    timeZone: "Asia/Taipei",
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  }).format(new Date());
+  function refreshCurrentPage() {
+    if (hasPendingOperations()) return;
+    const release = tryAcquireViewTransition();
+    if (!release) return;
+    refreshLease.current = release;
+    setRefreshEpoch((epoch) => epoch + 1);
+    try {
+      startRefreshTransition(() => router.refresh());
+    } catch {
+      release();
+      refreshLease.current = null;
+    }
+  }
 
   if (logoutState !== "idle") return <main className="main-stage" id="main-content" tabIndex={-1}>
     <section className="empty-card" role={logoutState === "working" ? "status" : "alert"}>
@@ -223,50 +252,65 @@ export function AppShell({
         <div className="sidebar__header">
           <Link className="brand-lockup" href="/app/staff/workspace/dashboard">
             <span className="brand-mark" aria-hidden="true"><Image src="/suiyue-logo-transparent.png" alt="" width={58} height={58} unoptimized /></span>
-            <span><strong>{appBranding.brand}</strong><small>日照管理</small></span>
+            <span><strong>歲悅長照集團</strong><small>DAYCARE OS V4</small></span>
           </Link>
           <button className="icon-button mobile-menu-button" aria-label="關閉功能選單" onClick={() => closeMenu()} ref={menuClose} type="button">
             <X />
           </button>
         </div>
-        <BranchSwitcher currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
-          readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
+        <div className="sidebar__branch sidebar__branch--mobile">
+          <BranchSwitcher compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
+            readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
+        </div>
         <nav className="sidebar__nav">
-          {showClientIntake ? <NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink> : null}
-          {showStoreOverview && <NavigationLink aria-current={pathname === STORE_OVERVIEW_PATH ? "page" : undefined}
-            className="nav-link" href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
-            onClick={() => closeMenu({ returnFocus: false })}>
-            <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
-          </NavigationLink>}
-          {navigation.map((group) => {
+          {navigation.filter((group) => group.id === "workspace").map((group) => {
             const Icon = moduleIcons[group.id];
             const expanded = openGroups.has(group.id);
-            return (
-              <section className="nav-group" key={group.id}>
-                <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
-                  <span>{group.title}</span><ChevronDown aria-hidden="true" />
-                </button>
-                {expanded ? (
-                  <div className="nav-group__items">
-                    {group.pages.map((page) => {
-                      const href = `/app/${page.slug}`;
-                      return (
-                        <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
-                          <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
-                        </NavigationLink>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </section>
-            );
+            return <section className="nav-group" key={group.id}>
+              <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
+                <span>{group.title}</span><ChevronDown aria-hidden="true" />
+              </button>
+              {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
+                const href = `/app/${page.slug}`;
+                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+                  <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
+                </NavigationLink>;
+              })}</div> : null}
+            </section>;
+          })}
+          {showClientIntake ? <section className="nav-group">
+            <div className="nav-group__label nav-group__label--static">個案管理</div>
+            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
+          </section> : null}
+          {showStoreOverview ? <section className="nav-group">
+            <div className="nav-group__label nav-group__label--static">主管檢視</div>
+            <div className="nav-group__items"><NavigationLink aria-current={pathname === STORE_OVERVIEW_PATH ? "page" : undefined}
+              className="nav-link" href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
+              onClick={() => closeMenu({ returnFocus: false })}>
+              <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
+            </NavigationLink></div>
+          </section> : null}
+          {navigation.filter((group) => group.id !== "workspace").map((group) => {
+            const Icon = moduleIcons[group.id];
+            const expanded = openGroups.has(group.id);
+            return <section className="nav-group" key={group.id}>
+              <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
+                <span>{group.title}</span><ChevronDown aria-hidden="true" />
+              </button>
+              {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
+                const href = `/app/${page.slug}`;
+                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+                  <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
+                </NavigationLink>;
+              })}</div> : null}
+            </section>;
           })}
         </nav>
         <div className="sidebar__footer">
           <a className="button button--secondary sidebar__module-return" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>
           <div className="user-summary">
             <span className="avatar" aria-hidden="true">{context.displayName.slice(0, 1)}</span>
-            <span className="user-summary__text"><strong>{context.displayName}</strong><small>{context.demo ? "展示模式・單點管理員" : "已安全登入"}</small></span>
+            <span className="user-summary__text"><strong>{context.displayName}</strong><small>{context.demo ? "合成展示" : primaryRoleLabel}</small></span>
             <button aria-label={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true" ? "返回試用入口" : "登出"} className="icon-button" onClick={logout} type="button"><LogOut /></button>
           </div>
         </div>
@@ -275,12 +319,20 @@ export function AppShell({
         <header className="topbar">
           <div className="topbar__heading">
             <Image className="topbar__mobile-logo" src="/suiyue-logo-transparent.png" alt="" width={28} height={28} unoptimized />
-            <span className="topbar__system">日照管理</span><span className="topbar__divider" aria-hidden="true">｜</span>
-            <span className="topbar__title">{showStoreOverview && pathname === STORE_OVERVIEW_PATH ? STORE_OVERVIEW_TITLE : activePage?.title ?? appBranding.applicationName}</span>
+            <span className="topbar__system">日照系統</span><span className="topbar__divider" aria-hidden="true">／</span>
+            <span className="topbar__title">{pageTitle}</span>
           </div>
           {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
-          <div className="topbar__actions">{shortcuts.map((page) => <NavigationLink className="button button--secondary" href={`/app/${page.slug}`} key={page.number} loadingLabel={page.title}>{page.number === 1 ? "今日工作" : page.title}</NavigationLink>)}<a className="button button--secondary" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a></div>
-          <time className="topbar__date">{dateLabel}</time>
+          <div className="topbar__actions" role="group" aria-label="系統功能">
+            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending} onClick={refreshCurrentPage} title={operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
+            <a className="button button--secondary" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>
+            <button className="button button--primary" onClick={logout} type="button">登出</button>
+          </div>
+          <div className="topbar__context">
+            <BranchSwitcher compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
+              readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
+            <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>
+          </div>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>
         <main className="main-stage" id="main-content" tabIndex={-1}>{children}</main>

@@ -44,6 +44,19 @@ describe("BranchSwitcher request boundaries", () => {
     expect(screen.getByText("固定合成分支 · 不切換真實機構")).toBeDefined();
   });
 
+  it("uses unique dialog labels when desktop and mobile branch pickers are both rendered", () => {
+    const branchProps = { currentBranchId: branchA, currentBranchName: "合成分支", organizationName: "合成機構", readOnly: true, compact: true };
+    const { container } = render(<><BranchSwitcher {...branchProps} /><BranchSwitcher {...branchProps} /></>);
+    const dialogs = Array.from(container.querySelectorAll("dialog"));
+    const labels = dialogs.flatMap((dialog) => [dialog.getAttribute("aria-labelledby"), dialog.getAttribute("aria-describedby")]);
+    expect(labels).toHaveLength(4);
+    expect(new Set(labels).size).toBe(4);
+    for (const dialog of dialogs) {
+      expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)).not.toBeNull();
+      expect(document.getElementById(dialog.getAttribute("aria-describedby")!)).not.toBeNull();
+    }
+  });
+
   it("leaves the trigger usable after a failed branch-list request", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     render(<BranchSwitcher currentBranchId={branchA} currentBranchName="甲分支" organizationName="測試機構" />);

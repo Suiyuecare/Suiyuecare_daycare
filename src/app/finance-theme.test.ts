@@ -48,9 +48,16 @@ describe("Finance production theme contract (5f6820a, verified 2026-09-24)", () 
   });
 
   it("matches header ordering and hover colors without removing mobile focus clearance", () => {
-    expect(css).toContain("grid-template-columns: max-content max-content max-content minmax(0, 1fr);");
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr) max-content max-content minmax(0, max-content);");
     expect(css).toContain('grid-template-areas: "title bell actions status";');
-    expect(css).toContain(".nav-link:hover { background: var(--brand); color: white;");
+    expect(css).toContain(".nav-link:hover { background: var(--brand); color: var(--admin-brown);");
+    expect(css).toContain('.nav-link[aria-current="page"] { background: var(--brand); color: var(--admin-brown);');
+    expect(css).toContain(".branch-switcher--compact .branch-switcher__button small { display: none; }");
+    expect(css).toContain(".topbar .notification-button { width: 36px; height: 36px; border-radius: 10px; }");
+    expect(css).toContain(".mobile-primary-nav a, .mobile-primary-nav button { display: flex;");
+    expect(css).toContain("color: var(--ink-muted); font-size: 10px; font-weight: 900;");
+    expect(css).toContain('.mobile-primary-nav [aria-current="page"] { background: #fff1df; color: var(--brand-strong);');
+    expect(css).toContain('.family-bottom-nav a[aria-current="page"] { background: #fff1df; color: var(--brand-strong); }');
     expect(css).toContain("scroll-padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));");
     expect(css).toMatch(/\.topbar__date \{[^}]+text-overflow: ellipsis;/u);
   });

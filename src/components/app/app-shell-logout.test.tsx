@@ -52,10 +52,20 @@ describe("staff shell logout privacy", () => {
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveAttribute("href", "/app/client-intake");
   });
+  it("keeps the Finance-style header identity and refresh action separate from logout", async () => {
+    render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
+
+    expect(screen.getByRole("status")).toHaveTextContent("合成員工姓名・照顧服務員・正式系統");
+    fireEvent.click(screen.getByRole("button", { name: "重新整理" }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    expect(mocks.clear).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
   it("immediately removes the whole sensitive shell and still signs out after cache failure", async () => {
     mocks.clear.mockRejectedValue(new Error("blocked"));
     render(<AppShell context={actor} navigation={[]}><p>合成個案健康內容</p></AppShell>);
-    fireEvent.click(screen.getByRole("button", { name: "登出" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
     expect(screen.queryByText("合成個案健康內容")).not.toBeInTheDocument();
     expect(screen.queryByText("合成員工姓名")).not.toBeInTheDocument();
     expect(await screen.findByText(/裝置草稿尚未確認清除/)).toBeVisible();
@@ -65,7 +75,7 @@ describe("staff shell logout privacy", () => {
   });
   it("redirects only once all three cleanup confirmations succeed", async () => {
     render(<AppShell context={actor} navigation={[]}><p>合成個案</p></AppShell>);
-    fireEvent.click(screen.getByRole("button", { name: "登出" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
     expect(mocks.refresh).toHaveBeenCalledOnce();
   });
@@ -78,7 +88,7 @@ describe("staff shell logout privacy", () => {
   it("offers retry without restoring data when sign-out itself is uncertain", async () => {
     mocks.signOut.mockResolvedValue({ error: new Error("uncertain") });
     render(<AppShell context={actor} navigation={[]}><p>不可恢復之合成個案畫面</p></AppShell>);
-    fireEvent.click(screen.getByRole("button", { name: "登出" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
     expect(await screen.findByText(/尚未確認登入已結束/)).toBeVisible();
     expect(screen.queryByText("不可恢復之合成個案畫面")).not.toBeInTheDocument();
     expect(mocks.replace).not.toHaveBeenCalled();

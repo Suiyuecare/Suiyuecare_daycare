@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronsUpDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
@@ -20,17 +20,22 @@ export function BranchSwitcher({
   currentBranchName,
   organizationName,
   readOnly = false,
+  compact = false,
 }: {
   currentBranchId: string;
   currentBranchName: string;
   organizationName: string;
   readOnly?: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switchState, setSwitchState] = useState<"idle" | "working" | "reloading" | "uncertain">("idle");
+  const dialogId = useId();
+  const dialogTitleId = `${dialogId}-branch-switch-title`;
+  const dialogDescriptionId = `${dialogId}-branch-switch-description`;
   const switchLock = useRef(false);
   const operationPending = usePendingOperations();
   const viewPending = useViewTransitionPending();
@@ -119,18 +124,18 @@ export function BranchSwitcher({
   }
 
   return (
-    <div className="branch-switcher">
-      <button aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending} onClick={toggle} type="button">
-        <span><small>{organizationName}・目前分支</small><strong>{pending ? "讀取中…" : currentBranchName}</strong></span>
+    <div className={`branch-switcher${compact ? " branch-switcher--compact" : ""}`}>
+      <button aria-label={`${organizationName}，目前分支：${currentBranchName}`} aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending} onClick={toggle} type="button">
+        <span><small>{compact ? "目前分支" : `${organizationName}・目前分支`}</small><strong>{pending ? "讀取中…" : currentBranchName}</strong></span>
         <ChevronsUpDown aria-hidden="true" />
       </button>
       {readOnly ? <small>固定合成分支 · 不切換真實機構</small> : null}
       {!readOnly && operationPending ? <small role="status">有儲存結果尚待確認，暫停切換分支；請先回原表單確認。</small> : !readOnly && viewPending && switchState === "idle" ? <small role="status">系統正在更新，暫停切換分支。</small> : null}
       {open ? <div className="branch-switcher__menu">{branches.map((branch) => <button aria-current={branch.id === currentBranchId ? "true" : undefined} disabled={switchState !== "idle" || operationPending || viewPending} key={branch.id} onClick={() => select(branch)} type="button"><span>{branch.name}</span>{branch.id === currentBranchId ? <Check aria-hidden="true" /> : null}</button>)}</div> : null}
       {error && switchState === "idle" ? <small className="branch-switcher__error" role="alert">{error}</small> : null}
-      <dialog ref={dialog} className={styles.guard} aria-labelledby="branch-switch-title" aria-describedby="branch-switch-description" onCancel={(event) => event.preventDefault()}>
-        <h2 id="branch-switch-title">{switchState === "uncertain" ? "請先確認目前分支" : "正在安全切換分支"}</h2>
-        <p id="branch-switch-description">舊頁面已遮蔽並停止操作；重新載入後，系統會依目前登入與分支權限重新取得資料。</p>
+      <dialog ref={dialog} className={styles.guard} aria-labelledby={dialogTitleId} aria-describedby={dialogDescriptionId} onCancel={(event) => event.preventDefault()}>
+        <h2 id={dialogTitleId}>{switchState === "uncertain" ? "請先確認目前分支" : "正在安全切換分支"}</h2>
+        <p id={dialogDescriptionId}>舊頁面已遮蔽並停止操作；重新載入後，系統會依目前登入與分支權限重新取得資料。</p>
         {switchState === "uncertain" ? <p role="alert">{error}</p> : <p role="status">{switchState === "reloading" ? "已核對切換回條，正在重新載入。若瀏覽器詢問是否離開，請確認後繼續。" : "正在核對分支，請稍候。切換送出後不能取消或繼續使用舊頁面。"}</p>}
         {switchState === "uncertain" || switchState === "reloading" ? <button ref={reloadButton} className="button button--primary" type="button" onClick={reloadCurrentStaffRoute}>安全重新載入系統</button> : null}
       </dialog>
