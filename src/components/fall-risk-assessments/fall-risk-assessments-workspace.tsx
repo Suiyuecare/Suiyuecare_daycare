@@ -139,14 +139,12 @@ function FallRiskAssessmentFreshness({ demo, staleAfter }: {
 export function FallRiskAssessmentsWorkspace({
   canManage,
   filters,
-  hasRecentAal2,
   loadError = false,
   page,
   snapshot,
 }: {
   canManage: boolean;
   filters: FallRiskAssessmentFilters;
-  hasRecentAal2: boolean;
   loadError?: boolean;
   page: PageCatalogEntry;
   snapshot: FallRiskAssessmentSnapshot | null;
@@ -262,7 +260,7 @@ export function FallRiskAssessmentsWorkspace({
               <td><div className={styles.statuses}><StatusPill status={item.versionId ? "候選草稿" : "尚未建立"} /><span>{formatDate(item.assessedOn)}</span>{item.authorDisplayName ? <small>{item.authorDisplayName}・v{item.assessmentVersion}</small> : null}<AssessmentHistory item={item} /></div></td>
               <td><div className={styles.statuses}><span>已答 {counts.answered}／6</span><small>缺值 {counts.missing}・不適用 {counts.notApplicable}</small></div></td>
               <td><PreviewSummary item={item} /></td>
-              <td><FallRiskAssessmentActions canManage={canManage} hasRecentAal2={hasRecentAal2} item={item} snapshot={snapshot} /></td>
+              <td><FallRiskAssessmentActions canManage={canManage} item={item} snapshot={snapshot} /></td>
             </tr>;
           })}</tbody></table>
         </div>
@@ -273,7 +271,7 @@ export function FallRiskAssessmentsWorkspace({
               <div className="record-card__top"><div><h3>{item.clientDisplayName}</h3><span className="data-table__secondary">{serviceStatusText(item.serviceStatus)}</span></div><StatusPill status={item.versionId ? "候選草稿" : "尚未建立"} /></div>
               <dl><div><dt>評估日</dt><dd>{formatDate(item.assessedOn)}</dd></div><div><dt>作者</dt><dd>{item.authorDisplayName ?? "尚無"}</dd></div><div className={styles.cardWide}><dt>答案完整度</dt><dd>已答 {counts.answered}／6・缺值 {counts.missing}・不適用 {counts.notApplicable}</dd></div></dl>
               <PreviewSummary item={item} /><AssessmentHistory item={item} />
-              <FallRiskAssessmentActions canManage={canManage} hasRecentAal2={hasRecentAal2} item={item} snapshot={snapshot} />
+              <FallRiskAssessmentActions canManage={canManage} item={item} snapshot={snapshot} />
             </article>;
           })}
         </div>

@@ -58,12 +58,10 @@ function failureMessage(error: unknown) {
 
 function FallRiskDraftEditor({
   canManage,
-  hasRecentAal2,
   item,
   snapshot,
 }: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: FallRiskAssessmentListItem;
   snapshot: FallRiskAssessmentSnapshot;
 }) {
@@ -230,11 +228,8 @@ function FallRiskDraftEditor({
         <p className={styles.warning}>
           儲存的是不可變人工候選草稿，不是官方量表、診斷、正式風險分級、建議處置或照顧決策；待辦規則未發布，因此不會建立待辦或通知。
         </p>
-        {!hasRecentAal2 ? <p className={styles.warning} role="alert">
-          最近 15 分鐘內未完成 AAL2；API 會在讀取內容前拒絕寫入。
-        </p> : null}
-        <button className="button button--primary" disabled={!hasRecentAal2}
-          type="submit">
+        <p className={styles.warning}>只保存候選草稿；正式題本與簽署尚未啟用。</p>
+        <button className="button button--primary" type="submit">
           {pending ? "保存中…" : action === "create_draft"
             ? "保存候選草稿" : "保存為不可變新版"}
         </button>
@@ -246,7 +241,6 @@ function FallRiskDraftEditor({
 
 export function FallRiskAssessmentActions(props: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: FallRiskAssessmentListItem;
   snapshot: FallRiskAssessmentSnapshot;
 }) {

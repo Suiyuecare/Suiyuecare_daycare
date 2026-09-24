@@ -119,7 +119,7 @@ select throws_ok($$select pg_temp.directory_count('90500000-0000-4000-8000-00000
 select throws_ok($$select pg_temp.directory_count('90500000-0000-4000-8000-000000000001','90600000-0000-4000-8000-000000000001','offline_sync')$$,'42501',null,'offline_sync purpose still requires original write assurance');
 select is(private.has_executive_read_permission('90500000-0000-4000-8000-000000000001','90600000-0000-4000-8000-000000000001','care_records.write'),false,'read helper rejects write permission even when role owns it');
 select is(private.has_executive_read_permission('90500000-0000-4000-8000-000000000001','90600000-0000-4000-8000-000000000001','daily_service_summary.export'),false,'read helper rejects export permission');
-select is(private.is_active_user(),false,'original business AAL2 root unchanged');
+select is(private.is_active_user(),false,'allowlisted executive does not become a general active user at AAL1');
 select is(private.has_permission('90500000-0000-4000-8000-000000000001','90600000-0000-4000-8000-000000000001','care_records.write'),false,'original write permission helper unchanged');
 select is(public.has_recent_aal2(15),false,'login read admission never fabricates recent reauthentication');
 select throws_ok($$insert into public.measurements(organization_id,branch_id,client_id,measurement_kind,measured_at,numeric_value,idempotency_key)

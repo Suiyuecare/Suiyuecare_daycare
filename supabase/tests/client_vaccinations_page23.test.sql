@@ -131,16 +131,16 @@ grant select,insert on first_receipt,nurse_receipt,duplicate_receipt,
 
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"23000000-1000-4000-8000-000000000002","role":"authenticated","aal":"aal1","session_id":"23000000-7000-4000-8000-000000000002"}',true);
-select throws_ok($$select * from public.client_vaccination_snapshot(
+select lives_ok($$select * from public.client_vaccination_snapshot(
  '23000000-2000-4000-8000-000000000001','23000000-3000-4000-8000-000000000001')$$,
- '42501','client vaccination snapshot is not permitted','AAL1 cannot read vaccinations');
+ 'allowlisted AAL1 session may read assigned vaccination records');
 select throws_ok($$select * from public.append_client_vaccination(
  '23000000-2000-4000-8000-000000000001','23000000-3000-4000-8000-000000000001',
  'create','23000000-8000-4000-8000-000000000001',null,0,
- '23000000-5000-4000-8000-000000000001','流感疫苗','第1劑',current_date,null,
+ '23000000-5000-4000-8000-000000000002','流感疫苗','第1劑',current_date,null,
  '合成院所','missing',null,null,null,'manual_entry',null,null,
  '23000000-9000-4000-8000-000000000001')$$,
- '42501','client vaccination client is not permitted','AAL1 cannot create vaccinations');
+ '42501','client vaccination client is not permitted','AAL1 does not bypass the assigned-client boundary');
 select set_config('request.jwt.claims','{"sub":"23000000-1000-4000-8000-000000000002","role":"authenticated","aal":"aal2","session_id":"23000000-7000-4000-8000-000000000002"}',true);
 select throws_ok($$select * from public.client_vaccination_snapshot(
  '23000000-2000-4000-8000-000000000001','23000000-3000-4000-8000-000000000002')$$,

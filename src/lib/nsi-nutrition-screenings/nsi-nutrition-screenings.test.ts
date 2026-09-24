@@ -251,7 +251,7 @@ describe("page 14 server projection and synthetic demo", () => {
       { clientId: null, previewStatus: "all", answerState: "has_missing" },
     );
     expect(snapshot.items.map((item) => item.clientDisplayName)).toEqual([
-      "合成個案 C",
+      "黃O生（合成）",
     ]);
     expect(snapshot.metrics.incomplete).toBe(1);
   });

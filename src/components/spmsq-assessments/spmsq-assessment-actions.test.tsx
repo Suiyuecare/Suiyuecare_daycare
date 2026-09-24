@@ -34,10 +34,9 @@ function currentTaipeiDate() {
   }).format(new Date(formal.generatedAt));
 }
 
-function renderCreate(hasRecentAal2 = true) {
+function renderCreate() {
   return render(<SpmsqAssessmentActions
     canManage
-    hasRecentAal2={hasRecentAal2}
     item={unassessed}
     snapshot={formal}
   />);
@@ -93,7 +92,6 @@ describe("SPMSQ assessment client boundary", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<SpmsqAssessmentActions
       canManage
-      hasRecentAal2
       item={demo.items[0]!}
       snapshot={demo}
     />);
@@ -107,7 +105,6 @@ describe("SPMSQ assessment client boundary", () => {
     render(<SpmsqAssessmentsWorkspace
       canManage={false}
       filters={{ clientId: null, previewStatus: "all", educationState: "all" }}
-      hasRecentAal2={false}
       page={page}
       snapshot={demo}
     />);
@@ -218,19 +215,18 @@ describe("SPMSQ assessment client boundary", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("disables every write without recent AAL2", () => {
-    renderCreate(false);
+  it("allows an unsigned candidate draft without second-factor reauthentication", () => {
+    renderCreate();
     openCreate();
     expect(screen.getByRole("button", { name: "儲存候選草稿" }))
-      .toHaveProperty("disabled", true);
-    expect(screen.getByRole("alert").textContent).toMatch(/最近 15 分鐘/u);
+      .toHaveProperty("disabled", false);
+    expect(screen.queryByText(/最近 15 分鐘/u)).toBeNull();
   });
 
   it("keeps formal signing visibly disabled even with recent AAL2", () => {
     const versioned = formal.items.find((item) => item.versionId !== null)!;
     render(<SpmsqAssessmentActions
       canManage
-      hasRecentAal2
       item={versioned}
       snapshot={formal}
     />);

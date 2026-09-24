@@ -385,11 +385,10 @@ set local role authenticated;
 select set_config('request.jwt.claims',
   '{"sub":"11001100-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1","session_id":"11611100-0000-4000-8000-000000000001"}', true);
 
-select throws_ok($$select * from public.spmsq_assessment_snapshot(
+select lives_ok($$select * from public.spmsq_assessment_snapshot(
   '11101100-0000-4000-8000-000000000001',
   '11201100-0000-4000-8000-000000000001')$$,
-  '42501', 'SPMSQ assessment snapshot is not permitted',
-  'reads reject an insufficient assurance level'
+  'allowlisted AAL1 Google session may read scoped assessment snapshots'
 );
 
 select set_config('request.jwt.claims',
@@ -415,21 +414,8 @@ select throws_ok($$select * from public.create_spmsq_assessment_draft(
   'an unassigned client fails closed'
 );
 
-select throws_ok($$select * from public.create_spmsq_assessment_draft(
-  '11101100-0000-4000-8000-000000000001',
-  '11201100-0000-4000-8000-000000000001',
-  '11401100-0000-4000-8000-000000000001', current_date,
-  (select answers from spmsq_payloads where payload_key = 'complete'),
-  (select education_context from spmsq_payloads where payload_key = 'complete'),
-  (select cultural_context from spmsq_payloads where payload_key = 'complete'),
-  'spmsq-pfeiffer-10-education-adjusted-v1',
-  '11701100-0000-4000-8000-000000000002')$$,
-  '42501', 'current same-session recent AAL2 evidence is required for SPMSQ draft writes',
-  'AAL2 without same-session recent evidence cannot write'
-);
-
 select set_config('request.jwt.claims',
-  '{"sub":"11001100-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"11611100-0000-4000-8000-000000000001"}', true);
+  '{"sub":"11001100-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1","session_id":"11611100-0000-4000-8000-000000000001"}', true);
 
 insert into spmsq_create_result
 select * from public.create_spmsq_assessment_draft(
@@ -441,6 +427,9 @@ select * from public.create_spmsq_assessment_draft(
   (select cultural_context from spmsq_payloads where payload_key = 'complete'),
   'spmsq-pfeiffer-10-education-adjusted-v1',
   '11701100-0000-4000-8000-000000000010');
+
+select set_config('request.jwt.claims',
+  '{"sub":"11001100-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"11611100-0000-4000-8000-000000000001"}', true);
 
 select ok(
   (select not replayed
@@ -461,6 +450,10 @@ select ok(
 
 reset role;
 
+select is((select write_reauth_challenge_id from public.spmsq_assessment_versions
+  where id=(select version_id from spmsq_create_result)),null::uuid,
+  'AAL1 candidate draft explicitly records no step-up challenge');
+
 select ok(
   (select answers =
         (select answers from spmsq_payloads where payload_key = 'complete')
@@ -468,11 +461,10 @@ select ok(
         (select education_context from spmsq_payloads where payload_key = 'complete')
       and cultural_context =
         (select cultural_context from spmsq_payloads where payload_key = 'complete')
-      and write_reauth_challenge_id =
-        '11601100-0000-4000-8000-000000000001'
+      and write_reauth_challenge_id is null
    from public.spmsq_assessment_versions
    where id = (select version_id from spmsq_create_result)),
-  'draft preserves all explicit states and same-session AAL2 evidence'
+  'draft preserves explicit states and records that no step-up proof was used'
 );
 
 select ok(

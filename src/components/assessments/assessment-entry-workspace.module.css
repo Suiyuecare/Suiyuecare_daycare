@@ -1,0 +1,27 @@
+.workspace { display: grid; gap: 14px; max-width: 1040px; }
+.picker { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; align-items: end; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.picker label { grid-column: 1 / -1; color: var(--ink-muted); font-size: 13px; font-weight: 700; }
+.picker select { min-height: 44px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: white; padding: 8px 12px; font-size: 16px; }
+.picker button { min-width: 108px; }
+.results { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.selected { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.selected > span, .selected small { color: var(--ink-muted); font-size: 13px; }
+.selected strong { font-size: 17px; }
+.sectionTitle { display: flex; align-items: center; gap: 8px; color: var(--brand-strong); }
+.sectionTitle svg { width: 18px; height: 18px; }
+.sectionTitle h2 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.cards a { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fffdfa; padding: 10px 12px; font-size: 14px; font-weight: 650; }
+.cards a > span { display: grid; gap: 3px; }
+.cards a small { color: var(--ink-muted); font-size: 11px; font-weight: 500; }
+.cards a:hover { border-color: var(--brand); background: var(--surface-warm); color: var(--brand-strong); }
+.cards svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--brand-strong); }
+.note, .prompt, .empty { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }
+.prompt, .empty { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+@media (max-width: 760px) {
+  .picker { grid-template-columns: 1fr; align-items: stretch; }
+  .picker label { grid-column: auto; }
+  .picker button { width: 100%; }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 460px) { .cards { grid-template-columns: 1fr; } }

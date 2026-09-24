@@ -12,21 +12,21 @@ describe("intake usability and truthful writes", () => {
   it("does not offer unknown-case CMS staging to assigned-only staff", () => {
     const context = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.manage", "clients.demographics.read", "imports.manage", "imports.approve"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
     const { rerender } = render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
-    expect(screen.getByLabelText(/選擇 CMS HTML/)).toBeDisabled();
+    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
     expect(screen.getByText(/一般建檔、CMS 核對與每週安排/)).toHaveTextContent("不另要求驗證器");
     rerender(<IntakeWorkspace context={{ ...context, scopes: [...context.scopes, "clients.view_all"] }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
-    expect(screen.getByLabelText(/選擇 CMS HTML/)).toBeEnabled();
+    expect(screen.getByLabelText(/CMS HTML/)).toBeEnabled();
   });
   it("synthetic mode never enables a real file upload or save", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     render(<CmsIntakeStep current={null} canImport canApprove demo onSaved={vi.fn()} onManual={vi.fn()} onDirty={vi.fn()} />);
-    expect(screen.getByLabelText(/選擇 CMS HTML/)).toBeDisabled(); expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled(); expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled(); expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled(); expect(fetch).not.toHaveBeenCalled();
   });
   it("explains missing CMS archive configuration before file selection and leaves manual intake available", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const onManual = vi.fn();
     render(<CmsIntakeStep current={null} canImport canApprove demo={false} archiveConfigured={false} onSaved={vi.fn()} onManual={onManual} onDirty={vi.fn()} />);
-    expect(screen.getByRole("status")).toHaveTextContent("CMS 封存尚未啟用，可先手動建檔");
-    expect(screen.getByLabelText(/選擇 CMS HTML/)).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("HTML 匯入暫停；請保留原檔，可先手動建檔");
+    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
     expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" }));
     expect(onManual).toHaveBeenCalledOnce(); expect(fetch).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe("intake usability and truthful writes", () => {
       .mockResolvedValueOnce(Response.json({ status: "ok", data: { clientId: id, persisted: true, formallyImported: true } }));
     vi.stubGlobal("fetch", fetch); const onSaved = vi.fn().mockResolvedValue(undefined);
     render(<CmsIntakeStep current={null} canImport canApprove archiveConfigured demo={false} onSaved={onSaved} onManual={vi.fn()} onDirty={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText(/選擇 CMS HTML/), { target: { files: [new File(["<h5>合成資料</h5>"], "synthetic.html", { type: "text/html" })] } });
+    fireEvent.change(screen.getByLabelText(/CMS HTML/), { target: { files: [new File(["<h5>合成資料</h5>"], "synthetic.html", { type: "text/html" })] } });
     fireEvent.click(screen.getByRole("button", { name: "上傳並核對資料" }));
     const confirm = await screen.findByRole("button", { name: "確認建立待收案個案" }); expect(confirm).toBeDisabled();
     fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "SYNTHETIC-01" } });

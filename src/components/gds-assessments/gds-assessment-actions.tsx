@@ -57,12 +57,10 @@ function failureMessage(error: unknown) {
 
 function GdsDraftEditor({
   canManage,
-  hasRecentAal2,
   item,
   snapshot,
 }: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: GdsAssessmentListItem;
   snapshot: GdsAssessmentSnapshot;
 }) {
@@ -227,11 +225,8 @@ function GdsDraftEditor({
         <p className={styles.warning}>
           儲存的是不可變候選草稿，不是官方量表結果、診斷、正式風險分類或照顧決策。
         </p>
-        {!hasRecentAal2 ? <p className={styles.warning} role="alert">
-          最近 15 分鐘內未完成 AAL2；API 會在讀取內容前拒絕寫入。
-        </p> : null}
-        <button className="button button--primary" disabled={!hasRecentAal2}
-          type="submit">
+        <p className={styles.warning}>只保存候選草稿；正式題本與簽署尚未啟用。</p>
+        <button className="button button--primary" type="submit">
           {pending ? "保存中…" : action === "create_draft"
             ? "保存候選草稿" : "保存為不可變新版"}
         </button>
@@ -243,7 +238,6 @@ function GdsDraftEditor({
 
 export function GdsAssessmentActions(props: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: GdsAssessmentListItem;
   snapshot: GdsAssessmentSnapshot;
 }) {

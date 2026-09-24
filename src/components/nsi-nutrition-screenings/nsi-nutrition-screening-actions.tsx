@@ -58,12 +58,10 @@ function failureMessage(error: unknown) {
 
 function NsiNutritionDraftEditor({
   canManage,
-  hasRecentAal2,
   item,
   snapshot,
 }: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: NsiNutritionScreeningListItem;
   snapshot: NsiNutritionScreeningSnapshot;
 }) {
@@ -230,11 +228,8 @@ function NsiNutritionDraftEditor({
         <p className={styles.warning}>
           只保存不可變人工觀察草稿，不是正式 NSI、分數、風險分類、診斷或照顧決策；系統不會自動建立營養追蹤、轉介或通知。
         </p>
-        {!hasRecentAal2 ? <p className={styles.warning} role="alert">
-          最近 15 分鐘內未完成 AAL2；API 會在讀取內容前拒絕寫入。
-        </p> : null}
-        <button className="button button--primary" disabled={!hasRecentAal2}
-          type="submit">
+        <p className={styles.warning}>只保存人工候選草稿；正式題本與簽署尚未啟用。</p>
+        <button className="button button--primary" type="submit">
           {pending ? "保存中…" : action === "create_draft"
             ? "保存人工觀察草稿" : "保存為不可變新版"}
         </button>
@@ -246,7 +241,6 @@ function NsiNutritionDraftEditor({
 
 export function NsiNutritionScreeningActions(props: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: NsiNutritionScreeningListItem;
   snapshot: NsiNutritionScreeningSnapshot;
 }) {

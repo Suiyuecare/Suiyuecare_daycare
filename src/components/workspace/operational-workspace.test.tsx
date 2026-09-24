@@ -28,11 +28,10 @@ describe("shared workspace truthful availability", () => {
   it.each(sharedPages)("does not invent counts or a data timestamp on production page $number", (entry) => {
     const { container } = render(<OperationalWorkspace page={entry} moduleTitle={getModule(entry.moduleId).title} initialRecords={[]} demo={false} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("本頁尚未開放使用");
-    expect(screen.getByRole("status")).toHaveTextContent("不能據此判斷是否有待辦或已完成的紀錄");
-    expect(screen.getByRole("status")).toHaveTextContent("請先使用機構現行紀錄流程");
-    expect(screen.getByRole("button", { name: "新增紀錄（未開放）" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "匯出（未開放）" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("此功能尚未啟用");
+    expect(screen.getByRole("status")).toHaveTextContent("請先使用機構核准的既有表單");
+    expect(screen.queryByRole("button", { name: /新增紀錄/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /匯出/u })).not.toBeInTheDocument();
     expect(container.querySelector(".metric-card, time, table")).toBeNull();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "清除篩選" })).not.toBeInTheDocument();
@@ -59,7 +58,7 @@ describe("shared workspace truthful availability", () => {
       expect(summaryCount(`展示${status}`)).toBe(String(initialRecords.filter((record) => record.status === status).length));
     }
     expect(container).not.toHaveTextContent("今天 10:24");
-    expect(screen.getByRole("button", { name: "匯出（未開放）" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /匯出/u })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "更多篩選" })).not.toBeInTheDocument();
   });
 
@@ -106,15 +105,15 @@ describe("shared workspace truthful availability", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     rerender(workspace(false));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("本頁尚未開放使用");
+    expect(screen.getByRole("status")).toHaveTextContent("此功能尚未啟用");
     expect(container.querySelector(".metric-card, table")).toBeNull();
     for (const record of initialRecords) expect(container).not.toHaveTextContent(record.primary);
   });
 
   it("keeps technical acceptance plans in a collapsed disclosure, not presented as completed features", () => {
-    render(workspace(false));
+    render(workspace(true));
     const reminder = screen.getByRole("complementary", { name: "使用提醒" });
-    expect(reminder).toHaveTextContent("本頁尚未開放離線紀錄");
+    expect(reminder).toHaveTextContent("展示草稿僅保留在目前頁面");
     const details = within(reminder).getByText("管理參考：預定功能與驗收項目").closest("details");
     expect(details).not.toHaveAttribute("open");
     expect(details).toHaveTextContent("以下為建置目標，不代表功能已完成");

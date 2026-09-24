@@ -381,11 +381,10 @@ set local role authenticated;
 select set_config('request.jwt.claims',
   '{"sub":"12001200-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1","session_id":"12611200-0000-4000-8000-000000000001"}', true);
 
-select throws_ok($$select * from public.fall_risk_assessment_snapshot(
+select lives_ok($$select * from public.fall_risk_assessment_snapshot(
   '12101200-0000-4000-8000-000000000001',
   '12201200-0000-4000-8000-000000000001')$$,
-  '42501', 'Fall risk assessment snapshot is not permitted',
-  'reads reject insufficient assurance level'
+  'allowlisted AAL1 Google session may read scoped assessment snapshots'
 );
 
 select set_config('request.jwt.claims',
@@ -409,19 +408,8 @@ select throws_ok($$select * from public.create_fall_risk_assessment_draft(
   'unassigned client fails closed'
 );
 
-select throws_ok($$select * from public.create_fall_risk_assessment_draft(
-  '12101200-0000-4000-8000-000000000001',
-  '12201200-0000-4000-8000-000000000001',
-  '12401200-0000-4000-8000-000000000001', current_date,
-  (select answers from fall_risk_payloads where payload_key = 'four'),
-  'fall-risk-manual-factors-candidate-v1',
-  '12701200-0000-4000-8000-000000000002')$$,
-  '42501', 'current same-session recent AAL2 evidence is required for Fall risk draft writes',
-  'AAL2 without same-session recent evidence cannot write'
-);
-
 select set_config('request.jwt.claims',
-  '{"sub":"12001200-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"12611200-0000-4000-8000-000000000001"}', true);
+  '{"sub":"12001200-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1","session_id":"12611200-0000-4000-8000-000000000001"}', true);
 
 insert into fall_risk_create_result
 select * from public.create_fall_risk_assessment_draft(
@@ -431,6 +419,9 @@ select * from public.create_fall_risk_assessment_draft(
   (select answers from fall_risk_payloads where payload_key = 'four'),
   'fall-risk-manual-factors-candidate-v1',
   '12701200-0000-4000-8000-000000000010');
+
+select set_config('request.jwt.claims',
+  '{"sub":"12001200-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"12611200-0000-4000-8000-000000000001"}', true);
 
 select ok(
   (select not replayed
@@ -452,14 +443,17 @@ select ok(
 
 reset role;
 
+select is((select write_reauth_challenge_id from public.fall_risk_assessment_versions
+  where id=(select version_id from fall_risk_create_result)),null::uuid,
+  'AAL1 candidate draft explicitly records no step-up challenge');
+
 select ok(
   (select answers =
         (select answers from fall_risk_payloads where payload_key = 'four')
-      and write_reauth_challenge_id =
-        '12601200-0000-4000-8000-000000000001'
+      and write_reauth_challenge_id is null
    from public.fall_risk_assessment_versions
    where id = (select version_id from fall_risk_create_result)),
-  'draft preserves explicit answers and same-session AAL2 evidence'
+  'draft preserves explicit answers and records that no step-up proof was used'
 );
 
 select ok(

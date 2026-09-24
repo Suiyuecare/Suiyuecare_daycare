@@ -94,12 +94,10 @@ function readCulturalContext(data: FormData): SpmsqCulturalContext {
 
 function SpmsqDraftEditor({
   canManage,
-  hasRecentAal2,
   item,
   snapshot,
 }: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: SpmsqAssessmentListItem;
   snapshot: SpmsqAssessmentSnapshot;
 }) {
@@ -329,12 +327,12 @@ function SpmsqDraftEditor({
         <p className={styles.formReference}>
           候選規則快照：<code>{SPMSQ_RULE_VERSION}</code>。尚未正式 activated，試算不可簽署、不可視為官方結果，也不可驅動照顧決策。
         </p>
-        {!hasRecentAal2 ? <p className={styles.warning} role="alert">
-          儲存前請先在最近 15 分鐘內重新完成雙因素驗證；驗證前不會送出表單內容。
-        </p> : null}
+        <p className={styles.warning}>
+          只保存候選草稿；正式題本與簽署尚未啟用。
+        </p>
         <button
           className="button button--primary"
-          disabled={pending || !hasRecentAal2}
+          disabled={pending}
           type="submit"
         >{pending ? "確認中…" : action === "create_draft"
           ? "儲存候選草稿" : "建立候選草稿新版"}</button>
@@ -346,12 +344,10 @@ function SpmsqDraftEditor({
 
 export function SpmsqAssessmentActions({
   canManage,
-  hasRecentAal2,
   item,
   snapshot,
 }: {
   canManage: boolean;
-  hasRecentAal2: boolean;
   item: SpmsqAssessmentListItem;
   snapshot: SpmsqAssessmentSnapshot;
 }) {
@@ -363,7 +359,6 @@ export function SpmsqAssessmentActions({
   return <div className={styles.actions}>
     <SpmsqDraftEditor
       canManage={canManage}
-      hasRecentAal2={hasRecentAal2}
       item={item}
       snapshot={snapshot}
     />

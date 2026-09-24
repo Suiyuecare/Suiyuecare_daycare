@@ -13,6 +13,7 @@ import { OpeningReadinessWorkspace } from "@/components/opening-readiness/openin
 import { loadOpeningReadinessSnapshot } from "@/lib/opening-readiness/snapshot";
 import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
 import { OperationalWorkspace } from "@/components/workspace/operational-workspace";
+import { AssessmentEntryWorkspace } from "@/components/assessments/assessment-entry-workspace";
 import { ImportWorkspace } from "@/components/imports/import-workspace";
 import { SyntheticImportPreview } from "@/components/imports/synthetic-import-preview";
 import { IntegrationsAuditWorkspace } from "@/components/integrations-audit/integrations-audit-workspace";
@@ -1122,19 +1123,15 @@ export default async function StaffCatalogPage({
       context.scopes.includes("assessments.read") &&
       context.scopes.includes("assessments.manage");
     let snapshot = null;
-    let recentAal2 = false;
     let loadError = false;
     try {
-      [snapshot, recentAal2] = await Promise.all([
-        loadSpmsqAssessmentSnapshot(context, filters),
-        canManage ? hasRecentAal2() : Promise.resolve(false),
-      ]);
+      snapshot = await loadSpmsqAssessmentSnapshot(context, filters);
     } catch (error) {
       if (!(error instanceof SpmsqAssessmentSnapshotError)) throw error;
       loadError = true;
     }
     return <SpmsqAssessmentsWorkspace canManage={canManage} filters={filters}
-      hasRecentAal2={recentAal2} loadError={loadError} page={page}
+      loadError={loadError} page={page}
       snapshot={snapshot} />;
   }
 
@@ -1144,23 +1141,19 @@ export default async function StaffCatalogPage({
       context.scopes.includes("gds_assessments.read") &&
       context.scopes.includes("gds_assessments.manage");
     let snapshot = null;
-    let recentAal2 = false;
     let loadError = false;
     if (invalidFilters) {
       loadError = true;
     } else {
       try {
-        [snapshot, recentAal2] = await Promise.all([
-          loadGdsAssessmentSnapshot(context, filters),
-          canManage ? hasRecentAal2() : Promise.resolve(false),
-        ]);
+        snapshot = await loadGdsAssessmentSnapshot(context, filters);
       } catch (error) {
         if (!(error instanceof GdsAssessmentSnapshotError)) throw error;
         loadError = true;
       }
     }
     return <GdsAssessmentsWorkspace canManage={canManage} filters={filters}
-      hasRecentAal2={recentAal2} loadError={loadError} page={page}
+      loadError={loadError} page={page}
       snapshot={snapshot} />;
   }
 
@@ -1170,21 +1163,17 @@ export default async function StaffCatalogPage({
       context.scopes.includes("fall_risk_assessments.read") &&
       context.scopes.includes("fall_risk_assessments.manage");
     let snapshot = null;
-    let recentAal2 = false;
     let loadError = invalidFilters;
     if (!invalidFilters) {
       try {
-        [snapshot, recentAal2] = await Promise.all([
-          loadFallRiskAssessmentSnapshot(context, filters),
-          canManage ? hasRecentAal2() : Promise.resolve(false),
-        ]);
+        snapshot = await loadFallRiskAssessmentSnapshot(context, filters);
       } catch (error) {
         if (!(error instanceof FallRiskAssessmentSnapshotError)) throw error;
         loadError = true;
       }
     }
     return <FallRiskAssessmentsWorkspace canManage={canManage} filters={filters}
-      hasRecentAal2={recentAal2} loadError={loadError} page={page}
+      loadError={loadError} page={page}
       snapshot={snapshot} />;
   }
 
@@ -1194,22 +1183,43 @@ export default async function StaffCatalogPage({
       context.scopes.includes("nsi_nutrition_screenings.read") &&
       context.scopes.includes("nsi_nutrition_screenings.manage");
     let snapshot = null;
-    let recentAal2 = false;
     let loadError = invalidFilters;
     if (!invalidFilters) {
       try {
-        [snapshot, recentAal2] = await Promise.all([
-          loadNsiNutritionScreeningSnapshot(context, filters),
-          canManage ? hasRecentAal2() : Promise.resolve(false),
-        ]);
+        snapshot = await loadNsiNutritionScreeningSnapshot(context, filters);
       } catch (error) {
         if (!(error instanceof NsiNutritionScreeningSnapshotError)) throw error;
         loadError = true;
       }
     }
     return <NsiNutritionScreeningsWorkspace canManage={canManage}
-      filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
+      filters={filters} loadError={loadError}
       page={page} snapshot={snapshot} />;
+  }
+
+  if (page.number === 17) {
+    const requestedClient = typeof query.client === "string" ? query.client : "";
+    const selectedClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
+      ? requestedClient.toLowerCase() : null;
+    let clients: Awaited<ReturnType<typeof loadClientMasterSnapshot>>["clients"] = [];
+    let loadError = !context.demo && !context.scopes.includes("clients.read");
+    if (!loadError) {
+      try {
+        clients = (await loadClientMasterSnapshot(context)).clients.filter((client) =>
+          !["transferred", "closed", "deceased"].includes(client.status));
+      } catch (error) {
+        if (!(error instanceof ClientMasterSnapshotError)) throw error;
+        loadError = true;
+      }
+    }
+    // Only link to assessment workspaces with a current snapshot and a draft
+    // workflow. The remaining catalog entries are intentionally not advertised
+    // as usable forms until their official rules and write paths are verified.
+    const entryPageNumbers = new Set([11, 12, 13, 14]);
+    const entryPages = staffPages.filter((candidate) => entryPageNumbers.has(candidate.number) &&
+      canAccessCatalogPage(context, candidate));
+    return <AssessmentEntryWorkspace clients={clients} error={loadError}
+      pages={entryPages} selectedClientId={selectedClientId} />;
   }
 
   if (page.number === 20) {
@@ -1309,7 +1319,7 @@ export default async function StaffCatalogPage({
 
   if (page.number === 23) {
     const { filters, invalid } = parseClientVaccinationFilters(query);
-    const canManage = !context.demo && context.assuranceLevel === "aal2" &&
+    const canManage = !context.demo &&
       ["clients.read", "client_vaccinations.read", "client_vaccinations.manage"]
         .every((permission) => context.scopes.includes(permission));
     let snapshot = null;

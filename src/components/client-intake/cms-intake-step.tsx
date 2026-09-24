@@ -62,10 +62,10 @@ export function CmsIntakeStep({ current, canImport, canApprove, demo, onSaved, o
     } catch (e) { setError(intakeErrorMessage(e)); } finally { setBusy(false); inFlight.current = false; }
   }
   return <section className={styles.form}>
-    <div><h2>從 CMS 開始建立個案</h2><p>上傳長照中央系統下載的 HTML，核對資料後建立待收案個案。HTML 內的附件連結不會自動下載，請在最後一步另行上傳文件。</p></div>
+    <div><h2>匯入 CMS 資料</h2><p>選擇中央系統下載的 HTML，核對後建立個案。</p></div>
     {current ? <p className={styles.notice}>目前正在更新：{current.profile.displayName}。系統仍會用精確身分識別核對，不依姓名合併。</p> : null}
-    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>CMS 封存尚未啟用，可先手動建檔。</p><p>目前不接收 HTML 檔案。請先保存中央下載原檔，待管理員完成安全封存設定及驗收後，再匯入核對。</p></div> : null}
-    <label>選擇 CMS HTML（本入口單檔 4 MB 以下）<input type="file" accept=".html,.htm,text/html,application/xhtml+xml" disabled={busy || demo || !canImport || !archiveConfigured} onChange={(e) => {
+    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停；請保留原檔，可先手動建檔。</p></div> : null}
+    <label>CMS HTML（4 MB 以下）<input type="file" accept=".html,.htm,text/html,application/xhtml+xml" disabled={busy || demo || !canImport || !archiveConfigured} onChange={(e) => {
       const selected = e.target.files?.[0] ?? null;
       setPreview(null); setChoices({}); setConfirmed(false); setCommitted(null); setError(""); uploadKey.current = crypto.randomUUID(); onDirty(false);
       if (selected && (selected.size > MAX_INTAKE_WEB_UPLOAD_BYTES || !/\.html?$/iu.test(selected.name))) { setFile(null); setError("請選擇 4 MB 以下的 HTML 檔。較大檔案請交由管理員安排安全匯入，不要刪除來源資料。 "); return; }

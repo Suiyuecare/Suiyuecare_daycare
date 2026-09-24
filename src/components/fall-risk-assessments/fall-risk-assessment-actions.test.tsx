@@ -31,10 +31,9 @@ function currentTaipeiDate() {
   }).format(new Date(formal.generatedAt));
 }
 
-function renderCreate(hasRecentAal2 = true) {
+function renderCreate() {
   return render(<FallRiskAssessmentActions
     canManage
-    hasRecentAal2={hasRecentAal2}
     item={unassessed}
     snapshot={formal}
   />);
@@ -88,7 +87,7 @@ describe("fall-risk candidate assessment client boundary", () => {
   it("keeps synthetic actions visibly read-only", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    render(<FallRiskAssessmentActions canManage hasRecentAal2
+    render(<FallRiskAssessmentActions canManage
       item={demo.items[0]!} snapshot={demo} />);
     expect(screen.getByRole("button", { name: "展示唯讀" }))
       .toHaveProperty("disabled", true);
@@ -100,7 +99,6 @@ describe("fall-risk candidate assessment client boundary", () => {
     render(<FallRiskAssessmentsWorkspace
       canManage={false}
       filters={{ clientId: null, previewStatus: "all", answerState: "all" }}
-      hasRecentAal2={false}
       page={page}
       snapshot={demo}
     />);
@@ -243,12 +241,12 @@ describe("fall-risk candidate assessment client boundary", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("disables writes without recent AAL2 and always disables signing", () => {
-    renderCreate(false);
+  it("allows an unsigned candidate draft without second-factor reauthentication", () => {
+    renderCreate();
     openCreate();
     expect(screen.getByRole("button", { name: "保存候選草稿" }))
-      .toHaveProperty("disabled", true);
-    expect(screen.getByRole("alert").textContent).toMatch(/最近 15 分鐘/u);
+      .toHaveProperty("disabled", false);
+    expect(screen.queryByText(/最近 15 分鐘/u)).toBeNull();
     expect(screen.getByRole("button", { name: /正式簽署/u }))
       .toHaveProperty("disabled", true);
   });

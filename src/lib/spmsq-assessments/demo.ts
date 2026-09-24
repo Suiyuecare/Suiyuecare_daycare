@@ -140,8 +140,8 @@ export function buildDemoSpmsqAssessmentSnapshot() {
       generated_at: generatedAt,
       items: [
         {
-          client_id: "11000000-0000-4000-8000-000000000001",
-          client_display_name: "合成個案 A",
+          client_id: "a1111111-1111-4111-8111-111111111111",
+          client_display_name: "陳O華（合成）",
           service_status: "active",
           admitted_on: prior,
           ended_on: null,
@@ -187,8 +187,8 @@ export function buildDemoSpmsqAssessmentSnapshot() {
           version_history_total: 2,
         },
         {
-          client_id: "11000000-0000-4000-8000-000000000002",
-          client_display_name: "合成個案 B",
+          client_id: "a2222222-2222-4222-8222-222222222222",
+          client_display_name: "林O英（合成）",
           service_status: "suspended",
           admitted_on: prior,
           ended_on: null,
@@ -216,8 +216,8 @@ export function buildDemoSpmsqAssessmentSnapshot() {
           version_history_total: 0,
         },
         {
-          client_id: "11000000-0000-4000-8000-000000000003",
-          client_display_name: "合成個案 C",
+          client_id: "a3333333-3333-4333-8333-333333333333",
+          client_display_name: "黃O生（合成）",
           service_status: "active",
           admitted_on: prior,
           ended_on: null,
@@ -245,9 +245,9 @@ export function buildDemoSpmsqAssessmentSnapshot() {
       incomplete_total: 1,
       draft_total: 2,
       client_options: [
-        { client_id: "11000000-0000-4000-8000-000000000001", display_name: "合成個案 A", service_status: "active", admitted_on: prior, ended_on: null },
-        { client_id: "11000000-0000-4000-8000-000000000002", display_name: "合成個案 B", service_status: "suspended", admitted_on: prior, ended_on: null },
-        { client_id: "11000000-0000-4000-8000-000000000003", display_name: "合成個案 C", service_status: "active", admitted_on: prior, ended_on: null },
+        { client_id: "a1111111-1111-4111-8111-111111111111", display_name: "陳O華（合成）", service_status: "active", admitted_on: prior, ended_on: null },
+        { client_id: "a2222222-2222-4222-8222-222222222222", display_name: "林O英（合成）", service_status: "suspended", admitted_on: prior, ended_on: null },
+        { client_id: "a3333333-3333-4333-8333-333333333333", display_name: "黃O生（合成）", service_status: "active", admitted_on: prior, ended_on: null },
       ],
       client_total: 3,
       client_options_truncated: false,

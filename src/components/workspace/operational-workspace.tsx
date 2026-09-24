@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
-  Download,
   Plus,
   Search,
   ShieldCheck,
@@ -122,14 +121,13 @@ export function OperationalWorkspace({
       </nav>
       <header className="page-heading">
         <div>
-          <p className="eyebrow">頁面 {String(page.number).padStart(2, "0")}・{page.riskLevel === "high" ? "高敏感資料" : "工作頁面"}</p>
+          <p className="eyebrow">{page.moduleId === "assessments" ? "評估量表" : moduleTitle}</p>
           <h1>{page.title}</h1>
           <p className="page-heading__description">{page.description}</p>
         </div>
-        <div className="page-heading__actions">
-          <button className="button button--secondary" disabled title="本頁尚未開放匯出" type="button"><Download aria-hidden="true" />匯出（未開放）</button>
-          <button className="button button--primary" disabled={!demo} onClick={openCreate} title={demo ? undefined : "本頁尚未開放新增紀錄"} type="button"><Plus aria-hidden="true" />{demo ? page.primaryActions[0] ?? "新增紀錄" : "新增紀錄（未開放）"}</button>
-        </div>
+        {demo ? <div className="page-heading__actions">
+          <button className="button button--primary" onClick={openCreate} type="button"><Plus aria-hidden="true" />{page.primaryActions[0] ?? "新增展示紀錄"}</button>
+        </div> : null}
       </header>
 
       {demo ? (
@@ -153,7 +151,7 @@ export function OperationalWorkspace({
         ))}
       </section> : null}
 
-      <section className="content-grid">
+      <section className={demo ? "content-grid" : "content-grid content-grid--single"}>
         <div className="panel">
           <div className="panel__header">
             <div className="panel__title"><h2>工作清單</h2><p>{demo ? `${visibleRecords.length} 筆展示紀錄符合目前條件` : "紀錄與統計尚未提供"}</p></div>
@@ -168,9 +166,8 @@ export function OperationalWorkspace({
             <div className="panel__body">
               <section className="empty-card" role="status" aria-labelledby="workspace-unavailable-title">
                 <CircleAlert aria-hidden="true" />
-                <h2 id="workspace-unavailable-title">本頁尚未開放使用</h2>
-                <p>目前無法查看、新增或匯出紀錄，請先使用機構現行紀錄流程；需要協助時請聯絡主管。</p>
-                <p>尚未提供統計，不能據此判斷是否有待辦或已完成的紀錄。</p>
+                <h2 id="workspace-unavailable-title">此功能尚未啟用</h2>
+                <p>本頁目前不讀取或保存紀錄。請先使用機構核准的既有表單。</p>
               </section>
             </div>
           ) : visibleRecords.length ? (
@@ -206,7 +203,7 @@ export function OperationalWorkspace({
             </div>
           )}
         </div>
-        <aside className="panel" aria-label="使用提醒">
+        {demo ? <aside className="panel" aria-label="使用提醒">
           <div className="panel__header"><div className="panel__title"><h2>使用提醒</h2><p>請勿以此頁取代正式紀錄</p></div><ShieldCheck aria-hidden="true" /></div>
           <div className="panel__body">
             <div className="callout"><CircleAlert aria-hidden="true" /><span>{demo ? "展示草稿僅保留在目前頁面，重新整理後會復原。請勿輸入真實個案資料。" : "本頁尚未開放離線紀錄，也不會自動補存您在其他地方填寫的資料。"}</span></div>
@@ -221,7 +218,7 @@ export function OperationalWorkspace({
               <p>{page.offline.note}</p>
             </details>
           </div>
-        </aside>
+        </aside> : null}
       </section>
 
       {demo && drawerOpen ? (

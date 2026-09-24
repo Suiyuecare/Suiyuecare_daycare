@@ -164,14 +164,12 @@ function AssessmentHistory({ item }: { item: SpmsqAssessmentListItem }) {
 export function SpmsqAssessmentsWorkspace({
   canManage,
   filters,
-  hasRecentAal2,
   loadError = false,
   page,
   snapshot,
 }: {
   canManage: boolean;
   filters: SpmsqAssessmentFilters;
-  hasRecentAal2: boolean;
   loadError?: boolean;
   page: PageCatalogEntry;
   snapshot: SpmsqAssessmentSnapshot | null;
@@ -315,7 +313,7 @@ export function SpmsqAssessmentsWorkspace({
                   <small>文化欄不做數值修正</small>
                 </td>
                 <td><PreviewSummary item={item} /></td>
-                <td><SpmsqAssessmentActions canManage={canManage} hasRecentAal2={hasRecentAal2} item={item} snapshot={snapshot} /></td>
+                <td><SpmsqAssessmentActions canManage={canManage} item={item} snapshot={snapshot} /></td>
               </tr>;
             })}</tbody>
           </table>
@@ -337,7 +335,7 @@ export function SpmsqAssessmentsWorkspace({
               </dl>
               <PreviewSummary item={item} />
               <AssessmentHistory item={item} />
-              <SpmsqAssessmentActions canManage={canManage} hasRecentAal2={hasRecentAal2} item={item} snapshot={snapshot} />
+              <SpmsqAssessmentActions canManage={canManage} item={item} snapshot={snapshot} />
             </article>;
           })}
         </div>

@@ -87,7 +87,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   }
   const saved = (id: string) => readClient(id, true);
   return <div className={styles.workspace}>
-    <header className={styles.heading}><div><p className={styles.eyebrow}>收案工作台</p><h1>個案匯入與收案</h1><p>從 CMS 建立資料，接著安排每週到站、接送、評估與文件。一位個案，接續完成。</p></div><Link className="button button--secondary" href="/app/staff/workspace/case-center">回個案中心</Link></header>
+    <header className={styles.heading}><div><p className={styles.eyebrow}>收案</p><h1>個案建檔</h1><p>匯入 CMS，再完成基本資料、每週安排、評估與文件。</p></div><Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link></header>
     <section className={styles.selector}><label>目前處理的個案<select value={selectedId} disabled={loading || saving} onChange={(e) => choose(e.target.value)}><option value="">＋建立新個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName} · {client.clientCode}</option>)}</select></label><div><span className={styles.badge}>{snapshot ? snapshot.pending ? "待收案 · 尚未開始服務" : "已建檔 · 依服務狀態執行" : "尚未建檔"}</span><p>{snapshot ? `基本資料待核對 ${intakeMissingItems(snapshot.profile).length} 項` : "先匯入 CMS，或選擇手動建檔。"}</p></div></section>
     {context.demo ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
     {snapshot ? <AdmissionHandoff snapshot={snapshot} canRead={scope("clients.read")} blocked={dirty || saving || loading || Boolean(error)} /> : null}
