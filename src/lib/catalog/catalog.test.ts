@@ -168,8 +168,14 @@ describe("page catalog contract", () => {
       ["staff/daily-care/medication-records", ["clients.read", "medications.read"]],
       ["staff/daily-care/medication-plans", ["clients.read", "medications.read"]],
       ["staff/daily-care/individual-service-plan", ["clients.read", "care_plans.read"]],
-      ["staff/assessments/spmsq", ["clients.read", "assessments.read"]],
-      ["staff/assessments/gds", ["clients.read", "gds_assessments.read"]],
+      ["staff/assessments/spmsq", ["clients.read", "questionnaire_cognition.read"]],
+      ["staff/assessments/gds", ["clients.read", "questionnaire_emotion.read"]],
+      ["staff/assessments/fall-risk", ["clients.read", "questionnaire_fall.read"]],
+      ["staff/assessments/nsi", ["clients.read", "questionnaire_nutrition.read"]],
+      ["staff/assessments/barthel-adl", ["clients.read", "questionnaire_adl.read"]],
+      ["staff/assessments/iadl", ["clients.read", "questionnaire_adl.read"]],
+      ["staff/assessments/swallowing", ["clients.read", "questionnaire_swallowing.read"]],
+      ["staff/assessments/bsrs", ["clients.read", "questionnaire_emotion.read"]],
       ["staff/assessments/inspection-reports", [
         "clients.read", "health.read", "client_reports.read",
       ]],
@@ -194,7 +200,7 @@ describe("page catalog contract", () => {
         "clients.read", "chewing_assessments.read",
       ]],
       ["staff/professional-care/mna", [
-        "clients.read", "mna_assessments.read",
+        "clients.read", "questionnaire_nutrition.read",
       ]],
       ["staff/professional-care/consultations", [
         "clients.read", "interprofessional_consultations.read",
@@ -297,79 +303,69 @@ describe("page catalog contract", () => {
     expect(page.acceptance.join(" ")).toMatch(/最近 15 分鐘 AAL2/u);
   });
 
-  it("keeps page 11 candidate-only, versioned and fail-closed", () => {
+  it("keeps page 11 fillable, versioned and access-scoped", () => {
     const page = getPageBySlug("staff/assessments/spmsq")!;
     const acceptance = page.acceptance.join(" ");
     expect(page.offline.mode).toBe("online-only");
     expect(page.primaryActions).toEqual([
-      "開始候選草稿", "建立候選草稿新版", "查看不可變版本",
+      "選擇個案並填寫", "保存草稿", "建立新版",
     ]);
     expect(page.columns).not.toContain("分數");
     expect(page.requiredPermissions).toEqual([
-      "clients.read", "assessments.read",
+      "clients.read", "questionnaire_cognition.read",
     ]);
-    expect(acceptance).toMatch(/不可變候選規則快照/u);
-    expect(acceptance).toMatch(/不得視為 0 分/u);
-    expect(acceptance).toMatch(/正式簽署、官方分數、診斷與照顧決策/u);
-    expect(acceptance).toMatch(/解析內容前拒絕/u);
-    expect(acceptance).toMatch(/not_configured/u);
+    expect(acceptance).toMatch(/10 題/u);
+    expect(acceptance).toMatch(/教育程度/u);
+    expect(acceptance).toMatch(/不自動簽署/u);
   });
 
-  it("keeps page 12 GDS candidate-only and fail-closed", () => {
+  it("keeps page 12 GDS fillable with strict complete scoring", () => {
     const page = getPageBySlug("staff/assessments/gds")!;
     const acceptance = page.acceptance.join(" ");
     expect(page.offline.mode).toBe("online-only");
     expect(page.primaryActions).toEqual([
-      "開始候選草稿", "建立不可變新版", "查看版本歷程",
+      "選擇個案並填寫", "保存草稿", "建立新版",
     ]);
     expect(page.columns).not.toContain("正式風險");
     expect(page.requiredPermissions).toEqual([
-      "clients.read", "gds_assessments.read",
+      "clients.read", "questionnaire_emotion.read",
     ]);
-    expect(acceptance).toMatch(/gds-15-strict-complete-v1/u);
-    expect(acceptance).toMatch(/缺值或不適用均不產生數值/u);
-    expect(acceptance).toMatch(/正式簽署、正式分數、正式風險分類/u);
-    expect(acceptance).toMatch(/解析內容前拒絕/u);
-    expect(acceptance).toMatch(/not_configured/u);
+    expect(acceptance).toMatch(/十五題/u);
+    expect(acceptance).toMatch(/缺答均不產生總分/u);
+    expect(acceptance).toMatch(/不自動診斷/u);
   });
 
-  it("keeps page 13 fall-risk candidate-only and fail-closed", () => {
+  it("keeps page 13 Taipei B12 fillable and access-scoped", () => {
     const page = getPageBySlug("staff/assessments/fall-risk")!;
     const acceptance = page.acceptance.join(" ");
     expect(page.offline.mode).toBe("online-only");
     expect(page.primaryActions).toEqual([
-      "開始候選草稿", "建立不可變新版", "查看版本歷程",
+      "選擇個案並填寫", "保存草稿", "建立新版",
     ]);
     expect(page.columns).not.toContain("正式風險分級");
     expect(page.requiredPermissions).toEqual([
-      "clients.read", "fall_risk_assessments.read",
+      "clients.read", "questionnaire_fall.read",
     ]);
-    expect(acceptance).toMatch(/manual-factors-candidate-v1/u);
-    expect(acceptance).toMatch(/缺值或不適用均不產生候選點數/u);
-    expect(acceptance).toMatch(/正式簽署、正式分數、正式風險分級/u);
-    expect(acceptance).toMatch(/不得自動建立或生效待辦/u);
-    expect(acceptance).toMatch(/解析內容前驗證/u);
-    expect(acceptance).toMatch(/not_configured/u);
+    expect(acceptance).toMatch(/B12/u);
+    expect(acceptance).toMatch(/3 項以上/u);
+    expect(acceptance).toMatch(/不自動建待辦/u);
   });
 
-  it("keeps page 14 nutrition observations manual-only and fail-closed", () => {
+  it("keeps page 14 NSI DETERMINE fillable with weighted preview", () => {
     const page = getPageBySlug("staff/assessments/nsi")!;
     const acceptance = page.acceptance.join(" ");
     expect(page.offline.mode).toBe("online-only");
     expect(page.primaryActions).toEqual([
-      "開始人工觀察草稿", "建立不可變新版", "查看版本歷程",
+      "選擇個案並填寫", "保存草稿", "建立新版",
     ]);
     expect(page.columns).not.toContain("總分");
     expect(page.columns).not.toContain("風險");
     expect(page.requiredPermissions).toEqual([
-      "clients.read", "nsi_nutrition_screenings.read",
+      "clients.read", "questionnaire_nutrition.read",
     ]);
-    expect(acceptance).toMatch(/manual_unstandardized/u);
-    expect(acceptance).toMatch(/不得冒充正式 NSI/u);
-    expect(acceptance).toMatch(/項目數不得標示或解讀為分數/u);
-    expect(acceptance).toMatch(/營養追蹤及轉介一律 fail closed/u);
-    expect(acceptance).toMatch(/解析內容前驗證/u);
-    expect(acceptance).toMatch(/not_configured/u);
+    expect(acceptance).toMatch(/十項依固定版本加權/u);
+    expect(acceptance).toMatch(/不是營養診斷/u);
+    expect(acceptance).toMatch(/不自動簽署/u);
   });
 
   it("keeps page 5 governed, two-person and online-only", () => {
@@ -455,21 +451,19 @@ describe("page catalog contract", () => {
     expect(acceptance).toMatch(/非法篩選不得放寬/u);
   });
 
-  it("keeps page 36 licensed-content gated and independently scoped", () => {
+  it("keeps page 36 MNA-SF fillable and nutrition-scoped", () => {
     const page = getPageBySlug("staff/professional-care/mna")!;
     const acceptance = page.acceptance.join(" ");
     expect(page.offline.mode).toBe("online-only");
     expect(page.requiredPermissions).toEqual([
-      "clients.read", "mna_assessments.read",
+      "clients.read", "questionnaire_nutrition.read",
     ]);
-    expect(page.primaryActions.every((action) =>
-      action.includes("封鎖"))).toBe(true);
-    expect(acceptance).toMatch(/Mapi Research Trust/u);
-    expect(acceptance).toMatch(/不得重打、近似重建或嵌入題目/u);
-    expect(acceptance).toMatch(/授權未配置須與無資料分開/u);
-    expect(acceptance).toMatch(/不可覆寫線性版本鏈/u);
-    expect(acceptance).toMatch(/最近 15 分鐘同工作階段 AAL2/u);
-    expect(acceptance).toMatch(/not_configured/u);
+    expect(page.primaryActions).toEqual([
+      "選擇個案並填寫", "保存草稿", "建立新版",
+    ]);
+    expect(acceptance).toMatch(/MNA-SF 2009 修訂版六題/u);
+    expect(acceptance).toMatch(/BMI／小腿圍替代/u);
+    expect(acceptance).toMatch(/不替代營養師診斷/u);
   });
 
   it("keeps page 40 independent from assessment, immutable and fail-closed", () => {

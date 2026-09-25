@@ -80,6 +80,10 @@ import { ClientInspectionReportsWorkspace } from "@/components/client-inspection
 import { ClientVaccinationsWorkspace } from "@/components/client-vaccinations/client-vaccinations-workspace";
 import { ChewingAssessmentsWorkspace } from "@/components/chewing-assessments/chewing-assessments-workspace";
 import { MnaAssessmentsWorkspace } from "@/components/mna-assessments/mna-assessments-workspace";
+import { QuestionnaireAssessmentsWorkspace } from "@/components/questionnaire-assessments/questionnaire-assessment-editor";
+import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
+import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
+import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { StaffTrainingWorkspace } from "@/components/staff-training/staff-training-workspace";
 import { StaffCertificatesWorkspace } from "@/components/staff-certificates/staff-certificates-workspace";
 import { StaffVaccinationsWorkspace } from "@/components/staff-vaccinations/staff-vaccinations-workspace";
@@ -1099,6 +1103,72 @@ export default async function StaffCatalogPage({
     );
   }
 
+  if ([11, 12, 13, 14, 15, 16, 17, 18, 36].includes(page.number)) {
+    const formKeyByPage: Record<number, QuestionnaireFormKey> = {
+      11: "spmsq",
+      12: "gds_15",
+      13: "fall_risk_taipei_115",
+      14: "nsi_determine",
+      15: "barthel_adl",
+      16: "lawton_iadl",
+      17: "eat10_swallowing",
+      18: "bsrs5",
+      36: "mna_sf",
+    };
+    const formKey = formKeyByPage[page.number]!;
+    const form = getQuestionnaireForm(formKey)!;
+    const requestedClient = typeof query.client === "string" ? query.client : "";
+    const validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
+      ? requestedClient.toLowerCase() : null;
+    const invalidFilters = Boolean(requestedClient && !validClientId) ||
+      Object.keys(query).some((key) => key !== "client");
+    const prefix = formKey === "spmsq"
+      ? "questionnaire_cognition"
+      : formKey === "barthel_adl" || formKey === "lawton_iadl"
+        ? "questionnaire_adl"
+        : formKey === "eat10_swallowing"
+          ? "questionnaire_swallowing"
+          : formKey === "bsrs5" || formKey === "gds_15"
+            ? "questionnaire_emotion"
+            : formKey === "fall_risk_taipei_115"
+              ? "questionnaire_fall"
+              : "questionnaire_nutrition";
+    const canManage = !context.demo && context.scopes.includes("clients.read") &&
+      context.scopes.includes(`${prefix}.read`) && context.scopes.includes(`${prefix}.manage`);
+    let snapshot: QuestionnaireSnapshot | null = null;
+    let loadError = invalidFilters;
+    if (context.demo) {
+      snapshot = {
+        formKey,
+        generatedAt: new Date().toISOString(),
+        matchingTotal: 1,
+        demo: true,
+        clients: [{
+          clientId: "00000000-0000-4000-8000-000000000015",
+          displayName: "合成測試個案（非真實資料）",
+          serviceStatus: "active",
+          latest: null,
+        }],
+      };
+    } else if (!invalidFilters) {
+      try {
+        snapshot = await loadQuestionnaireSnapshot(context, formKey, validClientId);
+      } catch (error) {
+        if (!(error instanceof QuestionnaireSnapshotError)) throw error;
+        loadError = true;
+      }
+    }
+    return <QuestionnaireAssessmentsWorkspace
+      assessorName={context.displayName}
+      canManage={canManage}
+      form={form}
+      loadError={loadError}
+      pageTitle={page.title}
+      selectedClientId={validClientId}
+      snapshot={snapshot}
+    />;
+  }
+
   if (page.number === 11) {
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
     const requestedClient = typeof query.client === "string" ? query.client : "";
@@ -1233,10 +1303,10 @@ export default async function StaffCatalogPage({
     // Keep the one-client-first entry limited to workflows that have a scoped
     // draft/manual-record write path. Standardized scales without an approved
     // instrument and persistence workflow remain explicitly unavailable below.
-    const entryPageNumbers = new Set([11, 12, 13, 14, 19, 20, 21, 28, 32, 33, 34, 35, 51]);
+    const entryPageNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28, 32, 33, 34, 35, 36, 51]);
     const entryPages = staffPages.filter((candidate) => entryPageNumbers.has(candidate.number) &&
       canAccessCatalogPage(context, candidate));
-    const unavailablePageNumbers = new Set([15, 16, 17, 18, 36]);
+    const unavailablePageNumbers = new Set<number>();
     const unavailablePages = staffPages.filter((candidate) => unavailablePageNumbers.has(candidate.number) &&
       canAccessCatalogPage(context, candidate));
     const requestedInstrument = typeof query.externalInstrument === "string" &&

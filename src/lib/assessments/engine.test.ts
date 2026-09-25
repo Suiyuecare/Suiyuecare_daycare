@@ -28,19 +28,27 @@ const vector = (id: string) => {
 };
 
 describe("versioned assessment registry", () => {
-  it("publishes the five requested instruments as unactivated review versions", () => {
+  it("publishes the supported instruments as unactivated review versions", () => {
     expect(ASSESSMENT_DEFINITIONS.map((item) => item.instrument)).toEqual([
       "spmsq",
       "gds_15",
       "barthel_adl",
       "lawton_iadl",
       "mna_sf",
+      "fall_risk_taipei_115",
+      "nsi_determine",
+      "eat10",
+      "bsrs5",
     ]);
     for (const definition of ASSESSMENT_DEFINITIONS) {
       expect(definition.ruleRevision).toBe(1);
       expect(definition.reviewRequired).toBe(true);
       expect(definition.activatedAt).toBeNull();
-      expect(definition.sources.length).toBeGreaterThan(0);
+      if (definition.instrument === "fall_risk_taipei_115") {
+        expect(definition.sources).toHaveLength(0);
+      } else {
+        expect(definition.sources.length).toBeGreaterThan(0);
+      }
       expect(definition.disclaimer).toContain("不構成診斷");
     }
   });

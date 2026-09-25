@@ -3,14 +3,22 @@ export type AssessmentInstrument =
   | "gds_15"
   | "barthel_adl"
   | "lawton_iadl"
-  | "mna_sf";
+  | "mna_sf"
+  | "fall_risk_taipei_115"
+  | "nsi_determine"
+  | "eat10"
+  | "bsrs5";
 
 export type AssessmentVersionId =
   | "spmsq-pfeiffer-10-education-adjusted-v1"
   | "gds-15-strict-complete-v1"
   | "barthel-adl-0-100-v1"
-  | "lawton-iadl-binary-8-v1"
-  | "mna-sf-revised-2009-v1";
+  | "lawton-iadl-8-domain-expanded-v1"
+  | "mna-sf-revised-2009-v1"
+  | "fall-risk-taipei-115-b12-v1"
+  | "nsi-determine-10-weighted-v1"
+  | "eat10-tw-v1"
+  | "bsrs5-zh-tw-v1";
 
 export type AssessmentAnswer<TValue extends string = string> =
   | { readonly state: "answered"; readonly value: TValue }
@@ -126,4 +134,3 @@ export interface AssessmentTestVector {
     readonly classificationKey: string | null;
   };
 }
-

@@ -88,7 +88,7 @@ describe("shared workspace truthful availability", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     render(workspace(true));
-    fireEvent.click(screen.getByRole("button", { name: "開始評估" }));
+    fireEvent.click(screen.getByRole("button", { name: "選擇個案並填寫" }));
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("僅保留在本頁，不會寫入正式紀錄");
     expect(dialog).not.toHaveTextContent("伺服器時間將在送出時寫入");
@@ -101,7 +101,7 @@ describe("shared workspace truthful availability", () => {
 
   it("hides open demo drawers and fixture data when the production boundary replaces demo mode", () => {
     const { container, rerender } = render(workspace(true));
-    fireEvent.click(screen.getByRole("button", { name: "開始評估" }));
+    fireEvent.click(screen.getByRole("button", { name: "選擇個案並填寫" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     rerender(workspace(false));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

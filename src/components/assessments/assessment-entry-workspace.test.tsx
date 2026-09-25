@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPageBySlug } from "@/lib/catalog";
+import { getPageBySlug, type PageCatalogEntry } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
 
 import { AssessmentEntryWorkspace } from "./assessment-entry-workspace";
@@ -31,6 +31,10 @@ const pages = [
   "staff/assessments/gds",
   "staff/assessments/fall-risk",
   "staff/assessments/nsi",
+  "staff/assessments/barthel-adl",
+  "staff/assessments/iadl",
+  "staff/assessments/swallowing",
+  "staff/assessments/bsrs",
   "staff/assessments/physical",
   "staff/assessments/behavior-emotion",
   "staff/assessments/abcd",
@@ -39,15 +43,10 @@ const pages = [
   "staff/professional-care/occupational-assessment",
   "staff/professional-care/physical-assessment",
   "staff/professional-care/chewing",
+  "staff/professional-care/mna",
   "staff/service-management/nursing-assessment",
 ].map((slug) => getPageBySlug(slug)!);
-const unavailablePages = [
-  "staff/assessments/barthel-adl",
-  "staff/assessments/iadl",
-  "staff/assessments/swallowing",
-  "staff/assessments/bsrs",
-  "staff/professional-care/mna",
-].map((slug) => getPageBySlug(slug)!);
+const unavailablePages: PageCatalogEntry[] = [];
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -72,30 +71,30 @@ describe("assessment entry workspace", () => {
     />);
     expect(screen.getByText("合成測試個案")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
-    expect(screen.getByText(/已取得公開原始碼授權確認/u)).toBeVisible();
+    expect(screen.getByText("答案會以草稿版本保存；請核對每題與結果，再由具權限人員作專業判讀及後續決定。")).toBeVisible();
 
     const cards = screen.getAllByRole("link").filter((link) =>
       link.getAttribute("href")?.startsWith("/app/") && !link.getAttribute("href")?.includes("externalInstrument"));
     expect(cards).toHaveLength(pages.length);
+    const candidateNumbers = [11, 12, 13, 14, 15, 16, 17, 18, 36];
     const orderedPages = [
-      ...pages.filter((page) => [11, 12, 13, 21].includes(page.number)),
-      ...pages.filter((page) => [14, 35].includes(page.number)),
-      ...pages.filter((page) => ![11, 12, 13, 14, 21, 35].includes(page.number)),
+      ...pages.filter((page) => candidateNumbers.includes(page.number)),
+      ...pages.filter((page) => page.number === 35),
+      ...pages.filter((page) => !candidateNumbers.includes(page.number) && page.number !== 35),
     ];
     expect(cards.map((card) => card.getAttribute("href"))).toEqual(orderedPages.map((page) =>
       `/app/${page.slug}?client=${encodeURIComponent(client.id)}`));
-    expect(screen.getByRole("heading", { name: "尚未開放正式填寫" })).toBeVisible();
-    expect(screen.getByRole("link", { name: /吞嚥評估.*登錄外部結果/ })).toHaveAttribute(
-      "href", `/app/staff/assessments/swallowing?client=${encodeURIComponent(client.id)}&externalInstrument=swallowing#external-result-entry`,
-    );
+    expect(screen.getByRole("heading", { name: "可填寫量表草稿" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "尚未開放正式填寫" })).not.toBeInTheDocument();
+    for (const slug of [
+      "staff/assessments/spmsq", "staff/assessments/gds", "staff/assessments/fall-risk",
+      "staff/assessments/nsi", "staff/assessments/barthel-adl", "staff/assessments/iadl",
+      "staff/assessments/swallowing", "staff/assessments/bsrs", "staff/professional-care/mna",
+    ]) expect(cards.some((card) => card.getAttribute("href") === `/app/${slug}?client=${encodeURIComponent(client.id)}`)).toBe(true);
     expect(screen.getByRole("heading", { name: "登錄評估結果" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "量表／評估工具" })).toHaveValue("barthel_adl");
-    expect(screen.getByText(/已收到授權確認；逐題作答與安全保存流程尚未接通/u)).toBeVisible();
-    expect(screen.getByRole("heading", { name: "候選草稿・非正式量表" })).toBeVisible();
-    expect(screen.getByText("衛福部 SPMSQ 10 題可填；分數仍是候選值")).toBeVisible();
-    expect(screen.getByText("人工觀察草稿；不是標準化跌倒量表")).toBeVisible();
     expect(screen.getByRole("heading", { name: "人工觀察草稿" })).toBeVisible();
-    expect(screen.queryByText("可填寫草稿")).not.toBeInTheDocument();
+    expect(screen.getByText("SPMSQ・10 題")).toBeVisible();
   });
 
   it("shows a short actionable error instead of an empty-looking page", () => {

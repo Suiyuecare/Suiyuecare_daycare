@@ -35,14 +35,14 @@ const barthelMaximum = {
 } as const;
 
 const iadlMaximum = {
-  telephone: "independent",
-  shopping: "independent",
-  food_preparation: "independent",
-  housekeeping: "independent",
-  laundry: "independent",
-  transportation: "independent",
-  medications: "independent",
-  finances: "independent",
+  telephone: "telephone_dials_numbers",
+  shopping: "shopping_independent_all",
+  food_preparation: "meal_independent",
+  housekeeping: "housework_independent",
+  laundry: "laundry_all",
+  transportation: "transport_public_or_drive",
+  medications: "medication_independent",
+  finances: "finances_independent",
 } as const;
 
 const mnaMaximum = {
@@ -170,7 +170,7 @@ export const ASSESSMENT_TEST_VECTORS = [
   {
     id: "iadl-maximum",
     submission: {
-      versionId: "lawton-iadl-binary-8-v1",
+      versionId: "lawton-iadl-8-domain-expanded-v1",
       answers: codedAnswers(iadlMaximum),
     },
     expected: {
@@ -183,8 +183,8 @@ export const ASSESSMENT_TEST_VECTORS = [
   {
     id: "iadl-seven-boundary",
     submission: {
-      versionId: "lawton-iadl-binary-8-v1",
-      answers: codedAnswers({ ...iadlMaximum, finances: "dependent" }),
+      versionId: "lawton-iadl-8-domain-expanded-v1",
+      answers: codedAnswers({ ...iadlMaximum, finances: "finances_daily_only" }),
     },
     expected: {
       status: "complete",

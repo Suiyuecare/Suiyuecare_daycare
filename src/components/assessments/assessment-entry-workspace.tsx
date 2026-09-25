@@ -37,24 +37,30 @@ export function AssessmentEntryWorkspace({
   const selectedClient = selectedClientId
     ? clients.find((client) => client.id === selectedClientId) ?? null
     : null;
-  const candidateDraftNumbers = new Set([11, 12, 13, 21]);
+  const candidateDraftNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 36]);
   const candidateDrafts = pages.filter((page) => candidateDraftNumbers.has(page.number));
-  const observationDrafts = pages.filter((page) => [14, 35].includes(page.number));
+  const observationDrafts = pages.filter((page) => [35].includes(page.number));
   const manualRecords = pages.filter((page) =>
     !candidateDraftNumbers.has(page.number) && ![14, 35].includes(page.number));
 
   function unavailableReason(number: number) {
-    if (number === 36) return "已收到授權確認；逐題作答與安全保存流程尚未接通";
-    if (number === 17) return "尚未核定本機構採用的吞嚥評估工具與流程";
+    if ([11, 12, 13, 14, 15, 16, 17, 18, 36].includes(number)) return "逐題作答、固定版本計分預覽與草稿保存已提供；結果仍需人員判讀";
     return "完整逐題表單與安全保存流程尚未接通";
   }
 
   function candidateDescription(number: number) {
-    if (number === 11) return "衛福部 SPMSQ 10 題可填；分數仍是候選值";
-    if (number === 12) return "GDS-15 15 題可填；正式判讀仍待覆核";
-    if (number === 13) return "人工觀察草稿；不是標準化跌倒量表";
-    if (number === 21) return "人工紀錄草稿；正式表單規則仍待核定";
-    return "可填寫草稿；正式計分與簽署未啟用";
+    const labels: Record<number, string> = {
+      11: "SPMSQ・10 題",
+      12: "GDS-15・15 題",
+      13: "臺北市 B12 跌倒風險・12 項",
+      14: "NSI DETERMINE・10 題",
+      15: "Barthel ADL・10 項",
+      16: "IADL・8 領域",
+      17: "EAT-10 吞嚥篩檢・10 題",
+      18: "BSRS-5 心情溫度計・含安全關懷題",
+      36: "MNA-SF・6 題",
+    };
+    return labels[number] ?? "可填寫草稿；正式簽署仍須人工覆核";
   }
 
   return <div className={styles.workspace}>
@@ -79,7 +85,7 @@ export function AssessmentEntryWorkspace({
         <h2 id="assessment-shortcuts-title">開始評估</h2></div>
       {pages.length ? <>
         {candidateDrafts.length ? <section aria-label="候選量表草稿">
-          <h3 className={styles.groupTitle}>候選草稿・非正式量表</h3>
+          <h3 className={styles.groupTitle}>可填寫量表草稿</h3>
           <ul className={styles.cards}>{candidateDrafts.map((page) => <li key={page.slug}>
             <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
               <span>{page.title}<small>{candidateDescription(page.number)}</small></span>
@@ -115,7 +121,7 @@ export function AssessmentEntryWorkspace({
           </Link>
         </li>)}</ul>
       </section> : null}
-      <p className={styles.note}>已取得公開原始碼授權確認；各量表仍須逐一完成正確版本、答案保存、計分測試與正式啟用覆核。候選草稿不能代替正式評估或照顧決策。</p>
+      <p className={styles.note}>答案會以草稿版本保存；請核對每題與結果，再由具權限人員作專業判讀及後續決定。</p>
       {canReadExternalResults
         ? <ExternalAssessmentResultsWorkspace clientId={selectedClient.id} initialInstrument={initialExternalInstrument}
           canWrite={canWriteExternalResults} />

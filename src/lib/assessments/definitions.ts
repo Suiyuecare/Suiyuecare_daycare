@@ -189,17 +189,41 @@ const barthelItems = [
 ] as const;
 
 const iadlItems = [
-  "telephone",
-  "shopping",
-  "food_preparation",
-  "housekeeping",
-  "laundry",
-  "transportation",
-  "medications",
-  "finances",
-].map((id) =>
-  requiredItem(id, id, [answer("dependent", 0), answer("independent", 1)]),
-);
+  requiredItem("telephone", "使用電話", [
+    answer("telephone_dials_numbers", 1), answer("telephone_familiar_numbers", 1),
+    answer("telephone_answer_only", 0), answer("telephone_unable", 0),
+  ]),
+  requiredItem("shopping", "上街購物", [
+    answer("shopping_independent_all", 1), answer("shopping_small_items_only", 0),
+    answer("shopping_accompanied", 0), answer("shopping_unable", 0),
+  ]),
+  requiredItem("food_preparation", "做飯", [
+    answer("meal_independent", 1), answer("meal_prepared_ingredients", 0),
+    answer("meal_reheat_or_inadequate", 0), answer("meal_needs_prepared", 0),
+  ]),
+  requiredItem("housekeeping", "做家事", [
+    answer("housework_independent", 1), answer("housework_light_tasks", 0),
+    answer("housework_below_standard", 0), answer("housework_all_help", 0),
+    answer("housework_unable", 0),
+  ]),
+  requiredItem("laundry", "洗衣", [
+    answer("laundry_all", 1), answer("laundry_small_items", 0),
+    answer("laundry_needs_help", 0),
+  ]),
+  requiredItem("transportation", "使用交通工具", [
+    answer("transport_public_or_drive", 1), answer("transport_taxi_only", 1),
+    answer("transport_with_companion", 0), answer("transport_private_with_help", 0),
+    answer("transport_unable_to_leave", 0),
+  ]),
+  requiredItem("medications", "自己負責用藥", [
+    answer("medication_independent", 1), answer("medication_prepared", 0),
+    answer("medication_needs_help", 0),
+  ]),
+  requiredItem("finances", "財務管理", [
+    answer("finances_independent", 1), answer("finances_daily_only", 0),
+    answer("finances_unable", 0),
+  ]),
+] as const;
 
 const mnaItems = [
   requiredItem("food_intake", "近三個月食物攝取變化", [
@@ -235,6 +259,65 @@ const mnaItems = [
     answer("calf_lt_31", 0),
     answer("calf_gte_31", 3),
   ]),
+] as const;
+
+const yesNoItems = (prefix: string, count: number, labels: readonly string[], weights?: readonly number[]) =>
+  Array.from({ length: count }, (_, index) => requiredItem(
+    `${prefix}_${String(index + 1).padStart(2, "0")}`,
+    labels[index] ?? `${prefix} 第 ${index + 1} 題`,
+    [answer("yes", weights?.[index] ?? 1), answer("no", 0)],
+  ));
+
+const fallRiskItems = yesNoItems("fall", 12, [
+  "年齡大於 65 歲", "最近三個月曾跌倒", "步態或平衡曾失調", "肢體功能障礙",
+  "認知障礙", "下肢無力或殘障", "頭暈或暈眩", "視力模糊", "睡眠障礙",
+  "診斷腦中風", "服用可能影響意識活動之藥物", "患有可能影響跌倒之疾病",
+]);
+
+const nsiItems = yesNoItems("nsi", 10, [
+  "疾病或狀況改變飲食種類或份量", "每天少於兩餐", "少吃水果蔬菜或乳製品",
+  "幾乎每天喝三杯或更多酒類", "牙齒或口腔問題影響進食", "沒有足夠錢購買所需食物",
+  "大部分時間獨自吃飯", "每天服用三種或更多藥物", "六個月內非刻意增減約 10 磅",
+  "身體上無法總是自行購物烹調或進食",
+], [2, 3, 2, 2, 2, 4, 1, 1, 2, 2]);
+
+const eat10Items = Array.from({ length: 10 }, (_, index) => requiredItem(
+  `eat10_${String(index + 1).padStart(2, "0")}`,
+  `EAT-10 第 ${index + 1} 題`,
+  [0, 1, 2, 3, 4].map((points) => answer(String(points), points)),
+));
+
+const allBsrsItems = [
+  ...Array.from({ length: 5 }, (_, index) => requiredItem(
+    `bsrs_${String(index + 1).padStart(2, "0")}`,
+    `BSRS-5 第 ${index + 1} 題`,
+    [0, 1, 2, 3, 4].map((points) => answer(String(points), points)),
+  )),
+  requiredItem("bsrs_suicide", "自殺想法（額外安全題，不列入前五題總分）",
+    ["0", "1", "2", "3", "4"].map((value) => answer(value, 0))),
+] as const;
+
+const fallRiskBands = [
+  band("below_high_risk_threshold_0_2", "0–2 項・未達臺北市表單高風險門檻", 0, 2, "screening_only"),
+  band("high_risk_threshold_3_12", "3 項以上・臺北市表單列為高風險群", 3, 12, "screening_only"),
+] as const;
+
+const nsiBands = [
+  band("low_0_2", "0–2 分・低風險參考區間", 0, 2, "screening_only"),
+  band("moderate_3_5", "3–5 分・中度營養風險", 3, 5, "screening_only"),
+  band("high_6_21", "6 分以上・高營養風險", 6, 21, "screening_only"),
+] as const;
+
+const eat10Bands = [
+  band("below_screening_threshold_0_2", "0–2 分・未達篩檢參考門檻", 0, 2, "screening_only"),
+  band("possible_swallowing_problem_3_40", "3 分以上・可能有吞嚥問題", 3, 40, "screening_only"),
+] as const;
+
+const bsrsBands = [
+  band("adaptation_0_5", "0–5 分・身心適應狀況良好", 0, 5, "screening_only"),
+  band("mild_6_9", "6–9 分・輕度情緒困擾", 6, 9, "screening_only"),
+  band("moderate_10_15", "10–15 分・中度情緒困擾", 10, 15, "screening_only"),
+  band("high_16_20", "16–20 分・重度情緒困擾參考區間", 16, 20, "screening_only"),
 ] as const;
 
 const commonDisclaimer =
@@ -355,7 +438,7 @@ const definitions = [
     buildAlerts: noAlerts,
   },
   {
-    versionId: "lawton-iadl-binary-8-v1",
+    versionId: "lawton-iadl-8-domain-expanded-v1",
     instrument: "lawton_iadl",
     title: "Lawton-Brody IADL 八領域二元計分版",
     ruleRevision: 1,
@@ -430,6 +513,103 @@ const definitions = [
           ]
         : [],
   },
+  {
+    versionId: "fall-risk-taipei-115-b12-v1",
+    instrument: "fall_risk_taipei_115",
+    title: "臺北市社區式品質抽監測表 B12 跌倒高風險評估（115 年）",
+    ruleRevision: 1,
+    activatedAt: null,
+    reviewRequired: true,
+    scoringPolicy: "依使用者提供之 115 年版臺北市社會局 B12，12 項每項符合計 1 項；3 項以上符合表單所列高風險群。結果僅供篩檢與人工確認，不自動產生處置。",
+    disclaimer: commonDisclaimer,
+    sources: [],
+    items: fallRiskItems,
+    context: [],
+    scoreMin: 0,
+    scoreMax: 12,
+    scoreUnit: "points",
+    classify: (score: number) => findBand(fallRiskBands, score),
+    adjustScore: noAdjustment,
+    buildAlerts: (score: number) => score >= 3 ? [{
+      code: "TAIPEI_B12_HIGH_RISK_REVIEW",
+      level: "warning",
+      message: "依臺北市 B12 表單門檻，需由人員覆核並依機構流程評估預防措施；系統不自動建立處置。",
+    }] : [],
+  },
+  {
+    versionId: "nsi-determine-10-weighted-v1",
+    instrument: "nsi_determine",
+    title: "NSI DETERMINE 10 題加權營養風險檢核表",
+    ruleRevision: 1,
+    activatedAt: null,
+    reviewRequired: true,
+    scoringPolicy: "十題依 NSI 原表加權，最高 21 分；0–2、3–5、6 以上為低、中、高營養風險參考區間。此警訊檢核不構成營養不良診斷。",
+    disclaimer: commonDisclaimer,
+    sources: [{
+      label: "U.S. Administration for Community Living: Determine Your Nutritional Health Checklist",
+      url: "https://acl.gov/sites/default/files/nutrition/NSI_checklist_508%20with%20citation.pdf",
+    }],
+    items: nsiItems,
+    context: [],
+    scoreMin: 0,
+    scoreMax: 21,
+    scoreUnit: "points",
+    classify: (score: number) => findBand(nsiBands, score),
+    adjustScore: noAdjustment,
+    buildAlerts: (score: number) => score >= 3 ? [{
+      code: "NSI_NUTRITION_REVIEW",
+      level: "warning",
+      message: "NSI 警訊分數達中度以上參考區間，請由人員查看各題並安排適當營養評估。",
+    }] : [],
+  },
+  {
+    versionId: "eat10-tw-v1",
+    instrument: "eat10",
+    title: "EAT-10 吞嚥困難自我評估工具表",
+    ruleRevision: 1,
+    activatedAt: null,
+    reviewRequired: true,
+    scoringPolicy: "十題各 0–4 分加總，最高 40 分；總分 3 分或更高為可能有吞嚥能力或安全問題，應與醫師或相關專業人員討論。",
+    disclaimer: commonDisclaimer,
+    sources: [{
+      label: "衛生福利部 EAT-10 吞嚥困難篩選工具表",
+      url: "https://www.mohw.gov.tw/dl-81939-7ac68e25-be5e-470f-ae90-3bafa976f5c0.html",
+    }],
+    items: eat10Items,
+    context: [],
+    scoreMin: 0,
+    scoreMax: 40,
+    scoreUnit: "points",
+    classify: (score: number) => findBand(eat10Bands, score),
+    adjustScore: noAdjustment,
+    buildAlerts: (score: number) => score >= 3 ? [{
+      code: "EAT10_CLINICIAN_DISCUSSION",
+      level: "warning",
+      message: "達 EAT-10 篩檢參考門檻，建議由人員協助與醫師或相關專業人員討論。",
+    }] : [],
+  },
+  {
+    versionId: "bsrs5-zh-tw-v1",
+    instrument: "bsrs5",
+    title: "BSRS-5 心情溫度計（附加安全題）",
+    ruleRevision: 1,
+    activatedAt: null,
+    reviewRequired: true,
+    scoringPolicy: "前五題 0–4 分加總，附加自殺想法題不計入總分；依衛福部版本呈現分數區間。附加題有非零作答時須立即依機構流程人工關懷。",
+    disclaimer: commonDisclaimer,
+    sources: [{
+      label: "衛生福利部心理及口腔健康司：BSRS-5 心情溫度計",
+      url: "https://mohw.gov.tw/fp-16-19441-1.html",
+    }],
+    items: allBsrsItems,
+    context: [],
+    scoreMin: 0,
+    scoreMax: 20,
+    scoreUnit: "points",
+    classify: (score: number) => findBand(bsrsBands, score),
+    adjustScore: noAdjustment,
+    buildAlerts: noAlerts,
+  },
 ] as const satisfies readonly AssessmentDefinition[];
 
 export const ASSESSMENT_DEFINITIONS: readonly AssessmentDefinition[] =
@@ -442,8 +622,12 @@ export const ASSESSMENT_VERSIONS: Readonly<
     "spmsq-pfeiffer-10-education-adjusted-v1": definitions[0],
     "gds-15-strict-complete-v1": definitions[1],
     "barthel-adl-0-100-v1": definitions[2],
-    "lawton-iadl-binary-8-v1": definitions[3],
+    "lawton-iadl-8-domain-expanded-v1": definitions[3],
     "mna-sf-revised-2009-v1": definitions[4],
+    "fall-risk-taipei-115-b12-v1": definitions[5],
+    "nsi-determine-10-weighted-v1": definitions[6],
+    "eat10-tw-v1": definitions[7],
+    "bsrs5-zh-tw-v1": definitions[8],
   } satisfies Record<AssessmentVersionId, AssessmentDefinition>,
 );
 
@@ -459,4 +643,8 @@ export const ASSESSMENT_INSTRUMENTS: readonly AssessmentInstrument[] = [
   "barthel_adl",
   "lawton_iadl",
   "mna_sf",
+  "fall_risk_taipei_115",
+  "nsi_determine",
+  "eat10",
+  "bsrs5",
 ];

@@ -1,0 +1,171 @@
+import {
+  BARTHEL_FORM_VERSION,
+  BARTHEL_QUESTIONS,
+  BSRS5_CHOICES,
+  BSRS5_FORM_VERSION,
+  BSRS5_INSTRUCTIONS,
+  BSRS5_QUESTIONS,
+  EAT10_CHOICES,
+  EAT10_FORM_VERSION,
+  EAT10_INSTRUCTIONS,
+  EAT10_QUESTIONS,
+  MNA_SF_FORM_VERSION,
+  MNA_SF_MEASUREMENTS,
+  MNA_SF_QUESTIONS,
+  NSI_DETERMINE_FORM_VERSION,
+  NSI_DETERMINE_QUESTIONS,
+  TAIPEI_FALL_RISK_FORM_VERSION,
+  TAIPEI_FALL_RISK_QUESTIONS,
+  IADL_FORM_VERSION,
+  IADL_QUESTIONS,
+  GDS15_INSTRUCTIONS,
+  GDS15_QUESTIONS,
+  SPMSQ_ADMINISTRATION_NOTES,
+  SPMSQ_QUESTIONS,
+} from "@/lib/assessments/question-content";
+
+import type { QuestionnaireFormDefinition, QuestionnaireFormKey } from "./types";
+
+const numericChoices = (questions: readonly string[]) => questions.map((prompt, index) => ({
+  id: `eat10_${String(index + 1).padStart(2, "0")}`,
+  prompt,
+  choices: EAT10_CHOICES,
+}));
+
+const bsrsChoices = (questions: readonly string[]) => questions.map((prompt, index) => ({
+  id: index === 5 ? "bsrs_suicide" : `bsrs_${String(index + 1).padStart(2, "0")}`,
+  prompt,
+  helpText: index === 5 ? "此題為安全關懷題，不計入前五題合計；若有困擾需由人員即時關懷處理。" : undefined,
+  choices: BSRS5_CHOICES,
+}));
+
+export const QUESTIONNAIRE_FORMS: Readonly<Record<QuestionnaireFormKey, QuestionnaireFormDefinition>> = {
+  spmsq: {
+    key: "spmsq",
+    version: "spmsq-pfeiffer-10-education-adjusted-v1",
+    title: "SPMSQ 簡短智能測驗",
+    instructions: "請依題目逐一詢問並按核對規則記錄正確或錯誤；量表篩檢不等同診斷。",
+    sourceLabel: "衛生福利部國民健康署：失智症個案服務手冊（SPMSQ 操作說明）",
+    sourceUrl: "https://health99.hpa.gov.tw/media/public/pdf/21961.pdf",
+    scoreVersionId: "spmsq-pfeiffer-10-education-adjusted-v1",
+    allowQualitativeNotes: true,
+    contextFields: [{
+      key: "education_adjustment",
+      label: "教育程度（計分調整）",
+      required: true,
+      choices: [
+        { value: "grade_school_or_less", label: "小學或以下" },
+        { value: "middle_or_high_school", label: "國中至高中" },
+        { value: "beyond_high_school", label: "高中以上" },
+      ],
+    }],
+    questions: SPMSQ_QUESTIONS.map((prompt, index) => ({
+      id: `spmsq_${String(index + 1).padStart(2, "0")}`,
+      prompt,
+      helpText: SPMSQ_ADMINISTRATION_NOTES[index],
+      choices: [{ value: "correct", label: "答對" }, { value: "incorrect", label: "答錯" }],
+    })),
+  },
+  gds_15: {
+    key: "gds_15",
+    version: "gds-15-strict-complete-v1",
+    title: "GDS-15 老人憂鬱量表",
+    instructions: GDS15_INSTRUCTIONS,
+    sourceLabel: "衛生福利部心理健康司：老年憂鬱症量表（GDS-15）",
+    sourceUrl: "https://dep.mohw.gov.tw/DOMHAOH/fp-4912-76813-107.html",
+    scoreVersionId: "gds-15-strict-complete-v1",
+    allowQualitativeNotes: true,
+    questions: GDS15_QUESTIONS.map((prompt, index) => ({
+      id: `gds_${String(index + 1).padStart(2, "0")}`,
+      prompt,
+      choices: [{ value: "yes", label: "是" }, { value: "no", label: "否" }],
+    })),
+  },
+  barthel_adl: {
+    key: "barthel_adl",
+    version: BARTHEL_FORM_VERSION,
+    title: "Barthel ADL",
+    instructions: "依個案目前實際能力選擇一項。這裡先保存填答草稿，不產生正式總分、依賴等級或照顧決策。",
+    sourceLabel: "衛生福利部中央健康保險署：巴氏量表",
+    sourceUrl: "https://www.nhi.gov.tw/ch/dl-26360-5ae6d22604154e2e9f276ed88e58f68d-1.pdf",
+    scoreVersionId: "barthel-adl-0-100-v1",
+    allowQualitativeNotes: true,
+    questions: BARTHEL_QUESTIONS,
+  },
+  lawton_iadl: {
+    key: "lawton_iadl",
+    version: IADL_FORM_VERSION,
+    title: "IADL 工具性日常生活活動",
+    instructions: "逐項記錄目前能力；請依機構核准的評估期間與個案實況作答。本頁不自動計分或分級。",
+    sourceLabel: "衛生福利部《失智症診療手冊》附錄五",
+    sourceUrl: "https://www.mohw.gov.tw/dl-27189-8993c3ad-0f47-45e0-a602-6a4362faae9a.html",
+    scoreVersionId: "lawton-iadl-8-domain-expanded-v1",
+    allowQualitativeNotes: true,
+    questions: IADL_QUESTIONS.map((question) => ({
+      ...question,
+      id: question.id === "medication" ? "medications" : question.id,
+      helpText: "請選擇最符合目前能力的一項；分數僅為此固定版本的功能參考，不取代專業判讀。",
+    })),
+  },
+  eat10_swallowing: {
+    key: "eat10_swallowing",
+    version: EAT10_FORM_VERSION,
+    title: "EAT-10 吞嚥篩檢",
+    instructions: EAT10_INSTRUCTIONS,
+    sourceLabel: "衛生福利部 EAT-10 中文版",
+    sourceUrl: "https://www.mohw.gov.tw/dl-81939-7ac68e25-be5e-470f-ae90-3bafa976f5c0.html",
+    scoreVersionId: "eat10-tw-v1",
+    allowQualitativeNotes: true,
+    questions: numericChoices(EAT10_QUESTIONS),
+  },
+  bsrs5: {
+    key: "bsrs5",
+    version: BSRS5_FORM_VERSION,
+    title: "BSRS-5 心情溫度計",
+    instructions: BSRS5_INSTRUCTIONS,
+    sourceLabel: "衛生福利部 BSRS-5 心情溫度計",
+    sourceUrl: "https://mohw.gov.tw/fp-16-19441-1.html",
+    scoreVersionId: "bsrs5-zh-tw-v1",
+    allowQualitativeNotes: true,
+    questions: bsrsChoices(BSRS5_QUESTIONS),
+  },
+  fall_risk_taipei_115: {
+    key: "fall_risk_taipei_115",
+    version: TAIPEI_FALL_RISK_FORM_VERSION,
+    title: "跌倒高風險評估 B12（臺北市 115 年版）",
+    instructions: "依臺北市政府社會局 115 年品質抽監測表 B12 逐項勾選；12 項中達 3 項以上屬表單所列高風險群。結果是篩檢提示，不是診斷；人員須確認並依機構流程處理。",
+    sourceLabel: "使用者提供：115 年度臺北市政府社會局社區式品質抽監測 ABCD 表，B12（第 7–8 頁）",
+    scoreVersionId: "fall-risk-taipei-115-b12-v1",
+    allowQualitativeNotes: true,
+    questions: TAIPEI_FALL_RISK_QUESTIONS,
+  },
+  nsi_determine: {
+    key: "nsi_determine",
+    version: NSI_DETERMINE_FORM_VERSION,
+    title: "NSI DETERMINE 營養風險檢核表",
+    instructions: "依十項警訊逐題回答；加權分數僅作營養風險篩檢，不能取代營養師評估或診斷。",
+    sourceLabel: "U.S. Administration for Community Living：Determine Your Nutritional Health Checklist",
+    sourceUrl: "https://acl.gov/sites/default/files/nutrition/NSI_checklist_508%20with%20citation.pdf",
+    scoreVersionId: "nsi-determine-10-weighted-v1",
+    allowQualitativeNotes: true,
+    questions: NSI_DETERMINE_QUESTIONS,
+  },
+  mna_sf: {
+    key: "mna_sf",
+    version: MNA_SF_FORM_VERSION,
+    title: "MNA-SF 簡式迷你營養評估",
+    instructions: "依授權的 2009 修訂版 A–F 順序作答。BMI 無法取得時，F 題改用小腿圍；保存實測值。篩檢分數不等同診斷。",
+    sourceLabel: "臺南市政府衛生局 MNA-SF 表單；MNA 官方修訂版與使用條件",
+    sourceUrl: "https://health.tainan.gov.tw/warehouse/6ED4EE62-9397-459A-9E21-7393D8398913/F_1713400448734e.pdf",
+    scoreVersionId: "mna-sf-revised-2009-v1",
+    allowQualitativeNotes: true,
+    measurementFields: MNA_SF_MEASUREMENTS,
+    questions: MNA_SF_QUESTIONS,
+  },
+};
+
+export function getQuestionnaireForm(key: string): QuestionnaireFormDefinition | null {
+  return Object.hasOwn(QUESTIONNAIRE_FORMS, key)
+    ? QUESTIONNAIRE_FORMS[key as QuestionnaireFormKey]
+    : null;
+}
