@@ -51,8 +51,9 @@ describe("Finance production theme contract (5f6820a, verified 2026-09-24)", () 
     expect(css).toContain("grid-template-columns: minmax(0, 1fr) max-content max-content minmax(0, max-content);");
     expect(css).toContain('grid-template-areas: "title bell actions status";');
     expect(css).toContain(".nav-link:hover { background: var(--brand); color: var(--admin-brown);");
-    expect(css).toContain('.nav-link[aria-current="page"] { background: var(--brand); color: var(--admin-brown);');
-    expect(css).toContain(".branch-switcher--compact .branch-switcher__button small { display: none; }");
+    expect(css).toContain('.nav-link[aria-current="page"] { background: var(--brand-strong); color: white;');
+    expect(css).toContain(".branch-switcher--compact .branch-switcher__button { width: 100%; max-width: none;");
+    expect(css).toContain(".branch-switcher__button .branch-switcher__current-branch");
     expect(css).toContain(".topbar .notification-button { width: 36px; height: 36px; border-radius: 10px; }");
     expect(css).toContain(".mobile-primary-nav a, .mobile-primary-nav button { display: flex;");
     expect(css).toContain("color: var(--ink-muted); font-size: 10px; font-weight: 900;");

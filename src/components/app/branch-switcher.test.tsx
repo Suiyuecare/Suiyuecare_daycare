@@ -57,6 +57,14 @@ describe("BranchSwitcher request boundaries", () => {
     }
   });
 
+  it("shows the full organization name and keeps the current branch distinct", () => {
+    const legalName = "樂齡歲悅股份有限公司附設臺北市私立歲悅萬華社區長照機構";
+    render(<BranchSwitcher currentBranchId={branchA} currentBranchName="歲悅萬華" organizationName={legalName} compact readOnly />);
+    const trigger = screen.getByRole("button", { name: `${legalName}，目前分支：歲悅萬華` });
+    expect(trigger.textContent).toContain(legalName);
+    expect(trigger.textContent).toContain("目前分支：歲悅萬華");
+  });
+
   it("leaves the trigger usable after a failed branch-list request", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     render(<BranchSwitcher currentBranchId={branchA} currentBranchName="甲分支" organizationName="測試機構" />);

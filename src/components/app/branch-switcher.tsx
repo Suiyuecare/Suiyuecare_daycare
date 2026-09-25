@@ -126,7 +126,11 @@ export function BranchSwitcher({
   return (
     <div className={`branch-switcher${compact ? " branch-switcher--compact" : ""}`}>
       <button aria-label={`${organizationName}，目前分支：${currentBranchName}`} aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending} onClick={toggle} type="button">
-        <span><small>{compact ? "目前分支" : `${organizationName}・目前分支`}</small><strong>{pending ? "讀取中…" : currentBranchName}</strong></span>
+        <span>
+          <small>機構全銜</small>
+          <strong className="branch-switcher__organization-name">{pending ? "讀取中…" : organizationName}</strong>
+          <small className="branch-switcher__current-branch">目前分支：{currentBranchName}</small>
+        </span>
         <ChevronsUpDown aria-hidden="true" />
       </button>
       {readOnly ? <small>固定合成分支 · 不切換真實機構</small> : null}
