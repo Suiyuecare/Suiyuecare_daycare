@@ -44,9 +44,17 @@ export function AssessmentEntryWorkspace({
     !candidateDraftNumbers.has(page.number) && ![14, 35].includes(page.number));
 
   function unavailableReason(number: number) {
-    if (number === 36) return "MNA 電子題本授權與正式填寫流程尚未確認";
+    if (number === 36) return "已收到授權確認；逐題作答與安全保存流程尚未接通";
     if (number === 17) return "尚未核定本機構採用的吞嚥評估工具與流程";
-    return "正式題本／版本與安全保存流程尚未核准";
+    return "完整逐題表單與安全保存流程尚未接通";
+  }
+
+  function candidateDescription(number: number) {
+    if (number === 11) return "衛福部 SPMSQ 10 題可填；分數仍是候選值";
+    if (number === 12) return "GDS-15 15 題可填；正式判讀仍待覆核";
+    if (number === 13) return "人工觀察草稿；不是標準化跌倒量表";
+    if (number === 21) return "人工紀錄草稿；正式表單規則仍待核定";
+    return "可填寫草稿；正式計分與簽署未啟用";
   }
 
   return <div className={styles.workspace}>
@@ -74,7 +82,7 @@ export function AssessmentEntryWorkspace({
           <h3 className={styles.groupTitle}>候選草稿・非正式量表</h3>
           <ul className={styles.cards}>{candidateDrafts.map((page) => <li key={page.slug}>
             <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
-              <span>{page.title}<small>題文／規則尚未核准・不計正式分數</small></span>
+              <span>{page.title}<small>{candidateDescription(page.number)}</small></span>
               <ArrowRight aria-hidden="true" />
             </Link>
           </li>)}</ul>
@@ -107,7 +115,7 @@ export function AssessmentEntryWorkspace({
           </Link>
         </li>)}</ul>
       </section> : null}
-      <p className={styles.note}>正式量表仍待核定題本、計分版本與保存驗收；目前草稿不作正式評估或照顧決策。</p>
+      <p className={styles.note}>已取得公開原始碼授權確認；各量表仍須逐一完成正確版本、答案保存、計分測試與正式啟用覆核。候選草稿不能代替正式評估或照顧決策。</p>
       {canReadExternalResults
         ? <ExternalAssessmentResultsWorkspace clientId={selectedClient.id} initialInstrument={initialExternalInstrument}
           canWrite={canWriteExternalResults} />

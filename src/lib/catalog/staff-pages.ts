@@ -177,7 +177,7 @@ export const staffPages = [
 
   staffPage(11, "assessments", "spmsq", {
     title: "SPMSQ 評估",
-    description: "保存受治理的候選草稿，並以尚未啟用的版本快照進行非正式試算。",
+    description: "依衛福部公開表單逐題記錄 10 題作答；分數與判讀仍屬候選規則。",
     primaryActions: ["開始候選草稿", "建立候選草稿新版", "查看不可變版本"],
     filters: ["個案", "候選試算狀態", "教育脈絡"],
     metrics: ["候選試算可重現", "試算不完整", "尚未建立", "候選草稿"],
@@ -186,7 +186,8 @@ export const staffPages = [
       "候選試算（非正式）", "操作",
     ],
     acceptance: [
-      "固定答案與教育修正須由 spmsq-pfeiffer-10-education-adjusted-v1 不可變候選規則快照重現；文化脈絡只保存，不產生未核准的數值修正。",
+      "畫面逐題呈現台灣衛福部 SPMSQ 10 題與施測提示，第 4 題無電話時可改問居住地，並標示原始來源。",
+      "候選錯誤數須由 spmsq-pfeiffer-10-education-adjusted-v1 不可變候選規則快照重現；此教育調整規則與台灣衛福部表單呈現方式尚待專業覆核，不得啟用為正式計分。文化脈絡只保存，不改變數值。",
       "未回答與不適用須分開保存，任一題未回答、不適用或教育脈絡不完整時試算為不完整，不得視為 0 分。",
       "候選規則未正式啟用時，正式簽署、官方分數、診斷與照顧決策一律 fail closed。",
       "正式資料依機構、分支與指派個案隔離，且須具 clients.read、assessments.read/manage 與最近 15 分鐘 AAL2；未授權請求在解析內容前拒絕。",

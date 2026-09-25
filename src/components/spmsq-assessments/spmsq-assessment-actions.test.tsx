@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getPageBySlug } from "@/lib/catalog";
 import { buildDemoSpmsqAssessmentSnapshot } from "@/lib/spmsq-assessments/demo";
+import { SPMSQ_QUESTIONS } from "@/lib/spmsq-assessments/types";
 
 import {
   SpmsqAssessmentActions,
@@ -116,6 +117,22 @@ describe("SPMSQ assessment client boundary", () => {
     expect(screen.getAllByText(/正式簽署/u).length).toBeGreaterThan(0);
   });
 
+  it("renders all ten official Taiwan SPMSQ prompts and administration notes", () => {
+    renderCreate();
+    openCreate();
+    expect(SPMSQ_QUESTIONS).toHaveLength(10);
+    for (const [index, question] of SPMSQ_QUESTIONS.entries()) {
+      expect(screen.getByRole("combobox", {
+        name: `第 ${index + 1} 題答案狀態：${question.prompt}`,
+      })).toBeDefined();
+      expect(screen.getAllByText(question.note).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText(/若個案家中沒有電話，第 4 題改問居住地/u))
+      .toBeDefined();
+    expect(screen.getByRole("link", { name: /衛生福利部所屬醫院/u }))
+      .toHaveProperty("href", "https://www.mil.mohw.gov.tw/public/dept_down/ufile/55b2bc21d3117046071942f0740047b5.pdf");
+  });
+
   it("locks create to the exact row client and preserves explicit missing states", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(
       JSON.stringify(successEnvelope()),
@@ -150,10 +167,10 @@ describe("SPMSQ assessment client boundary", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderCreate();
     openCreate();
-    fireEvent.change(screen.getByLabelText("題位 1 答案狀態"), {
+    fireEvent.change(screen.getByLabelText(/第 1 題答案狀態/u), {
       target: { value: "not_applicable" },
     });
-    const reason = screen.getByLabelText("題位 1 不適用理由");
+    const reason = screen.getByLabelText("第 1 題不適用理由");
     expect(reason).toHaveProperty("required", true);
     fireEvent.change(reason, { target: { value: "合成測試：本次不適用。" } });
     submitCreate();

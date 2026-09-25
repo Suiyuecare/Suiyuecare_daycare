@@ -72,7 +72,7 @@ describe("assessment entry workspace", () => {
     />);
     expect(screen.getByText("合成測試個案")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
-    expect(screen.getByText("正式量表仍待核定題本、計分版本與保存驗收；目前草稿不作正式評估或照顧決策。")).toBeVisible();
+    expect(screen.getByText(/已取得公開原始碼授權確認/u)).toBeVisible();
 
     const cards = screen.getAllByRole("link").filter((link) =>
       link.getAttribute("href")?.startsWith("/app/") && !link.getAttribute("href")?.includes("externalInstrument"));
@@ -90,9 +90,10 @@ describe("assessment entry workspace", () => {
     );
     expect(screen.getByRole("heading", { name: "登錄評估結果" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "量表／評估工具" })).toHaveValue("barthel_adl");
-    expect(screen.getByText(/MNA 電子題本授權/u)).toBeVisible();
+    expect(screen.getByText(/已收到授權確認；逐題作答與安全保存流程尚未接通/u)).toBeVisible();
     expect(screen.getByRole("heading", { name: "候選草稿・非正式量表" })).toBeVisible();
-    expect(screen.getAllByText("題文／規則尚未核准・不計正式分數")).toHaveLength(4);
+    expect(screen.getByText("衛福部 SPMSQ 10 題可填；分數仍是候選值")).toBeVisible();
+    expect(screen.getByText("人工觀察草稿；不是標準化跌倒量表")).toBeVisible();
     expect(screen.getByRole("heading", { name: "人工觀察草稿" })).toBeVisible();
     expect(screen.queryByText("可填寫草稿")).not.toBeInTheDocument();
   });

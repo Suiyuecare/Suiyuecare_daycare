@@ -14,6 +14,10 @@ import {
 } from "@/lib/spmsq-assessments/parser";
 import {
   SPMSQ_ITEM_IDS,
+  SPMSQ_QUESTIONS,
+  SPMSQ_QUESTION_INSTRUCTIONS,
+  SPMSQ_QUESTION_SOURCE,
+  SPMSQ_QUESTION_SOURCE_URL,
   SPMSQ_RULE_VERSION,
   type EducationValue,
   type SpmsqAnswer,
@@ -234,9 +238,9 @@ function SpmsqDraftEditor({
             value={educationState}
           >
             <option value="missing">缺值／尚未確認</option>
-            <option value="grade_school_or_less">小學或以下（候選 -1）</option>
-            <option value="middle_or_high_school">國高中（候選不調整）</option>
-            <option value="beyond_high_school">高中以上（候選 +1）</option>
+            <option value="grade_school_or_less">小學或以下</option>
+            <option value="middle_or_high_school">國高中</option>
+            <option value="beyond_high_school">高中以上</option>
             <option value="not_applicable">不適用</option>
           </select>
         </label>
@@ -252,15 +256,18 @@ function SpmsqDraftEditor({
         </label> : null}
 
         <fieldset className={`${styles.full} ${styles.questionSet}`}>
-          <legend>十個受治理答案欄位</legend>
-          <p>此版本只保存題位與對／錯／缺值／不適用狀態，不在此頁重製未核准的量表題文。</p>
-          {SPMSQ_ITEM_IDS.map((id, index) => {
+          <legend>SPMSQ 完整題目（10 題）</legend>
+          <p>{SPMSQ_QUESTION_INSTRUCTIONS}</p>
+          <p className={styles.formReference}>
+            題目來源：<a href={SPMSQ_QUESTION_SOURCE_URL} rel="noreferrer" target="_blank">{SPMSQ_QUESTION_SOURCE}</a>
+          </p>
+          {SPMSQ_QUESTIONS.map(({ id, prompt, note }, index) => {
             const answer = answers[id];
             return <div className={styles.questionRow} key={id}>
               <label>
-                <span>題位 {String(index + 1).padStart(2, "0")}</span>
+                <span>{index + 1}. {prompt}<small>{note}</small></span>
                 <select
-                  aria-label={`題位 ${index + 1} 答案狀態`}
+                  aria-label={`第 ${index + 1} 題答案狀態：${prompt}`}
                   onChange={(event) => setAnswer(id, event.currentTarget.value)}
                   value={answerControlValue(answer)}
                 >
@@ -271,7 +278,7 @@ function SpmsqDraftEditor({
                 </select>
               </label>
               {answer.state === "not_applicable" ? <label>
-                <span>題位 {index + 1} 不適用理由</span>
+                <span>第 {index + 1} 題不適用理由</span>
                 <input
                   maxLength={500}
                   onChange={(event) => {
@@ -325,7 +332,7 @@ function SpmsqDraftEditor({
         </label> : null}
 
         <p className={styles.formReference}>
-          候選規則快照：<code>{SPMSQ_RULE_VERSION}</code>。尚未正式 activated，試算不可簽署、不可視為官方結果，也不可驅動照顧決策。
+          候選規則快照：<code>{SPMSQ_RULE_VERSION}</code>。教育調整尚未與台灣表單版本完成專業核對；試算不可簽署、不可視為官方結果，也不可驅動照顧決策。
         </p>
         <p className={styles.warning}>
           只保存候選草稿；正式題本與簽署尚未啟用。

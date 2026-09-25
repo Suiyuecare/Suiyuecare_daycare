@@ -6,6 +6,71 @@ export const SPMSQ_ITEM_IDS = [
   "spmsq_06", "spmsq_07", "spmsq_08", "spmsq_09", "spmsq_10",
 ] as const;
 
+/** Taiwan MOHW SPMSQ prompts and administration notes (licensed source copy). */
+export const SPMSQ_QUESTIONS = [
+  {
+    id: "spmsq_01",
+    prompt: "今天是幾號？",
+    note: "年、月、日都正確才算答對。",
+  },
+  {
+    id: "spmsq_02",
+    prompt: "今天是星期幾？",
+    note: "星期答對才算答對。",
+  },
+  {
+    id: "spmsq_03",
+    prompt: "這是什麼地方？",
+    note: "能正確描述所在地即可；例如說「我的家」或說出城鎮、醫院、機構名稱。",
+  },
+  {
+    id: "spmsq_04",
+    prompt: "您的電話號碼是幾號？",
+    note: "核對號碼正確，或能在間隔較久後重複相同號碼，即可算答對；若沒有電話，改問「您住在什麼地方？」。",
+  },
+  {
+    id: "spmsq_05",
+    prompt: "您幾歲了？",
+    note: "年齡須與出生年月日相符。",
+  },
+  {
+    id: "spmsq_06",
+    prompt: "您的出生年月日是什麼？",
+    note: "年、月、日都正確才算答對。",
+  },
+  {
+    id: "spmsq_07",
+    prompt: "現任的總統是誰？",
+    note: "姓氏正確即可；依評估當日的現任者判斷。",
+  },
+  {
+    id: "spmsq_08",
+    prompt: "前任的總統是誰？",
+    note: "姓氏正確即可；依評估當日的前任者判斷。",
+  },
+  {
+    id: "spmsq_09",
+    prompt: "您媽媽叫什麼名字？",
+    note: "不需另行查證；能說出一個不同於本人姓名的女性姓名即可。",
+  },
+  {
+    id: "spmsq_10",
+    prompt: "從 20 減 3 開始算，一直減 3 減下去。",
+    note: "過程中出現錯誤或無法繼續，即記為答錯。",
+  },
+] as const satisfies readonly {
+  id: (typeof SPMSQ_ITEM_IDS)[number];
+  prompt: string;
+  note: string;
+}[];
+
+export const SPMSQ_QUESTION_INSTRUCTIONS =
+  "依序口頭詢問並記錄答對或答錯。若個案家中沒有電話，第 4 題改問居住地。";
+export const SPMSQ_QUESTION_SOURCE =
+  "衛生福利部所屬醫院：簡易心智狀態問卷調查表（SPMSQ）。";
+export const SPMSQ_QUESTION_SOURCE_URL =
+  "https://www.mil.mohw.gov.tw/public/dept_down/ufile/55b2bc21d3117046071942f0740047b5.pdf";
+
 export const CLIENT_SERVICE_STATUSES = [
   "active", "suspended", "transferred", "closed", "deceased",
 ] as const;

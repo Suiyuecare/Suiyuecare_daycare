@@ -14,7 +14,7 @@ import Link from "next/link";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import {
-  SPMSQ_ITEM_IDS,
+  SPMSQ_QUESTIONS,
   type SpmsqAnswer,
   type SpmsqAssessmentFilters,
   type SpmsqAssessmentListItem,
@@ -147,8 +147,8 @@ function AssessmentHistory({ item }: { item: SpmsqAssessmentListItem }) {
               : "缺值／尚未記錄"
         }</p>
         <ol aria-label={`v${version.assessmentVersion} 十題答案`} className={styles.answerList}>
-          {SPMSQ_ITEM_IDS.map((id, index) => <li key={id}>
-            <span>題位 {String(index + 1).padStart(2, "0")}</span>
+          {SPMSQ_QUESTIONS.map(({ id, prompt }, index) => <li key={id}>
+            <span>{index + 1}. {prompt}</span>
             <strong>{answerText(version.answers[id])}</strong>
           </li>)}
         </ol>
