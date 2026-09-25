@@ -29,7 +29,11 @@
 .questionSet { border: 1px solid var(--border, #d8e0dc); border-radius: 12px; display: grid; gap: 10px; min-width: 0; padding: 12px; }
 .questionSet > legend { font-weight: 700; padding: 0 5px; }
 .questionSet > p { color: var(--text-muted); margin: 0; }
-.questionRow { align-items: end; border-top: 1px solid var(--border, #d8e0dc); display: grid; gap: 10px; grid-template-columns: minmax(180px, .7fr) minmax(240px, 1.3fr); padding-top: 10px; }
+.questionSet > .questionSource { font-size: .875rem; }
+.questionSource a { color: var(--brand-strong); text-underline-offset: 2px; }
+.questionRow { align-items: center; border-top: 1px solid var(--border, #d8e0dc); display: grid; gap: 10px; grid-template-columns: minmax(280px, 1fr) minmax(150px, .35fr); padding-top: 10px; }
+.questionText { align-items: flex-start; display: flex; gap: 10px; line-height: 1.55; margin: 0; }
+.questionText > span { align-items: center; background: var(--brand-soft); border-radius: 999px; color: var(--brand-strong); display: inline-flex; flex: 0 0 28px; font-size: .8125rem; font-weight: 700; height: 28px; justify-content: center; }
 .history { border-top: 1px solid var(--border, #d8e0dc); margin-top: 10px; max-width: 380px; white-space: normal; }
 .history > ol { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
 .history > ol > li { background: var(--surface-soft); border-radius: 10px; padding: 10px; }

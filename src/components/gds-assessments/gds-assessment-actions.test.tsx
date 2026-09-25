@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getPageBySlug } from "@/lib/catalog";
 import { buildDemoGdsAssessmentSnapshot } from "@/lib/gds-assessments/demo";
+import { GDS_QUESTIONS, GDS_QUESTION_SOURCE } from "@/lib/gds-assessments/types";
 
 import { GdsAssessmentActions } from "./gds-assessment-actions";
 import { GdsAssessmentsWorkspace } from "./gds-assessments-workspace";
@@ -109,7 +110,7 @@ describe("GDS assessment client boundary", () => {
     expect(screen.getAllByText(/不是正式風險分類/u).length).toBeGreaterThan(0);
   });
 
-  it("locks create to the exact row client and starts with fifteen missing states", async () => {
+  it("shows all fifteen source questions and starts with unanswered states", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(
       JSON.stringify(successEnvelope()),
       { status: 201, headers: { "Content-Type": "application/json" } },
@@ -119,8 +120,13 @@ describe("GDS assessment client boundary", () => {
     openCreate();
     expect(screen.getByText(/已鎖定個案/u).closest("p")?.textContent)
       .toContain(unassessed.clientDisplayName);
-    expect(screen.getAllByRole("combobox", { name: /題位 \d+ 答案狀態/u }))
+    expect(screen.getAllByRole("combobox", { name: /第 \d+ 題回答/u }))
       .toHaveLength(15);
+    for (const question of GDS_QUESTIONS) expect(screen.getByText(question)).toBeDefined();
+    expect(screen.getByText(new RegExp(GDS_QUESTION_SOURCE, "u"))).toBeDefined();
+    expect(screen.getAllByRole("option", { name: "是" })).toHaveLength(15);
+    expect(screen.getAllByRole("option", { name: "否" })).toHaveLength(15);
+    expect(screen.queryByRole("option", { name: "不適用" })).toBeNull();
     submitCreate();
     await screen.findByText(/已確認保存/u);
     const body = JSON.parse(String(
@@ -135,28 +141,11 @@ describe("GDS assessment client boundary", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("shows and sends a separate not-applicable reason", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(
-      JSON.stringify(successEnvelope()),
-      { status: 201, headers: { "Content-Type": "application/json" } },
-    ));
-    vi.stubGlobal("fetch", fetchMock);
+  it("allows only standard yes/no answers plus the unanswered state", () => {
     renderCreate();
     openCreate();
-    fireEvent.change(screen.getByLabelText("題位 1 答案狀態"), {
-      target: { value: "not_applicable" },
-    });
-    const reason = screen.getByLabelText("題位 1 不適用理由");
-    fireEvent.change(reason, { target: { value: "合成測試：本次不適用。" } });
-    submitCreate();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const body = JSON.parse(String(
-      (fetchMock.mock.calls[0]![1] as RequestInit).body,
-    ));
-    expect(body.answers.gds_01).toEqual({
-      state: "not_applicable",
-      reason: "合成測試：本次不適用。",
-    });
+    expect(screen.getByLabelText(/第 1 題回答/u)).toHaveProperty("value", "missing");
+    expect(screen.queryByRole("option", { name: "不適用" })).toBeNull();
   });
 
   it("reuses one idempotency key after an unknown network result", async () => {
@@ -179,7 +168,7 @@ describe("GDS assessment client boundary", () => {
     openCreate();
     submitCreate();
     await screen.findByText(/結果未知/u);
-    fireEvent.change(screen.getByLabelText("題位 1 答案狀態"), {
+    fireEvent.change(screen.getByLabelText(/第 1 題回答/u), {
       target: { value: "yes" },
     });
     submitCreate();

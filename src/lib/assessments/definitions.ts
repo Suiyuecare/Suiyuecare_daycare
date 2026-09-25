@@ -7,6 +7,7 @@ import type {
   AssessmentRuleSnapshot,
   AssessmentVersionId,
 } from "./types";
+import { GDS_QUESTIONS } from "@/lib/gds-assessments/types";
 
 export interface AssessmentDefinition extends AssessmentRuleSnapshot {
   readonly items: readonly AssessmentItemDefinition[];
@@ -124,12 +125,12 @@ const spmsqItems = Array.from({ length: 10 }, (_, index) =>
 );
 
 const gdsScoredYes = new Set([2, 3, 4, 6, 8, 9, 10, 12, 14, 15]);
-const gdsItems = Array.from({ length: 15 }, (_, index) => {
+const gdsItems = GDS_QUESTIONS.map((question, index) => {
   const itemNumber = index + 1;
   const yesPoints = gdsScoredYes.has(itemNumber) ? 1 : 0;
   return requiredItem(
     `gds_${String(itemNumber).padStart(2, "0")}`,
-    `GDS-15 原量表第 ${itemNumber} 題`,
+    question,
     [answer("yes", yesPoints), answer("no", 1 - yesPoints)],
   );
 });

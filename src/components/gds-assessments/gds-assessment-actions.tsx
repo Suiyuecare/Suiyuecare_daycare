@@ -14,6 +14,10 @@ import {
 } from "@/lib/gds-assessments/parser";
 import {
   GDS_ITEM_IDS,
+  GDS_QUESTIONS,
+  GDS_QUESTION_INSTRUCTIONS,
+  GDS_QUESTION_SOURCE,
+  GDS_QUESTION_SOURCE_URL,
   GDS_RULE_VERSION,
   type GdsAnswer,
   type GdsAnswers,
@@ -186,39 +190,31 @@ function GdsDraftEditor({
           候選規則快照：<code>{GDS_RULE_VERSION}</code>。規則尚未啟用，所有數值僅供試算覆核。
         </p>
         <fieldset className={`${styles.full} ${styles.questionSet}`}>
-          <legend>十五個受治理答案欄位</legend>
-          <p>此頁只顯示題位與是／否／缺值／不適用狀態，不重製尚未由機構發布的正式題文。</p>
+          <legend>GDS-15 完整題目</legend>
+          <p>{GDS_QUESTION_INSTRUCTIONS}</p>
+          <p className={styles.questionSource}>
+            題目來源：<a href={GDS_QUESTION_SOURCE_URL} rel="noreferrer" target="_blank">{GDS_QUESTION_SOURCE}</a>
+          </p>
           {GDS_ITEM_IDS.map((id, index) => {
             const answer = answers[id];
             return <div className={styles.questionRow} key={id}>
+              <p className={styles.questionText}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                {GDS_QUESTIONS[index]}
+              </p>
               <label>
-                <span>題位 {String(index + 1).padStart(2, "0")}</span>
+                <span>回答</span>
                 <select
-                  aria-label={`題位 ${index + 1} 答案狀態`}
+                  aria-label={`第 ${index + 1} 題回答：${GDS_QUESTIONS[index]}`}
                   onChange={(event) => setAnswer(id, event.currentTarget.value)}
                   value={controlValue(answer)}
                 >
                   <option value="missing">缺值／未答</option>
                   <option value="yes">是</option>
                   <option value="no">否</option>
-                  <option value="not_applicable">不適用</option>
+                  {answer.state === "not_applicable" ? <option value="not_applicable">既有資料：不適用（非標準選項）</option> : null}
                 </select>
               </label>
-              {answer.state === "not_applicable" ? <label>
-                <span>題位 {index + 1} 不適用理由</span>
-                <input
-                  maxLength={500}
-                  onChange={(event) => {
-                    const reason = event.currentTarget.value;
-                    setAnswers((current) => ({
-                      ...current,
-                      [id]: { state: "not_applicable", reason },
-                    }));
-                  }}
-                  required
-                  value={answer.reason}
-                />
-              </label> : null}
             </div>;
           })}
         </fieldset>

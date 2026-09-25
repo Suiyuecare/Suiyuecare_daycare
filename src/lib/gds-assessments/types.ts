@@ -6,6 +6,32 @@ export const GDS_ITEM_IDS = [
   "gds_11", "gds_12", "gds_13", "gds_14", "gds_15",
 ] as const;
 
+/**
+ * Traditional Chinese GDS-15 wording published by Taiwan's Ministry of
+ * Health and Welfare. The instrument asks about feelings during the past week.
+ */
+export const GDS_QUESTIONS = [
+  "基本上，您對您的生活滿意嗎？",
+  "您是否減少很多的活動和興趣的事？",
+  "您是否覺得您的生活很空虛？",
+  "您是否常常感到厭煩？",
+  "您是否大部份時間精神都很好？",
+  "您是否會常常害怕將有不幸的事情發生在您身上嗎？",
+  "您是否大部份的時間都感到快樂？",
+  "您是否常常感到無論做什麼事，都沒有用？",
+  "您是否比較喜歡待在家裡而較不喜歡外出及不喜歡做新的事？",
+  "您是否覺得現在有記憶力不好的困擾？",
+  "您是否覺得「現在還能活著」是很好的事？",
+  "您是否覺得您現在活得很沒有價值？",
+  "您是否覺得精力很充沛？",
+  "您是否感覺您現在的情況是沒有希望的？",
+  "您是否覺得大部份的人都比您更幸福？",
+] as const;
+
+export const GDS_QUESTION_INSTRUCTIONS = "請根據您最近一週內的感受，回答下列問題。";
+export const GDS_QUESTION_SOURCE = "衛生福利部心理健康司，老年憂鬱症量表（GDS-15）；依衛福部政府網站資料開放宣告標示來源。";
+export const GDS_QUESTION_SOURCE_URL = "https://dep.mohw.gov.tw/DOMHAOH/fp-4912-76813-107.html";
+
 export const GDS_SCORED_YES_ITEM_IDS = [
   "gds_02", "gds_03", "gds_04", "gds_06", "gds_08",
   "gds_09", "gds_10", "gds_12", "gds_14", "gds_15",
