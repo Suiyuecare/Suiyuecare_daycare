@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
+import type { ExternalAssessmentInstrument } from "@/lib/external-assessment-results/contract";
+import { ExternalAssessmentResultsWorkspace } from "@/components/external-assessment-results/external-assessment-results-workspace";
 
 import styles from "./assessment-entry-workspace.module.css";
 
@@ -12,12 +14,18 @@ export function AssessmentEntryWorkspace({
   pages,
   unavailablePages,
   selectedClientId,
+  initialExternalInstrument = null,
+  canReadExternalResults = false,
+  canWriteExternalResults = false,
 }: {
   clients: readonly ClientMasterItem[];
   error: boolean;
   pages: readonly PageCatalogEntry[];
   unavailablePages: readonly PageCatalogEntry[];
   selectedClientId: string | null;
+  initialExternalInstrument?: ExternalAssessmentInstrument | null;
+  canReadExternalResults?: boolean;
+  canWriteExternalResults?: boolean;
 }) {
   if (error) return <section className="empty-card" role="alert">
     <span className="empty-card__icon empty-card__icon--warning"><FileWarning aria-hidden="true" /></span>
@@ -93,13 +101,25 @@ export function AssessmentEntryWorkspace({
       {unavailablePages.length ? <section aria-label="尚未開放的正式量表">
         <h3 className={styles.groupTitle}>尚未開放正式填寫</h3>
         <ul className={`${styles.cards} ${styles.unavailableCards}`}>{unavailablePages.map((page) => <li key={page.slug}>
-          <div aria-disabled="true" className={styles.unavailable}>
+          <Link className={styles.unavailable} href={`/app/staff/assessments/swallowing?client=${encodeURIComponent(selectedClient.id)}&externalInstrument=${instrumentForPage(page.number)}#external-result-entry`}>
             <span>{page.title}<small>{unavailableReason(page.number)}</small></span>
-            <span className={styles.lockedLabel}>待核准</span>
-          </div>
+            <span className={styles.lockedLabel}>登錄外部結果</span>
+          </Link>
         </li>)}</ul>
       </section> : null}
       <p className={styles.note}>正式量表仍待核定題本、計分版本與保存驗收；目前草稿不作正式評估或照顧決策。</p>
+      {canReadExternalResults
+        ? <ExternalAssessmentResultsWorkspace clientId={selectedClient.id} initialInstrument={initialExternalInstrument}
+          canWrite={canWriteExternalResults} />
+        : <p className={styles.note}>外部結果登錄需具備日常照顧紀錄查閱權限。</p>}
     </section> : <p className={styles.prompt} role="status">選取個案後，這裡會列出可用表單。</p>}
   </div>;
+}
+
+function instrumentForPage(number: number): ExternalAssessmentInstrument {
+  const byPage: Record<number, ExternalAssessmentInstrument> = {
+    11: "spmsq", 12: "gds", 13: "fall_risk", 14: "nsi", 15: "barthel_adl",
+    16: "iadl", 17: "swallowing", 18: "bsrs", 35: "chewing", 36: "mna",
+  };
+  return byPage[number] ?? "barthel_adl";
 }

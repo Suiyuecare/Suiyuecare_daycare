@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getPageBySlug } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
@@ -49,10 +49,13 @@ const unavailablePages = [
   "staff/professional-care/mna",
 ].map((slug) => getPageBySlug(slug)!);
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("assessment entry workspace", () => {
   it("asks for a client first and links available draft forms to that exact client", () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { snapshot: {
+      clientId: client.id, records: [], total: 0, hasMore: false, generatedAt: "2026-09-25T00:00:00Z",
+    } } }), { status: 200, headers: { "content-type": "application/json" } })));
     const { unmount } = render(<AssessmentEntryWorkspace
       clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={null}
     />);
@@ -65,12 +68,14 @@ describe("assessment entry workspace", () => {
     unmount();
     render(<AssessmentEntryWorkspace
       clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={client.id}
+      canReadExternalResults canWriteExternalResults
     />);
     expect(screen.getByText("合成測試個案")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
     expect(screen.getByText("正式量表仍待核定題本、計分版本與保存驗收；目前草稿不作正式評估或照顧決策。")).toBeVisible();
 
-    const cards = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/app/"));
+    const cards = screen.getAllByRole("link").filter((link) =>
+      link.getAttribute("href")?.startsWith("/app/") && !link.getAttribute("href")?.includes("externalInstrument"));
     expect(cards).toHaveLength(pages.length);
     const orderedPages = [
       ...pages.filter((page) => [11, 12, 13, 21].includes(page.number)),
@@ -80,8 +85,11 @@ describe("assessment entry workspace", () => {
     expect(cards.map((card) => card.getAttribute("href"))).toEqual(orderedPages.map((page) =>
       `/app/${page.slug}?client=${encodeURIComponent(client.id)}`));
     expect(screen.getByRole("heading", { name: "尚未開放正式填寫" })).toBeVisible();
-    expect(screen.getByText("吞嚥評估")).toBeVisible();
-    expect(screen.queryByRole("link", { name: /吞嚥評估/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /吞嚥評估.*登錄外部結果/ })).toHaveAttribute(
+      "href", `/app/staff/assessments/swallowing?client=${encodeURIComponent(client.id)}&externalInstrument=swallowing#external-result-entry`,
+    );
+    expect(screen.getByRole("heading", { name: "登錄評估結果" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "量表／評估工具" })).toHaveValue("barthel_adl");
     expect(screen.getByText(/MNA 電子題本授權/u)).toBeVisible();
     expect(screen.getByRole("heading", { name: "候選草稿・非正式量表" })).toBeVisible();
     expect(screen.getAllByText("題文／規則尚未核准・不計正式分數")).toHaveLength(4);

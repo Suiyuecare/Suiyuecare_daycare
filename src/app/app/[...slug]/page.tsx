@@ -14,6 +14,7 @@ import { loadOpeningReadinessSnapshot } from "@/lib/opening-readiness/snapshot";
 import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
 import { OperationalWorkspace } from "@/components/workspace/operational-workspace";
 import { AssessmentEntryWorkspace } from "@/components/assessments/assessment-entry-workspace";
+import { externalAssessmentInstruments, type ExternalAssessmentInstrument } from "@/lib/external-assessment-results/contract";
 import { ImportWorkspace } from "@/components/imports/import-workspace";
 import { SyntheticImportPreview } from "@/components/imports/synthetic-import-preview";
 import { IntegrationsAuditWorkspace } from "@/components/integrations-audit/integrations-audit-workspace";
@@ -1197,17 +1198,20 @@ export default async function StaffCatalogPage({
       page={page} snapshot={snapshot} />;
   }
 
-  if ([15, 16, 18].includes(page.number)) {
+  if ([15, 16, 18, 36].includes(page.number)) {
     const requestedClient = typeof query.client === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query.client)
       ? query.client.toLowerCase() : null;
-    const entryHref = requestedClient
-      ? `/app/staff/assessments/swallowing?client=${encodeURIComponent(requestedClient)}`
-      : "/app/staff/assessments/swallowing";
+    const requestedInstrument: Record<number, ExternalAssessmentInstrument> = {
+      15: "barthel_adl", 16: "iadl", 18: "bsrs", 36: "mna",
+    };
+    const entryHref = `/app/staff/assessments/swallowing${requestedClient
+      ? `?client=${encodeURIComponent(requestedClient)}&externalInstrument=${requestedInstrument[page.number]}`
+      : `?externalInstrument=${requestedInstrument[page.number]}`}#external-result-entry`;
     return <section className="empty-card" role="status">
-      <h1>{page.title}尚未開放正式填寫</h1>
-      <p>正式題本、版本與安全保存流程完成前，這裡不會建立正式評估或計分。</p>
-      <Link className="button button--secondary" href={entryHref}>返回評估入口</Link>
+      <h1>{page.title}：外部結果登錄</h1>
+      <p>可在評估入口選擇個案，登錄經核准紙本／外部工具的原始結果；系統不提供題目或自動計分。</p>
+      <Link className="button button--primary" href={entryHref}>{requestedClient ? "登錄外部結果" : "先選個案並登錄結果"}</Link>
     </section>;
   }
 
@@ -1235,8 +1239,21 @@ export default async function StaffCatalogPage({
     const unavailablePageNumbers = new Set([15, 16, 17, 18, 36]);
     const unavailablePages = staffPages.filter((candidate) => unavailablePageNumbers.has(candidate.number) &&
       canAccessCatalogPage(context, candidate));
+    const requestedInstrument = typeof query.externalInstrument === "string" &&
+      Object.hasOwn(externalAssessmentInstruments, query.externalInstrument)
+      ? query.externalInstrument as ExternalAssessmentInstrument : null;
+    let canReadExternalResults = false;
+    let canWriteExternalResults = false;
+    if (!context.demo) {
+      [canReadExternalResults, canWriteExternalResults] = await Promise.all([
+        canUseRoutineCare(context, "care_records.read"),
+        canUseRoutineCare(context, "care_records.write"),
+      ]);
+    }
     return <AssessmentEntryWorkspace clients={clients} error={loadError}
-      pages={entryPages} unavailablePages={unavailablePages} selectedClientId={selectedClientId} />;
+      pages={entryPages} unavailablePages={unavailablePages} selectedClientId={selectedClientId}
+      initialExternalInstrument={requestedInstrument} canReadExternalResults={canReadExternalResults}
+      canWriteExternalResults={canWriteExternalResults} />;
   }
 
   if (page.number === 20) {
