@@ -42,12 +42,12 @@ export function NursingVersionDifferences({ previous, current }: { previous: Nur
 }
 type PendingOperation = { request: NursingRequest; idempotencyKey: string };
 export function NursingAssessmentsWorkspace({ snapshot, canManage, canSign, hasRecentAal2,
-  actorUserId, loadError = false }: {
+  actorUserId, initialClientId = null, loadError = false }: {
   snapshot: NursingAssessmentSnapshot | null; canManage: boolean; canSign: boolean;
-  hasRecentAal2: boolean; actorUserId?: string; loadError?: boolean;
+  hasRecentAal2: boolean; actorUserId?: string; initialClientId?: string | null; loadError?: boolean;
 }) {
   const router = useRouter();
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(() => initialClientId ?? "");
   const [versionId, setVersionId] = useState("");
   const [mode, setMode] = useState<"create_draft" | "revise_draft" | "correct" | null>(null);
   const [editingSnapshotAt, setEditingSnapshotAt] = useState<string | null>(null);
@@ -67,7 +67,9 @@ export function NursingAssessmentsWorkspace({ snapshot, canManage, canSign, hasR
     return () => { window.clearInterval(timer); window.removeEventListener("online", check); window.removeEventListener("offline", check); };
   }, [snapshot]);
   if (loadError || !snapshot) return <section className={styles.card} role="alert"><h1>護理評估暫時無法載入</h1><p>請確認目前機構、分支與護理評估權限後重新載入。</p><button className="button button--secondary" onClick={() => router.refresh()}>重新載入</button></section>;
-  const client = snapshot.clients.find((item) => item.clientId === clientId) ?? snapshot.clients[0];
+  const client = clientId
+    ? snapshot.clients.find((item) => item.clientId === clientId)
+    : snapshot.clients[0];
   const latest = client?.versions[0];
   const selected = client?.versions.find((version) => version.versionId === versionId) ?? latest;
   const previous = client?.versions.find((version) => version.versionId === selected?.previousVersionId);
@@ -125,9 +127,10 @@ export function NursingAssessmentsWorkspace({ snapshot, canManage, canSign, hasR
     {error ? <p className={styles.error} role="alert">{error}</p> : null}
     {message ? <p className={styles.status} role="status">{message}</p> : null}
     {pending ? <div className={styles.notice}><p>本次操作內容已固定，重試使用相同識別碼。請先確認結果，再開始另一筆操作。</p><button className="button button--primary" disabled={busy || offline} onClick={() => void execute(pending)}>{busy ? "確認中…" : "以相同內容重試"}</button></div> : null}
+    {clientId && !client ? <p className={styles.error} role="alert">所選個案不在目前可查看範圍，請從個案中心重新選擇。</p> : null}
     <div className={styles.toolbar}><label>個案<select value={client?.clientId ?? ""} disabled={busy || pending !== null || mode !== null}
       onChange={(event) => { setClientId(event.target.value); setVersionId(""); setMessage(""); setError(""); }}>
-      {!client ? <option value="">目前沒有可查看的指派個案</option> : null}
+      {!client ? <option value="">目前個案無法查看</option> : null}
       {snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName} · {item.versionsTotal ? `${item.versionsTotal} 個版本` : "尚未評估"}</option>)}</select></label>
       <button className="button button--secondary" disabled={busy || pending !== null} onClick={() => router.refresh()}>重新載入</button></div>
     {snapshot.clientsTruncated ? <p role="status">目前顯示前 {snapshot.clients.length} 位／共 {snapshot.clientTotal} 位可查看個案；尚未提供後續分頁。</p> : null}

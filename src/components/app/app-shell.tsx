@@ -70,6 +70,7 @@ export function AppShell({
   const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const [refreshEpoch, setRefreshEpoch] = useState(0);
+  const [taipeiClock, setTaipeiClock] = useState("");
   const logoutRunning = useRef(false);
   const refreshLease = useRef<(() => void) | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
@@ -106,6 +107,15 @@ export function AppShell({
   useEffect(() => () => {
     refreshLease.current?.();
     refreshLease.current = null;
+  }, []);
+
+  useEffect(() => {
+    const updateClock = () => setTaipeiClock(new Intl.DateTimeFormat("zh-TW", {
+      timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }).format(new Date()));
+    updateClock();
+    const interval = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(interval);
   }, []);
 
   // Derive a newly active module during navigation without an effect-driven flash.
@@ -258,7 +268,7 @@ export function AppShell({
             <X />
           </button>
         </div>
-        <div className="sidebar__branch sidebar__branch--mobile">
+        <div className="sidebar__branch">
           <BranchSwitcher compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
             readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
         </div>
@@ -329,9 +339,9 @@ export function AppShell({
             <button className="button button--primary" onClick={logout} type="button">登出</button>
           </div>
           <div className="topbar__context">
-            <BranchSwitcher compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
-              readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
             <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>
+            <span className="topbar__separator" aria-hidden="true">・</span>
+            <time className="topbar__clock" dateTime={taipeiClock ? `${taipeiClock}+08:00` : undefined} aria-label={taipeiClock ? `台北時間 ${taipeiClock}` : "台北時間載入中"}>{taipeiClock || "--:--:--"}</time>
           </div>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>

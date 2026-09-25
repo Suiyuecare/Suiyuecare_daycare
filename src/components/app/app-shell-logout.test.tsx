@@ -56,6 +56,8 @@ describe("staff shell logout privacy", () => {
     render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
 
     expect(screen.getByRole("status")).toHaveTextContent("合成員工姓名・照顧服務員・正式系統");
+    expect(screen.getByLabelText(/台北時間/u)).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "系統功能" })).toHaveTextContent("登出");
     fireEvent.click(screen.getByRole("button", { name: "重新整理" }));
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
     expect(mocks.clear).not.toHaveBeenCalled();

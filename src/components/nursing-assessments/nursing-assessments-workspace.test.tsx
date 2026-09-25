@@ -25,6 +25,17 @@ describe("manual nursing workspace", () => {
     expect(screen.getByRole("button", { name: "簽署目前草稿" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "新增護理評估" })).not.toBeDisabled();
   });
+  it("keeps a selected client when opened from the assessment entry", () => {
+    const selected = demo.clients[1]!;
+    render(<NursingAssessmentsWorkspace {...props} initialClientId={selected.clientId}/>);
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(selected.clientId);
+    expect(screen.getByRole("heading", { name: selected.displayName })).toBeInTheDocument();
+  });
+  it("does not fall back to a different client for an out-of-scope selected id", () => {
+    render(<NursingAssessmentsWorkspace {...props} initialClientId="51000000-0000-4000-8000-000000000099"/>);
+    expect(screen.getByRole("alert")).toHaveTextContent("不在目前可查看範圍");
+    expect(screen.queryByRole("button", { name: "新增護理評估" })).not.toBeInTheDocument();
+  });
   it("shows prior/current differences and explicit missing state", () => {
     const current = structuredClone(version); current.version = 2;
     current.content.domains.observations.detail = "合成觀察更新";

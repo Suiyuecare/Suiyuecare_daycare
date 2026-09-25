@@ -31,6 +31,22 @@ const pages = [
   "staff/assessments/gds",
   "staff/assessments/fall-risk",
   "staff/assessments/nsi",
+  "staff/assessments/physical",
+  "staff/assessments/behavior-emotion",
+  "staff/assessments/abcd",
+  "staff/social-work/psychosocial-assessment",
+  "staff/social-work/adaptation-assessment",
+  "staff/professional-care/occupational-assessment",
+  "staff/professional-care/physical-assessment",
+  "staff/professional-care/chewing",
+  "staff/service-management/nursing-assessment",
+].map((slug) => getPageBySlug(slug)!);
+const unavailablePages = [
+  "staff/assessments/barthel-adl",
+  "staff/assessments/iadl",
+  "staff/assessments/swallowing",
+  "staff/assessments/bsrs",
+  "staff/professional-care/mna",
 ].map((slug) => getPageBySlug(slug)!);
 
 afterEach(cleanup);
@@ -38,31 +54,43 @@ afterEach(cleanup);
 describe("assessment entry workspace", () => {
   it("asks for a client first and links available draft forms to that exact client", () => {
     const { unmount } = render(<AssessmentEntryWorkspace
-      clients={[client]} error={false} pages={pages} selectedClientId={null}
+      clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={null}
     />);
 
     const picker = screen.getByRole("combobox", { name: "個案" });
     expect(picker).toHaveValue("");
     expect(screen.getByRole("status")).toHaveTextContent("選取個案後");
-    expect(screen.queryByText("正式題本與簽署尚未啟用")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "尚未開放正式填寫" })).not.toBeInTheDocument();
 
     unmount();
     render(<AssessmentEntryWorkspace
-      clients={[client]} error={false} pages={pages} selectedClientId={client.id}
+      clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={client.id}
     />);
     expect(screen.getByText("合成測試個案")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
-    expect(screen.getByText("草稿不等同正式量表結果；正式題本與簽署尚未啟用。")).toBeVisible();
+    expect(screen.getByText("正式量表仍待核定題本、計分版本與保存驗收；目前草稿不作正式評估或照顧決策。")).toBeVisible();
 
-    const cards = screen.getAllByRole("link").filter((link) => link.textContent?.includes("候選草稿"));
-    expect(cards).toHaveLength(4);
-    expect(cards.map((card) => card.getAttribute("href"))).toEqual(pages.map((page) =>
+    const cards = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/app/"));
+    expect(cards).toHaveLength(pages.length);
+    const orderedPages = [
+      ...pages.filter((page) => [11, 12, 13, 21].includes(page.number)),
+      ...pages.filter((page) => [14, 35].includes(page.number)),
+      ...pages.filter((page) => ![11, 12, 13, 14, 21, 35].includes(page.number)),
+    ];
+    expect(cards.map((card) => card.getAttribute("href"))).toEqual(orderedPages.map((page) =>
       `/app/${page.slug}?client=${encodeURIComponent(client.id)}`));
+    expect(screen.getByRole("heading", { name: "尚未開放正式填寫" })).toBeVisible();
+    expect(screen.getByText("吞嚥評估")).toBeVisible();
     expect(screen.queryByRole("link", { name: /吞嚥評估/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/MNA 電子題本授權/u)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "候選草稿・非正式量表" })).toBeVisible();
+    expect(screen.getAllByText("題文／規則尚未核准・不計正式分數")).toHaveLength(4);
+    expect(screen.getByRole("heading", { name: "人工觀察草稿" })).toBeVisible();
+    expect(screen.queryByText("可填寫草稿")).not.toBeInTheDocument();
   });
 
   it("shows a short actionable error instead of an empty-looking page", () => {
-    render(<AssessmentEntryWorkspace clients={[]} error={true} pages={[]} selectedClientId={null} />);
+    render(<AssessmentEntryWorkspace clients={[]} error={true} pages={[]} unavailablePages={[]} selectedClientId={null} />);
     const alert = screen.getByRole("alert");
     expect(within(alert).getByRole("heading", { name: "個案清單載入失敗" })).toBeVisible();
     expect(within(alert).getByText("資料沒有變更。請重新載入。")).toBeVisible();
@@ -72,7 +100,7 @@ describe("assessment entry workspace", () => {
   });
 
   it("requires a selection before opening a form", () => {
-    render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages} selectedClientId={null} />);
+    render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={null} />);
     const form = screen.getByRole("combobox", { name: "個案" }).closest("form");
     expect(form).toHaveAttribute("action", "/app/staff/assessments/swallowing");
     expect(form).toHaveAttribute("method", "get");

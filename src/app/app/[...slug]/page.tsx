@@ -1197,6 +1197,20 @@ export default async function StaffCatalogPage({
       page={page} snapshot={snapshot} />;
   }
 
+  if ([15, 16, 18].includes(page.number)) {
+    const requestedClient = typeof query.client === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query.client)
+      ? query.client.toLowerCase() : null;
+    const entryHref = requestedClient
+      ? `/app/staff/assessments/swallowing?client=${encodeURIComponent(requestedClient)}`
+      : "/app/staff/assessments/swallowing";
+    return <section className="empty-card" role="status">
+      <h1>{page.title}尚未開放正式填寫</h1>
+      <p>正式題本、版本與安全保存流程完成前，這裡不會建立正式評估或計分。</p>
+      <Link className="button button--secondary" href={entryHref}>返回評估入口</Link>
+    </section>;
+  }
+
   if (page.number === 17) {
     const requestedClient = typeof query.client === "string" ? query.client : "";
     const selectedClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
@@ -1212,14 +1226,17 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
-    // Only link to assessment workspaces with a current snapshot and a draft
-    // workflow. The remaining catalog entries are intentionally not advertised
-    // as usable forms until their official rules and write paths are verified.
-    const entryPageNumbers = new Set([11, 12, 13, 14]);
+    // Keep the one-client-first entry limited to workflows that have a scoped
+    // draft/manual-record write path. Standardized scales without an approved
+    // instrument and persistence workflow remain explicitly unavailable below.
+    const entryPageNumbers = new Set([11, 12, 13, 14, 19, 20, 21, 28, 32, 33, 34, 35, 51]);
     const entryPages = staffPages.filter((candidate) => entryPageNumbers.has(candidate.number) &&
       canAccessCatalogPage(context, candidate));
+    const unavailablePageNumbers = new Set([15, 16, 17, 18, 36]);
+    const unavailablePages = staffPages.filter((candidate) => unavailablePageNumbers.has(candidate.number) &&
+      canAccessCatalogPage(context, candidate));
     return <AssessmentEntryWorkspace clients={clients} error={loadError}
-      pages={entryPages} selectedClientId={selectedClientId} />;
+      pages={entryPages} unavailablePages={unavailablePages} selectedClientId={selectedClientId} />;
   }
 
   if (page.number === 20) {
@@ -3927,6 +3944,9 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 51) {
+    const requestedClient = typeof query.client === "string" ? query.client : "";
+    const selectedClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
+      ? requestedClient.toLowerCase() : null;
     let snapshot = null;
     let loadError = false;
     try { snapshot = await loadNursingAssessmentSnapshot(context); }
@@ -3934,6 +3954,7 @@ export default async function StaffCatalogPage({
     const recentAal2 = !context.demo && await hasRecentAal2();
     const authorizedNurse = !context.demo && context.roles.includes("nurse");
     return <NursingAssessmentsWorkspace snapshot={snapshot} loadError={loadError}
+      initialClientId={selectedClientId}
       actorUserId={context.userId} hasRecentAal2={recentAal2}
       canManage={authorizedNurse && context.scopes.includes("nursing_assessments.manage")}
       canSign={authorizedNurse && context.scopes.includes("nursing_assessments.sign")} />;
