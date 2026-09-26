@@ -14,11 +14,13 @@ export type AssessmentVersionId =
   | "gds-15-strict-complete-v1"
   | "barthel-adl-0-100-v1"
   | "lawton-iadl-8-domain-expanded-v1"
+  | "lawton-iadl-8-domain-expanded-v2"
   | "mna-sf-revised-2009-v1"
   | "fall-risk-taipei-115-b12-v1"
   | "nsi-determine-10-weighted-v1"
   | "eat10-tw-v1"
-  | "bsrs5-zh-tw-v1";
+  | "bsrs5-zh-tw-v1"
+  | "bsrs5-zh-tw-v2";
 
 export type AssessmentAnswer<TValue extends string = string> =
   | { readonly state: "answered"; readonly value: TValue }
@@ -72,6 +74,7 @@ export interface AssessmentAlert {
   readonly code: string;
   readonly level: "info" | "warning";
   readonly message: string;
+  readonly requiresAcknowledgement?: true;
 }
 
 export type AssessmentIssueCode =

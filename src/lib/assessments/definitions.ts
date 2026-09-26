@@ -1,5 +1,6 @@
 import type {
   AssessmentAlert,
+  AssessmentAnswers,
   AssessmentClassification,
   AssessmentContextDefinition,
   AssessmentInstrument,
@@ -24,6 +25,7 @@ export interface AssessmentDefinition extends AssessmentRuleSnapshot {
     score: number,
     classification: AssessmentClassification,
   ) => readonly AssessmentAlert[];
+  readonly buildAnswerAlerts?: (answers: AssessmentAnswers) => readonly AssessmentAlert[];
 }
 
 const answer = (value: string, points: number) => ({ value, points }) as const;
@@ -320,6 +322,13 @@ const bsrsBands = [
   band("high_16_20", "16–20 分・重度情緒困擾參考區間", 16, 20, "screening_only"),
 ] as const;
 
+const bsrsReviewedBands = [
+  band("adaptation_0_5", "0–5 分・身心適應狀況良好", 0, 5, "screening_only"),
+  band("mild_6_9", "6–9 分・輕度情緒困擾", 6, 9, "screening_only"),
+  band("moderate_10_14", "10–14 分・中度情緒困擾", 10, 14, "screening_only"),
+  band("high_15_20", "15–20 分・重度情緒困擾參考區間", 15, 20, "screening_only"),
+] as const;
+
 const commonDisclaimer =
   "本結果只重現指定版本的量表計分，不構成診斷、醫囑或自動處置；應由具權限人員結合完整資料判讀。";
 
@@ -612,8 +621,70 @@ const definitions = [
   },
 ] as const satisfies readonly AssessmentDefinition[];
 
-export const ASSESSMENT_DEFINITIONS: readonly AssessmentDefinition[] =
-  definitions;
+// Keep v1 definitions intact so a historical snapshot always reproduces its
+// originally selected weights, boundaries, sources, and alert behavior.
+const iadlReviewedOnePointChoices = new Set([
+  "telephone_answer_only", "housework_light_tasks", "housework_below_standard",
+  "housework_all_help", "laundry_small_items", "transport_with_companion",
+  "finances_daily_only",
+]);
+
+const reviewedDefinitions = [
+  {
+    ...definitions[3],
+    versionId: "lawton-iadl-8-domain-expanded-v2",
+    ruleRevision: 2,
+    title: "Lawton-Brody IADL 八領域版（原表選項權重校正版）",
+    scoringPolicy: "依 HIGN 2019 原表八領域各計 0 或 1 分，總分 0–8；所有性別均評估八領域。接電話、部分家事、洗小件、陪同搭公共交通與日常財務等選項依原表亦為 1 分，不能僅以完全獨立判分。缺值或 N/A 不推估。此候選版尚待人工核准生效。",
+    sources: [{
+      label: "NYU Hartford Institute for Geriatric Nursing — Lawton IADL, revised 2019, scoring table page 2",
+      url: "https://hign.org/sites/default/files/2020-06/Try_This_General_Assessment_23.pdf",
+    }, {
+      label: "衛生福利部《失智症診療手冊》附錄五，印刷頁 61／PDF 第 65 頁",
+      url: "https://www.mohw.gov.tw/dl-27189-8993c3ad-0f47-45e0-a602-6a4362faae9a.html",
+    }],
+    items: iadlItems.map((item) => ({
+      ...item,
+      choices: item.choices.map((choice) => ({
+        ...choice,
+        points: iadlReviewedOnePointChoices.has(choice.value) ? 1 : choice.points,
+      })),
+    })),
+  },
+  {
+    ...definitions[8],
+    versionId: "bsrs5-zh-tw-v2",
+    ruleRevision: 2,
+    title: "BSRS-5 心情溫度計（15 分界線與獨立安全警示校正版）",
+    scoringPolicy: "前五題 0–4 分加總：0–5、6–9、10–14、15–20 分；附加自殺想法題不加總。附加題非零需人工關懷確認，2 分以上需依衛福部指引由人員評估專業轉介；即使其他題未答仍呈現獨立安全警示。此候選版尚待人工核准生效。",
+    sources: [{
+      label: "衛生福利部心理健康司《老人心理衛生及自殺防治》簡式健康量表及後續建議",
+      url: "https://www.mohw.gov.tw/dl-61918-f75279ca-c85c-4b3a-bbf6-dadabe218c20.html",
+    }, {
+      label: "衛生福利部心理健康司《關懷訪視指引》BSRS-5 後續處遇",
+      url: "https://www.mohw.gov.tw/dl-61928-5df3b420-0022-4339-8141-ee84b5e9c6bc.html",
+    }],
+    classify: (score: number) => findBand(bsrsReviewedBands, score),
+    buildAnswerAlerts: (answers: AssessmentAnswers): readonly AssessmentAlert[] => {
+      const safety = answers.bsrs_suicide;
+      if (safety?.state !== "answered" || !["1", "2", "3", "4"].includes(safety.value)) return [];
+      const professionalReview = Number(safety.value) >= 2;
+      return [{
+        code: professionalReview ? "BSRS_SUICIDE_PROFESSIONAL_REVIEW" : "BSRS_SUICIDE_CONCERN_REVIEW",
+        level: "warning",
+        requiresAcknowledgement: true,
+        message: professionalReview
+          ? "附加安全題達 2 分以上，需人員即時關懷並依機構流程評估專業轉介；本系統不代替人工處理或自動通知。"
+          : "附加安全題有非零作答，需人員即時關懷並確認後續處理；本系統不代替人工處理或自動通知。",
+      }];
+    },
+  },
+] as const satisfies readonly AssessmentDefinition[];
+
+export const ASSESSMENT_DEFINITIONS: readonly AssessmentDefinition[] = [
+  ...definitions,
+  ...reviewedDefinitions,
+];
 
 export const ASSESSMENT_VERSIONS: Readonly<
   Record<AssessmentVersionId, AssessmentDefinition>
@@ -628,6 +699,8 @@ export const ASSESSMENT_VERSIONS: Readonly<
     "nsi-determine-10-weighted-v1": definitions[6],
     "eat10-tw-v1": definitions[7],
     "bsrs5-zh-tw-v1": definitions[8],
+    "lawton-iadl-8-domain-expanded-v2": reviewedDefinitions[0],
+    "bsrs5-zh-tw-v2": reviewedDefinitions[1],
   } satisfies Record<AssessmentVersionId, AssessmentDefinition>,
 );
 

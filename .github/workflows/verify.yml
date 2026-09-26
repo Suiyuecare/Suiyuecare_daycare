@@ -1,0 +1,81 @@
+name: Source and synthetic database checks
+
+# Engineering checks only. This workflow never deploys, applies hosted
+# migrations, loads production secrets, or establishes operational readiness.
+# Finance cross-repository/hosted, clinical, and all PRODUCTION_GATES.md checks
+# remain separate requirements; a green check is not approval to go live.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Source, portable SQL, and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.23.2'
+      - name: Install pinned package manager and dependencies
+        run: |
+          npm install --global pnpm@11.21.0
+          pnpm install --frozen-lockfile
+      - name: Validate source and portable database
+        run: |
+          pnpm exec next typegen
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm test:database
+      - name: Build without production credentials
+        run: pnpm build
+      - name: Scan production dependencies
+        run: pnpm audit --prod --audit-level=low
+      - name: State remaining release requirements
+        run: |
+          printf '%s\n' 'Source checks are not formal release approval.'
+          printf '%s\n' 'Finance cross-repository test is conditional without FINANCE_CONTRACT_REPO; its complete evidence is required separately.'
+          printf '%s\n' 'Hosted migrations, human approvals, browser flows, and PRODUCTION_GATES.md remain required.'
+
+  native:
+    name: Native PostgreSQL 17 synthetic gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      INTAKE_NATIVE_PG_BIN: /usr/lib/postgresql/17/bin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.23.2'
+      - name: Install pinned package manager and dependencies
+        run: |
+          npm install --global pnpm@11.21.0
+          pnpm install --frozen-lockfile
+      - name: Install PostgreSQL 17 from the official repository
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-17
+      - name: Verify disposable local clusters only
+        run: pnpm test:database:native

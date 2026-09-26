@@ -1,7 +1,8 @@
 // Native PostgreSQL validation in a disposable local cluster. Never accepts a URL
 // or connects to a hosted database. Auth and Storage schemas are synthetic fixtures.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
@@ -10,8 +11,7 @@ const binaries = process.env.INTAKE_NATIVE_PG_BIN;
 if (!binaries || !binaries.startsWith("/")) {
   throw new Error("Set INTAKE_NATIVE_PG_BIN to an existing absolute native PostgreSQL bin directory.");
 }
-const runtime = await mkdtemp("/tmp/daycare-native-pg.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-native-pg.");
 const port = "55439";
 const env = {
   PATH: process.env.PATH,
@@ -111,6 +111,7 @@ const intakeTables = [
 ];
 const intakeTableList = intakeTables.map((name) => `'${name}'`).join(",");
 let started = false;
+let testFailure;
 try {
   console.log(run(join(binaries, "postgres"), ["--version"]).trim());
   run(join(binaries, "initdb"), ["-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=reject", "--no-locale", "--encoding=UTF8"]);
@@ -347,7 +348,10 @@ try {
   if (Object.values(activationCounts).some((count) => count !== 1)) throw new Error("Concurrent Google activation created duplicate authorization or audit records.");
   console.log("Native activation concurrency: two OAuth sessions -> two safe true results, one grant/profile/membership/role and one activation audit.");
   console.log("Native engine verified; hosted Supabase Auth, Storage service, migration ownership, and production data remain separate deployment gates.");
+} catch (error) {
+  testFailure = error;
+  throw error;
 } finally {
-  if (started) run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);
-  console.log(`Disposable synthetic-only cluster stopped; artifacts retained at ${runtime}.`);
+  await cleanupNativeData({ started, testFailure,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

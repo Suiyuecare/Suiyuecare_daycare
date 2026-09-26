@@ -2,15 +2,15 @@
 // No hosted URL, real patient data, auth-predicate replacement or remote calls.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const binaries = process.env.INTAKE_NATIVE_PG_BIN;
 if (!binaries?.startsWith("/")) throw new Error("Set INTAKE_NATIVE_PG_BIN to an absolute native PostgreSQL bin directory.");
-const runtime = await mkdtemp("/tmp/daycare-questionnaire-native.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-questionnaire-native.");
 const port = "55447";
 const env = { PATH: process.env.PATH, LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8", PGHOST: runtime, PGPORT: port, PGUSER: "postgres", PGDATABASE: "postgres", PGCONNECT_TIMEOUT: "5" };
 const args = ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"];
@@ -261,12 +261,6 @@ try {
 } finally {
   const released = await Promise.allSettled([...holders].map((holder) => holder.release()));
   const cleanupErrors = released.filter((result) => result.status === "rejected").map((result) => result.reason);
-  let stopped = !started;
-  try {
-    if (started) run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);
-    stopped = true;
-  } catch (error) { cleanupErrors.push(error); }
-  console.log(`Disposable synthetic-only cluster ${stopped ? "stopped" : "could not be stopped"}; artifacts retained at ${runtime}.`);
-  if (cleanupErrors.length && !testFailure) throw new AggregateError(cleanupErrors, "Native cluster cleanup failed.");
-  if (cleanupErrors.length && testFailure) console.error("Native cleanup also failed; the original test failure is preserved.");
+  await cleanupNativeData({ started, testFailure, cleanupErrors,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

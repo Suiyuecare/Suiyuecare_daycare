@@ -1,9 +1,12 @@
-# Only application source/configuration should be sent to the isolated trial project.
+# Only application source/configuration should be included in a deployment.
+# Deployment exclusions are separate from Git exclusions; never upload case
+# files, raw imports, backups, exports or credential containers.
 .env*
 .git
 .next
 node_modules
 .vercel
+/.github
 /docs
 /tests
 /supabase
@@ -23,6 +26,22 @@ src/**/*.test-fixtures.ts
 AGENTS.md
 CLAUDE.md
 *.html
+*.htm
 *.pdf
 *.docx
 *.xlsx
+*.csv
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+*.pem
+*.key
+*.p12
+*.pfx
+/private
+/uploads
+/imports
+/exports
+/backups
