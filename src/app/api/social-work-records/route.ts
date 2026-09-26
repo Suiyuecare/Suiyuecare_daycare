@@ -325,7 +325,7 @@ export async function PATCH(request: Request) {
       );
     return ok(
       { ...result, persisted: true as const, demo: false as const },
-      200,
+      result.replayed ? 200 : 201,
       requestId,
     );
   });

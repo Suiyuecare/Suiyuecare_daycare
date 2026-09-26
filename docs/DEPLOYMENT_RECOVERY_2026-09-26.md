@@ -173,3 +173,7 @@ Chrome真正Next頁39重現Node與瀏覽器的日期分隔U+2009／ASCII差異�
 新唯讀盤點還發現：頁29新PATCH回200但前端要求201，可能把真正保存顯示為結果未知；頁28／29編輯會清除未知原鍵、無共享journal；兩頁原RPC仍有CEO-only開通阻斷。護理未知鎖／MFA復原與舊快照ABA仍需補。這些列為下一輪P0，不用本次轉介通過證據擴稱完成。
 
 私有原始證據前綴`referral-admission-`；native最终摘要`referral-admission-native-final.json`及13套集合日誌保留於同一私有驗證目錄。臨時資料庫均已停止，僅清除各runner明確擁有的測試pgdata，日誌／備份／證據保留；未刪除正式或使用者資料。
+
+### 社工新寫入回覆的跨層契約修正
+
+頁29實際PATCH新紀錄回200，但真正前端parser只接受新寫入201／原鍵重播200。新增跨層測試重現六種PATCH動作全部失敗（6 RED、10原有／create通過）；API改為依真正DB `replayed`旗標回201或200，未改parser、RPC、授權或近期AAL2。六種動作各驗新寫入／相同鍵重播，另驗create兩種回覆，實際API response經真正client parser全部通過；最終API／domain兩檔22項、該兩個API來源ESLint零警告通過。原始RED／GREEN日誌`social-work-http-contract-*`保留；這不代表原生社工開通或頁28／29未知寫入journal已修，兩頁後續變更須另凍結驗證。
