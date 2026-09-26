@@ -4,9 +4,11 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { TenantContext } from "@/lib/domain/types";
 import { getNavigationGroups } from "@/lib/catalog";
-const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname, useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
+vi.mock("@/lib/service-management/claim-validation-pending", () => ({ clearClaimValidationPendingOnLogout: mocks.pendingClaims }));
+vi.mock("@/lib/body-assessments/pending", () => ({ clearBodyAssessmentPendingOnLogout: mocks.pendingBody }));
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));
 vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
@@ -61,6 +63,8 @@ describe("staff shell logout privacy", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新整理" }));
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
     expect(mocks.clear).not.toHaveBeenCalled();
+    expect(mocks.pendingClaims).not.toHaveBeenCalled();
+    expect(mocks.pendingBody).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
@@ -72,6 +76,12 @@ describe("staff shell logout privacy", () => {
     expect(screen.queryByText("合成員工姓名")).not.toBeInTheDocument();
     expect(await screen.findByText(/裝置草稿尚未確認清除/)).toBeVisible();
     expect(mocks.signOut).toHaveBeenCalledWith({ scope: "local" }); expect(mocks.fetch).toHaveBeenCalled();
+    expect(mocks.pendingClaims).toHaveBeenCalledOnce();
+    expect(mocks.pendingBody).toHaveBeenCalledOnce();
+    expect(mocks.pendingClaims.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
+    expect(mocks.pendingClaims.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
+    expect(mocks.pendingBody.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
+    expect(mocks.pendingBody.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "重試清理並登出" })).toBeEnabled();
   });
@@ -80,12 +90,18 @@ describe("staff shell logout privacy", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
     expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect(mocks.pendingClaims).toHaveBeenCalledOnce();
+    expect(mocks.pendingBody).toHaveBeenCalledOnce();
   });
   it("keeps the synthetic return action free of storage or authentication operations", () => {
     vi.stubEnv("NEXT_PUBLIC_SYNTHETIC_PREVIEW", "true");
     render(<AppShell context={{ ...actor, demo: true }} navigation={[]}><p>合成展示</p></AppShell>);
     fireEvent.click(screen.getByRole("button", { name: "返回試用入口" }));
     expect(mocks.replace).toHaveBeenCalledWith("/login"); expect(mocks.clear).not.toHaveBeenCalled(); expect(mocks.signOut).not.toHaveBeenCalled(); expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.pendingClaims).toHaveBeenCalledOnce();
+    expect(mocks.pendingClaims.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
+    expect(mocks.pendingBody).toHaveBeenCalledOnce();
+    expect(mocks.pendingBody.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
   });
   it("offers retry without restoring data when sign-out itself is uncertain", async () => {
     mocks.signOut.mockResolvedValue({ error: new Error("uncertain") });

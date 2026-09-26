@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { hasRouteHeading } from "./lib/route-heading.mjs";
 
 const baseUrl = new URL(process.env.ROUTE_SMOKE_BASE_URL ?? "http://127.0.0.1:3000");
 const matrixPath = resolve(process.cwd(), "docs/R0_PAGE_ACCEPTANCE_MATRIX.md");
@@ -35,7 +36,7 @@ async function verifyPage(page) {
     const errors = [];
     if (response.status !== 200) errors.push(`HTTP ${response.status}`);
     const expectedHeading = routeHeadingOverrides.get(page.number) ?? page.title;
-    if (!body.includes(`<h1>${expectedHeading}</h1>`)) {
+    if (!hasRouteHeading(body, expectedHeading)) {
       errors.push("route heading missing");
     }
     if (body.length < 1_000) errors.push("response unexpectedly small");

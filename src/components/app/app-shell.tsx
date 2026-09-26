@@ -30,6 +30,8 @@ import { companyNavigation } from "@/lib/config/company-navigation";
 import type { TenantContext } from "@/lib/domain/types";
 import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/types";
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
+import { clearClaimValidationPendingOnLogout } from "@/lib/service-management/claim-validation-pending";
+import { clearBodyAssessmentPendingOnLogout } from "@/lib/body-assessments/pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -191,12 +193,14 @@ export function AppShell({
   }, [compactNavigation, menuOpen]);
 
   async function logout() {
+    if (logoutRunning.current) return;
+    clearClaimValidationPendingOnLogout();
+    clearBodyAssessmentPendingOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();
       return;
     }
-    if (logoutRunning.current) return;
     logoutRunning.current = true;
     // Remove the entire patient/employee shell immediately, before network or
     // IndexedDB work. A failed cleanup never restores the old sensitive view.

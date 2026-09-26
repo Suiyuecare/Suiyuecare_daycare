@@ -3,15 +3,16 @@
 .header h1 { font-size: 1.8rem; margin: .4rem 0; }
 .header p,.record p { margin: .4rem 0; line-height: 1.7; }
 .workspace button,.workspace select,.workspace input,.workspace textarea { font: inherit; border: 1px solid var(--line); border-radius: .6rem; padding: .65rem .8rem; max-width: 100%; }
-.workspace button { background: var(--brand); color: white; min-height: 44px; cursor: pointer; }
+.workspace :is(select,input,textarea) { font-size: 16px; min-height: 44px; }
+.workspace button { background: var(--brand-strong); color: white; min-height: 44px; cursor: pointer; }
 .workspace button:disabled { cursor: not-allowed; opacity: .5; }
-.workspace :is(button,select,input,textarea,summary):focus-visible { outline: 3px solid #c18325; outline-offset: 3px; }
+.workspace :is(button,select,input,textarea,summary):focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 3px; }
 .notice { padding: 1rem; background: #f5f0dc; border-left: 4px solid #b48725; border-radius: .5rem; line-height: 1.8; }
 .record,.editor { background: #fff; border: 1px solid var(--line); padding: 1.25rem; border-radius: 1rem; display: grid; gap: .8rem; min-width: 0; }
 .record h2 { margin: 0; font-size: 1.2rem; }
 .filters { display: flex; gap: .75rem; flex-wrap: wrap; align-items: end; }
 .workspace label { display: grid; gap: .4rem; font-weight: 550; min-width: 0; }
-.workspace textarea { width: 100%; min-height: 5rem; font-weight: 400; }
+.workspace textarea { width: 100%; min-height: 5rem; font-weight: 400; resize: none; }
 .workspace fieldset { border: 1px solid var(--line); border-radius: .75rem; display: grid; gap: .8rem; padding: 1rem; min-width: 0; }
 .rowEditor { background: var(--surface-soft); }
 .observations { display: grid; gap: .75rem; margin: 0; }

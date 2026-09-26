@@ -40,7 +40,7 @@ components:
 
 使用者指定的 Finance 畫面為視覺依據，不另作品牌改造。既有 `src/app/globals.css` 是 runtime token 的唯一來源；本文件採 Model B，記錄已實作值，不產生第二套 CSS。
 
-本次範圍是頁面 82 的題目式量表規則審核入口，不代表重新驗收全部 89 頁。使用者為臺灣日照機構主任及授權管理者；繁體中文、`zh-TW`、`Asia/Taipei`，非日本市場。主要工作是核對版本、送審、獨立核准和查閱退休歷程。
+本次範圍包含頁面 82 的題目式量表規則審核入口、頁面 49 的申報驗證安全重試、頁面 19 的人工身體觀察原筆回查，以及單店出勤與收支的有界定時讀取；不代表重新驗收全部 89 頁。使用者為臺灣日照機構主任及授權管理者；繁體中文、`zh-TW`、`Asia/Taipei`，非日本市場。主要工作是核對版本、送審、獨立核准、查閱退休歷程、確認申報草稿與查閱當店收支。
 
 保留熟悉的左側欄與頂部 frame；畫面辨識特徵是暖橘選中狀態與奶油色篩選區。不要大型宣傳標題、裝飾圖表、密集工程警告或另一套 header。安全限制不能因簡化文字而隱藏。
 
@@ -75,12 +75,18 @@ components:
 | 文字／色彩／邊框／圓角 | `src/app/globals.css` | 全部新規則管理元件 |
 | Header／sidebar | `src/components/app/app-shell.tsx` | 原 page 82，不另造 frame |
 | Button／field／dialog surface | `.button`／`.field`／`.core-dialog` | 管理區段及確認視窗 |
-| 模態確認行為 | `src/components/ui/governance-dialog.tsx` | 採用／退休同一個確認入口 |
+| 模態確認行為 | `src/components/ui/governance-dialog.tsx` | 採用／退休／申報驗證共用確認入口 |
 | 有界請求／範圍回執 | `client-fetch.ts`／`rule-governance-client.ts` | 讀取、寫入及原操作重試 |
 
 Native select 的關閉外觀沿用 `.control`，開啟選單接受作業系統幾何與鍵盤行為，不宣称其 popup 和 Finance 完全相同。日期採有格式提示的 YYYY-MM-DD 文字欄位與正式 schema 驗證，不自製 calendar。文字欄位明確標籤；textarea 不可拖曳改變佈局，保留充分高度和內部捲動。
 
+店務摘要是已存在的 Finance 篩選具名例外：沿用原生 date／month 控制；人工身體觀察保留既有 native datetime-local，以台北時間轉成帶偏移的正式 schema。兩者接受瀏覽器／作業系統選單、語系及幾何；不是規則治理的 typed 日期欄位，也不宣稱 popup 與 Finance 像素相同。表單關閉原生驗證氣泡，由日期／月份／觀察 input 契約驗證並顯示可操作的錯誤。
+
 pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後出現。錯誤不消失、不展示原始資料庫文字。審核理由、期限與正式啟用後果始終可見；題庫原文、公式和雜湊在詳情中。
+
+申報驗證沿用既有欄位、筆數與總額摘要，不另建 frame；結果未知時只提供原筆回查。店務頁不新增圖表或更改財務口徑，定時讀取不等於成功取得新資料；未更新及離線提示保持可見。
+
+高風險確認視窗的主要按鈕使用既有 `--brand-strong` 配白字，以符合一般文字 AA 對比；只限 `.core-dialog`，不更改 Finance header／sidebar 的既有 token、位置或圓角。此具名無障礙例外來自 Chrome／axe 實測，而非另一套品牌配色。
 
 圖示沿用 lucide-react，decorative 圖示 aria-hidden。新區段不另加進場動畫；共同 reduced-motion 保護與 focus-visible 生效。捲軸為全域 application 基線，幾何可局部穩定 gutter，不使用 opt-in class 才有色彩。
 

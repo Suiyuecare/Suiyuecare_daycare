@@ -523,6 +523,9 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 .core-dialog__surface > .drawer__header, .core-dialog__surface > .drawer__footer { flex-shrink: 0; }
 .core-dialog__surface > .drawer__body { min-height: 0; }
 .core-dialog__fieldset { display: grid; min-width: 0; gap: 17px; margin: 0; border: 0; padding: 0; }
+/* Consequential confirmations need AA white-text contrast; keep the Finance
+   frame and its existing warm-orange token unchanged outside this surface. */
+.core-dialog .button--primary { background: var(--brand-strong); }
 .vital-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; }
 .vital-inputs legend { padding: 0 6px; color: var(--ink-muted); font-size: .76rem; font-weight: 900; }
 .check-field { display: flex; min-height: 44px; align-items: flex-start; gap: 10px; color: var(--ink); font-size: .86rem; font-weight: 700; line-height: 1.45; }

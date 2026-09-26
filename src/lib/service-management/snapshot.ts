@@ -9,9 +9,9 @@ import {
   buildDemoClaimReadSnapshot,
   buildDemoServiceUsageSnapshot,
 } from "./demo";
+import { parseClaimReadRows } from "./claim-read-contract";
 import type {
   ClaimReadSnapshot,
-  ClaimStatus,
   ServiceEventStatus,
   ServiceUsageSnapshot,
 } from "./types";
@@ -26,23 +26,6 @@ type ServiceEventRow = {
   staff_user_id: string | null;
   client_service_plan_id: string | null;
   signed_at: string | null;
-};
-type ClaimBatchRow = {
-  id: string;
-  claim_period_start: string;
-  claim_period_end: string;
-  format_version: string;
-  status: ClaimStatus;
-  item_count: number;
-  total_amount: string | number;
-  responded_item_count: number;
-  rejected_item_count: number;
-  legacy_response_unknown: boolean;
-  has_immutable_snapshot: boolean;
-  exported_at: string | null;
-  submitted_at: string | null;
-  reconciled_at: string | null;
-  updated_at: string;
 };
 
 export class ServiceManagementSnapshotError extends Error {
@@ -147,27 +130,7 @@ export async function loadClaimReadSnapshot(
       p_limit: 200,
     });
   if (error) throw new ServiceManagementSnapshotError();
-  const batches = (data ?? []) as unknown as ClaimBatchRow[];
-
-  return {
-    generatedAt: new Date().toISOString(),
-    demo: false,
-    batches: batches.map((batch) => ({
-      id: batch.id,
-      periodStart: batch.claim_period_start,
-      periodEnd: batch.claim_period_end,
-      formatVersion: batch.format_version,
-      status: batch.status,
-      itemCount: batch.item_count,
-      totalAmount: String(batch.total_amount),
-      respondedItemCount: batch.responded_item_count,
-      rejectedItemCount: batch.rejected_item_count,
-      legacyResponseUnknown: batch.legacy_response_unknown,
-      hasImmutableSnapshot: batch.has_immutable_snapshot,
-      exportedAt: batch.exported_at,
-      submittedAt: batch.submitted_at,
-      reconciledAt: batch.reconciled_at,
-      updatedAt: batch.updated_at,
-    })),
-  };
+  try {
+    return { generatedAt: new Date().toISOString(), demo: false, batches: parseClaimReadRows(data) };
+  } catch { throw new ServiceManagementSnapshotError(); }
 }

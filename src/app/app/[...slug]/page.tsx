@@ -3838,6 +3838,7 @@ export default async function StaffCatalogPage({
     return (
       <ClaimsWorkspace
         canValidate={canValidate}
+        scope={{ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }}
         hasRecentAal2={recentAal2}
         loadError={loadError}
         page={page}

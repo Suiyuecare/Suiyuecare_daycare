@@ -25,6 +25,7 @@ describe("minimal owner page", () => {
     expect(screen.getByText("萬華展示店")).toBeInTheDocument();
     expect(screen.getByLabelText("出勤日期")).toHaveValue("2026-09-12");
     expect(screen.getByLabelText("收支月份")).toHaveValue("2026-09");
+    expect(screen.getByRole("form")).toHaveAttribute("novalidate");
     expect(screen.getByText("685,000")).toBeInTheDocument();
     expect(screen.getByText("472,350")).toBeInTheDocument();
     expect(screen.getByText(/未登記與已取消不列入缺席/u)).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe("minimal owner page", () => {
     vi.useFakeTimers();
     render(<StoreOverviewWorkspace overview={overview} />);
     act(() => { vi.advanceTimersByTime(70_000); });
-    expect(screen.getByRole("status")).toHaveTextContent("資料已超過 1 分鐘");
+    expect(screen.getByText(/資料已超過 1 分鐘/u)).toHaveAttribute("role", "status");
   });
   it("gives a truthful empty-data explanation", () => {
     render(<StoreOverviewWorkspace overview={{ ...overview,
