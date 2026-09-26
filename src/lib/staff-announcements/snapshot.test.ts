@@ -72,4 +72,30 @@ describe("announcement bounded snapshot loader", () => {
     expect(result.pagination.matchingTotal).toBe(1); expect(result.pagination.page).toBe(1); expect(result.demo).toBe(true);
     expect(mocks.db).not.toHaveBeenCalled();
   });
+  it("loads synthetic announcements with the legacy demo-only scopes without expanding formal admission", async () => {
+    const demoActor = { ...context, demo: true, scopes: ["branch:read", "assigned_clients:write", "records:sign"] };
+    const result = await loadStaffAnnouncementSnapshot(demoActor, null);
+    expect(result.demo).toBe(true);
+    expect(result.items.length).toBeGreaterThan(0);
+    expect(mocks.db).not.toHaveBeenCalled();
+    await expect(loadStaffAnnouncementSnapshot({ ...demoActor, demo: false }, null)).rejects.toBeInstanceOf(StaffAnnouncementSnapshotError);
+    expect(mocks.db).not.toHaveBeenCalled();
+  });
+  it("retains selected-release validation in synthetic mode without querying the backend", async () => {
+    await expect(loadStaffAnnouncementSnapshot({ ...context, demo: true, scopes: [] }, "invalid")).rejects.toBeInstanceOf(StaffAnnouncementSnapshotError);
+    expect(mocks.db).not.toHaveBeenCalled();
+  });
+  it("loads known synthetic recipient details with no formal scopes but rejects unknown releases", async () => {
+    const demoActor = { ...context, demo: true, scopes: [] };
+    const result = await loadStaffAnnouncementSnapshot(demoActor, "68111111-1111-4111-8111-111111111112");
+    expect(result.demo).toBe(true);
+    expect(result.selectedRecipients).toHaveLength(3);
+    await expect(loadStaffAnnouncementSnapshot(demoActor, context.userId)).rejects.toBeInstanceOf(StaffAnnouncementSnapshotError);
+    expect(mocks.db).not.toHaveBeenCalled();
+  });
+  it.each([{ query: "x".repeat(121) }, { status: "bogus" }, { page: 0 }])("retains filter validation in synthetic mode %#", async (change) => {
+    await expect(loadStaffAnnouncementSnapshot({ ...context, demo: true, scopes: [] }, null,
+      { ...DEFAULT_STAFF_ANNOUNCEMENT_FILTERS, ...change } as typeof DEFAULT_STAFF_ANNOUNCEMENT_FILTERS)).rejects.toBeInstanceOf(StaffAnnouncementSnapshotError);
+    expect(mocks.db).not.toHaveBeenCalled();
+  });
 });

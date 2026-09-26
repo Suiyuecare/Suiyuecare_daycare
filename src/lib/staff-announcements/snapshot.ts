@@ -21,10 +21,10 @@ export async function loadStaffAnnouncementSnapshot(
   selectedReleaseId: string | null,
   filters: StaffAnnouncementFilters = DEFAULT_STAFF_ANNOUNCEMENT_FILTERS,
 ) {
-  if (!context.scopes.includes("announcements.read")) {
+  if (!context.demo && !context.scopes.includes("announcements.read")) {
     throw new StaffAnnouncementSnapshotError();
   }
-  const canManage = context.scopes.includes("announcements.manage");
+  const canManage = context.demo || context.scopes.includes("announcements.manage");
   if (selectedReleaseId !== null && !canManage) throw new StaffAnnouncementSnapshotError();
   const releaseId = selectedReleaseId;
   try {
