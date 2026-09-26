@@ -199,3 +199,14 @@ Chrome真正Next頁39重現Node與瀏覽器的日期分隔U+2009／ASCII差異�
 - 凍結後全量lint零warning、TypeScript、strict premium兩頁零findings、diff-check及隔離production build通過，101静態輸出完成。明確清空外部配置並關閉demo，真正本機Next兩GET皆503／SERVICE_NOT_CONFIGURED、data=null、private/no-store；Chrome登入頁正常無JS錯誤且Google未配置按鈕停用。不是hosted401／403、真Google或RLS測試。證據`social-recovery-final-{lint,typecheck,build}.log`、`social-recovery-production-{denial.json,login.txt}`；owned server與browser已停止。
 
 GET不取得MFA、不重建已改變的canonical context，也未解決fullreload durable intent、32個確認標記或有界歷程精確定位；護理獨立GET仍缺。所有正式門檻維持，包含未完成的評鑑頁79與家屬84–89真正資料／操作流程，不發布或新增費用。
+
+## 九份獨立結構驗證候選（2026-09-27，未發布）
+
+新增與原 v1 計分目錄精確綁定的獨立 validation candidate／固定九個雜湊，封存缺答、不適用、情境、文字及 MNA 實測／互斥／一致性，16項錯誤結果規則從 manifest 取值。`storageValid` 只代表既有純 DB 草稿 wire，不是 HTTP 接受、使用者權限、保存成功或正式簽署；完整性失敗不產生分數，獨立 BSRS 安全警示仍保留。原 v1 題庫／hash、草稿 API／UI／SQL、採用與退休紀錄均不變；目前沒有接入現有正式流程。
+
+- 四份新增測試 **93／93**；隔離 PGlite 執行原兩個純 SQL validator，**3,224 JSON fixtures**逐列一致，87題每個已註冊選項與狀態／格式邊界、全部可達分數、SPMSQ情境、BSRS安全答案及 MNA 界線均有覆蓋。這不是原生多人 RPC／Auth／RLS 或 hosted 驗收。
+- 第一遍全量在日期切換後重現舊測試的硬編碼錯誤期限剛好變成合法期限；保留失敗／中止日誌。只修 fixture，以原期限加一天及三個固定日期驗錯配，原回條拒絕／合法對照斷言不放寬，8／8 GREEN。
+- 修正後最新完整凍結來源全量 **521檔／7,484項全部通過，195.97秒，無略過**；單worker、原timeout，Finance跨repo使用精確候選。這是本輪結果，不將上一517／7389或首遍中止冒稱當前完整通過。
+- 最終全套lint零warning、TypeScript、diff-check、隔離production build通過，101靜態輸出；套件當次正式依賴135個、已知advisory0，不替代滲透或完整ASVS。沒有本輪UI變更，未重新執行瀏覽器或89路由，亦不冒稱歷史14套native是本輪新證據。
+
+精確範圍、固定候選／既有HTTP差異及私有證據檔見[量表結構驗證候選](QUESTIONNAIRE_VALIDATION_CANDIDATE_2026-09-26.md)。來源原件封存、私有組合目錄／新雙人採用、逐表核簽資格／風險／補登政策及正式簽署更正仍需完成；其他89頁業務、CMS WORM／掃毒、官方申報、Finance同店、家屬及持續營運門檻不變。本機SQL仍143份，未新查雲端或套用DDL；沒有GitHub push、Vercel發布、區域遷移或新增費用。所有本輪測試程序已完成或明確停止，首遍失敗原始日誌保留。

@@ -12,6 +12,8 @@
 
 頁28／29後續已補自己unknown鎖旁的明確手動授權GET，不重送原寫入、不釋放原lease；嚴格新來源與目前能力取代舊SSR旗標，撤權／畸形回覆隔離舊內容，晚回覆與ABA拒絕。這不是MFA取得、scope變更context復原或完整重載durable intent；範圍與驗證見[社工唯讀回查候選](SOCIAL_WORK_READ_RECOVERY_2026-09-26.md)。
 
+2026-09-27 新增九份獨立結構驗證候選，封存草稿 wire／完整性差異與 MNA 實測驗證。原題庫、計分 v1、草稿 API／UI／SQL 與已採用期間未變；仍沒有正式核簽或部署。最新切片及測試狀態見[結構驗證候選](QUESTIONNAIRE_VALIDATION_CANDIDATE_2026-09-26.md)，不能用前輪的全量數字代替新增來源的驗收。
+
 - **資料庫：** 本機候選目前143份migration；最後一次2026-09-26T13:56:32Z唯讀hosted證據為130份、最新`20260925141114_governed_questionnaire_drafts`。13份候選增量未套用，不能把較早查詢稱當前live狀態。該次Supabase為ACTIVE_HEALTHY、Seoul（`ap-northeast-2`），不是原規劃Tokyo。
 - **發布連線：** 後續團隊清單已成功取得`entrepreneur-9585s-projects`，不再是空清單；該team專案清單只回另一HR專案，指定日照部署清單實際403。專案詳情另有idOrName工具轉接錯誤，不證明專案不存在。尚未核對日照production branch／預覽保護與方案，沒有盲目push／發布，也未使用曝光Token。
 - **店務摘要：** 本機候選已新增每 55 秒、前景／有連線／非展示／沒有其他作業鎖時的只讀 GET 刷新；無新來源最多兩次重試，再轉人工。只依實際來源時間判定新鮮度，不把刷新呼叫當作讀取完成。尚未部署，且正式 Finance gateway、同店映射及真實金額對帳仍未通過；不得稱為兩套正式系統已即時相通。
