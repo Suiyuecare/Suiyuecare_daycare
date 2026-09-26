@@ -9,7 +9,6 @@ import { exportInputSchema, exportSnapshotSchema, taipeiExportModel } from "@/li
 import { renderDocumentPdf } from "@/lib/document-printing/pdf-renderer";
 import { TAIPEI_PDF_FONT_FEATURES } from "@/lib/taipei-abcd/pdf-font";
 export const runtime = "nodejs";
-export const preferredRegion = "hnd1";
 export const dynamic = "force-dynamic";
 const resultSchema = z.object({ id: z.uuid(), snapshot: exportSnapshotSchema, snapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
   fontAssetKey: z.literal("taipei-crosswalk-font-v1") });

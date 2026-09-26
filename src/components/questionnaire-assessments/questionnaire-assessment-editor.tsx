@@ -12,6 +12,7 @@ import type {
   QuestionnaireFormDefinition,
   QuestionnaireSnapshot,
 } from "@/lib/questionnaire-assessments/types";
+import { ClientSelectionCard } from "@/components/clients/client-selection-card";
 
 import styles from "./questionnaire-assessments.module.css";
 
@@ -345,16 +346,18 @@ export function QuestionnaireAssessmentsWorkspace({
       展示用合成個案；不能寫入真實評估資料。
     </div> : null}
 
-    <form action={formRef} className={styles.selection} method="get">
-      <label htmlFor="questionnaire-client">個案
-        <select defaultValue={selectedClientId ?? ""} id="questionnaire-client" name="client" required>
-          <option disabled value="">請選擇個案</option>
-          {snapshot.clients.map((client) => <option key={client.clientId} value={client.clientId}>
-            {client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}
-          </option>)}
-        </select>
-      </label>
-      <button className="button button--secondary" type="submit">選取個案</button>
+    <form action={formRef} className="client-selection-form" method="get">
+      <ClientSelectionCard
+        id="questionnaire-client"
+        label="個案"
+        defaultValue={selectedClientId ?? ""}
+        placeholderDisabled
+        actionLabel="選取個案"
+        options={snapshot.clients.map((client) => ({
+          value: client.clientId,
+          label: `${client.displayName}${client.serviceStatus === "suspended" ? "・暫停服務" : ""}`,
+        }))}
+      />
     </form>
 
     {chosenClient ? <QuestionnaireEditor

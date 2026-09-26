@@ -3,7 +3,6 @@
   gap: 1rem;
 }
 
-.selection,
 .formPanel,
 .questionCard {
   border: 1px solid var(--border, #eadbc9);
@@ -11,16 +10,6 @@
   background: var(--surface, #fffdfa);
 }
 
-.selection {
-  display: grid;
-  gap: .75rem;
-  padding: 1rem;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  align-items: end;
-  background: var(--surface-subtle, #fff8ee);
-}
-
-.selection label,
 .meta label {
   display: grid;
   gap: .4rem;
@@ -29,7 +18,6 @@
   font-weight: 650;
 }
 
-.selection select,
 .meta input {
   min-height: 46px;
   border: 1px solid var(--border, #eadbc9);
@@ -71,7 +59,7 @@
 }
 
 .source a {
-  color: var(--accent, #b94e00);
+  color: var(--brand-strong, #8d3d00);
   text-underline-offset: .15em;
 }
 

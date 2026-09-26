@@ -83,7 +83,7 @@ describe("intake usability and truthful writes", () => {
     const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "其他個案禁止顯示", clientCode: "SYNTHETIC-01" }, fieldAuthority: {}, sourceBatchId: null };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: "ok", data: snapshot })));
     render(<IntakeWorkspace context={{ organizationId: id, organizationName: "合成機構", branchId: other, branchName: "合成分支", userId: id, displayName: "合成管理員", roles: ["nurse"], scopes: [], assuranceLevel: "aal2", recentAal2At: null, demo: false }} clients={[{ id: other, clientCode: "TEST-02", displayName: "選取的合成個案" }]} initialSnapshot={null} loadError={false} today="2026-09-14" />);
-    fireEvent.change(screen.getByLabelText("目前處理的個案"), { target: { value: other } });
+    fireEvent.change(screen.getByLabelText("個案"), { target: { value: other } });
     expect(await screen.findByRole("alert")).toHaveTextContent("讀回資料與所選個案不一致");
     expect(screen.queryByDisplayValue("其他個案禁止顯示")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /2\s*基本資料/ })).toBeDisabled();
@@ -115,8 +115,8 @@ describe("intake usability and truthful writes", () => {
     fireEvent.click(await screen.findByLabelText("週一到站"));
     fireEvent.click(screen.getByRole("button", { name: /2\s*基本資料/ }));
     expect(screen.getByRole("heading", { name: "核對個案基本資料" })).toBeVisible();
-    fireEvent.change(screen.getByLabelText("目前處理的個案"), { target: { value: other } });
-    expect(confirm).toHaveBeenCalled(); expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    fireEvent.change(screen.getByLabelText("個案"), { target: { value: other } });
+    expect(confirm).toHaveBeenCalled(); expect(screen.getByLabelText("個案")).toHaveValue(id);
     fireEvent.click(screen.getByRole("button", { name: /3\s*每週到站與接送/ })); expect(screen.getByLabelText("週一到站")).toBeChecked();
   });
 });
