@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const stubs = vi.hoisted(() => ({
   authorizeStaffRequest: vi.fn(),
   requireRecentAal2: vi.fn(),
+  requireRecentReferralAal2: vi.fn(),
   readJsonObject: vi.fn(),
   createServerSupabaseClient: vi.fn(),
   rpc: vi.fn(),
@@ -33,6 +34,9 @@ vi.mock("@/lib/integrations/http", () => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: stubs.createServerSupabaseClient,
+}));
+vi.mock("@/lib/referral-management/reauth", () => ({
+  requireRecentReferralAal2: stubs.requireRecentReferralAal2,
 }));
 
 import { POST } from "./route";
@@ -87,7 +91,8 @@ describe("Page 39 referral management API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
-    stubs.requireRecentAal2.mockResolvedValue(undefined);
+    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("legacy-only guard"), { code: "AAL2_REQUIRED", httpStatus: 403 }));
+    stubs.requireRecentReferralAal2.mockResolvedValue(undefined);
     stubs.readJsonObject.mockResolvedValue(createBody);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
@@ -113,7 +118,8 @@ describe("Page 39 referral management API", () => {
         p_receiving_unit_state: "missing", p_receiving_unit_code: null,
         p_idempotency_key: key,
       }));
-    expect(stubs.requireRecentAal2).toHaveBeenCalledOnce();
+    expect(stubs.requireRecentReferralAal2).toHaveBeenCalledExactlyOnceWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
   });
 
   it("returns HTTP 200 only for an exact replay receipt", async () => {
@@ -135,7 +141,32 @@ describe("Page 39 referral management API", () => {
     }), error: null });
     const response = await POST(request());
     expect(response.status).toBe(201);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledOnce();
+    expect(stubs.requireRecentReferralAal2).toHaveBeenCalledExactlyOnceWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+  });
+
+  it.each(["create", "submit", "register_received", "respond", "close", "correct"])("checks fresh referral evidence before %s, including retries", async action => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, roles: ["case_manager_social_worker"], recentAal2At: "2026-09-26T12:00:00Z" });
+    stubs.readJsonObject.mockResolvedValue(action === "create" ? createBody : {
+      action, referralKey: "39600000-0000-4000-8000-000000000203",
+      previousEventId: "39600000-0000-4000-8000-000000000204", expectedSequence: 3,
+      entryContent: "合成事件內容",
+      ...(action === "correct" ? { correctsEventId: "39600000-0000-4000-8000-000000000204", correctionReason: "合成更正原因" } : {}),
+    });
+    stubs.requireRecentReferralAal2.mockRejectedValue(Object.assign(new Error("fresh evidence unavailable"), { code: "AAL2_REQUIRED", httpStatus: 403 }));
+    expect((await POST(request())).status).toBe(403);
+    expect((await POST(request())).status).toBe(403);
+    expect(stubs.requireRecentReferralAal2).toHaveBeenCalledTimes(2);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+    expect(stubs.rpc).not.toHaveBeenCalled();
+    expect(stubs.createServerSupabaseClient).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unavailable action before requesting evidence", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, scopes: ["clients.read", "referral_management.read", "referral_management.respond"] });
+    expect((await POST(request())).status).toBe(403);
+    expect(stubs.requireRecentReferralAal2).not.toHaveBeenCalled();
+    expect(stubs.rpc).not.toHaveBeenCalled();
   });
 
   it("authorizes both read scopes before parsing content", async () => {

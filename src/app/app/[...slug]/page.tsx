@@ -668,6 +668,7 @@ import { parseBodyAssessmentFilters } from "@/lib/body-assessments/query";
 import { BodyAssessmentSnapshotError, loadBodyAssessmentSnapshot } from "@/lib/body-assessments/snapshot";
 import { NursingAssessmentsWorkspace } from "@/components/nursing-assessments/nursing-assessments-workspace";
 import { getNursingRecentAal2At } from "@/lib/nursing-assessments/reauth";
+import { getReferralRecentAal2At } from "@/lib/referral-management/reauth";
 import { loadNursingAssessmentSnapshot } from "@/lib/nursing-assessments/snapshot";
 import {
   FeedbackComplaintSnapshotError,
@@ -3421,7 +3422,7 @@ export default async function StaffCatalogPage({
       recentTo,
       query: cleanQuery,
     };
-    const recentAal2 = await hasRecentAal2();
+    const recentAal2 = (await getReferralRecentAal2At(context)) !== null;
     let snapshot = null;
     let loadError = invalidFilters;
     if (!loadError) {

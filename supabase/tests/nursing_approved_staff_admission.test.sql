@@ -1,5 +1,5 @@
 begin;
-select plan(63);
+select plan(64);
 set local time zone 'Asia/Taipei';
 -- Complete synthetic Supabase-owned Google/session/AMR metadata. No admission
 -- helper, role predicate, signature challenge guard or RLS function is replaced.
@@ -115,7 +115,10 @@ update public.role_permissions set granted_at=clock_timestamp()+interval '1 hour
  and permission_id in(select id from public.permissions where permission_key='nursing_assessments.sign');
 set local role authenticated;
 select lives_ok($$select public.nursing_assessment_snapshot('db500000-0000-4000-8000-000000000001','db600000-0000-4000-8000-000000000001')$$,'future sign grant does not remove valid current read permission');
-select is(public.can_begin_staff_mfa(),false,'future nursing sign grant cannot acquire MFA');
+-- Shared acquisition is a union of separately admitted modules. This nurse
+-- retains a current referral capability; that must not grant nursing evidence.
+select is(public.can_begin_staff_mfa(),true,'valid alternate referral capability preserves shared MFA acquisition');
+select ok(public.referral_recent_aal2_evidence('db500000-0000-4000-8000-000000000001','db600000-0000-4000-8000-000000000001') is not null,'current referral evidence does not depend on future nursing sign grant');
 select is(public.nursing_recent_aal2_evidence('db500000-0000-4000-8000-000000000001','db600000-0000-4000-8000-000000000001'),null::jsonb,'future nursing sign grant cannot expose scoped verification evidence');
 select throws_ok($$select pg_temp.nursing_write('dbd00000-0000-4000-8000-000000000002',(select v from nursing_admission_data where k='sign'))$$,'42501',null,'future nursing sign grant cannot replay a signed receipt');
 reset role;

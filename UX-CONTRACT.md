@@ -146,7 +146,7 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 ### 轉介原操作（頁39）
 
-權威來源為`referral-management/parser.ts`、`projection.ts`、`pending.ts`、`api/referrals/route.ts`與原轉介RPC；2026-09-26核對。只修復前台原操作與共享編輯器，不放寬伺服器近期AAL2或既有CEO-only資料庫邊界。實際核准社工登入不代表轉介RPC已開通，另列為正式阻擋；站內queued也不表示外部送達，接收單位目錄／附件／匯出／provider仍未配置。
+權威來源為`referral-management/parser.ts`、`projection.ts`、`pending.ts`、`reauth.ts`、`api/referrals/route.ts`與原轉介RPC及增量`20260926134208_referral_approved_staff_admission.sql`；2026-09-26核對。前台原操作與共享編輯器保留原風險規則，後續限定修正已核准社工的轉介scope與實際MFA入口；通用登入、權限與近期AAL2不變。四欄證據只在轉介伺服器消費，不複製到全域context。正式hosted尚未套用，不把本機原生開通RED／GREEN說成真人可用；站內queued也不表示外部送達，接收單位目錄／附件／匯出／provider仍未配置。
 
 同一workspace擁有建立、狀態轉換、更正、確認及回查，桌機與手機入口不得各保有獨立操作鍵。首次寫入固定actor／機構／分支、完整原body、key、來源事件及sequence；未知結果、已知拒絕在未知之後、重新掛載均保留原筆。只有第一次有嚴格未提交證據的拒絕才釋放本lease。AppShell在其他頁追蹤authority並在登出同步清除本journal；切換範圍／撤權及ABA使舊callback失效，舊actor的snapshot不得作重新授權證據。
 

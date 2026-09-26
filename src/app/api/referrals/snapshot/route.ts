@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { ok } from "@/lib/api/response";
-import { hasRecentAal2 } from "@/lib/auth/context";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { authorizeStaffRequest, handleIntegrationRoute } from "@/lib/integrations/http";
 import { loadReferralManagementSnapshot, ReferralManagementSnapshotError } from "@/lib/referral-management/snapshot";
 import { normalizeReferralSnapshot } from "@/lib/referral-management/snapshot-contract";
 import { parseReferralReadFilters } from "@/lib/referral-management/snapshot-client";
+import { getReferralRecentAal2At } from "@/lib/referral-management/reauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     try { filters = parseReferralReadFilters(request.headers.get("x-referral-read-filters")); }
     catch { throw new IntegrationError("INVALID_REFERRAL_READ_REQUEST", "請確認轉介篩選條件。", 400); }
     try {
-      const source = await loadReferralManagementSnapshot(actor, filters, await hasRecentAal2());
+      const source = await loadReferralManagementSnapshot(actor, filters, (await getReferralRecentAal2At(actor)) !== null);
       const snapshot = normalizeReferralSnapshot(source, actor);
       if (snapshot.demo) throw new ReferralManagementSnapshotError();
       return ok({ schemaVersion: 1, organizationId: parsed.data.organizationId, branchId: parsed.data.branchId,

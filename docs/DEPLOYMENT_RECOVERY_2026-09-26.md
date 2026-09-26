@@ -157,3 +157,19 @@ Chrome真正Next頁39重現Node與瀏覽器的日期分隔U+2009／ASCII差異�
 另以未覆寫授權函式的原生PG17.11、141份migration、真正合成Auth/session/AMR實驗確認：已核准非CEO社工登入eligible=true，但轉介snapshot仍42501；合法CEO對照可讀，停用／過期／session撤銷拒絕，0events／operations／outbox及0外部連線。該後端開通為待修P0，不能用上述UI與mock API測試假稱真社工可工作；頁28／29安全復原也仍待補。
 
 此次仍無GitHub push、公開預覽、Vercel發布、hosted DDL、區域遷移或新增費用。指定Vercel授權、區域決定、官方量表／申報、CMS封存掃毒、Finance真同店、家屬及持續營運門檻均未因局部回歸通過而解除。
+
+## 轉介限定開通：最新142份候選與全量回歸
+
+原141份schema的非CEO社工42501阻斷已重現並限定修正；新增CLI產生的`20260926134208_referral_approved_staff_admission.sql`，不放寬通用登入、權限或近期驗證。轉介六動作、MFA取得與四欄實際驗證證據維持機構／分支／本人／session及生效時間；MFA挑戰锁後選定的原路徑在寫入證據後仍須有效，不能跨模組fallback。原操作重播、事件完成及snapshot稽核後再次核對目前指派與完整可見個案集合。詳細邊界見[轉介候選驗證](REFERRAL_WRITE_READINESS_2026-09-26.md)。
+
+- 最新全量Vitest **507檔／7010項全部通過，214.53秒，無略過**；跨repo Finance使用精確隔離候選。jsdom整頁導航診斷保留，不冒充Chrome或真人登入。
+- 142份migration的portable **132套／6182項斷言通過**；其中93套為legacy PGlite fixture、39套enforced開通fixture。這不是正式Supabase PostgreSQL或真Auth登入驗收。
+- 原生PostgreSQL17.11 **13／13套全部通過**；最新護理64項、轉介63項及12组真正backend競態，包含實際驗證時鐘到期、跨模組MFA fallback拒絕與業務／證據回滾。獨立覆核另重跑轉介native63／12，以及四套enforced portable308項；無替換授權判斷。這不是50位員工HTTP壓測、hosted PITR或外部轉介送達。
+- 全套ESLint零警告、TypeScript、隔離production build及diff-check通過。build清空外部憑證並關閉展示／Google整合，沒有正式雲端寫入。
+- 最終真正Next頁39手機390px內容載入、無overlay／JS錯誤／水平溢位，展示寫入仍停用；89／89安全demo路由再通過，僅證明入口載入，不表示全部功能已完成。版型未在本切片變更，未新增全站axe或人工WCAG認證。
+
+2026-09-26T13:56:32Z唯讀重新確認正式Supabase：ACTIVE_HEALTHY、首爾`ap-northeast-2`、PostgreSQL17.6.1.166、migration130份，最新仍`20260925141114_governed_questionnaire_drafts`。本機142份的**12份增量尚未套用**。Vercel指定專案403／預覽保護、區域決定、官方量表與申報、CMS封存掃毒、Finance同店、家屬及營運門檻仍未通過；沒有push、公開預覽、production promotion、hosted DDL或新增費用。
+
+新唯讀盤點還發現：頁29新PATCH回200但前端要求201，可能把真正保存顯示為結果未知；頁28／29編輯會清除未知原鍵、無共享journal；兩頁原RPC仍有CEO-only開通阻斷。護理未知鎖／MFA復原與舊快照ABA仍需補。這些列為下一輪P0，不用本次轉介通過證據擴稱完成。
+
+私有原始證據前綴`referral-admission-`；native最终摘要`referral-admission-native-final.json`及13套集合日誌保留於同一私有驗證目錄。臨時資料庫均已停止，僅清除各runner明確擁有的測試pgdata，日誌／備份／證據保留；未刪除正式或使用者資料。

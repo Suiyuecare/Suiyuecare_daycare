@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 
-const suites = ["intake", "admission", "transport-cancellation", "custom-form-responses", "custom-form-lifecycle", "custom-response-print", "publication-revision", "questionnaire", "questionnaire-rule-governance", "claim-operation-receipts", "nursing-assessments"];
+const suites = ["intake", "admission", "transport-cancellation", "custom-form-responses", "custom-form-lifecycle", "custom-response-print", "publication-revision", "questionnaire", "questionnaire-rule-governance", "claim-operation-receipts", "nursing-assessments", "referral-admission"];
 describe("bounded native runner cleanup wiring", () => {
   it.each(suites)("%s registers a fresh runtime and preserves the original error before exact stop/cleanup", async (suite) => {
     const source = await readFile(new URL(`./test-${suite}-native.mjs`, import.meta.url), "utf8");

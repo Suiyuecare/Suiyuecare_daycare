@@ -83,7 +83,11 @@ try {
     create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null references storage.buckets(id),name text not null);
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;grant all on storage.objects to anon,authenticated,service_role;`);
   const migrations = (await readdir(join(root, "supabase/migrations"))).filter((name) => name.endsWith(".sql")).sort();
-  for (const name of migrations.filter((name) => name !== newMigration)) sql(await readFile(join(root, "supabase/migrations", name), "utf8"));
+  assert.ok(migrations.includes(newMigration), "Required nurse admission migration must exist.");
+  // Later additive migrations may depend on the nursing-only definitions.
+  // Reproduce RED on the real predecessor schema, then advance in order to
+  // the entire latest schema; never apply a dependent successor without it.
+  for (const name of migrations.filter((name) => name < newMigration)) sql(await readFile(join(root, "supabase/migrations", name), "utf8"));
   sql(await readFile(join(root, "supabase/seed.sql"), "utf8"));
   sql(run("/usr/bin/tar", ["-xOf", join(root, "node_modules/@electric-sql/pglite/dist/pgtap.tar.gz"), "share/postgresql/extension/pgtap--1.3.5.sql"]));
   const source = await readFile(join(root, "supabase/tests/nursing_approved_staff_admission.test.sql"), "utf8");
@@ -91,8 +95,8 @@ try {
   const baseline = execute(join(binaries, "psql"), args, `${fixture}\nselect pg_temp.nursing_login(1);set local role authenticated;
     select 'ADMITTED='||public.is_staff_login_allowed();select public.nursing_assessment_snapshot('${org}','${branch}');rollback;`);
   assert.match(baseline.stdout, /^ADMITTED=true$/m); assert.notEqual(baseline.status, 0); assert.match(baseline.stderr, /42501.*nursing snapshot is not permitted/s);
-  console.log("Baseline RED: actually approved non-CEO nurse denied by current latest schema (42501).");
-  sql(await readFile(join(root, "supabase/migrations", newMigration), "utf8"));
+  console.log("Baseline RED: actually approved non-CEO nurse denied by predecessor schema (42501).");
+  for (const name of migrations.filter((name) => name >= newMigration)) sql(await readFile(join(root, "supabase/migrations", name), "utf8"));
   const expected = Number(source.match(/select\s+plan\((\d+)\)/i)?.[1]);
   const output = sql(source); const actual = output.split("\n").filter((line) => /^ok \d+\b/.test(line)).length;
   assert.equal(actual, expected); assert.doesNotMatch(output, /^not ok \d+\b|^# Looks like/m);

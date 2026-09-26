@@ -13,8 +13,8 @@
 
 ## 尚未通過的正式條件
 
-1. **實際社工開通仍有後端阻斷。** 原生PostgreSQL17.11、141份migration、真正合成Google/session/AMR且無替換授權函式的試驗：已核准非CEO社工 `is_staff_login_allowed=true`，但通用近期驗證為false，轉介snapshot仍42501。合法CEO對照可讀；停權／過期／停用拒絕。UI測試不能消除此問題；須做轉介限定Auth/RPC/MFA開通與原生RED→GREEN，不能全域放寬。
-2. 本GET仍使用原API授權及原snapshot RPC；沒有解除近期AAL2或CEO-only後端。MFA過期的未知操作如何在保留原操作下重新取得真正驗證證據，仍需端到端補完。
+1. **社工開通的本機限定修正已完成，正式環境仍未套用。** 141份真實基線可重現核准非CEO社工snapshot42501；新增第142份轉介專用migration後，原生PostgreSQL17.11、真正合成Google/session/AMR與原授權函式完成RED→GREEN。這不代表真人hosted帳號已通過。
+2. GET及寫入仍使用原API授權與原snapshot／mutation RPC；每次寫入由轉介專用四欄證據驗證同一人、機構、分支、工作階段及實際驗證時間，不放寬全域高風險條件。MFA過期的未知操作如何在保留原操作下重新取得真正驗證證據，仍需端到端補完。
 3. 社工頁28／29未知寫入尚未移到相同安全機制，不能將頁39成果擴大到兩頁。
 4. 帳本32項防重送上限、200筆清單外原鏈定位、完整瀏覽器重載／裝置關閉後的復原，仍需專用唯讀操作查證及實際工作流程驗收。現在僅同分頁記憶體，不能宣稱耐久復原。
 5. 接收單位正式字典、附件、匯出及外部provider仍未配置；站內queued不是外部送達、已讀或確認。真人hosted多session與業務驗收仍缺。
@@ -31,3 +31,17 @@
 - 141份SQL來源未因本轉介UI／GET切片變更；保留護理切片最終portable131套／6118斷言、native12／12的原始範圍，本次沒有冒稱重跑SQL或hosted驗收。
 
 私有證據位於 `/Users/seniorlifepr/.codex/verification/daycare-20260926`，本輪前綴`referral-`：完整回歸、build、route、premium、真Next載入、手機原操作復原、桌機晚GET、axe及原生社工開通RED對照。早期熱更新期間的結果重置、逾時表單0POST、不完整試驗不列為最後成功寫入證據。仍未GitHub push、公開預覽、Vercel promotion或hosted DDL。
+
+## 後續：已核准社工的轉介專用開通
+
+CLI產生增量`20260926134208_referral_approved_staff_admission.sql`。已核准Google員工維持原機構範圍，逐筆核對有效分支、membership、角色／權限生效時間及目前個案指派。六個動作只使用其實際capability，不以社工角色名稱放行。原全域`is_active_user`、`has_permission`、`has_recent_aal2`均未放寬；通用近期驗證對合成非CEO仍為false。
+
+- AAL1可取得真正驗證挑戰，但不因此取得寫入權限。挑戰鎖後選定原CEO／治理／護理／轉介之一，驗證證據寫入後重查同一路徑；該路徑失效不能借另一模組通過。
+- 伺服器每次送出與重試都讀本人轉介限定證據，只接受四欄、scope一致及0–15分鐘的實際時間。護理或全域context時間不是轉介證據，也不把轉介時間複製到全域context。只讀回查仍保留原API授權，證據只控制動作狀態。
+- 舊回條重播及新事件完成前重查結果個案指派；snapshot稽核後重查完整可見個案集合。指派撤銷、權限／session撤銷或等待期間到期拒絕結果，不回舊個案、不留下部分事件／回條／通知。
+- 新63項SQL驗收包含六階段流程、exact replay、改內容拒絕、未指派、跨機構／分支、未生效角色／權限、停權、無效挑戰、未來驗證时间及原MFA取得。護理64項對照保留護理簽署拒絕；其他模組仍有有效權限時，共享MFA可取得不等於護理可簽署。
+- 真正PostgreSQL17.11、全部142份migration、新63項斷言與12組觀察到backend PID／阻擋者的競態通過。包含同鍵雙連線、同來源不同鍵、途中撤銷開通／session／指派、事件與snapshot稽核後撤指派、實際時鐘驗證到期、兩個方向的跨模組MFA fallback拒絕、MFA證據寫入後撤開通／session。拒絕後業務筆數無增量；合法流程僅6事件／6回條／6站內通知及12canonical稽核。
+- 獨立複核重跑原生63項／12競態，另跑轉介63、護理64、CEO115及治理66共308項enforced portable斷言；均不替換登入判斷。這不是正式GoTrue、50人HTTP壓測、PITR或外部送達。
+- 最終Next安全展示重新檢查頁39：390px標題正確、頁寬390px、無overlay／JS錯誤、展示写入仍停用；89／89入口再跑通過，僅代表路由載入。版型沒有在本切片改動，未新增全站axe或人工無障礙認證。
+
+本機13套native集合及完整程式／portable回歸結果另記錄於最新部署恢復段落；本段不沿用先前505檔數字假稱最新凍結已完成。原生證據`referral-admission-native-final.json`及本轮前綴`referral-admission-`保留在同一私有目錄。2026-09-26T13:56:32Z唯讀核對：正式Supabase仍首爾、17.6.1.166、130份migration；本機142份的12份增量未套用。未發布或新增費用。

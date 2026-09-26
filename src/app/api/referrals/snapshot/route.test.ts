@@ -4,7 +4,7 @@ import { buildDemoReferralManagementSnapshot } from "@/lib/referral-management/d
 import { serializeReferralReadFilters } from "@/lib/referral-management/snapshot-client";
 const mocks = vi.hoisted(() => ({ authorize: vi.fn(), recent: vi.fn(), load: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/auth/context", () => ({ hasRecentAal2: mocks.recent }));
+vi.mock("@/lib/referral-management/reauth", () => ({ getReferralRecentAal2At: mocks.recent }));
 vi.mock("@/lib/integrations/http", () => ({ authorizeStaffRequest: mocks.authorize,
   handleIntegrationRoute: async (fn: (id: string) => Promise<Response>) => {
     const id = "39000000-0000-4000-8000-000000000045";
@@ -29,7 +29,7 @@ function request(headers: Record<string, string> = {}, query = "") { return new 
   headers: { "x-organization-id": actor.organizationId, "x-branch-id": actor.branchId, "x-referral-read-nonce": nonce,
     "x-referral-read-filters": serializeReferralReadFilters(filters), ...headers },
 }); }
-beforeEach(() => { vi.resetAllMocks(); mocks.authorize.mockResolvedValue(actor); mocks.recent.mockResolvedValue(false);
+beforeEach(() => { vi.resetAllMocks(); mocks.authorize.mockResolvedValue(actor); mocks.recent.mockResolvedValue(null);
   mocks.load.mockResolvedValue({ ...buildDemoReferralManagementSnapshot({ ...actor, filters }), demo: false }); });
 describe("explicit referral recovery GET", () => {
   it("authorizes before headers/filters and rejects demo without calling data or recent evidence", async () => {
@@ -63,9 +63,10 @@ describe("explicit referral recovery GET", () => {
       branchId: actor.branchId, actorUserId: actor.userId, nonce, filters, demo: false });
     expect(body.data.snapshot.demo).toBe(false); expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
   });
-  it("passes actual generic recent evidence as can-flags only; never fabricates a timestamp", async () => {
-    mocks.recent.mockResolvedValue(true); expect((await GET(request())).status).toBe(200);
+  it("passes exact module evidence as can-flags only without copying it to global context", async () => {
+    mocks.recent.mockResolvedValue("2026-09-26T11:59:00.000Z"); expect((await GET(request())).status).toBe(200);
     expect(mocks.load).toHaveBeenCalledWith(actor, filters, true); expect(actor.recentAal2At).toBeNull();
+    expect(mocks.recent).toHaveBeenCalledExactlyOnceWith(actor);
   });
   it.each([{ branchId: nonce }, { demo: true }, { private_notes: "redacted" }, { staleAfter: "2099-01-01T00:00:00Z" }])("rejects malformed backend projection without exposing it %#", async change => {
     const value = { ...buildDemoReferralManagementSnapshot({ ...actor, filters }), demo: false, ...change };
