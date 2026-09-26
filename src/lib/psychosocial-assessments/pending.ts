@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import type { TenantContext } from "@/lib/domain/types";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
-import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation, tryAcquirePendingRecoveryRead } from "@/lib/navigation/pending-operation-lock";
 import { installPendingNavigationGuard } from "@/lib/navigation/pending-navigation-guard";
 import { parseCreatePsychosocialDraft, parsePsychosocialActionError, parsePsychosocialActionSuccess, parsePsychosocialAssessmentMutation } from "./parser";
 import { normalizePsychosocialSnapshot } from "./snapshot-contract";
@@ -63,6 +63,21 @@ export function usePsychosocialAssessmentPending() { return useSyncExternalStore
 export function getPsychosocialAssessmentSnapshotAdmission(scope: PsychosocialScope, demo: boolean) {
   if (demo) return null; const identity = psychosocialAssessmentScopeIdentity(scope, false);
   return readable(identity) ? journal.acceptedSnapshotAt : null;
+}
+export function tryAcquirePsychosocialAssessmentRecoveryRead(scope: PsychosocialScope, demo: boolean): (() => void) | null {
+  if (demo || hasViewTransition()) return null;
+  const identity = psychosocialAssessmentScopeIdentity(scope, false);
+  if (identity !== currentIdentity()) return null;
+  if (!journal.operation) return tryAcquirePendingRecoveryRead();
+  if (journal.operation.phase !== "unknown" || journal.operation.identity !== identity || !release) return null;
+  return tryAcquirePendingRecoveryRead(release);
+}
+export function quarantinePsychosocialAssessmentSnapshot(scope: PsychosocialScope, demo: boolean) {
+  if (demo || psychosocialAssessmentScopeIdentity(scope, false) !== currentIdentity()) return false;
+  const sourceAt = admission?.generatedAt ?? journal.acceptedSnapshotAt;
+  admission = null;
+  journal = { ...journal, snapshotFloor: floorAt(sourceAt), capabilityEpoch: journal.capabilityEpoch + 1, operation: invalidate() };
+  emit(); return true;
 }
 function deepFreeze<T>(value: T): T { if (value && typeof value === "object") { Object.values(value).forEach(deepFreeze); Object.freeze(value); } return value; }
 function unlock() { const held = release; const guards = removeGuards; release = null; removeGuards = null; try { guards?.(); } finally { held?.(); } }

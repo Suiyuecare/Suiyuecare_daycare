@@ -29,6 +29,7 @@ function fill(page) {
 }
 const submitText = (page) => page === 29 ? "新增服務草稿" : "保存評估草稿";
 const retryText = (page) => page === 29 ? "以相同內容重試" : "重試同一評估操作";
+const recoveryReadText = (page) => page === 29 ? "更新授權資料（不重送）" : "重新核對原範圍授權";
 const record = { syntheticOnly: true, scope: "Actual UI/CSS/dialogs and fake loopback HTTP only; not hosted Auth/RLS/persistence, physical IME or deployment evidence.", pages: [] };
 try {
   for (const page of [29, 28]) {
@@ -62,6 +63,37 @@ try {
     assert.equal(recovered.writes.length, 3); assert.equal(recovered.same, true); assert.equal(recovered.refreshes, 0); assert.match(recovered.text, /清單尚未確認更新/u);
     run("window.fixture.fresh(false)"); assert.match(inspect("document.body.innerText"), /清單尚未確認更新/u);
     run("window.fixture.fresh(true)"); assert.match(inspect("document.body.innerText"), /清單已確認更新/u);
+    // A separate explicit GET can refresh authorized data beside this page's
+    // own unknown operation. It must never retry, release or replace the write.
+    open(page); modalOpen(page); fill(page); run('window.fixture.mode="unknown"'); clickText(submitText(page));
+    run('window.fixture.remount()'); run('window.fixture.readMode="denied"'); clickText(recoveryReadText(page));
+    assert.equal(inspect('window.fixture.reads.length'), 1); assert.equal(inspect('window.fixture.writes.length'), 1);
+    assert.equal(inspect('document.querySelectorAll(".metric-grid").length'), 0);
+    assert.equal(inspect('document.body.innerText.includes("本機合成內容，不是真實個案")||document.body.innerText.includes("本機合成摘要，不是真實個案")'), false);
+    run('window.fixture.remount()');
+    assert.equal(inspect('document.querySelectorAll(".metric-grid").length'), 0);
+    assert.equal(inspect('document.body.innerText.includes("本機合成內容，不是真實個案")||document.body.innerText.includes("本機合成摘要，不是真實個案")'), false);
+    run('window.fixture.readMode="success"'); clickText(recoveryReadText(page));
+    assert.equal(inspect('window.fixture.reads.length'), 2); assert.equal(inspect('window.fixture.writes.length'), 1);
+    assert.equal(inspect('window.fixture.refreshes'), 0);
+    run('window.fixture.mode="success"'); clickText(retryText(page));
+    const readRecovered = inspect('({reads:window.fixture.reads,writes:window.fixture.writes.length,same:window.fixture.writes.every(x=>x.key===window.fixture.writes[0].key&&x.body===window.fixture.writes[0].body),refreshes:window.fixture.refreshes})');
+    assert.equal(readRecovered.writes, 2); assert.equal(readRecovered.same, true); assert.equal(readRecovered.refreshes, 0);
+    open(page); modalOpen(page); fill(page); run('window.fixture.mode="unknown"'); clickText(submitText(page));
+    run('window.fixture.remount()'); run('window.fixture.readMode="invalid"'); clickText(recoveryReadText(page));
+    assert.equal(inspect('window.fixture.writes.length'), 1); assert.equal(inspect('window.fixture.reads.length'), 1);
+    assert.equal(inspect('document.querySelectorAll(".metric-grid").length'), 0);
+    run('window.fixture.remount()'); assert.equal(inspect('document.querySelectorAll(".metric-grid").length'), 0);
+    // In-flight recovery holds a read fence. Synthetic controls cannot perform
+    // another write until it settles, and a late reply after branch ABA is ignored.
+    open(page); modalOpen(page); fill(page); run('window.fixture.mode="unknown"'); clickText(submitText(page));
+    run('window.fixture.remount()'); run('window.fixture.readMode="deferred"'); clickText(recoveryReadText(page));
+    const readBusy = inspect(`({reads:window.fixture.reads.length,writes:window.fixture.writes.length,retryDisabled:[...document.querySelectorAll("button")].filter(x=>x.textContent===${JSON.stringify(retryText(page))}).every(x=>x.disabled)})`);
+    assert.equal(readBusy.reads, 1); assert.equal(readBusy.writes, 1); assert.equal(readBusy.retryDisabled, true);
+    run('window.fixture.offpage(true)'); run('window.fixture.foreign(true)'); run('window.fixture.foreign(false)'); run('window.fixture.offpage(false)');
+    run('window.fixture.readResolve()');
+    assert.equal(inspect('window.fixture.writes.length'), 1); assert.equal(inspect('window.fixture.refreshes'), 0);
+    assert.equal(inspect('document.body.innerText.includes("本機合成內容，不是真實個案")||document.body.innerText.includes("本機合成摘要，不是真實個案")'), false);
     // Separate fresh document for privacy ABA / late receipt; no claim of
     // full-page reload durability of the module-memory operation journal.
     open(page); modalOpen(page); fill(page); run('window.fixture.mode="deferred"'); clickText(submitText(page));
@@ -87,7 +119,7 @@ try {
     const mobile = inspect('({overflow:document.documentElement.scrollWidth>innerWidth,width:innerWidth,modal:document.querySelectorAll("dialog[open]").length,fields:[...document.querySelectorAll("dialog input,dialog select,dialog textarea")].map(x=>({font:Number.parseFloat(getComputedStyle(x).fontSize),height:x.getBoundingClientRect().height}))})');
     assert.equal(mobile.overflow, false); assert.equal(mobile.width, 390); assert.equal(mobile.modal, 1); assert.ok(mobile.fields.every((value) => value.font >= 16 && value.height >= 44));
     const errors = browser("errors"); assert.doesNotMatch(errors, /Error:|Uncaught|TypeError|ReferenceError/u);
-    record.pages.push({ page, empty, desktop, keyboard, unknown403RemountSameKeyAndBody: recovered.same, receiptAndListSeparated: true, privacy, mobile, browserErrors: errors.trim() });
+    record.pages.push({ page, empty, desktop, keyboard, unknown403RemountSameKeyAndBody: recovered.same, receiptAndListSeparated: true, explicitAuthorizedGet: readRecovered, invalidGetQuarantinesOldDataAcrossRemount: true, inFlightReadFence: readBusy, lateReadAfterBranchAbaIgnored: true, privacy, mobile, browserErrors: errors.trim() });
   }
   console.log(JSON.stringify(record, null, 2));
 } finally { browser("close"); }

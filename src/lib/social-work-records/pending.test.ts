@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hasPendingOperations, tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
-import { beginSocialWork, clearSocialWorkPendingOnLogout, getSocialWorkPending, getSocialWorkSnapshotAdmission, isConfirmedSocialWorkRejection, observeSocialWorkAuthority, observeSocialWorkSnapshot, reconcileSocialWorkConfirmed, retrySocialWork, settleSocialWork, socialWorkAuthoritySignature, socialWorkRequestBody } from "./pending";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
+import { beginSocialWork, clearSocialWorkPendingOnLogout, getSocialWorkPending, getSocialWorkSnapshotAdmission, isConfirmedSocialWorkRejection, observeSocialWorkAuthority, observeSocialWorkSnapshot, quarantineSocialWorkSnapshot, reconcileSocialWorkConfirmed, retrySocialWork, settleSocialWork, socialWorkAuthoritySignature, socialWorkRequestBody, tryAcquireSocialWorkRecoveryRead } from "./pending";
 import { normalizeSocialWorkSnapshot } from "./snapshot-contract";
 import { swFixture, swFresh, swInput, swSuccess, swUuid } from "./pending-fixtures.test-helper";
 
@@ -13,6 +13,30 @@ function begin(action: Parameters<typeof swInput>[1] = "create_draft") { const {
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(Date.parse("2026-09-26T04:00:00.000Z") + ++serial * 10_000)); clearSocialWorkPendingOnLogout(); fixture = swFixture(); admit(); });
 afterEach(() => { external?.(); external = null; guardFault.fail = false; clearSocialWorkPendingOnLogout(); document.body.innerHTML = ""; vi.restoreAllMocks(); vi.useRealTimers(); });
 describe("social-work original operation journal", () => {
+  it("denied read quarantine survives stale remount and preserves only the original unknown intent", () => {
+    const operation = begin(); settleSocialWork(operation, "unknown");
+    expect(quarantineSocialWorkSnapshot({ ...fixture.scope, userId: swUuid(9) }, false)).toBe(false);
+    expect(quarantineSocialWorkSnapshot(fixture.scope, true)).toBe(false);
+    expect(quarantineSocialWorkSnapshot(fixture.scope, false)).toBe(true);
+    expect(getSocialWorkPending().snapshotFloor).toBe(fixture.snapshot.generatedAt);
+    expect(getSocialWorkPending().operation?.body).toBe(operation.body); expect(hasPendingOperations()).toBe(true);
+    expect(admit()).toBe(false); expect(retrySocialWork(operation.token, fixture.scope, false)).toBeNull();
+    vi.setSystemTime(Date.now() + 1000); expect(admit(swFresh(fixture.snapshot))).toBe(true);
+    const retry = retrySocialWork(operation.token, fixture.scope, false)!;
+    expect(retry.body).toBe(operation.body); expect(retry.input.idempotencyKey).toBe(operation.input.idempotencyKey);
+  });
+  it("explicit read keeps only its unknown original operation locked, excluding retry and foreign owners", () => {
+    const op = begin(); expect(tryAcquireSocialWorkRecoveryRead(fixture.scope, false)).toBeNull();
+    settleSocialWork(op, "unknown"); const original = getSocialWorkPending().operation;
+    external = tryAcquirePendingOperation(); expect(tryAcquireSocialWorkRecoveryRead(fixture.scope, false)).toBeNull(); external!(); external = null;
+    expect(tryAcquireSocialWorkRecoveryRead({ ...fixture.scope, userId: swUuid(9) }, false)).toBeNull();
+    expect(tryAcquireSocialWorkRecoveryRead(fixture.scope, true)).toBeNull();
+    external = tryAcquireSocialWorkRecoveryRead(fixture.scope, false); expect(external).not.toBeNull();
+    expect(hasPendingOperations()).toBe(true); expect(hasViewTransition()).toBe(true);
+    expect(getSocialWorkPending().operation).toBe(original); expect(retrySocialWork(op.token, fixture.scope, false)).toBeNull();
+    external!(); external = null; expect(hasPendingOperations()).toBe(true);
+    const retry = retrySocialWork(op.token, fixture.scope, false)!; expect(retry.body).toBe(op.body); expect(retry.input.idempotencyKey).toBe(op.input.idempotencyKey);
+  });
   it("normalizes audited snapshot while rejecting extra top/nested fields, staleAfter and history flags", () => { expect(normalizeSocialWorkSnapshot(fixture.snapshot, fixture.scope)).toEqual(fixture.snapshot); for (const value of [{ ...fixture.snapshot, secret: "x" }, { ...fixture.snapshot, staleAfter: fixture.snapshot.generatedAt }, { ...fixture.snapshot, records: fixture.snapshot.records.map((record, index) => index ? record : { ...record, secret: "x" }) }, { ...fixture.snapshot, records: fixture.snapshot.records.map((record, index) => index ? record : { ...record, versionHistoryTruncated: true }) }]) expect(() => normalizeSocialWorkSnapshot(value, fixture.scope)).toThrow(); });
   it.each(["create_draft", "revise_draft", "sign", "correct", "complete_follow_up", "cancel_follow_up"] as const)("freezes %s request/source and prohibits a second write", (action) => { const operation = begin(action); expect(operation).not.toBeNull(); expect(Object.isFrozen(operation.input)).toBe(true); expect(operation.body).toBe(JSON.stringify(socialWorkRequestBody(operation.input))); expect(hasPendingOperations()).toBe(true); expect(begin()).toBeNull(); });
   it("track captures service version and exact sequence on a signed chain without pending follow-up", () => { const snapshot = structuredClone(fixture.snapshot); const source = snapshot.records[0]!; Object.assign(source, { followUpEventId: null, followUpSequence: 0, followUpStatus: null, followUpDueOn: null, followUpPlan: null, followUpOutcome: null, followUpTransitionReason: null, followUpCommitterDisplayName: null, followUpCommittedAt: null, followUpOverdue: false, followUpHistory: [], followUpHistoryTotal: 0, followUpHistoryTruncated: false }); snapshot.metrics.pendingFollowUp -= 1; admit(snapshot); const { input } = swInput(snapshot, "track", swUuid(2), source); expect(beginSocialWork(fixture.scope, false, input, snapshot.generatedAt, source)?.input).toEqual(input); });

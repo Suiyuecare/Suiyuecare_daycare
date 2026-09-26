@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import type { TenantContext } from "@/lib/domain/types";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
-import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation, tryAcquirePendingRecoveryRead } from "@/lib/navigation/pending-operation-lock";
 import { installPendingNavigationGuard } from "@/lib/navigation/pending-navigation-guard";
 import { parseCreateSocialWorkDraft, parseSocialWorkRecordMutation, parseSocialWorkFollowUpMutation, parseSocialWorkActionSuccess, parseSocialWorkActionError } from "./parser";
 import { normalizeSocialWorkSnapshot } from "./snapshot-contract";
@@ -76,6 +76,25 @@ export function observeSocialWorkAuthority(signature: string) {
 export function getSocialWorkSnapshotAdmission(scope: SocialWorkScope, demo: boolean) {
   if (demo) return null; const identity = socialWorkScopeIdentity(scope, false);
   return identity === authorityIdentity() && readable(identity) ? journal.acceptedSnapshotAt : null;
+}
+export function tryAcquireSocialWorkRecoveryRead(scope: SocialWorkScope, demo: boolean): (() => void) | null {
+  if (demo || hasViewTransition()) return null;
+  const identity = socialWorkScopeIdentity(scope, false);
+  if (identity !== authorityIdentity()) return null;
+  if (!journal.operation) return tryAcquirePendingRecoveryRead();
+  if (journal.operation.phase !== "unknown" || journal.operation.identity !== identity || !release) return null;
+  return tryAcquirePendingRecoveryRead(release);
+}
+/** A denied authorized read cannot be repaired by remounting old server props.
+ * Preserve the original write privately; invalidate attempts and require a
+ * strictly newer authorized snapshot before revealing any clinical content. */
+export function quarantineSocialWorkSnapshot(scope: SocialWorkScope, demo: boolean) {
+  if (demo || socialWorkScopeIdentity(scope, false) !== authorityIdentity()) return false;
+  const sourceAt = admission?.generatedAt ?? journal.acceptedSnapshotAt;
+  const floor = sourceAt && (!journal.snapshotFloor || Date.parse(sourceAt) > Date.parse(journal.snapshotFloor)) ? sourceAt : journal.snapshotFloor;
+  admission = null;
+  journal = { ...journal, snapshotFloor: floor, capabilityEpoch: journal.capabilityEpoch + 1, operation: invalidate() };
+  emit(); return true;
 }
 export function observeSocialWorkSnapshot(scope: SocialWorkScope, demo: boolean, snapshot: SocialWorkRecordSnapshot | null, capabilities: SocialWorkCapabilities) {
   const identity = demo ? null : socialWorkScopeIdentity(scope, false); if (identity !== authorityIdentity()) return false;

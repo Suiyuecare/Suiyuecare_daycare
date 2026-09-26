@@ -33,7 +33,7 @@
 ## 未完成的正式門檻
 
 - 32個待清單確認標記、有界200筆／50歷程等來源可能找不到原成功版本；需精確授權定位／receipt讀回，不由absence解除。
-- unknown鎖下尚無獨立GET／MFA復原；重新取得授權來源不能靠普通refresh繞過lease。完整重載無durable intent；明示限制仍是P0，不能稱完整復原。
+- 後續候選已補unknown鎖旁的独立手動授權GET，原lease仍持有且拒絕其他寫入；這只重新查詢相同canonical登入範圍，不取得MFA、不重建已變更的context。真正MFA／scope變更復原及完整重載durable intent仍未完成，不能稱完整復原。
 - hosted143增量尚未套用；真人角色／Google登入、真HTTP、真Supabase及50人並行尚未驗收。
 - 所有[正式上線門檻](PRODUCTION_GATES.md)仍有效：Vercel授權、區域／DPA／備份、CMS封存掃毒、官方量表／申報、Finance真同店及家屬／持續營運等不得由本切片通過解除。
 

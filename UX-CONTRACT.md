@@ -160,6 +160,8 @@ GovernanceDialog／useUnsavedChanges維持同一模態與捨棄owner；只有未
 
 ### 心理社會評估與社工服務紀錄（頁28／29）
 
+兩頁新增明確手動、唯讀的授權資料GET回查。只有自己目前unknown原操作持有唯一有效write lease時可取得暫時read fence；不釋放原lease、不POST、不换key/body、不用router.refresh假裝清單更新。機構／分支／actor、nonce、精確filters、canonical角色／scope／AAL2 tuple與來源時間全部匹配才接受；有效canManage／canSign／近期驗證旗標来自伺服器，不從舊SSR旗標補位。查詢中其他寫入／分支切換不可進行，卸載、登出、authority或privacy ABA、filters改變及晚回覆均拒絕。授權或不可信回覆使內容隔離且提升來源floor，舊props重新掛載不能復活；只有純網路失敗可保留已授權舊資料並明示不是最新。GET不取得MFA、不重建已變更的登入context、不提供完整重載durable intent；簽署與正式門檻維持不變。
+
 權威來源為各模組parser、snapshot-contract、pending、workspace controller、原API／RPC與增量20260926141155_social_work_approved_staff_admission.sql；2026-09-26核對。manual-psychosocial-v1保持人工文字評估；社工服務、結果與追蹤是版本化人工紀錄，未製造正式量表分數或外部送達。附加Auth只准已核准、有效機構／分支、職務及個案指派，不改通用Auth、角色上限或AAL2。
 
 每頁單一workspace擁有全部草稿、簽署、更正及追蹤操作；GovernanceDialog與useUnsavedChanges擁有確認／未保存離開行為。native date／datetime-local／datalist為具名平台例外，日期仍經正式schema檢查；欄位noValidate、first-error focus、inline錯誤、IME防誤送出、16px文字及44px操作。只有sign而沒有manage的合法員工不被誤標唯讀；實際API每次仍重新授權。

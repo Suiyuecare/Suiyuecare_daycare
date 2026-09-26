@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
@@ -8,9 +8,10 @@ import type { TenantContext } from "@/lib/domain/types";
 import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { parseCreatePsychosocialDraft, parsePsychosocialActionSuccess, parsePsychosocialAssessmentMutation, psychosocialDimensionsSchema } from "@/lib/psychosocial-assessments/parser";
-import { beginPsychosocialAssessment, getPsychosocialAssessmentPending, getPsychosocialAssessmentSnapshotAdmission, isConfirmedPsychosocialAssessmentRejection, observePsychosocialAssessmentAuthority, observePsychosocialAssessmentSnapshot, psychosocialAssessmentAuthoritySignature, psychosocialAssessmentScopeIdentity, reconcilePsychosocialAssessmentConfirmed, retryPsychosocialAssessment, settlePsychosocialAssessment, usePsychosocialAssessmentPending, type PsychosocialInput, type PsychosocialOperation } from "@/lib/psychosocial-assessments/pending";
+import { beginPsychosocialAssessment, getPsychosocialAssessmentPending, getPsychosocialAssessmentSnapshotAdmission, isConfirmedPsychosocialAssessmentRejection, observePsychosocialAssessmentAuthority, observePsychosocialAssessmentSnapshot, psychosocialAssessmentAuthoritySignature, psychosocialAssessmentScopeIdentity, quarantinePsychosocialAssessmentSnapshot, reconcilePsychosocialAssessmentConfirmed, retryPsychosocialAssessment, settlePsychosocialAssessment, tryAcquirePsychosocialAssessmentRecoveryRead, usePsychosocialAssessmentPending, type PsychosocialCapabilities, type PsychosocialInput, type PsychosocialOperation } from "@/lib/psychosocial-assessments/pending";
 import { normalizePsychosocialSnapshot } from "@/lib/psychosocial-assessments/snapshot-contract";
-import { PSYCHOSOCIAL_DOMAIN_KEYS, type PsychosocialAssessmentListItem, type PsychosocialAssessmentSnapshot, type PsychosocialDimensions, type PsychosocialDomainKey } from "@/lib/psychosocial-assessments/types";
+import { readPsychosocialSnapshot, SnapshotReadError } from "@/lib/psychosocial-assessments/snapshot-client";
+import { PSYCHOSOCIAL_DOMAIN_KEYS, type PsychosocialAssessmentFilters, type PsychosocialAssessmentListItem, type PsychosocialAssessmentSnapshot, type PsychosocialDimensions, type PsychosocialDomainKey } from "@/lib/psychosocial-assessments/types";
 import styles from "./psychosocial-assessments.module.css";
 
 type Action = PsychosocialInput["action"];
@@ -31,18 +32,25 @@ function safeSnapshot(value: PsychosocialAssessmentSnapshot | null, context: Ten
   if (!value || value.organizationId !== context.organizationId || value.branchId !== context.branchId || value.demo !== context.demo) return null;
   try { return normalizePsychosocialSnapshot(value, context); } catch { return null; }
 }
-type ControllerValue = { snapshot: PsychosocialAssessmentSnapshot | null; unavailable: (action: Action, item: PsychosocialAssessmentListItem) => boolean;
+const DEFAULT_FILTERS: PsychosocialAssessmentFilters = { clientId: null, responsibleUserId: null, serviceStatus: null, dueStatus: "all" };
+type ControllerValue = { snapshot: PsychosocialAssessmentSnapshot | null; capabilities: PsychosocialCapabilities; unavailable: (action: Action, item: PsychosocialAssessmentListItem) => boolean;
   open: (action: Action, item: PsychosocialAssessmentListItem, trigger: HTMLElement) => void; refresh: () => void; readBlocked: boolean };
 const Controller = createContext<ControllerValue | null>(null);
 export function usePsychosocialAssessmentController() { return useContext(Controller); }
 
-export function PsychosocialAssessmentController({ context, snapshot: source, canManage, canSign, hasRecentAal2, children }: {
-  context: TenantContext; snapshot: PsychosocialAssessmentSnapshot | null; canManage: boolean; canSign: boolean; hasRecentAal2: boolean; children: ReactNode;
+export function PsychosocialAssessmentController({ context, filters = DEFAULT_FILTERS, snapshot: source, canManage, canSign, hasRecentAal2, children }: {
+  context: TenantContext; filters?: PsychosocialAssessmentFilters; snapshot: PsychosocialAssessmentSnapshot | null; canManage: boolean; canSign: boolean; hasRecentAal2: boolean; children: ReactNode;
 }) {
   const router = useRouter(); const journal = usePsychosocialAssessmentPending(); const pendingWork = usePendingOperations(); const changingView = useViewTransitionPending();
   const scope = { organizationId: context.organizationId, branchId: context.branchId, userId: context.userId };
   const identity = context.demo ? JSON.stringify([context.organizationId, context.branchId, context.userId, true]) : psychosocialAssessmentScopeIdentity(scope, false);
-  const canRead = readable(context); const supplied = safeSnapshot(source, context); const watermark = getPsychosocialAssessmentSnapshotAdmission(scope, context.demo);
+  const authority = psychosocialAssessmentAuthoritySignature(context); const filterIdentity = JSON.stringify(filters);
+  const authorityBinding = JSON.stringify([authority, canManage, canSign, hasRecentAal2, filterIdentity, journal.authorityEpoch, journal.privacyEpoch]);
+  const [readOverride, setReadOverride] = useState<{ identity: string; authorityBinding: string; bundle: Awaited<ReturnType<typeof readPsychosocialSnapshot>> } | null>(null);
+  const override = readOverride?.identity === identity && readOverride.authorityBinding === authorityBinding ? readOverride.bundle : null;
+  const overrideWins = !!override && (!source || Date.parse(override.snapshot.generatedAt) >= Date.parse(source.generatedAt));
+  const effectiveCapabilities = useMemo(() => overrideWins ? override!.capabilities : { canManage, canSign, hasRecentAal2 }, [overrideWins, override, canManage, canSign, hasRecentAal2]);
+  const canRead = readable(context); const supplied = safeSnapshot(overrideWins ? override.snapshot : source, context); const watermark = getPsychosocialAssessmentSnapshotAdmission(scope, context.demo);
   const [admission, setAdmission] = useState({ identity, canRead, privacyEpoch: journal.privacyEpoch, sourceAt: supplied?.generatedAt ?? null as string | null, blockedAt: null as string | null });
   const boundary = admission.identity !== identity || admission.privacyEpoch !== journal.privacyEpoch || admission.canRead && !canRead;
   const admitted = !boundary && (admission.blockedAt === null || !!supplied && Date.parse(supplied.generatedAt) > Date.parse(admission.blockedAt)) &&
@@ -52,23 +60,28 @@ export function PsychosocialAssessmentController({ context, snapshot: source, ca
   if (boundary) setAdmission({ identity, canRead, privacyEpoch: journal.privacyEpoch, sourceAt: null, blockedAt: admission.sourceAt ?? admission.blockedAt ?? supplied?.generatedAt ?? null });
   else if (admitted && supplied && admission.sourceAt !== supplied.generatedAt) setAdmission({ ...admission, canRead, sourceAt: supplied.generatedAt, blockedAt: null });
   const snapshot = admitted && canRead ? supplied : null;
-  const authority = psychosocialAssessmentAuthoritySignature(context);
-  const fingerprint = JSON.stringify([authority, canManage, canSign, hasRecentAal2, snapshot ? [...new Set([...snapshot.clientOptions.map((item) => item.clientId), ...snapshot.items.map((item) => item.clientId)])].sort() : null]);
-  const life = useRef({ mounted: false, epoch: 0, fingerprint }); const live = useRef({ context, snapshot, fingerprint, identity, canManage, canSign, hasRecentAal2 });
+  const fingerprint = JSON.stringify([authority, effectiveCapabilities.canManage, effectiveCapabilities.canSign, effectiveCapabilities.hasRecentAal2, filterIdentity, snapshot ? [...new Set([...snapshot.clientOptions.map((item) => item.clientId), ...snapshot.items.map((item) => item.clientId)])].sort() : null]);
+  const life = useRef({ mounted: false, epoch: 0, fingerprint, authorityBinding });
+  const live = useRef({ context, snapshot, fingerprint, identity, authority, authorityBinding, filterIdentity, capabilities: effectiveCapabilities });
   const composition = useRef(false); const form = useRef<HTMLFormElement | null>(null); const trigger = useRef<HTMLElement | null>(null); const recovery = useRef<HTMLElement | null>(null);
   const lease = useRef<(() => void) | null>(null); const [reading, startRead] = useTransition(); const [readEpoch, setReadEpoch] = useState(0);
+  const recoveryRead = useRef<{ token: symbol; abort: AbortController; release: () => void } | null>(null); const [checkingAuthority, setCheckingAuthority] = useState(false);
+  const [readError, setReadError] = useState<{ message: string; sourceAt: string } | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null); const [values, setValues] = useState<Values | null>(null); const [errors, setErrors] = useState<Record<string, string>>({}); const [error, setError] = useState("");
   const [saved, setSaved] = useState<{ identity: string; privacyEpoch: number } | null>(null); const [clock, setClock] = useState(() => Date.now()); const [offline, setOffline] = useState(false); const id = useId();
   useLayoutEffect(() => {
-    live.current = { context, snapshot, fingerprint, identity, canManage, canSign, hasRecentAal2 };
+    live.current = { context, snapshot, fingerprint, identity, authority, authorityBinding, filterIdentity, capabilities: effectiveCapabilities };
+    if (life.current.authorityBinding !== authorityBinding) { life.current.authorityBinding = authorityBinding;
+      recoveryRead.current?.abort.abort(); recoveryRead.current?.release(); recoveryRead.current = null; setCheckingAuthority(false); setReadOverride(null); setReadError(null); }
     if (life.current.fingerprint !== fingerprint) { life.current.epoch += 1; life.current.fingerprint = fingerprint;
+      recoveryRead.current?.abort.abort(); recoveryRead.current?.release(); recoveryRead.current = null; setCheckingAuthority(false);
       const op = getPsychosocialAssessmentPending().operation; if (op?.phase === "sending") settlePsychosocialAssessment(op, "unknown");
       setEditor(null); setValues(null); setErrors({}); setError(""); setSaved(null); composition.current = false; }
     observePsychosocialAssessmentAuthority(authority);
-    observePsychosocialAssessmentSnapshot({ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }, context.demo, snapshot, { canManage, canSign, hasRecentAal2 });
-  }, [context, snapshot, authority, fingerprint, identity, canManage, canSign, hasRecentAal2]);
+    observePsychosocialAssessmentSnapshot({ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }, context.demo, snapshot, effectiveCapabilities);
+  }, [context, snapshot, authority, authorityBinding, filterIdentity, fingerprint, identity, effectiveCapabilities]);
   useEffect(() => { const lifecycle = life.current; lifecycle.mounted = true; return () => { lifecycle.mounted = false; lifecycle.epoch += 1;
-    lease.current?.(); lease.current = null; const operation = getPsychosocialAssessmentPending().operation;
+    lease.current?.(); lease.current = null; recoveryRead.current?.abort.abort(); recoveryRead.current?.release(); recoveryRead.current = null; const operation = getPsychosocialAssessmentPending().operation;
     if (operation?.phase === "sending" && operation.identity === live.current.identity) settlePsychosocialAssessment(operation, "unknown"); }; }, []);
   useEffect(() => { if (!reading && lease.current) { lease.current(); lease.current = null; } }, [reading, readEpoch]);
   useEffect(() => { const check = () => { setClock(Date.now()); setOffline(!navigator.onLine); }; check(); const timer = window.setInterval(check, 1000);
@@ -79,17 +92,17 @@ export function PsychosocialAssessmentController({ context, snapshot: source, ca
   const visibleEditor = editor?.fingerprint === fingerprint && editor.privacyEpoch === journal.privacyEpoch ? editor : null;
   function permitted(action: Action, clientId: string) { const current = live.current; const source = current.snapshot;
     return !!source && !current.context.demo && readable(current.context) && current.context.scopes.includes(signing(action) ? "social_work_records.sign" : "social_work_records.manage") &&
-      (signing(action) ? current.canSign && current.hasRecentAal2 : current.canManage) && (source.items.some((item) => item.clientId === clientId) || source.clientOptions.some((item) => item.clientId === clientId)); }
+      (signing(action) ? current.capabilities.canSign && current.capabilities.hasRecentAal2 : current.capabilities.canManage) && (source.items.some((item) => item.clientId === clientId) || source.clientOptions.some((item) => item.clientId === clientId)); }
   const recoverable = ownOperation && !!snapshot && !context.demo && context.scopes.includes(signing(ownOperation.input.action) ? "social_work_records.sign" : "social_work_records.manage") &&
-    (signing(ownOperation.input.action) ? canSign && hasRecentAal2 : canManage) && (snapshot.items.some((item) => item.clientId === ownOperation.input.clientId) || snapshot.clientOptions.some((item) => item.clientId === ownOperation.input.clientId));
+    (signing(ownOperation.input.action) ? effectiveCapabilities.canSign && effectiveCapabilities.hasRecentAal2 : effectiveCapabilities.canManage) && (snapshot.items.some((item) => item.clientId === ownOperation.input.clientId) || snapshot.clientOptions.some((item) => item.clientId === ownOperation.input.clientId));
   function unavailable(action: Action, item: PsychosocialAssessmentListItem) {
-    return !snapshot || snapshot.demo || stale || offline || locked || pendingWork || changingView || reading || confirmed.length >= 32 || confirmed.some((entry) => entry.clientId === item.clientId) ||
-      !context.scopes.includes(signing(action) ? "social_work_records.sign" : "social_work_records.manage") || (signing(action) ? !canSign || !hasRecentAal2 : !canManage) ||
+    return !snapshot || snapshot.demo || stale || offline || locked || pendingWork || changingView || reading || checkingAuthority || confirmed.length >= 32 || confirmed.some((entry) => entry.clientId === item.clientId) ||
+      !context.scopes.includes(signing(action) ? "social_work_records.sign" : "social_work_records.manage") || (signing(action) ? !effectiveCapabilities.canSign || !effectiveCapabilities.hasRecentAal2 : !effectiveCapabilities.canManage) ||
       !snapshot.items.some((entry) => entry.clientId === item.clientId && entry.versionId === item.versionId && entry.assessmentVersion === item.assessmentVersion) ||
       action !== "create_draft" && (action === "correct" ? item.recordState !== "signed" && item.recordState !== "corrected" : item.recordState !== "draft");
   }
   const guard = useUnsavedChanges({ dirty: !!visibleEditor && !pending && !!values && JSON.stringify(values) !== JSON.stringify(visibleEditor.initial), scopeKey: JSON.stringify([fingerprint, journal.privacyEpoch]),
-    revisionKey: snapshot?.generatedAt ?? "unavailable", canPrompt: !pendingWork && !changingView && !reading, permittedFormAttribute: "data-psychosocial-assessment-form",
+    revisionKey: snapshot?.generatedAt ?? "unavailable", canPrompt: !pendingWork && !changingView && !reading && !checkingAuthority, permittedFormAttribute: "data-psychosocial-assessment-form",
     onDiscard: () => { setEditor(null); setValues(null); composition.current = false; } });
   function open(action: Action, item: PsychosocialAssessmentListItem, button: HTMLElement) {
     if (!snapshot || unavailable(action, item) || !permitted(action, item.clientId)) return;
@@ -98,9 +111,36 @@ export function PsychosocialAssessmentController({ context, snapshot: source, ca
       const initial = initialValues(item, current.generatedAt, action); trigger.current = button; composition.current = false; setErrors({}); setError(""); setSaved(null); setValues(initial);
       setEditor({ action, target: structuredClone(item), sourceAt: current.generatedAt, fingerprint, epoch: life.current.epoch, privacyEpoch: journal.privacyEpoch, initial: structuredClone(initial) }); });
   }
-  function performRead() { if (hasPendingOperations() || hasViewTransition() || reading) return; const held = tryAcquireViewTransition(); if (!held) return;
+  function performRead() { if (hasPendingOperations() || hasViewTransition() || reading || recoveryRead.current) return; const held = tryAcquireViewTransition(); if (!held) return;
     lease.current = held; setReadEpoch((value) => value + 1); startRead(() => { try { return router.refresh(); } catch { held(); lease.current = null; setError("清單無法重新載入，請稍後再試。"); } }); }
-  function refresh() { if (!hasPendingOperations() && !hasViewTransition() && !reading) guard.requestExit(performRead); }
+  function refresh() { if (!hasPendingOperations() && !hasViewTransition() && !reading && !recoveryRead.current) guard.requestExit(performRead); }
+  async function refreshRecovery() {
+    const operation = getPsychosocialAssessmentPending().operation; const current = live.current;
+    if (!operation || operation.identity !== current.identity || operation.phase !== "unknown" || composition.current || recoveryRead.current || reading || hasViewTransition() || !navigator.onLine || current.context.demo || !readable(current.context)) return;
+    const held = tryAcquirePsychosocialAssessmentRecoveryRead(scope, current.context.demo); if (!held) return;
+    const token = Symbol(); const abort = new AbortController(); recoveryRead.current = { token, abort, release: held }; setCheckingAuthority(true); setReadError(null);
+    const epoch = life.current.epoch; const captured = getPsychosocialAssessmentPending(); const binding = current.authorityBinding; const capturedFilters = structuredClone(filters);
+    const valid = () => { const state = getPsychosocialAssessmentPending(); return life.current.mounted && life.current.epoch === epoch && recoveryRead.current?.token === token && !abort.signal.aborted && navigator.onLine &&
+      live.current.identity === operation.identity && live.current.authorityBinding === binding && state.privacyEpoch === captured.privacyEpoch && state.authorityEpoch === captured.authorityEpoch && state.capabilityEpoch === captured.capabilityEpoch && state.operation?.token === operation.token && state.operation.phase === "unknown"; };
+    try {
+      const bundle = await readPsychosocialSnapshot(scope, capturedFilters, abort.signal); if (!valid()) return;
+      if (bundle.authoritySignature !== psychosocialAssessmentAuthoritySignature(live.current.context)) {
+        const sourceAt = live.current.snapshot?.generatedAt ?? getPsychosocialAssessmentPending().acceptedSnapshotAt ?? operation.snapshotAt;
+        quarantinePsychosocialAssessmentSnapshot(scope, false); setReadOverride(null); setReadError({ message: "授權已變更，舊資料已隱藏；請重新確認帳號權限後再查。", sourceAt }); return;
+      }
+      const next = safeSnapshot(bundle.snapshot, live.current.context); const state = getPsychosocialAssessmentPending();
+      const acceptedAt = getPsychosocialAssessmentSnapshotAdmission(scope, false);
+      if (!next || Date.now() >= Date.parse(next.staleAfter) || Date.parse(next.generatedAt) > Date.now() ||
+        state.snapshotFloor && Date.parse(next.generatedAt) <= Date.parse(state.snapshotFloor) || acceptedAt && Date.parse(next.generatedAt) < Date.parse(acceptedAt)) throw new Error("Unavailable source");
+      setReadOverride({ identity: operation.identity, authorityBinding: binding, bundle: { ...bundle, snapshot: next } }); setError("");
+    } catch (failure) { if (valid()) {
+      const transportOnly = failure instanceof SnapshotReadError && failure.status === null && failure.code === "UNAVAILABLE";
+      const sourceAt = live.current.snapshot?.generatedAt ?? getPsychosocialAssessmentPending().acceptedSnapshotAt ?? operation.snapshotAt;
+      if (!transportOnly) { quarantinePsychosocialAssessmentSnapshot(scope, false); setReadOverride(null); }
+      setReadError({ message: transportOnly ? "未能重新取得授權資料；目前顯示前次授權資料，並非最新查回結果。原操作仍保留，請稍後再查。"
+        : "未能重新取得授權資料；舊資料已隱藏，原操作仍保留，請確認權限後再查。", sourceAt });
+    } } finally { held(); if (recoveryRead.current?.token === token) { recoveryRead.current = null; if (life.current.mounted) setCheckingAuthority(false); } }
+  }
   async function execute(operation: PsychosocialOperation) {
     const epoch = life.current.epoch; const captured = live.current.fingerprint;
     const currentAttempt = () => { const state = getPsychosocialAssessmentPending(); return life.current.mounted && life.current.epoch === epoch && live.current.fingerprint === captured && live.current.identity === operation.identity && navigator.onLine &&
@@ -116,10 +156,10 @@ export function PsychosocialAssessmentController({ context, snapshot: source, ca
         setEditor(null); setValues(null); setErrors({}); composition.current = false; setSaved({ identity: operation.identity, privacyEpoch: operation.privacyEpoch }); }
     } catch { settlePsychosocialAssessment(operation, "unknown"); }
   }
-  function retry() { if (!ownOperation || !recoverable || composition.current || !navigator.onLine || hasViewTransition() || reading) return;
+  function retry() { if (!ownOperation || !recoverable || composition.current || recoveryRead.current || !navigator.onLine || hasViewTransition() || reading) return;
     const operation = retryPsychosocialAssessment(ownOperation.token, scope, context.demo); if (operation) void execute(operation); }
   function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!visibleEditor || !values || composition.current || pendingWork || changingView || reading || locked) return;
+    event.preventDefault(); if (!visibleEditor || !values || composition.current || recoveryRead.current || pendingWork || changingView || reading || locked) return;
     const source = live.current.snapshot; if (!source || Date.now() >= Date.parse(source.staleAfter) || source.generatedAt !== visibleEditor.sourceAt || visibleEditor.epoch !== life.current.epoch || !permitted(visibleEditor.action, visibleEditor.target.clientId)) { setError("來源或授權已變更，請重新選擇操作。"); return; }
     const next: Record<string, string> = {}; const action = visibleEditor.action; const item = visibleEditor.target;
     const text = (key: "dueBasis" | "assessmentSummary" | "correctionReason", max: number) => { const value = values[key].trim(); if (!value || value.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)) next[key] = `請填寫 1–${max} 字，不能含無效控制字元。`; };
@@ -147,19 +187,23 @@ export function PsychosocialAssessmentController({ context, snapshot: source, ca
     return { id: `${id}-${key}`, "data-psychosocial-field": key, "aria-label": label, "aria-invalid": !!errors[key], "aria-describedby": errors[key] ? `${id}-${key}-error` : undefined };
   }
   function fieldError(key: string) { return errors[key] ? <small id={`${id}-${key}-error`} role="alert">{errors[key]}</small> : null; }
-  return <Controller.Provider value={{ snapshot, unavailable, open, refresh, readBlocked: locked || pendingWork || changingView || reading }}>
+  return <Controller.Provider value={{ snapshot, capabilities: snapshot ? effectiveCapabilities : { canManage: false, canSign: false, hasRecentAal2: false }, unavailable, open, refresh, readBlocked: locked || pendingWork || changingView || reading || checkingAuthority }}>
     <section className={`panel ${styles.recovery}`} aria-label="心理社會評估操作狀態" ref={recovery} tabIndex={-1}>
       <h2 data-governance-focus-anchor tabIndex={-1}>心理社會評估操作</h2>
       {ownOperation && <p role="status">{ownOperation.phase === "sending" ? "正在確認原操作，請勿重複送出。" : "原操作結果尚未確認；原內容與操作鍵仍保留。"}</p>}
       {pending && !ownOperation && <p role="status">其他帳號或分支有待確認操作，目前不顯示原資料。</p>}
-      {ownOperation?.phase === "unknown" && <><button className="button button--primary" disabled={!recoverable || offline || changingView || reading} onClick={retry}>重試同一評估操作</button>
-        {!recoverable && <p role="status">目前無法確認原授權；此頁尚無獨立授權回查入口。原操作保留，請聯絡管理員；不會另建新筆。</p>}</>}
+      {ownOperation?.phase === "unknown" && <><button className="button button--primary" disabled={!recoverable || offline || changingView || reading || checkingAuthority} onClick={retry}>重試同一評估操作</button>
+        <button className="button button--secondary" disabled={!canRead || context.demo || offline || changingView || reading || checkingAuthority} aria-busy={checkingAuthority} onClick={() => { void refreshRecovery(); }}>重新核對原範圍授權</button>
+        {checkingAuthority && <p role="status">正在核對授權，原操作保留；不會新增或重送。</p>}
+        {overrideWins && snapshot && !checkingAuthority && <p role="status">已重新核對原範圍授權；原操作仍需手動重試。</p>}
+        {!recoverable && <p role="status">目前不能重試，請先核對原範圍授權。查回不會完成近期驗證，原操作仍保留。</p>}</>}
+      {readError && ownOperation?.phase === "unknown" && (!snapshot || Date.parse(snapshot.generatedAt) <= Date.parse(readError.sourceAt)) && <p role="alert">{readError.message}</p>}
       {confirmed.length > 0 && <p role="status">已確認保存；清單尚未確認更新，請手動重新載入。</p>}
       {saved?.identity === identity && saved.privacyEpoch === journal.privacyEpoch && confirmed.length === 0 && <p role="status">已確認保存，清單已確認更新。</p>}
       {error && !visibleEditor && <p role="alert">{error}</p>}
       {(journal.navigationBlocked || guard.notice) && <p role="status">{guard.notice || "請先回查待確認操作，再離開此頁。"}</p>}
       {offline && <p role="status">目前離線，不能送出；此頁不會將評估內容保存到裝置。</p>}
-      <button className="button button--secondary" disabled={locked || pendingWork || changingView || reading} onClick={refresh}>重新載入評估清單</button>
+      <button className="button button--secondary" disabled={locked || pendingWork || changingView || reading || checkingAuthority} onClick={refresh}>重新載入評估清單</button>
     </section>
     {children}
     <GovernanceDialog open={!!visibleEditor && !guard.open} title={visibleEditor ? labels[visibleEditor.action] : "心理社會評估"} busy={locked} returnFocusRef={trigger} fallbackFocusRef={recovery}
@@ -188,7 +232,7 @@ export function PsychosocialAssessmentController({ context, snapshot: source, ca
         <button className="button button--primary" type="submit" disabled={locked || pendingWork || changingView || reading || offline}>{visibleEditor.action === "sign" ? "確認簽署評估" : visibleEditor.action === "correct" ? "確認建立更正版" : "保存評估草稿"}</button>
       </form>}
       {ownOperation?.phase === "unknown" && <><p role="alert">原操作結果尚未確認，內容不可修改。</p><button className="button button--secondary" type="button" onClick={() => { if (!composition.current) { setEditor(null); setValues(null); composition.current = false; } }}>回待確認清單</button>
-        <button className="button button--primary" type="button" disabled={!recoverable || offline || changingView || reading} onClick={retry}>重試同一評估操作</button></>}
+        <button className="button button--primary" type="button" disabled={!recoverable || offline || changingView || reading || checkingAuthority} onClick={retry}>重試同一評估操作</button></>}
     </GovernanceDialog>
     <GovernanceDialog open={guard.open} title="放棄未保存的心理社會評估？" cancelLabel="繼續填寫" onRequestClose={() => { if (!composition.current) guard.cancel(); }} returnFocusRef={guard.returnFocusRef} fallbackFocusRef={recovery}>
       <p>尚未保存的填寫會清除；已送出但未確認的操作不能放棄。</p><button className="button button--danger" type="button" onClick={() => { if (!composition.current) guard.confirmDiscard(); }}>放棄填寫並繼續</button>

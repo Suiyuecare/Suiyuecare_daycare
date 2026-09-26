@@ -188,3 +188,14 @@ Chrome真正Next頁39重現Node與瀏覽器的日期分隔U+2009／ASCII差異�
 - 凍結後lint零警告、型別、隔離production build、兩頁strict premium及diff-check通過。真正Next demo89／89路由通過；頁29ICU日期空白hydration問題已重現、修復、fresh Chrome重驗。合成Chrome兩頁desktop／390px、unknown→403→remount原鍵、same-generation指派ABA及positive history核對通過。沒有完整人工WCAG／真人Auth／正式保存證據。
 
 所有完整正式上線門檻維持：未知鎖下GET／MFA復原、超出有界history的精確定位、完整重載intent、Vercel指定專案403、區域／DPA／商用備份、CMS WORM與掃毒、官方量表／申報、Finance同店真金額及家屬／持續營運。沒有GitHub push、Vercel公開預覽／promotion、hosted DDL、區域移轉或新增費用。所有owned測試cluster停止，成功runner僅清除明確owned pgdata；失敗資料及日誌／備份／證據保留。
+
+## 頁28／29手動授權GET回查（最新候選，未發布）
+
+在原unknown寫入鎖旁新增各自唯讀snapshot GET，原lease／key／body完整保留；共用private owner-aware read fence排除其他寫入與導覽。先驗實際權限再解析scope／nonce／filters，使用原audited loader及social專用recent證據；strict envelope／canonical authority／目前can*／新來源驗證。授權或壞回覆隔離舊資料、提高來源floor；純網路失敗明示非最新。卸載、登出、跨頁authority與privacy／filters ABA、晚回覆均拒絕，不POST、不中途換鍵、不假裝清單更新。獨立覆核找到頁28malformed200／untrusted source／503仍留舊內容的gap，已RED/GREEN修復。範圍見[社工唯讀回查驗證](SOCIAL_WORK_READ_RECOVERY_2026-09-26.md)。
+
+- 最終凍結來源全量Vitest：**517檔／7389项全部通過，808.87秒，無略過**。maxWorkers=1且原timeout不放寬；Finance跨repo使用精確候選。不得再將上一段被停止的全量當目前結果，歷史日誌仍保留。
+- 最終重新編譯Chrome fixture兩頁desktop1440×1000／mobile390×844通過：0POST必填／合成IME、unknown→GET403→remount→新GET→原key/body人工retry、malformed200隔離跨remount、in-flight read fence與branch ABA晚回覆、receipt／positive history分離，無JS錯誤／溢位、16px／44px。這是實際UI與假loopback HTTP，不是hosted Auth／RLS／持久化或完整人工WCAG。
+- 私有證據`social-recovery-final-vitest.log`、`social-recovery-final-browser.json`、兩頁`social-recovery-*-premium.json`保留於原verification目錄。SQL未變更，143份／前輪native14套為原SQL來源證據，沒有本輪hosted核對或DDL。
+- 凍結後全量lint零warning、TypeScript、strict premium兩頁零findings、diff-check及隔離production build通過，101静態輸出完成。明確清空外部配置並關閉demo，真正本機Next兩GET皆503／SERVICE_NOT_CONFIGURED、data=null、private/no-store；Chrome登入頁正常無JS錯誤且Google未配置按鈕停用。不是hosted401／403、真Google或RLS測試。證據`social-recovery-final-{lint,typecheck,build}.log`、`social-recovery-production-{denial.json,login.txt}`；owned server與browser已停止。
+
+GET不取得MFA、不重建已改變的canonical context，也未解決fullreload durable intent、32個確認標記或有界歷程精確定位；護理獨立GET仍缺。所有正式門檻維持，包含未完成的評鑑頁79與家屬84–89真正資料／操作流程，不發布或新增費用。

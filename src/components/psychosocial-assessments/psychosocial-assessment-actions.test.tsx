@@ -142,7 +142,7 @@ describe("psychosocial workspace-owned writes", () => {
     rerender(<Harness snapshot={removed}/>); rerender(<Harness/>); expect(screen.getByText("授權來源不可用")).toBeInTheDocument(); unmount(); render(<Harness/>);
     await act(async () => finish(response(captured))); expect(getPsychosocialAssessmentPending().operation?.phase).toBe("unknown"); expect(getPsychosocialAssessmentPending().confirmed).toHaveLength(0);
     expect(screen.getByText("授權來源不可用")).toBeInTheDocument(); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByText(/此頁尚無獨立授權回查入口/u)).toBeInTheDocument(); expect(refresh).not.toHaveBeenCalled();
+    expect(screen.getByText(/請先核對原範圍授權/u)).toBeInTheDocument(); expect(refresh).not.toHaveBeenCalled();
   });
   it("logout/unmount rejects late ACK and cannot repopulate clinical journal", async () => { let finish!: (response: Response) => void; let captured!: RequestInit;
     vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((resolve) => { finish = resolve; }); }));

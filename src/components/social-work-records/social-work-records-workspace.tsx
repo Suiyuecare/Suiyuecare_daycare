@@ -105,13 +105,14 @@ export function SocialWorkRecordsWorkspace({
   page: PageCatalogEntry;
   snapshot: SocialWorkRecordSnapshot | null;
 }) {
-  return <SocialWorkRecordController context={context} snapshot={loadError ? null : snapshot} capabilities={{ canManage, canSign, hasRecentAal2 }}>
-    <SocialWorkRecordsContent canManage={canManage} canSign={canSign} filters={filters} hasRecentAal2={hasRecentAal2} page={page} />
+  return <SocialWorkRecordController context={context} snapshot={loadError ? null : snapshot} filters={filters} capabilities={{ canManage, canSign, hasRecentAal2 }}>
+    <SocialWorkRecordsContent filters={filters} page={page} />
   </SocialWorkRecordController>;
 }
 
-function SocialWorkRecordsContent({ canManage, canSign, filters, hasRecentAal2, page }: { canManage: boolean; canSign: boolean; filters: SocialWorkRecordFilters; hasRecentAal2: boolean; page: PageCatalogEntry }) {
+function SocialWorkRecordsContent({ filters, page }: { filters: SocialWorkRecordFilters; page: PageCatalogEntry }) {
   const controller = useSocialWorkController();
+  const { canManage, canSign, hasRecentAal2 } = controller?.capabilities ?? { canManage: false, canSign: false, hasRecentAal2: false };
   const [filterError, setFilterError] = useState<{ field: "from" | "to"; message: string } | null>(null);
   const filterId = useId(); const filterComposition = useRef(false);
   const snapshot = controller?.snapshot;

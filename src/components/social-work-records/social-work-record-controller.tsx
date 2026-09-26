@@ -9,9 +9,10 @@ import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { parseSocialWorkActionSuccess } from "@/lib/social-work-records/parser";
-import { beginSocialWork, getSocialWorkPending, getSocialWorkSnapshotAdmission, isConfirmedSocialWorkRejection, observeSocialWorkAuthority, observeSocialWorkSnapshot, parseSocialWorkInput, reconcileSocialWorkConfirmed, retrySocialWork, settleSocialWork, socialWorkAuthoritySignature, socialWorkExpectation, socialWorkScopeIdentity, useSocialWorkPending, type SocialWorkCapabilities, type SocialWorkInput, type SocialWorkOperation } from "@/lib/social-work-records/pending";
+import { beginSocialWork, getSocialWorkPending, getSocialWorkSnapshotAdmission, isConfirmedSocialWorkRejection, observeSocialWorkAuthority, observeSocialWorkSnapshot, parseSocialWorkInput, quarantineSocialWorkSnapshot, reconcileSocialWorkConfirmed, retrySocialWork, settleSocialWork, socialWorkAuthoritySignature, socialWorkExpectation, socialWorkScopeIdentity, tryAcquireSocialWorkRecoveryRead, useSocialWorkPending, type SocialWorkCapabilities, type SocialWorkInput, type SocialWorkOperation } from "@/lib/social-work-records/pending";
 import { normalizeSocialWorkSnapshot } from "@/lib/social-work-records/snapshot-contract";
-import type { SocialWorkRecordSnapshot, SocialWorkServiceRecord } from "@/lib/social-work-records/types";
+import { readSocialWorkSnapshot, SnapshotReadError } from "@/lib/social-work-records/snapshot-client";
+import type { SocialWorkRecordFilters, SocialWorkRecordSnapshot, SocialWorkServiceRecord } from "@/lib/social-work-records/types";
 import styles from "./social-work-records.module.css";
 
 export type SocialWorkAction = SocialWorkInput["action"];
@@ -24,33 +25,51 @@ function initialValues(snapshot: SocialWorkRecordSnapshot, record?: SocialWorkSe
 function safeSnapshot(value: SocialWorkRecordSnapshot | null, context: TenantContext) { if (!value || value.organizationId !== context.organizationId || value.branchId !== context.branchId || value.demo !== context.demo) return null; try { return normalizeSocialWorkSnapshot(value, context); } catch { return null; } }
 function clients(snapshot: SocialWorkRecordSnapshot) { return [...new Set([...snapshot.clientOptions.map((value) => value.clientId), ...snapshot.records.map((value) => value.clientId)])].sort(); }
 function permitted(context: TenantContext, snapshot: SocialWorkRecordSnapshot | null, caps: SocialWorkCapabilities, action: SocialWorkAction, client?: string) { const signing = action === "sign" || action === "correct"; return !!snapshot && !context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("clients.read") && context.scopes.includes("social_work_records.read") && context.scopes.includes(signing ? "social_work_records.sign" : "social_work_records.manage") && (signing ? caps.canSign && caps.hasRecentAal2 : caps.canManage) && (!client || clients(snapshot).includes(client)); }
-type ControllerValue = { snapshot: SocialWorkRecordSnapshot | null; unavailable: (action: SocialWorkAction, target?: SocialWorkServiceRecord) => boolean; open: (action: SocialWorkAction, target: SocialWorkServiceRecord | undefined, trigger: HTMLElement) => void; refresh: () => void; readBlocked: boolean };
+type ControllerValue = { snapshot: SocialWorkRecordSnapshot | null; capabilities: SocialWorkCapabilities; unavailable: (action: SocialWorkAction, target?: SocialWorkServiceRecord) => boolean; open: (action: SocialWorkAction, target: SocialWorkServiceRecord | undefined, trigger: HTMLElement) => void; refresh: () => void; readBlocked: boolean };
+const noCapabilities: SocialWorkCapabilities = { canManage: false, canSign: false, hasRecentAal2: false };
+const emptyFilters: SocialWorkRecordFilters = { dateFrom: null, dateTo: null, clientId: null, serviceType: null, authorUserId: null };
+type RecoverySource = { identity: string; privacyEpoch: number; authorityEpoch: number; origin: string; serverAt: string | null; snapshot: SocialWorkRecordSnapshot | null; capabilities: SocialWorkCapabilities };
 const Controller = createContext<ControllerValue | null>(null);
 export function useSocialWorkController() { return useContext(Controller); }
 
 /** One owner for both desktop and mobile entry buttons; no row-local write key. */
-export function SocialWorkRecordController({ context, snapshot: serverSnapshot, capabilities, children }: { context: TenantContext; snapshot: SocialWorkRecordSnapshot | null; capabilities: SocialWorkCapabilities; children: ReactNode }) {
+export function SocialWorkRecordController({ context, snapshot: serverSnapshot, capabilities: serverCapabilities, filters = emptyFilters, children }: { context: TenantContext; snapshot: SocialWorkRecordSnapshot | null; capabilities: SocialWorkCapabilities; filters?: SocialWorkRecordFilters; children: ReactNode }) {
   const router = useRouter(); const journal = useSocialWorkPending(); const pendingWork = usePendingOperations(); const changingView = useViewTransitionPending();
   const scope = { organizationId: context.organizationId, branchId: context.branchId, userId: context.userId };
   const identity = context.demo ? JSON.stringify([context.organizationId, context.branchId, context.userId, true]) : socialWorkScopeIdentity(scope, false);
   const readable = context.demo || context.assuranceLevel === "aal2" && context.scopes.includes("clients.read") && context.scopes.includes("social_work_records.read");
-  const supplied = safeSnapshot(serverSnapshot, context); const acceptedAt = getSocialWorkSnapshotAdmission(scope, context.demo);
+  const authority = socialWorkAuthoritySignature(context);
+  const serverSource = safeSnapshot(serverSnapshot, context);
+  const filterSignature = JSON.stringify([filters.dateFrom, filters.dateTo, filters.clientId, filters.serviceType, filters.authorUserId]);
+  const origin = JSON.stringify([authority, serverCapabilities, serverSource ? clients(serverSource) : null, filterSignature]);
+  const [recoverySource, setRecoverySource] = useState<RecoverySource | null>(null);
+  const recovered = recoverySource?.identity === identity && recoverySource.privacyEpoch === journal.privacyEpoch && recoverySource.authorityEpoch === journal.authorityEpoch && recoverySource.origin === origin && (!serverSource || (recoverySource.snapshot ? Date.parse(recoverySource.snapshot.generatedAt) >= Date.parse(serverSource.generatedAt) : !recoverySource.serverAt || Date.parse(serverSource.generatedAt) <= Date.parse(recoverySource.serverAt))) ? recoverySource : null;
+  const supersededSourceNotice = !!recoverySource && !recovered && !!serverSource && Date.parse(serverSource.generatedAt) > Date.parse(recoverySource.snapshot?.generatedAt ?? recoverySource.serverAt ?? "1970-01-01T00:00:00.000Z");
+  const supplied = recovered ? recovered.snapshot : serverSource;
+  const capabilities = recovered ? recovered.capabilities : serverCapabilities;
+  const acceptedAt = getSocialWorkSnapshotAdmission(scope, context.demo);
   const [admission, setAdmission] = useState({ identity, readable, privacyEpoch: journal.privacyEpoch, sourceAt: supplied?.generatedAt ?? null as string | null, blockedAt: null as string | null });
   const boundary = admission.identity !== identity || admission.privacyEpoch !== journal.privacyEpoch || admission.readable && !readable;
   const admitted = !boundary && (admission.blockedAt === null || !!supplied && Date.parse(supplied.generatedAt) > Date.parse(admission.blockedAt)) && (journal.snapshotFloor === null || !!supplied && Date.parse(supplied.generatedAt) > Date.parse(journal.snapshotFloor)) && (acceptedAt === null || !!supplied && Date.parse(supplied.generatedAt) >= Date.parse(acceptedAt)) && (!admission.sourceAt || !!supplied && Date.parse(supplied.generatedAt) >= Date.parse(admission.sourceAt));
   if (boundary) setAdmission({ identity, readable, privacyEpoch: journal.privacyEpoch, sourceAt: null, blockedAt: admission.sourceAt ?? admission.blockedAt ?? supplied?.generatedAt ?? null });
   else if (admitted && supplied && admission.sourceAt !== supplied.generatedAt) setAdmission({ ...admission, readable, sourceAt: supplied.generatedAt, blockedAt: null });
   const snapshot = admitted && readable ? supplied : null;
-  const authority = socialWorkAuthoritySignature(context); const fingerprint = JSON.stringify([authority, capabilities, snapshot ? clients(snapshot) : null]);
+  const fingerprint = JSON.stringify([authority, capabilities, snapshot ? clients(snapshot) : null, filterSignature]);
   const lifecycle = useRef({ mounted: false, epoch: 0, fingerprint }); const live = useRef({ context, snapshot, capabilities, fingerprint, identity });
   const composition = useRef(false); const form = useRef<HTMLFormElement | null>(null); const trigger = useRef<HTMLElement | null>(null); const recovery = useRef<HTMLElement | null>(null); const readLease = useRef<(() => void) | null>(null);
+  const recoveryRead = useRef<{ token: symbol; abort: AbortController; release: () => void; origin: string; privacyEpoch: number; authorityEpoch: number; capabilityEpoch: number } | null>(null);
+  const noticeEpoch = useRef(journal.authorityEpoch);
+  const [checkingSource, setCheckingSource] = useState(false); const [sourceNotice, setSourceNotice] = useState("");
   const [reading, startRead] = useTransition(); const [readEpoch, setReadEpoch] = useState(0); const [editor, setEditor] = useState<Editor | null>(null); const [values, setValues] = useState<Values | null>(null); const [errors, setErrors] = useState<Record<string, string>>({}); const [error, setError] = useState(""); const [saved, setSaved] = useState<{ identity: string; privacyEpoch: number } | null>(null); const [clock, setClock] = useState(() => Date.now()); const [offline, setOffline] = useState(false); const id = useId();
   useLayoutEffect(() => {
+    if (noticeEpoch.current !== journal.authorityEpoch) { noticeEpoch.current = journal.authorityEpoch; setSourceNotice(""); }
+    const read = recoveryRead.current;
+    if (read && (read.origin !== origin || read.privacyEpoch !== journal.privacyEpoch || read.authorityEpoch !== journal.authorityEpoch || read.capabilityEpoch !== journal.capabilityEpoch)) { recoveryRead.current = null; read.abort.abort(); read.release(); setCheckingSource(false); setSourceNotice(""); }
     live.current = { context, snapshot, capabilities, fingerprint, identity };
     if (lifecycle.current.fingerprint !== fingerprint) { lifecycle.current.epoch += 1; lifecycle.current.fingerprint = fingerprint; const operation = getSocialWorkPending().operation; if (operation?.phase === "sending") settleSocialWork(operation, "unknown"); setEditor(null); setValues(null); setErrors({}); setError(""); setSaved(null); composition.current = false; }
     observeSocialWorkAuthority(authority); observeSocialWorkSnapshot({ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }, context.demo, snapshot, capabilities);
-  }, [authority, context, snapshot, capabilities, fingerprint, identity, scope.organizationId, scope.branchId, scope.userId]);
-  useEffect(() => { const life = lifecycle.current; life.mounted = true; return () => { life.mounted = false; life.epoch += 1; readLease.current?.(); readLease.current = null; const operation = getSocialWorkPending().operation; if (operation?.phase === "sending" && operation.identity === live.current.identity) settleSocialWork(operation, "unknown"); }; }, []);
+  }, [authority, context, snapshot, capabilities, fingerprint, identity, scope.organizationId, scope.branchId, scope.userId, origin, journal.privacyEpoch, journal.authorityEpoch, journal.capabilityEpoch]);
+  useEffect(() => { const life = lifecycle.current; life.mounted = true; return () => { life.mounted = false; life.epoch += 1; readLease.current?.(); readLease.current = null; const read = recoveryRead.current; recoveryRead.current = null; read?.abort.abort(); read?.release(); const operation = getSocialWorkPending().operation; if (operation?.phase === "sending" && operation.identity === live.current.identity) settleSocialWork(operation, "unknown"); }; }, []);
   useEffect(() => { if (!reading && readLease.current) { readLease.current(); readLease.current = null; } }, [reading, readEpoch]);
   useEffect(() => { const check = () => { setClock(Date.now()); setOffline(!navigator.onLine); }; check(); const timer = window.setInterval(check, 1000); window.addEventListener("online", check); window.addEventListener("offline", check); return () => { window.clearInterval(timer); window.removeEventListener("online", check); window.removeEventListener("offline", check); }; }, [snapshot?.generatedAt]);
   useEffect(() => { if (snapshot && !context.demo) reconcileSocialWorkConfirmed({ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }, snapshot, Date.now()); }, [snapshot, context.organizationId, context.branchId, context.userId, context.demo]);
@@ -76,7 +95,29 @@ export function SocialWorkRecordController({ context, snapshot: serverSnapshot, 
       if (settleSocialWork(operation, receipt) && !getSocialWorkPending().operation && getSocialWorkPending().confirmed.some((entry) => entry.identity === operation.identity && entry.recordKey === receipt.data.recordKey)) { setEditor(null); setValues(null); setErrors({}); setSaved({ identity: operation.identity, privacyEpoch: operation.privacyEpoch }); }
     } catch { settleSocialWork(operation, "unknown"); }
   }
-  function retry() { if (!own || !recoverable || composition.current || !navigator.onLine || changingView || reading) return; const operation = retrySocialWork(own.token, scope, context.demo); if (operation) void execute(operation); }
+  async function checkSource() {
+    if (context.demo || !readable || composition.current || !navigator.onLine || checkingSource || reading || recoveryRead.current || own?.phase !== "unknown") return;
+    const release = tryAcquireSocialWorkRecoveryRead(scope, context.demo); if (!release) { setSourceNotice("其他工作仍在確認，請完成後再更新授權資料。"); return; }
+    const captured = getSocialWorkPending(); const operationToken = captured.operation?.token; const epoch = lifecycle.current.epoch;
+    const read = { token: Symbol(), abort: new AbortController(), release, origin, privacyEpoch: captured.privacyEpoch, authorityEpoch: captured.authorityEpoch, capabilityEpoch: captured.capabilityEpoch };
+    recoveryRead.current = read; setCheckingSource(true); setSourceNotice("");
+    const current = () => { const state = getSocialWorkPending(); return recoveryRead.current === read && lifecycle.current.mounted && lifecycle.current.epoch === epoch && live.current.identity === identity && navigator.onLine && !read.abort.signal.aborted && state.operation?.token === operationToken && state.operation?.phase === "unknown" && state.privacyEpoch === read.privacyEpoch && state.authorityEpoch === read.authorityEpoch && state.capabilityEpoch === read.capabilityEpoch && state.authoritySignature === authority; };
+    try {
+      const result = await readSocialWorkSnapshot(scope, structuredClone(filters), read.abort.signal);
+      if (!current()) return;
+      const source = safeSnapshot(result.snapshot, live.current.context);
+      const latest = getSocialWorkPending(); const floor = latest.snapshotFloor; const watermark = getSocialWorkSnapshotAdmission(scope, context.demo);
+      if (result.authoritySignature !== socialWorkAuthoritySignature(live.current.context) || !source || Date.now() < Date.parse(source.generatedAt) || Date.now() >= Date.parse(source.staleAfter) || floor && Date.parse(source.generatedAt) <= Date.parse(floor) || watermark && Date.parse(source.generatedAt) < Date.parse(watermark) || !observeSocialWorkSnapshot(scope, context.demo, source, result.capabilities)) throw new Error("Untrusted recovery source");
+      setRecoverySource({ identity, privacyEpoch: read.privacyEpoch, authorityEpoch: read.authorityEpoch, origin, serverAt: serverSource?.generatedAt ?? null, snapshot: source, capabilities: result.capabilities });
+      setSourceNotice("授權資料已更新；原操作仍待確認，請自行選擇是否以相同內容重試。");
+    } catch (failure) {
+      if (current()) {
+        if (failure instanceof SnapshotReadError && failure.status === null && failure.code === "UNAVAILABLE") setSourceNotice("尚未取得最新授權資料；目前資料不是最新，原操作仍保留。請稍後手動更新。");
+        else { quarantineSocialWorkSnapshot(scope, context.demo); setRecoverySource({ identity, privacyEpoch: read.privacyEpoch, authorityEpoch: read.authorityEpoch, origin, serverAt: serverSource?.generatedAt ?? null, snapshot: null, capabilities: noCapabilities }); setSourceNotice("授權資料無法確認，原內容已隱藏；請再次更新資料或聯絡主管。原操作仍保留。"); }
+      }
+    } finally { if (recoveryRead.current === read) { recoveryRead.current = null; read.release(); if (lifecycle.current.mounted) setCheckingSource(false); } }
+  }
+  function retry() { if (!own || !recoverable || composition.current || !navigator.onLine || hasViewTransition() || changingView || reading || checkingSource) return; const operation = retrySocialWork(own.token, scope, context.demo); if (operation) void execute(operation); }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!visibleEditor || !values || composition.current || pendingWork || changingView || reading || locked || offline) return;
     const source = live.current.snapshot;
@@ -106,10 +147,11 @@ export function SocialWorkRecordController({ context, snapshot: serverSnapshot, 
   function fieldError(key: keyof Values) { return errors[key] ? <small id={`${id}-${key}-error`} role="alert">{errors[key]}</small> : null; }
   function update(key: keyof Values, value: string) { if (!locked && values) { setValues({ ...values, [key]: value }); setErrors((previous) => { const next = { ...previous }; delete next[key]; return next; }); } }
   function textField(key: keyof Values, max: number) { return <label className={`field ${styles.full}`}><span>{names[key]}</span><textarea {...field(key)} className="resize-none" required maxLength={max} value={values?.[key] ?? ""} onChange={(event) => update(key, event.target.value)} />{fieldError(key)}</label>; }
-  return <Controller.Provider value={{ snapshot, unavailable, open, refresh, readBlocked: !!pending || pendingWork || changingView || reading }}>
+  return <Controller.Provider value={{ snapshot, capabilities: snapshot ? capabilities : noCapabilities, unavailable, open, refresh, readBlocked: !!pending || pendingWork || changingView || reading || checkingSource }}>
     <section ref={recovery} tabIndex={-1} data-governance-focus-anchor aria-label="社工操作回查" className={styles.recovery}>
       {pending && !own && <p role="status">另一個資料範圍有待確認操作。請回原範圍回查，此處不顯示內容。</p>}
-      {own && !recoverable && <p role="status">上次操作尚未確認；授權或個案指派已變更，原內容已隱藏。需取得新授權資料後回查，請聯絡主管；此頁尚無原操作的獨立授權回查入口。</p>}
+      {own && !recoverable && <p role="status">上次操作尚未確認；授權或個案指派已變更，原內容已隱藏。請手動更新授權資料；若登入角色已變更，需由主管確認。</p>}
+      {own?.phase === "unknown" && <div className={styles.notice}><button className="button button--secondary" disabled={!readable || context.demo || offline || changingView || reading || checkingSource} aria-busy={checkingSource} onClick={() => void checkSource()}>更新授權資料（不重送）</button>{checkingSource && <p role="status">正在讀取授權資料；原操作仍保留。</p>}{sourceNotice && !supersededSourceNotice && <p role="status">{sourceNotice}</p>}</div>}
       {displayed && <div className={styles.notice}><p role="status">{busy ? "社工操作確認中，請勿重複送出。" : "上次操作結果尚未確認；重試保留原內容，不會建立另一筆。"}</p><details><summary>原操作內容（唯讀）</summary><p>{socialWorkLabels[displayed.action]}</p>{"serviceContent" in displayed && <p>{displayed.serviceContent}</p>}{"serviceResult" in displayed && <p>{displayed.serviceResult}</p>}{"correctionReason" in displayed && <p>{displayed.correctionReason}</p>}{"followUpPlan" in displayed && <p>{displayed.followUpPlan ?? displayed.followUpOutcome ?? displayed.transitionReason}</p>}</details><button className="button button--secondary" disabled={busy || offline || changingView || reading} onClick={retry}>以相同內容重試</button></div>}
       {confirmed.length > 0 && <div className={styles.notice}><p role="status">社工操作已保存，清單尚未確認更新。</p><button className="button button--secondary" disabled={!!pending || changingView || reading} onClick={refresh}>重新載入清單</button></div>}
       {saved?.identity === identity && saved.privacyEpoch === journal.privacyEpoch && confirmed.length === 0 && <p role="status">社工操作已保存，清單已確認更新。</p>}

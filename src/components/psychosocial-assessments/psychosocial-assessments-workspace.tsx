@@ -135,22 +135,19 @@ type WorkspaceProps = {
 
 export function PsychosocialAssessmentsWorkspace(props: WorkspaceProps) {
   return <PsychosocialAssessmentController context={props.context} snapshot={props.loadError ? null : props.snapshot}
-    canManage={props.canManage} canSign={props.canSign} hasRecentAal2={props.hasRecentAal2}>
+    filters={props.filters} canManage={props.canManage} canSign={props.canSign} hasRecentAal2={props.hasRecentAal2}>
     <PsychosocialWorkspaceContent {...props}/>
   </PsychosocialAssessmentController>;
 }
 
 function PsychosocialWorkspaceContent({
-  canManage,
-  canSign,
   filters,
-  hasRecentAal2,
-  loadError = false,
   page,
 }: WorkspaceProps) {
   const controller = usePsychosocialAssessmentController();
+  const { canManage, canSign, hasRecentAal2 } = controller?.capabilities ?? { canManage: false, canSign: false, hasRecentAal2: false };
   const snapshot = controller?.snapshot ?? null;
-  if (loadError || !snapshot) {
+  if (!snapshot) {
     return <section className="empty-card core-care-state" role="alert">
       <span className="empty-card__icon empty-card__icon--warning">
         <CircleAlert aria-hidden="true" />

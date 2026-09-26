@@ -10,6 +10,8 @@
 
 負責人可先看較短的 [正式部署剩餘工作與驗收](FORMAL_DEPLOYMENT_CHECKLIST_2026-09-26.md)。第二輪已修正人工觀察未保存確認、共用分支確認、ADL／IADL不適用狀態與理由，以及量表16px輸入；仍未發布，不能替代完整官方表單、真人規則核准、hosted登入／Finance／備份或營運驗收。
 
+頁28／29後續已補自己unknown鎖旁的明確手動授權GET，不重送原寫入、不釋放原lease；嚴格新來源與目前能力取代舊SSR旗標，撤權／畸形回覆隔離舊內容，晚回覆與ABA拒絕。這不是MFA取得、scope變更context復原或完整重載durable intent；範圍與驗證見[社工唯讀回查候選](SOCIAL_WORK_READ_RECOVERY_2026-09-26.md)。
+
 - **資料庫：** 本機候選目前143份migration；最後一次2026-09-26T13:56:32Z唯讀hosted證據為130份、最新`20260925141114_governed_questionnaire_drafts`。13份候選增量未套用，不能把較早查詢稱當前live狀態。該次Supabase為ACTIVE_HEALTHY、Seoul（`ap-northeast-2`），不是原規劃Tokyo。
 - **發布連線：** 後續團隊清單已成功取得`entrepreneur-9585s-projects`，不再是空清單；該team專案清單只回另一HR專案，指定日照部署清單實際403。專案詳情另有idOrName工具轉接錯誤，不證明專案不存在。尚未核對日照production branch／預覽保護與方案，沒有盲目push／發布，也未使用曝光Token。
 - **店務摘要：** 本機候選已新增每 55 秒、前景／有連線／非展示／沒有其他作業鎖時的只讀 GET 刷新；無新來源最多兩次重試，再轉人工。只依實際來源時間判定新鮮度，不把刷新呼叫當作讀取完成。尚未部署，且正式 Finance gateway、同店映射及真實金額對帳仍未通過；不得稱為兩套正式系統已即時相通。

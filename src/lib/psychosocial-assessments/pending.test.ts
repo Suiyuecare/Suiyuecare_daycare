@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hasPendingOperations, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
 import { parsePsychosocialActionSuccess } from "./parser";
 import { normalizePsychosocialSnapshot } from "./snapshot-contract";
 import { capabilities, psychosocialCommittedSnapshot, psychosocialDenial, psychosocialFixture, psychosocialReceipt } from "./pending.test-fixtures";
 import { beginPsychosocialAssessment, clearPsychosocialAssessmentPendingOnLogout, getPsychosocialAssessmentPending, getPsychosocialAssessmentSnapshotAdmission,
   isConfirmedPsychosocialAssessmentRejection, observePsychosocialAssessmentAuthority, observePsychosocialAssessmentSnapshot, psychosocialAssessmentAuthoritySignature,
-  reconcilePsychosocialAssessmentConfirmed, retryPsychosocialAssessment, settlePsychosocialAssessment, type PsychosocialInput } from "./pending";
+  quarantinePsychosocialAssessmentSnapshot, reconcilePsychosocialAssessmentConfirmed, retryPsychosocialAssessment, settlePsychosocialAssessment, tryAcquirePsychosocialAssessmentRecoveryRead, type PsychosocialInput } from "./pending";
 let fixture: ReturnType<typeof psychosocialFixture>; let iteration = 0;
 beforeEach(() => { clearPsychosocialAssessmentPendingOnLogout(); vi.setSystemTime(new Date(1900000000000 + (++iteration * 10000))); fixture = psychosocialFixture();
   observePsychosocialAssessmentAuthority(psychosocialAssessmentAuthoritySignature(fixture.context)); observePsychosocialAssessmentSnapshot(fixture.scope, false, fixture.snapshot, capabilities); });
@@ -14,6 +14,34 @@ afterEach(() => { clearPsychosocialAssessmentPendingOnLogout(); vi.useRealTimers
 function begin() { return beginPsychosocialAssessment(fixture.scope, false, fixture.input, fixture.snapshot.generatedAt)!; }
 function signInput(): PsychosocialInput { const item = fixture.draft; return { action: "sign", clientId: item.clientId, assessmentKey: item.assessmentKey!, previousVersionId: item.versionId!, expectedVersion: item.assessmentVersion!, idempotencyKey: fixture.input.idempotencyKey }; }
 describe("psychosocial same-operation journal", () => {
+  it("read rejection quarantines old generation across remount without discarding or rekeying unknown writes", () => {
+    const operation = begin(); settlePsychosocialAssessment(operation, "unknown");
+    expect(quarantinePsychosocialAssessmentSnapshot({ ...fixture.scope, userId: "28280000-0000-4000-8000-000000000002" }, false)).toBe(false);
+    expect(quarantinePsychosocialAssessmentSnapshot(fixture.scope, true)).toBe(false);
+    expect(quarantinePsychosocialAssessmentSnapshot(fixture.scope, false)).toBe(true);
+    expect(getPsychosocialAssessmentPending().snapshotFloor).toBe(fixture.snapshot.generatedAt);
+    expect(getPsychosocialAssessmentPending().operation?.body).toBe(operation.body); expect(hasPendingOperations()).toBe(true);
+    expect(observePsychosocialAssessmentSnapshot(fixture.scope, false, fixture.snapshot, capabilities)).toBe(false);
+    expect(retryPsychosocialAssessment(operation.token, fixture.scope, false)).toBeNull();
+    vi.setSystemTime(Date.now() + 1000); const fresh = { ...fixture.snapshot, generatedAt: new Date().toISOString(), staleAfter: new Date(Date.now() + 60000).toISOString() };
+    expect(observePsychosocialAssessmentSnapshot(fixture.scope, false, fresh, capabilities)).toBe(true);
+    const retry = retryPsychosocialAssessment(operation.token, fixture.scope, false)!;
+    expect(retry.body).toBe(operation.body); expect(retry.input.idempotencyKey).toBe(operation.input.idempotencyKey);
+  });
+  it("explicit recovery read preserves the unknown original and excludes foreign leases/retry", () => {
+    const operation = begin(); expect(tryAcquirePsychosocialAssessmentRecoveryRead(fixture.scope, false)).toBeNull();
+    settlePsychosocialAssessment(operation, "unknown"); const original = getPsychosocialAssessmentPending().operation;
+    const foreign = tryAcquirePendingOperation()!;
+    try { expect(tryAcquirePsychosocialAssessmentRecoveryRead(fixture.scope, false)).toBeNull(); } finally { foreign(); }
+    expect(tryAcquirePsychosocialAssessmentRecoveryRead({ ...fixture.scope, userId: "28280000-0000-4000-8000-000000000002" }, false)).toBeNull();
+    expect(tryAcquirePsychosocialAssessmentRecoveryRead(fixture.scope, true)).toBeNull();
+    const read = tryAcquirePsychosocialAssessmentRecoveryRead(fixture.scope, false)!;
+    try { expect(read).not.toBeNull(); expect(hasPendingOperations()).toBe(true); expect(hasViewTransition()).toBe(true);
+      expect(getPsychosocialAssessmentPending().operation).toBe(original); expect(retryPsychosocialAssessment(operation.token, fixture.scope, false)).toBeNull(); }
+    finally { read?.(); }
+    expect(hasPendingOperations()).toBe(true); const retry = retryPsychosocialAssessment(operation.token, fixture.scope, false)!;
+    expect(retry.body).toBe(operation.body); expect(retry.input.idempotencyKey).toBe(operation.input.idempotencyKey);
+  });
   it("freezes normalized full content, source, key and own shared lease", () => { const operation = begin(); expect(operation).not.toBeNull(); expect(hasPendingOperations()).toBe(true);
     expect(operation.input.action !== "sign" && Object.isFrozen(operation.input.dimensions)).toBe(true); if (fixture.input.action === "create_draft") fixture.input.assessmentSummary = "later edit"; expect(operation.body).not.toContain("later edit");
     expect(beginPsychosocialAssessment(fixture.scope, false, operation.input, operation.snapshotAt)).toBeNull(); });

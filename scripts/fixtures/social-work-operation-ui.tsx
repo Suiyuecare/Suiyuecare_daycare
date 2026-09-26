@@ -11,6 +11,7 @@ import type { SocialWorkOperationResult, SocialWorkRecordSnapshot, SocialWorkSer
 import type { PsychosocialAssessmentOperationResult, PsychosocialAssessmentSnapshot, PsychosocialAssessmentListItem } from "@/lib/psychosocial-assessments/types";
 import type { TenantContext } from "@/lib/domain/types";
 import { staffPages } from "@/lib/catalog";
+import { socialWorkAuthoritySignature } from "@/lib/social-work-records/pending";
 
 const uuid = (n: number) => `69000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const actor: TenantContext = { organizationId: "11111111-1111-4111-8111-111111111111", branchId: "22222222-2222-4222-8222-222222222222",
@@ -23,9 +24,11 @@ const pageNumber = new URL(location.href).searchParams.get("page") === "28" ? 28
 type Receipt = SocialWorkOperationResult | PsychosocialAssessmentOperationResult;
 type RequestBody = Record<string, unknown> & { action: string; clientId: string };
 type State = { mode: "success" | "unknown" | "denied" | "invalid" | "deferred"; writes: { key: string; body: string; method: string }[];
+  readMode: "success" | "denied" | "invalid" | "deferred"; reads: { path: string; method: string; filters: string | null }[];
+  readResolve: (() => void) | null; readIncludesReceipt: boolean;
   refreshes: number; resolve: (() => void) | null; remount: () => void; foreign: (value: boolean) => void; allowed: (value: boolean) => void;
   fresh: (includeReceipt?: boolean) => void; assignment: (value: boolean) => void; offpage: (value: boolean) => void; last: Receipt | null; lastBody: RequestBody | null; branchRequests: string[] };
-const state: State = { mode: "success", writes: [], refreshes: 0, resolve: null, remount: () => {}, foreign: () => {}, allowed: () => {}, fresh: () => {}, assignment: () => {}, offpage: () => {}, last: null, lastBody: null, branchRequests: [] };
+const state: State = { mode: "success", writes: [], readMode: "success", reads: [], readResolve: null, readIncludesReceipt: false, refreshes: 0, resolve: null, remount: () => {}, foreign: () => {}, allowed: () => {}, fresh: () => {}, assignment: () => {}, offpage: () => {}, last: null, lastBody: null, branchRequests: [] };
 (window as unknown as Window & { fixture: State }).fixture = state;
 const receipts = new Map<string, Receipt>();
 function existingSocial(body: RequestBody) { return socialBase.records.find((item) => item.recordKey === body.recordKey); }
@@ -37,6 +40,21 @@ window.fetch = async (input, init) => {
     state.branchRequests.push(init?.method ?? "GET");
     return Response.json({ requestId: uuid(90), status: "ok", errors: [], data: init?.method === "DELETE" ? { cleared: true }
       : { currentBranchId: actor.branchId, branches: [{ id: actor.branchId, name: actor.branchName }] } });
+  }
+  if (["/api/social-work-records/snapshot", "/api/psychosocial-assessments/snapshot"].includes(url.pathname)) {
+    if (init?.method !== "GET" || url.search) throw new Error("Only explicit synthetic recovery GET is accepted");
+    const headers = new Headers(init.headers); const prefix = url.pathname.startsWith("/api/social-work") ? "social-work" : "psychosocial";
+    const filterHeader = headers.get(`x-${prefix}-read-filters`);
+    state.reads.push({ path: url.pathname, method: init.method, filters: filterHeader });
+    const mode = state.readMode;
+    if (mode === "deferred") await new Promise<void>((resolve) => { state.readResolve = resolve; });
+    if (mode === "denied") return Response.json({ requestId: uuid(93), status: "error", data: null, errors: [{ code: "FORBIDDEN", message: "Synthetic denied recovery read" }] }, { status: 403 });
+    if (mode === "invalid") return Response.json({});
+    return Response.json({ requestId: uuid(94), status: "ok", errors: [], data: { schemaVersion: 1,
+      organizationId: actor.organizationId, branchId: actor.branchId, actorUserId: actor.userId,
+      nonce: headers.get(`x-${prefix}-read-nonce`), filters: JSON.parse(decodeURIComponent(filterHeader ?? "")),
+      snapshot: prefix === "social-work" ? freshSocial(state.readIncludesReceipt) : freshPsychosocial(state.readIncludesReceipt),
+      capabilities: { canManage: true, canSign: true, hasRecentAal2: true }, authoritySignature: socialWorkAuthoritySignature(actor), demo: false } });
   }
   if (!["/api/social-work-records", "/api/psychosocial-assessments"].includes(url.pathname) || !["POST", "PATCH"].includes(init?.method ?? "")) throw new Error("Only synthetic social-work writes are allowed");
   const key = new Headers(init?.headers).get("idempotency-key") ?? ""; const serialized = String(init?.body);
