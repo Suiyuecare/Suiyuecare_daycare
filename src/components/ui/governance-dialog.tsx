@@ -11,11 +11,24 @@ export type GovernanceDialogProps = {
   cancelLabel?: string;
   onRequestClose: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
 };
 
 function outsideSurface(dialog: HTMLDialogElement, x: number, y: number) {
   const bounds = dialog.getBoundingClientRect();
   return x < bounds.left || x >= bounds.right || y < bounds.top || y >= bounds.bottom;
+}
+
+function restoreFocus(target: HTMLElement | null | undefined) {
+  if (!target?.isConnected || target.ownerDocument !== document || target.matches(":disabled") ||
+      target.getAttribute("aria-disabled") === "true" || target.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+  // An explicit target is not permission to focus a CSS-hidden descendant.
+  for (let ancestor: HTMLElement | null = target; ancestor; ancestor = ancestor.parentElement) {
+    const style = window.getComputedStyle(ancestor);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+  }
+  try { target.focus(); } catch { return false; }
+  return document.activeElement === target;
 }
 
 /** Controlled confirmation surface: a request to cancel never closes it itself. */
@@ -27,6 +40,7 @@ export function GovernanceDialog({
   cancelLabel = "取消",
   onRequestClose,
   returnFocusRef,
+  fallbackFocusRef,
 }: GovernanceDialogProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -39,6 +53,7 @@ export function GovernanceDialog({
     if (!dialog || !open) return;
     const originalFocus = returnFocusRef?.current ??
       (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const fallbackFocus = fallbackFocusRef?.current;
     const focusScope = originalFocus?.closest("section");
 
     // Do not fall back to `open`: only showModal supplies native background inertness.
@@ -53,15 +68,14 @@ export function GovernanceDialog({
       pointerStartedOutside.current = null;
       // A committed proposal can disable its old trigger; use a real target in
       // the same workspace rather than claiming restoration on a disabled one.
-      if (originalFocus?.isConnected && !originalFocus.matches(":disabled") &&
-          originalFocus.getAttribute("aria-disabled") !== "true" && !originalFocus.closest("[hidden], [inert]")) {
-        originalFocus.focus();
-        if (document.activeElement === originalFocus) return;
-      }
+      if (restoreFocus(originalFocus)) return;
       const anchor = focusScope?.querySelector<HTMLElement>("[data-governance-focus-anchor]");
-      if (anchor?.isConnected) anchor.focus();
+      if (restoreFocus(anchor)) return;
+      // No document-wide search: the owning workflow explicitly names its
+      // safe fallback when the captured trigger/section disappeared or changed.
+      restoreFocus(fallbackFocus);
     };
-  }, [open, returnFocusRef]);
+  }, [open, returnFocusRef, fallbackFocusRef]);
 
   useEffect(() => {
     const dialog = dialogRef.current;

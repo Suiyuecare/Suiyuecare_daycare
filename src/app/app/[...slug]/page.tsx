@@ -2936,6 +2936,7 @@ export default async function StaffCatalogPage({
       loadError = true;
     }
     return <StaffAnnouncementsWorkspace
+      context={context}
       canPublish={canPublish}
       canRead={!context.demo && context.scopes.includes("announcements.read")}
       filters={filters}

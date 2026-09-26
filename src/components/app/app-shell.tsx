@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import {
   Bell,
   BookOpenCheck,
@@ -32,6 +32,7 @@ import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
 import { clearClaimValidationPendingOnLogout } from "@/lib/service-management/claim-validation-pending";
 import { clearBodyAssessmentPendingOnLogout } from "@/lib/body-assessments/pending";
+import { clearStaffAnnouncementPendingOnLogout, observeStaffAnnouncementAuthority, staffAnnouncementAuthoritySignature } from "@/lib/staff-announcements/pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -100,6 +101,13 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : activePage?.title ?? appBranding.applicationName;
+  const announcementAuthority = staffAnnouncementAuthoritySignature(context);
+
+  // Track authority outside the announcement route too: an unmounted editor
+  // must not accept an old reply after permissions change and later return.
+  useLayoutEffect(() => {
+    observeStaffAnnouncementAuthority(announcementAuthority);
+  }, [announcementAuthority]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -200,6 +208,7 @@ export function AppShell({
     clearUnsavedChangesOnLogout();
     clearClaimValidationPendingOnLogout();
     clearBodyAssessmentPendingOnLogout();
+    clearStaffAnnouncementPendingOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();

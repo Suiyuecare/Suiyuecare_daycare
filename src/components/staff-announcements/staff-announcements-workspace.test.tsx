@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDemoStaffAnnouncementSnapshot } from "@/lib/staff-announcements/demo";
 import { DEFAULT_STAFF_ANNOUNCEMENT_FILTERS } from "@/lib/staff-announcements/query";
 import type { PageCatalogEntry } from "@/lib/catalog";
+import type { TenantContext } from "@/lib/domain/types";
 import type { StaffAnnouncementSnapshot } from "@/lib/staff-announcements/types";
 import { StaffAnnouncementsWorkspace } from "./staff-announcements-workspace";
 import { staffAnnouncementHref } from "./query-links";
@@ -13,13 +14,24 @@ vi.mock("next/link", () => ({ useLinkStatus: () => ({ pending: false }), default
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const release = "68111111-1111-4111-8111-111111111112";
 const page = { title: "公告管理", number: 68 } as PageCatalogEntry;
+const context: TenantContext = { organizationId: "11111111-1111-4111-8111-111111111111", branchId: "22222222-2222-4222-8222-222222222222", userId: "33333333-3333-4333-8333-333333333333", organizationName: "合成機構", branchName: "合成分支", displayName: "合成員工", roles: ["branch_director"], scopes: [], assuranceLevel: "aal2", recentAal2At: null, demo: true };
 function fixture(overrides: Partial<StaffAnnouncementSnapshot> = {}): StaffAnnouncementSnapshot {
   return { ...buildDemoStaffAnnouncementSnapshot({ organizationId: "11111111-1111-4111-8111-111111111111", branchId: "22222222-2222-4222-8222-222222222222", selectedReleaseId: null }), ...overrides };
 }
 function mount(snapshot: StaffAnnouncementSnapshot | null = fixture(), extras: { loadError?: boolean; invalidFilters?: boolean } = {}) {
-  return render(<StaffAnnouncementsWorkspace page={page} snapshot={snapshot} filters={snapshot?.filters ?? DEFAULT_STAFF_ANNOUNCEMENT_FILTERS} canPublish={false} hasRecentAal2={false} canRead={false} {...extras} />);
+  return render(<StaffAnnouncementsWorkspace context={context} page={page} snapshot={snapshot} filters={snapshot?.filters ?? DEFAULT_STAFF_ANNOUNCEMENT_FILTERS} canPublish={false} hasRecentAal2={false} canRead={false} {...extras} />);
 }
 describe("server-paged announcement workspace", () => {
+  it("does not render a snapshot from another branch or mode", () => {
+    const source = fixture();
+    const first = mount({ ...source, branchId: "99999999-9999-4999-8999-999999999999" });
+    expect(screen.getByRole("heading", { name: "公告管理暫時無法載入" })).toBeInTheDocument();
+    expect(screen.queryByText(source.items[0].body)).not.toBeInTheDocument();
+    first.unmount();
+    mount({ ...source, demo: false });
+    expect(screen.getByRole("heading", { name: "公告管理暫時無法載入" })).toBeInTheDocument();
+    expect(screen.queryByText(source.items[0].title)).not.toBeInTheDocument();
+  });
   it("uses server total/range and clamped page, not loaded array length", () => {
     mount(fixture({ pagination: { page: 13, pageSize: 20, totalPages: 13, matchingTotal: 250, rangeStart: 241, rangeEnd: 250 }, filters: { ...DEFAULT_STAFF_ANNOUNCEMENT_FILTERS, page: 13 } }));
     expect(screen.getByText(/顯示 241–250／符合 250 則/u)).toBeInTheDocument();

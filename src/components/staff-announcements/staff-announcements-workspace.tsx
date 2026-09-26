@@ -3,6 +3,7 @@ import Link from "next/link";
 import { NavigationLink } from "@/components/app/navigation-link";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
+import type { TenantContext } from "@/lib/domain/types";
 import type {
   StaffAnnouncementFilters,
   StaffAnnouncementItem,
@@ -19,6 +20,7 @@ import {
 import styles from "./staff-announcements.module.css";
 import { StaffAnnouncementFilterForm } from "./staff-announcement-filters";
 import { STAFF_ANNOUNCEMENT_PATH, staffAnnouncementHref } from "./query-links";
+import { StaffAnnouncementController } from "./staff-announcement-controller";
 
 const lifecycleLabels: Record<StaffAnnouncementLifecycle, string> = {
   draft: "尚未發布",
@@ -71,9 +73,8 @@ function RowActions({ item, snapshot, canPublish, hasRecentAal2, canRead }: {
   </div>;
 }
 
-export function StaffAnnouncementsWorkspace({
-  page, snapshot, filters, canPublish, hasRecentAal2, canRead, loadError = false, invalidFilters = false,
-}: {
+interface WorkspaceProps {
+  context: TenantContext;
   page: PageCatalogEntry;
   snapshot: StaffAnnouncementSnapshot | null;
   filters: StaffAnnouncementFilters;
@@ -82,7 +83,26 @@ export function StaffAnnouncementsWorkspace({
   canRead: boolean;
   loadError?: boolean;
   invalidFilters?: boolean;
-}) {
+}
+
+// Keep recovery mounted even when filters are invalid or a refresh fails.
+// A missing row in a paged snapshot is never proof that a write failed.
+export function StaffAnnouncementsWorkspace(props: WorkspaceProps) {
+  const mismatchedSource = props.snapshot !== null && (
+    props.snapshot.organizationId.toLowerCase() !== props.context.organizationId.toLowerCase() ||
+    props.snapshot.branchId.toLowerCase() !== props.context.branchId.toLowerCase() ||
+    props.snapshot.demo !== props.context.demo
+  );
+  const snapshot = mismatchedSource ? null : props.snapshot;
+  return <StaffAnnouncementController context={props.context} snapshot={snapshot}
+    canPublish={props.canPublish} hasRecentAal2={props.hasRecentAal2} canRead={props.canRead}>
+    <StaffAnnouncementsContent {...props} snapshot={snapshot} loadError={props.loadError || mismatchedSource} />
+  </StaffAnnouncementController>;
+}
+
+function StaffAnnouncementsContent({
+  page, snapshot, filters, canPublish, hasRecentAal2, canRead, loadError = false, invalidFilters = false,
+}: WorkspaceProps) {
   if (invalidFilters) return <section className="empty-card core-care-state" role="alert">
     <span className="empty-card__icon empty-card__icon--warning"><CircleAlert aria-hidden="true" /></span>
     <h1>公告篩選條件不正確</h1><p>請清除篩選，再選擇狀態、頁碼與每頁筆數。</p>

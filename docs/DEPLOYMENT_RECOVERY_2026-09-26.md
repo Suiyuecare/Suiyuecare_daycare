@@ -85,3 +85,17 @@
 - axe4.13.0 scoped IADL表單桌機／手機，以及最後16px表單手機錯誤狀態，均0違規、0 incomplete；只限已測表單，沒有聲稱全部89頁或人工WCAG2.2AA通過。當前官方premium配置strict為0 findings，其sourceRoots未涵蓋整份量表編輯器，不將該綠燈當全頁認證。
 
 最終證據檔為 `second-round-final-vitest-with-typography.log`、`second-round-final-build-with-typography.log`、`unsaved-portable-database.log`、`unsaved-dependency-audit.log`、`assessment-iadl-typography-final-*` 等。工作保留在獨立checkout，未套用原dirty Finance，未GitHub push、Actions、Vercel發布或hosted DDL。短版待辦見 [正式部署剩餘工作與驗收](FORMAL_DEPLOYMENT_CHECKLIST_2026-09-26.md)。
+
+## 最新公告切片：讀取分頁與固定原操作
+
+以上138份migration、舊公告100筆限制與第二輪數字為歷史證據，不能視為當前候選狀態。父提交03ecf2d已補server-side公告搜尋／分頁與非當頁目前發布版owner：本機目前139份migration，hosted最後唯讀盤點仍130份，九份增量尚未套用；没有新的雲端核對或DDL。
+
+本次完成頁68 workspace-owned controller／journal，草稿、發布、撤回、已讀都固定原內容、操作鍵、scope与來源版；結果不明不放棄／新鍵重送。保護跨元件卸載、範圍／權限ABA、登出與晚到回條；shared confirmation、未保存內容與IME使用既有owner。第一次已知拒絕在彈窗內可見，原入口停用時焦點回owner明確指定的區段；不改Finance frame或API／RPC／近期AAL2政策。
+
+- 最終本機全量Vitest **495檔／6,556項通過，53.74秒，無略過**；Finance跨repo用精確恢復候選，不改原dirty Finance。
+- ESLint零warning、TypeScript、production build及diff-check通過。build移除外部憑證，关闭展示與Google整合；不是Vercel部署或真人登入。
+- 本輪139份migration重新跑portable **129套／6,001項斷言**；93套legacy fixture、36套enforced開通fixture。原生PostgreSQL17.11 **11／11套通過**，包含139份migration、真正獨立backend与撤權競態回滾；不稱為hosted PITR、七年資料量或50人HTTP壓測。
+- 最終Chrome實際390px操作：必填0POST、inline錯誤與first-focus、未保存Escape保留、unknown唯讀与原鍵回查；lostACK→403→成功的三次合成POST只有一個鍵及相同body。回條後舊清單不解鎖，非當頁缺列也不解鎖，正向同鏈資料才顯示更新確認；成功後實際focus在公告回查section，0console errors。16px輸入、46px高度、textarea不拖曳，无頁面水平溢位。
+- sharedDialog32項與公告focused11檔196項通過，strict公告／sharedUI配置0findings。既有axe數字不冒充本輪新檢查；人工WCAG完整驗收仍未完成。
+
+精確內容與限制見[公告操作驗證](ANNOUNCEMENT_WRITE_READINESS_2026-09-26.md)。歷史release已讀正向回查、篩選外新公告定位、32筆待回查上限及完整重載復原仍須完成；全89頁、官方表單／申報、CMS封存掃毒、Finance真正同店資料、家屬、正式災難復原、真員工與團隊發布授權等門檻没有因本切片通過而解除。原始本輪證據前綴為`announcement-write-`，保留在同一私有驗證目錄；無GitHub push、公開預覽、Vercel promotion、hosted DDL或新增費用。

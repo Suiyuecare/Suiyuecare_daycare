@@ -226,6 +226,68 @@ describe("GovernanceDialog controlled native confirmation", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it.each(["disabled", "disconnected"])("RED uses only the supplied fallback when its original trigger is %s", (state) => {
+    const section = document.createElement("section"); const trigger = document.createElement("button");
+    const fallback = document.createElement("h2"); fallback.textContent = "公告操作回查"; fallback.tabIndex = -1;
+    section.append(trigger); document.body.append(section, fallback); trigger.focus();
+    const returnFocusRef = { current: trigger }; const fallbackFocusRef = { current: fallback };
+    const props = { returnFocusRef, fallbackFocusRef, title: "确认公告", onRequestClose: vi.fn() };
+    const { rerender } = render(<GovernanceDialog open {...props}>內容</GovernanceDialog>);
+    if (state === "disabled") trigger.disabled = true; else trigger.remove();
+    rerender(<GovernanceDialog open={false} {...props}>內容</GovernanceDialog>);
+    expect(document.activeElement).toBe(fallback); section.remove(); fallback.remove();
+  });
+
+  it("preserves original-trigger precedence over an explicit fallback", () => {
+    const trigger = document.createElement("button"); const fallback = document.createElement("h2"); fallback.tabIndex = -1;
+    document.body.append(trigger, fallback); trigger.focus();
+    const returnFocusRef = { current: trigger }; const fallbackFocusRef = { current: fallback };
+    const props = { returnFocusRef, fallbackFocusRef, title: "确认公告", onRequestClose: vi.fn() };
+    const { rerender } = render(<GovernanceDialog open {...props}>內容</GovernanceDialog>); const focus = vi.spyOn(fallback, "focus");
+    rerender(<GovernanceDialog open={false} {...props}>內容</GovernanceDialog>);
+    expect(document.activeElement).toBe(trigger); expect(focus).not.toHaveBeenCalled(); trigger.remove(); fallback.remove();
+  });
+
+  it("prefers the valid same-section anchor before the explicit fallback", () => {
+    const section = document.createElement("section"); const trigger = document.createElement("button");
+    const anchor = document.createElement("h2"); anchor.tabIndex = -1; anchor.setAttribute("data-governance-focus-anchor", "");
+    const fallback = document.createElement("h2"); fallback.tabIndex = -1; section.append(trigger, anchor); document.body.append(section, fallback);
+    const returnFocusRef = { current: trigger }; const fallbackFocusRef = { current: fallback };
+    const props = { returnFocusRef, fallbackFocusRef, title: "确认公告", onRequestClose: vi.fn() };
+    const { rerender } = render(<GovernanceDialog open {...props}>內容</GovernanceDialog>); trigger.disabled = true; const focus = vi.spyOn(fallback, "focus");
+    rerender(<GovernanceDialog open={false} {...props}>內容</GovernanceDialog>);
+    expect(document.activeElement).toBe(anchor); expect(focus).not.toHaveBeenCalled(); section.remove(); fallback.remove();
+  });
+
+  it("RED reaches the explicit fallback if the section anchor did not actually receive focus", () => {
+    const section = document.createElement("section"); const trigger = document.createElement("button");
+    const anchor = document.createElement("h2"); anchor.setAttribute("data-governance-focus-anchor", ""); // No tabindex: cannot focus.
+    const fallback = document.createElement("h2"); fallback.tabIndex = -1; section.append(trigger, anchor); document.body.append(section, fallback);
+    const returnFocusRef = { current: trigger }; const fallbackFocusRef = { current: fallback };
+    const props = { returnFocusRef, fallbackFocusRef, title: "确认公告", onRequestClose: vi.fn() };
+    const { rerender } = render(<GovernanceDialog open {...props}>內容</GovernanceDialog>); trigger.disabled = true;
+    rerender(<GovernanceDialog open={false} {...props}>內容</GovernanceDialog>);
+    expect(document.activeElement).toBe(fallback); section.remove(); fallback.remove();
+  });
+
+  it.each(["inert", "hidden", "disabled", "aria-disabled", "disconnected", "css-hidden"])("does not attempt focus on a %s fallback or search unrelated global anchors", (state) => {
+    const trigger = document.createElement("button"); const wrapper = document.createElement("section"); const fallback = document.createElement("button");
+    const unrelated = document.createElement("h2"); unrelated.tabIndex = -1; unrelated.setAttribute("data-governance-focus-anchor", "");
+    wrapper.append(fallback); document.body.append(trigger, wrapper, unrelated); trigger.focus();
+    const returnFocusRef = { current: trigger }; const fallbackFocusRef = { current: fallback };
+    const props = { returnFocusRef, fallbackFocusRef, title: "确认公告", onRequestClose: vi.fn() };
+    const { rerender } = render(<GovernanceDialog open {...props}>內容</GovernanceDialog>); trigger.disabled = true;
+    if (state === "inert" || state === "hidden") wrapper.setAttribute(state, "");
+    else if (state === "disabled") fallback.disabled = true;
+    else if (state === "aria-disabled") fallback.setAttribute("aria-disabled", "true");
+    else if (state === "css-hidden") wrapper.style.display = "none";
+    else fallback.remove();
+    const focus = vi.spyOn(fallback, "focus"); const unrelatedFocus = vi.spyOn(unrelated, "focus");
+    rerender(<GovernanceDialog open={false} {...props}>內容</GovernanceDialog>);
+    expect(focus).not.toHaveBeenCalled(); expect(unrelatedFocus).not.toHaveBeenCalled(); expect(document.activeElement).not.toBe(fallback);
+    trigger.remove(); wrapper.remove(); unrelated.remove();
+  });
+
   it("has unique label references for multiple mounted, non-nested dialog owners", () => {
     const { container } = render(<><GovernanceDialog open={false} onRequestClose={vi.fn()} title="送審">一</GovernanceDialog>
       <GovernanceDialog open={false} onRequestClose={vi.fn()} title="退休">二</GovernanceDialog></>);

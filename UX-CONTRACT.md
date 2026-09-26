@@ -2,7 +2,7 @@
 
 ## Product context
 
-臺灣日照機構工作台，繁體中文 `zh-TW`、`Asia/Taipei`、西元日期，目標 WCAG 2.2 AA。視覺依據為 [DESIGN.md](DESIGN.md) 及使用者的 Finance 畫面。此次契約落地範圍是頁 82 的新增題目式規則治理、頁 49 的申報驗證安全重試、頁 19 的人工身體觀察原筆回查與店務摘要有界定時讀取，不宣稱其他流程已遷移。
+臺灣日照機構工作台，繁體中文 `zh-TW`、`Asia/Taipei`、西元日期，目標 WCAG 2.2 AA。視覺依據為 [DESIGN.md](DESIGN.md) 及使用者的 Finance 畫面。此次契約落地範圍是頁 82 的新增題目式規則治理、頁 49 的申報驗證安全重試、頁 19 的人工身體觀察原筆回查、頁68公告讀寫與店務摘要有界定時讀取，不宣稱其他流程已遷移。
 
 ## Business-context sources
 
@@ -24,8 +24,8 @@
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|
 | Select/Listbox | 原生 select＋`.control` | DESIGN.md | native；平台 popup 可接受 | 元件鍵盤＋窄版瀏覽器 |
-| Date | 治理：格式提示 text input；店務／身體：既有 native date／month／datetime-local | API 七鍵契約／period schema／body parser | typed YYYY-MM-DD；既有 native 具名例外 | 閏日／順序／first-error／原生鍵盤與手機 |
-| Form | `governance-dialog.tsx`＋各流程的嚴格 client 契約 | API＋本契約 | review／retirement／claim validation／body signature | validation、unknown retry |
+| Date | 治理：格式提示 text input；店務／身體／公告：native date／month／datetime-local | API 七鍵契約／period schema／body parser／announcement date | typed YYYY-MM-DD；native 具名例外 | 閏日／順序／first-error／原生鍵盤與手機 |
+| Form | `governance-dialog.tsx`＋各流程的嚴格 client 契約 | API＋本契約 | review／retirement／claim validation／body signature／announcements | validation、unknown retry |
 | Scrollbar | `src/app/globals.css` | DESIGN.md | 穩定 gutter | computed style＋forced-colors |
 | Toast | 共用 dialog 的持續 inline status／alert | 本契約 | success／error | live region test |
 | CRUD | `questionnaire-rule-workspace.tsx` | Domain contract | stay-inline／cursor load-more | state／full-flow tests |
@@ -42,7 +42,19 @@
 
 收件明細透過獨立的目前發布版 owner回傳，不能因不在當頁而拒絕，也不能讀跨分支／舊版／非管理者明細。每次 audited bundle重新檢查權限與內容，變動時整筆拒絕回傳並回滾查阅紀錄。UI分開顯示條件錯誤、載入失敗、授權空資料與查無符合資料；不填入展示資料。
 
-這是即時 OFFSET分頁，不是跨頁固定歷史快照；多人新增／改版時下一頁可能移動，不能作為七年移轉或不可變匯出證據。本次未移植公告寫入 journal；既有草稿／發布／撤回／已讀的未知結果、卸載、跨頁重試與 shared dialog仍是阻擋正式上線的缺口。新增分頁使用既有 guard，但不能據此聲稱公告舊 actions已註冊離頁保護。全部合成瀏覽器操作停用寫入，不替代真正員工 Auth／hosted RPC驗收。
+這是即時 OFFSET分頁，不是跨頁固定歷史快照；多人新增／改版時下一頁可能移動，不能作為七年移轉或不可變匯出證據。公告寫入採下列共享控制器與journal；合成瀏覽器只送記憶體假API，不替代真正員工 Auth／hosted RPC驗收。
+
+## 公告固定原操作與共享確認（頁68）
+
+`staff-announcement-controller.tsx` 是表單、確認及原操作回查的唯一owner；row actions只提供入口。`staff-announcements/pending.ts` 在同一分頁記憶體保留凍結的內容、機構／分支／使用者、來源公告鏈及版本、操作鍵、privacy與authority epoch；AppShell觀察全域權限變動並在登出同步清除本journal。不同使用者或範圍不可看原內容；遲到回覆不得跨範圍或權限ABA變動填回。
+
+草稿、發布、撤回及已讀共享既有無資料 navigation lease，首次送出前固定內容及操作鍵。timeout、壞回應、錯鏈／錯版2xx皆結果不明；重新掛載不自動POST，只能以原內容與鍵明確手動重試。第一次已知未保存的拒絕可釋放鎖並在表單內顯示可處理錯誤；曾結果不明後的4xx不能證明前次沒保存。未送出修改使用既有useUnsavedChanges；中文組字不誤送出。已送出的未知操作不能捨棄；「回待確認清單」只是關閉原內容視窗，仍保留回查入口、原鍵與離頁鎖，不是取消操作。安全登出仍可由共用入口清除該分頁內容。
+
+來源欄位使用標籤、inline error、noValidate及first-error focus。公告日期沿用native datetime-local，嚴格驗證台北分鐘與合法西元日期，不自建calendar；有偏移來源時間先驗證再轉台北顯示。新草稿到期設定須明確選擇；新版理由必填；已失效對象須明確取消而非靜默遺失。排程未發布不可提前已讀，過期草稿不可發布；送出時再次核對即時權限與近期AAL2，UI不替代API／RPC授權。
+
+GovernanceDialog維持取消初始焦點、44px按鈕、16px輸入、textarea不拖曳、未知內容唯讀。關閉先回可用觸發器；原入口停用或消失時回同區段anchor或此owner明確傳入的回查區段，不搜尋別的模組、不落到BODY。未保存確認不與原表單疊成巢狀modal。
+
+成功回條只建立無內容的待回查標記。router.refresh不是清單更新證明；分頁缺列也不是證據。相同範圍的有效新快照須有同鏈更新版或本人在原release的已讀時間，才解除相關操作防重送並顯示「清單已確認更新」。目前最多32個待回查標記；歷史release已被新版替換、或新公告在目前篩選外時，現有快照可能不能提供該正向證據。完整重載／關閉瀏覽器不能還原記憶體journal。這些實際回查流程與真人hosted驗收仍是正式上線門檻；不能用缺列或較新版公告抹除未核實的歷史已讀。
 
 ## Flow ledger
 

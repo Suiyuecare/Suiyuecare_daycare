@@ -35,6 +35,6 @@ const snapshot: StaffAnnouncementSnapshot = { ...base, filters: { ...filters, pa
 window.fetch = async () => { throw new Error("This synthetic announcement fixture never calls a network API"); };
 createRoot(document.getElementById("fixture-root")!).render(<AppShell context={context} navigation={[]}>
   <aside className="callout">本機合成公告：250 則固定資料；不連雲端，不證明實際權限、資料庫分頁或保存。</aside>
-  <StaffAnnouncementsWorkspace page={{ title: "公告管理", number: 68 } as PageCatalogEntry} snapshot={unavailable || invalid ? null : snapshot}
+  <StaffAnnouncementsWorkspace context={context} page={{ title: "公告管理", number: 68 } as PageCatalogEntry} snapshot={unavailable || invalid ? null : snapshot}
     filters={filters} canPublish={false} hasRecentAal2={false} canRead={false} invalidFilters={invalid} loadError={unavailable} />
 </AppShell>);

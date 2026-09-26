@@ -9,13 +9,15 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argumentsToParse = process.argv.slice(2);
-if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--announcements", "--announcements-before"].includes(argumentsToParse[0])) {
+if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before"].includes(argumentsToParse[0])) {
   throw new Error("Only a named synthetic fixture is accepted.");
 }
 const bodyFixture = argumentsToParse[0] === "--body";
 const questionnaireFixture = argumentsToParse[0] === "--questionnaire";
 const announcementFixture = argumentsToParse[0]?.startsWith("--announcements");
 const baselineAnnouncement = argumentsToParse[0] === "--announcements-before";
+const announcementWrite = argumentsToParse[0]?.startsWith("--announcements-write");
+const baselineWrite = argumentsToParse[0] === "--announcements-write-before";
 const route = bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture ? "/app/staff/assessments/barthel-adl" : announcementFixture ? "/app/staff/operations/announcements" : "/app/staff/service-management/claims";
 const require = createRequire(import.meta.url);
 const vitePath = require.resolve("vite", { paths: [dirname(require.resolve("vitest/package.json"))] });
@@ -27,8 +29,13 @@ const { default: tailwind } = await import(pathToFileURL(tailwindPath).href);
 const runtime = await mkdtemp(resolve(tmpdir(), "daycare-claim-ui-synthetic."));
 const stubs = {
   name: "isolated-synthetic-next-stubs", enforce: "pre",
-  resolveId(id) { if (["next/navigation", "next/link", "next/image"].includes(id)) return `\0fixture:${id}`; return null; },
+  resolveId(id, importer) {
+    if (baselineWrite && id === "./staff-announcement-actions" && importer?.endsWith("staff-announcements-workspace.tsx")) return resolve(repo, "src/components/staff-announcements/staff-announcement-actions.tsx");
+    if (["next/navigation", "next/link", "next/image"].includes(id)) return `\0fixture:${id}`;
+    return null;
+  },
   load(id) {
+    if (baselineWrite && ["staff-announcement-actions.tsx", "staff-announcements-workspace.tsx", "staff-announcements.module.css"].some((name) => id === resolve(repo, `src/components/staff-announcements/${name}`))) return execFileSync("git", ["show", `03ecf2d:${id.slice(repo.length + 1)}`], { cwd: repo, encoding: "utf8" });
     if (baselineAnnouncement && id === resolve(repo, "src/components/staff-announcements/staff-announcements-workspace.tsx")) return execFileSync("git", ["show", "3738dfe:src/components/staff-announcements/staff-announcements-workspace.tsx"], { cwd: repo, encoding: "utf8" });
     if (id === "\0fixture:next/navigation") return `const router={refresh(){window.fixture.refreshes++},replace(){},push(){}}; export function useRouter(){return router} export function usePathname(){return ${JSON.stringify(route)}}`;
     if (id === "\0fixture:next/link") return 'import {createElement} from "react"; export function useLinkStatus(){return {pending:false}} export default function Link({href,children,prefetch,...props}){return createElement("a",{...props,href},children)}';
@@ -39,7 +46,7 @@ const stubs = {
 await build({ root: repo, configFile: false, envFile: false, logLevel: "error", plugins: [stubs],
   resolve: { alias: { "@": resolve(repo, "src") } },
   define: { "process.env": "{}", "process.env.NODE_ENV": JSON.stringify("production") }, build: { outDir: runtime, emptyOutDir: false, minify: false,
-    target: "es2022", lib: { entry: resolve(repo, bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : announcementFixture ? "scripts/fixtures/announcement-page-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
+    target: "es2022", lib: { entry: resolve(repo, bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : announcementWrite ? "scripts/fixtures/announcement-operation-ui.tsx" : announcementFixture ? "scripts/fixtures/announcement-page-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
       name: "SyntheticClaims", formats: ["iife"], fileName: () => "fixture.js" } } });
 const css = await postcss([tailwind({ base: repo })]).process(await readFile(resolve(repo, "src/app/globals.css"), "utf8"),
   { from: resolve(repo, "src/app/globals.css") });
@@ -64,7 +71,7 @@ const server = createServer(async (request, response) => {
 });
 await new Promise((done, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", done); });
 console.log(JSON.stringify({ syntheticOnly: true, url: `http://127.0.0.1:${server.address().port}/`, runtime,
-  scope: announcementFixture ? "Actual AppShell/announcement workspace/CSS; synthetic fixed paging dataset, not real Auth/DB/write evidence." : questionnaireFixture
+  scope: announcementWrite ? "Actual AppShell/announcement actions/shared confirmation/CSS; bounded in-memory fake requests, not Auth/RLS/production DB proof." : announcementFixture ? "Actual AppShell/announcement workspace/CSS; synthetic fixed paging dataset, not real Auth/DB/write evidence." : questionnaireFixture
     ? "Actual AppShell/questionnaire editor/CSS, fixed synthetic N/A draft and fetch/router; not real Auth, persistence, scoring activation or SQL evidence."
     : "Actual AppShell/composer/shared modal/CSS, synthetic fetch/router; not real Auth, routing or SQL evidence." }));
 function stop() { server.close(); server.closeAllConnections(); process.exitCode = 0; }

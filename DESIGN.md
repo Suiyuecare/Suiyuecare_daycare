@@ -96,7 +96,11 @@ pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後
 
 ## Do's and Don'ts
 
-頁68公告讀取沿用同一 AppShell、metric／panel／filter-bar／table／mobile-records，未變更 Finance frame token或幾何。搜尋採共用 `ui/search-field.tsx` 的明確套用與44px X清除；手機整行搜尋，下方狀態／筆數自然排列。頁尾只有起訖／頁碼與前後頁，不新增裝飾圖表或第二套分頁器。一般畫面縮短工程解釋；全量統計與篩選筆數、目前發布版／草稿及安全／展示限制保持清楚。此輪僅讀取頁，舊公告寫入對話框的未保存／未知結果／textarea規範尚未完整遷移，不能用 scoped audit替它們宣稱通過。
+頁68公告讀取沿用同一 AppShell、metric／panel／filter-bar／table／mobile-records，未變更 Finance frame token或幾何。搜尋採共用 `ui/search-field.tsx` 的明確套用與44px X清除；手機整行搜尋，下方狀態／筆數自然排列。頁尾只有起訖／頁碼與前後頁，不新增裝飾圖表或第二套分頁器。一般畫面縮短工程解釋；全量統計與篩選筆數、目前發布版／草稿及安全／展示限制保持清楚。
+
+公告草稿、發布、撤回與原操作回查共用 GovernanceDialog，自然高度及既有620px最大寬度，不另設920px／560px對話框。表單採`.field`、16px文字、44px操作、不可拖曳textarea及native datetime-local台北時間具名例外。一般忙碌／待回查訊息集中於workspace，不逐列重複長說明；個別停用原因仍可由aria-describedby讀取。未保存捨棄沿用共享確認，未知操作唯讀與明確回查入口。成功後觸發器不可用時回到公告owner指定的可聚焦區段；首次已知拒絕提示在原表單內。Finance header／sidebar保持原token与幾何，不新增frame。
+
+本機假API與scoped audit不代表hosted資料寫入、歷史已讀回查、所有89頁或人工WCAG完整驗收；部署限制仍見正式門檻。
 
 - 送審成功不是正式評估已完成；已採用也不等於臨床簽署能力已開放。
 - 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
