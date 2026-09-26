@@ -272,15 +272,12 @@ import type {
   SocialResourceFilters,
   SocialResourceStatusFilter,
 } from "@/lib/social-resources/types";
-import { filterStaffAnnouncementSnapshot } from "@/lib/staff-announcements/projection";
+import { DEFAULT_STAFF_ANNOUNCEMENT_FILTERS, parseStaffAnnouncementPageQuery, StaffAnnouncementFilterError } from "@/lib/staff-announcements/query";
 import {
   loadStaffAnnouncementSnapshot,
   StaffAnnouncementSnapshotError,
 } from "@/lib/staff-announcements/snapshot";
-import {
-  STAFF_ANNOUNCEMENT_LIFECYCLES,
-  type StaffAnnouncementStatusFilter,
-} from "@/lib/staff-announcements/types";
+import type { StaffAnnouncementFilters } from "@/lib/staff-announcements/types";
 import {
   FallEventSnapshotError,
   loadFallEventSnapshot,
@@ -2915,33 +2912,27 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 68) {
-    const requestedStatus = typeof query.status === "string" ? query.status : "all";
-    const status: StaffAnnouncementStatusFilter =
-      requestedStatus === "all" || STAFF_ANNOUNCEMENT_LIFECYCLES.includes(
-        requestedStatus as (typeof STAFF_ANNOUNCEMENT_LIFECYCLES)[number],
-      ) ? requestedStatus as StaffAnnouncementStatusFilter : "all";
-    const selectedRelease = typeof query.release === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query.release)
-      ? query.release.toLowerCase() : null;
-    const filters = {
-      query: typeof query.q === "string" ? query.q.slice(0, 120) : "",
-      status,
-    };
+    let filters: StaffAnnouncementFilters = DEFAULT_STAFF_ANNOUNCEMENT_FILTERS;
+    let selectedRelease: string | null = null;
     const canPublish = !context.demo &&
       context.scopes.includes("announcements.manage") &&
       context.scopes.includes("announcements.publish");
     let snapshot = null;
     let recentAal2 = false;
     let loadError = false;
+    let invalidFilters = false;
     try {
-      const [unfiltered, aal2] = await Promise.all([
-        loadStaffAnnouncementSnapshot(context, selectedRelease),
+      ({ filters, selectedReleaseId: selectedRelease } = parseStaffAnnouncementPageQuery(query));
+      const [loaded, aal2] = await Promise.all([
+        loadStaffAnnouncementSnapshot(context, selectedRelease, filters),
         canPublish ? hasRecentAal2() : Promise.resolve(false),
       ]);
-      snapshot = filterStaffAnnouncementSnapshot(unfiltered, filters);
+      snapshot = loaded;
+      filters = loaded.filters;
       recentAal2 = aal2;
     } catch (error) {
-      if (!(error instanceof StaffAnnouncementSnapshotError)) throw error;
+      if (error instanceof StaffAnnouncementFilterError) invalidFilters = true;
+      else if (!(error instanceof StaffAnnouncementSnapshotError)) throw error;
       loadError = true;
     }
     return <StaffAnnouncementsWorkspace
@@ -2949,6 +2940,7 @@ export default async function StaffCatalogPage({
       canRead={!context.demo && context.scopes.includes("announcements.read")}
       filters={filters}
       hasRecentAal2={recentAal2}
+      invalidFilters={invalidFilters}
       loadError={loadError}
       page={page}
       snapshot={snapshot}

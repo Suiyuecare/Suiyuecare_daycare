@@ -66,6 +66,15 @@ export type StaffAnnouncementSnapshot = {
   items: readonly StaffAnnouncementItem[];
   availableTotal: number;
   itemsTruncated: boolean;
+  filters: StaffAnnouncementFilters;
+  pagination: {
+    page: number;
+    pageSize: 20 | 50 | 100;
+    matchingTotal: number;
+    totalPages: number;
+    rangeStart: number;
+    rangeEnd: number;
+  };
   metrics: {
     drafts: number;
     scheduled: number;
@@ -78,6 +87,7 @@ export type StaffAnnouncementSnapshot = {
   audienceStaff: readonly StaffAnnouncementAudienceStaff[];
   audienceRoles: readonly StaffAnnouncementAudienceRole[];
   selectedReleaseId: string | null;
+  selectedAnnouncement: StaffAnnouncementItem | null;
   selectedRecipients: readonly StaffAnnouncementRecipient[];
   demo: boolean;
   deliveryBoundary: "staff_portal_read_receipts_only";
@@ -87,6 +97,8 @@ export type StaffAnnouncementSnapshot = {
 export type StaffAnnouncementFilters = {
   query: string;
   status: StaffAnnouncementStatusFilter;
+  page: number;
+  pageSize: 20 | 50 | 100;
 };
 
 export type StaffAnnouncementDraftInput = {

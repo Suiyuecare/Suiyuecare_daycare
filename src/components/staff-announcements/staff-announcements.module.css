@@ -30,8 +30,15 @@
 .recipientPanel { margin-top: 18px; }
 .detailTable { max-height: 520px; }
 .readBoundary { color: var(--ink-muted); font-size: .88rem; margin: 16px 0; }
+.pagination { font-size: .9rem; }
+.pagination :global(.button) { min-width: 100px; }
 
 @media (max-width: 760px) {
+  .pagination { grid-template-columns: 1fr 1fr; }
+  .pagination > span { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
+  .pagination > :first-child { grid-column: 1; grid-row: 2; justify-self: stretch; }
+  .pagination > :last-child { grid-column: 2; grid-row: 2; justify-self: stretch; }
+  .pagination :global(.button) { justify-content: center; }
   .dialog, .confirmDialog { width: calc(100vw - 16px); }
   .twoColumns { grid-template-columns: 1fr; }
   .rowActions { min-width: 0; width: 100%; }

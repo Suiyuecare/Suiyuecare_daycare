@@ -30,7 +30,19 @@
 | Toast | 共用 dialog 的持續 inline status／alert | 本契約 | success／error | live region test |
 | CRUD | `questionnaire-rule-workspace.tsx` | Domain contract | stay-inline／cursor load-more | state／full-flow tests |
 
-無 bulk selection、search 或硬刪除；不新增不需要的操作。後續需要時先擴充共同 owner。
+原規則治理無 bulk selection、search 或硬刪除。公告頁的搜尋沿用下述共享 owner，不新增硬刪除。
+
+## 公告全量搜尋與即時分頁（頁68）
+
+權威來源是 `staff-announcements/query.ts`、`snapshot.ts`、`projection.ts` 與增量 migration `20260926094309_staff_announcement_paged_snapshot_v2.sql`；2026-09-26 核對。既有 API／mutation RPC、角色與 AAL2 規則不因分頁變更；當頁成員資格不是寫入授權條件。
+
+搜尋欄唯一 owner 為 `ui/search-field.tsx`；套用方式明示為 GET 手動送出，不是打字即查詢或 debounce。X 清除立即提交空關鍵字、保留狀態／筆數並回第一頁。120 Unicode 字元上限由 UI／伺服器驗證；不截短、trim 或將 `%`／`_` 解作 wildcard。IME 組字 Enter／清除不發查詢。超長保留輸入，錯誤關聯輸入且聚焦。手機搜尋獨佔一行，輸入16px／44px，原生 select 使用同一 field owner與平台選單例外。
+
+伺服器先確定可見範圍再搜尋、計數與分頁；清單是符合篩選的總數／起訖，上方卡片為全部授權公告統計，兩者明示不同口徑。20／50／100筆，超出尾頁回最後合法頁。前後頁與收件明細由 `NavigationLink` 保留查詢；重新套用清除舊明細與頁码。不用本地100筆假装完整查詢。
+
+收件明細透過獨立的目前發布版 owner回傳，不能因不在當頁而拒絕，也不能讀跨分支／舊版／非管理者明細。每次 audited bundle重新檢查權限與內容，變動時整筆拒絕回傳並回滾查阅紀錄。UI分開顯示條件錯誤、載入失敗、授權空資料與查無符合資料；不填入展示資料。
+
+這是即時 OFFSET分頁，不是跨頁固定歷史快照；多人新增／改版時下一頁可能移動，不能作為七年移轉或不可變匯出證據。本次未移植公告寫入 journal；既有草稿／發布／撤回／已讀的未知結果、卸載、跨頁重試與 shared dialog仍是阻擋正式上線的缺口。新增分頁使用既有 guard，但不能據此聲稱公告舊 actions已註冊離頁保護。全部合成瀏覽器操作停用寫入，不替代真正員工 Auth／hosted RPC驗收。
 
 ## Flow ledger
 
