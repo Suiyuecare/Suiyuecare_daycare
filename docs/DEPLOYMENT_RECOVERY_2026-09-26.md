@@ -210,3 +210,17 @@ GET不取得MFA、不重建已改變的canonical context，也未解決fullreloa
 - 最終全套lint零warning、TypeScript、diff-check、隔離production build通過，101靜態輸出；套件當次正式依賴135個、已知advisory0，不替代滲透或完整ASVS。沒有本輪UI變更，未重新執行瀏覽器或89路由，亦不冒稱歷史14套native是本輪新證據。
 
 精確範圍、固定候選／既有HTTP差異及私有證據檔見[量表結構驗證候選](QUESTIONNAIRE_VALIDATION_CANDIDATE_2026-09-26.md)。來源原件封存、私有組合目錄／新雙人採用、逐表核簽資格／風險／補登政策及正式簽署更正仍需完成；其他89頁業務、CMS WORM／掃毒、官方申報、Finance同店、家屬及持續營運門檻不變。本機SQL仍143份，未新查雲端或套用DDL；沒有GitHub push、Vercel發布、區域遷移或新增費用。所有本輪測試程序已完成或明確停止，首遍失敗原始日誌保留。
+
+## 頁51獨立授權GET與實際來源入場（2026-09-27，未發布）
+
+護理原unknown鎖旁已補手動唯讀snapshot GET；nonce／actor／canonical權限／實際近期證據／來源generation與TTL綁定，20秒含body上限。GET保留原unknown lease／內容／來源版／鍵，不POST、刷新RSC、取得MFA或假稱保存完成。真正journal admission限制首次及重試，只有格式正確的個案／版本不足以開始寫入。來源floor／accepted時間不因重新掛載、撤權還原或登出倒退；未知錯誤、撤指派與無效回覆不能讓舊props復活。
+
+獨立渲染覆核抓出同代指派撤銷被override遮住、舊畫面時鐘拒絕新GET、server props變動後晚GET推進時間水位三個漏洞，已RED／GREEN修正並再次16／16、額外119／119唯讀複核通過。source generation更新但範圍未變不自行清除編輯；後續保存仍核對原編輯版本，不重定基準。詳見[最新護理回查證據](NURSING_WRITE_READINESS_2026-09-26.md)。
+
+- 最新完整來源全量Vitest **527檔／7,672項全部通過，224.14秒，無略過**；單worker／原timeout，Finance使用精確隔離候選。首遍錯環境的7671＋1 skip僅留診斷，未冒稱最終完整通過。15檔346focused、四份118独立通過。
+- 全套lint零warning、型別、隔離production build／101靜態輸出、diff-check通過；專案既有與護理scope premium strict均0 findings，另5檔177共享規範測試通過。未變更Finance frame／tokens；本機無官方designmd工具，不冒稱已執行。
+- 真Chrome合成desktop／390px：無錯誤／水平溢位、16px／44px；必填及合成IME0POST。拒絕GET與重掛後，再授權GET及人工retry共2GET／2POST，POST原鍵／body一致，GET無寫入鍵／body；晚回覆與ABA不假成功。它是實際UI／假loopback HTTP，不是正式Auth、RLS、持久化或實體中文IME驗收。
+- 八個局部axe狀態0違反；手機簽署五節點有一條背景重疊incomplete，其他七狀態0 incomplete。另以computed opaque colors、文字range／paint-hit與viewport檢視確認五節點皆黑字白底21:1、無被遮蔽；原incomplete保留，仍不稱axe全部GREEN或全站人工WCAG。
+- 明確清空外部配置、關閉demo的真Next正式版本機啟動：護理GET503／SERVICE_NOT_CONFIGURED、data=null、private/no-store；Chrome登入正常且未配置Google按鈕停用。不是hosted401／403或真人登入證據。
+
+原始證據前綴`nursing-recovery-`及子目錄`nursing-browser/`保存於既有私有verification目錄。SQL仍143份，本輪未重跑舊14套native，沒有hosted新查詢、DDL、GitHub push、Vercel公開預覽／promotion、正式個資操作、區域移轉或新增費用。頁28／29／39／51手動授權GET本機均已補；真正MFA／context恢復、精確原操作保存查證、完整重載intent、安全分頁及所有[正式上線門檻](PRODUCTION_GATES.md)仍需完成。

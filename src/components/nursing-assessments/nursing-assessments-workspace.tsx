@@ -1,22 +1,23 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, useTransition, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { blankNursingContent } from "@/lib/nursing-assessments/demo";
-import { nursingRequestSchema, parseNursingActionSuccess, parseNursingRequest } from "@/lib/nursing-assessments/parser";
+import { nursingRequestSchema, parseNursingActionSuccess, parseNursingRequest, projectNursingAssessmentSnapshot } from "@/lib/nursing-assessments/parser";
 import type { TenantContext } from "@/lib/domain/types";
 import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
-import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
-import { beginNursingAssessment, getNursingAssessmentPending, isConfirmedNursingAssessmentRejection,
+import { hasPendingOperations, hasViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { beginNursingAssessment, getNursingAssessmentPending, getNursingAssessmentSnapshotAdmission, isConfirmedNursingAssessmentRejection,
   nursingAssessmentAuthoritySignature, nursingAssessmentScopeIdentity, observeNursingAssessmentAuthority,
-  reconcileNursingAssessmentConfirmed, retryNursingAssessment, settleNursingAssessment, useNursingAssessmentPending,
+  observeNursingAssessmentSnapshot, quarantineNursingAssessmentSnapshot,
+  reconcileNursingAssessmentConfirmed, retryNursingAssessment, settleNursingAssessment, tryAcquireNursingAssessmentRecoveryRead, useNursingAssessmentPending,
   type NursingAssessmentOperation, type NursingAssessmentTarget } from "@/lib/nursing-assessments/pending";
 import { NURSING_DOMAIN_LABELS, type NursingAssessmentSnapshot, type NursingContent,
   type NursingDomainKey, type NursingRequest, type NursingVersion } from "@/lib/nursing-assessments/types";
 import styles from "./nursing-assessments.module.css";
+import { readNursingSnapshot, NursingSnapshotReadError } from "@/lib/nursing-assessments/snapshot-client";
 
 const keys = Object.keys(NURSING_DOMAIN_LABELS) as NursingDomainKey[];
 const stateLabels = { recorded: "已記錄", missing: "缺值／尚未取得", not_applicable: "不適用" };
@@ -63,32 +64,52 @@ function permitted(context: TenantContext, action: NursingRequest["action"], can
 function permittedAtAttempt(context: TenantContext, action: NursingRequest["action"], canManage: boolean, canSign: boolean, recent: boolean) {
   return permitted(context, action, canManage, canSign, recent, Date.now());
 }
-export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapshot, canManage, canSign, hasRecentAal2,
+export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapshot, canManage: suppliedCanManage, canSign: suppliedCanSign, hasRecentAal2: suppliedRecentAal2,
   initialClientId = null, loadError = false }: {
   context: TenantContext;
   snapshot: NursingAssessmentSnapshot | null; canManage: boolean; canSign: boolean;
   hasRecentAal2: boolean; actorUserId?: string; initialClientId?: string | null; loadError?: boolean;
 }) {
-  const router = useRouter();
   const journal = useNursingAssessmentPending(); const pendingWork = usePendingOperations(); const changingView = useViewTransitionPending();
-  const scope = { organizationId: context.organizationId, branchId: context.branchId, userId: context.userId };
+  const scope = useMemo(() => ({ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }), [context.organizationId, context.branchId, context.userId]);
   const identity = context.demo ? JSON.stringify([context.organizationId, context.branchId, context.userId, true]) : nursingAssessmentScopeIdentity(scope, false);
-  const [admission, setAdmission] = useState<{ identity: string; privacyEpoch: number; sourceAt: string | null; blockedAt: string | null }>(() => ({ identity, privacyEpoch: journal.privacyEpoch, sourceAt: suppliedSnapshot?.generatedAt ?? null, blockedAt: null }));
-  const privacyChanged = admission.identity !== identity || admission.privacyEpoch !== journal.privacyEpoch;
-  const admitted = !privacyChanged && (admission.blockedAt === null || !!suppliedSnapshot && Date.parse(suppliedSnapshot.generatedAt) > Date.parse(admission.blockedAt));
-  // The snapshot has no actor attestation. A scope/logout boundary cannot
-  // reuse the previous actor's projection, including an A→B→A transition.
-  if (privacyChanged) setAdmission({ identity, privacyEpoch: journal.privacyEpoch, sourceAt: null, blockedAt: admission.sourceAt ?? admission.blockedAt ?? suppliedSnapshot?.generatedAt ?? null });
-  else if (admitted && suppliedSnapshot && admission.sourceAt !== suppliedSnapshot.generatedAt) setAdmission({ ...admission, sourceAt: suppliedSnapshot.generatedAt, blockedAt: null });
-  const readable = context.demo || context.assuranceLevel === "aal2" && context.scopes.includes("clients.read") && context.scopes.includes("nursing_assessments.read");
-  const snapshot = admitted && readable && !loadError && suppliedSnapshot?.organizationId === context.organizationId && suppliedSnapshot.branchId === context.branchId && suppliedSnapshot.demo === context.demo ? suppliedSnapshot : null;
   const authority = nursingAssessmentAuthoritySignature(context);
-  const fingerprint = JSON.stringify([authority, canManage, canSign, hasRecentAal2, snapshot?.clients.map((item) => item.clientId).sort() ?? null]);
+  const authorityBinding = JSON.stringify([authority, suppliedCanManage, suppliedCanSign, suppliedRecentAal2, journal.authorityEpoch, journal.privacyEpoch]);
+  const [readOverride, setReadOverride] = useState<{ identity: string; authorityBinding: string; privacyEpoch: number;
+    suppliedSnapshot: NursingAssessmentSnapshot | null; suppliedLoadError: boolean;
+    bundle: Awaited<ReturnType<typeof readNursingSnapshot>> } | null>(null);
+  const [readStatus, setReadStatus] = useState("");
+  const [readError, setReadError] = useState("");
+  const [readBinding, setReadBinding] = useState("");
+  const [clock, setClock] = useState(() => Date.now());
+  // A manual read cannot shadow a subsequently supplied server projection,
+  // including an assignment withdrawal with the very same generation time.
+  const activeOverride = readOverride?.identity === identity && readOverride.authorityBinding === authorityBinding &&
+    readOverride.privacyEpoch === journal.privacyEpoch && readOverride.suppliedSnapshot === suppliedSnapshot &&
+    readOverride.suppliedLoadError === loadError ? readOverride : null;
+  const candidate = activeOverride && (loadError || !suppliedSnapshot || Date.parse(activeOverride.bundle.snapshot.generatedAt) >= Date.parse(suppliedSnapshot.generatedAt))
+    ? activeOverride.bundle.snapshot : loadError ? null : suppliedSnapshot;
+  const effectiveCapabilities = activeOverride && candidate === activeOverride.bundle.snapshot
+    ? activeOverride.bundle.capabilities : { canManage: suppliedCanManage, canSign: suppliedCanSign, hasRecentAal2: suppliedRecentAal2 };
+  const { canManage, canSign, hasRecentAal2 } = effectiveCapabilities;
+  const readable = context.demo || context.assuranceLevel === "aal2" && context.scopes.includes("clients.read") && context.scopes.includes("nursing_assessments.read");
+  const validated = useMemo(() => {
+    if (!candidate || !readable || candidate.demo !== context.demo || candidate.organizationId !== context.organizationId || candidate.branchId !== context.branchId) return null;
+    try { return context.demo ? candidate : projectNursingAssessmentSnapshot(candidate, context.organizationId, context.branchId); }
+    catch { return null; }
+  }, [candidate, readable, context.demo, context.organizationId, context.branchId]);
+  // The journal admits against the actual time in the layout observer. A newer
+  // source must be admitted before rendering, without mistaking its temporary
+  // pre-admission state for an assignment change that discards open editing.
+  const snapshot = validated && (context.demo || journal.authoritySignature === authority &&
+    getNursingAssessmentSnapshotAdmission(scope, false) === validated.generatedAt) ? validated : null;
+  const fingerprint = JSON.stringify([authority, canManage, canSign, hasRecentAal2, validated?.clients.map((item) => item.clientId).sort() ?? null]);
   const lifecycle = useRef({ mounted: false, epoch: 0, fingerprint });
-  const live = useRef({ context, snapshot, canManage, canSign, hasRecentAal2, identity, fingerprint });
+  const live = useRef({ context, snapshot, canManage, canSign, hasRecentAal2, identity, fingerprint, suppliedSnapshot, loadError });
   const composition = useRef(false); const form = useRef<HTMLFormElement | null>(null);
   const recovery = useRef<HTMLElement | null>(null); const trigger = useRef<HTMLElement | null>(null);
-  const readLease = useRef<(() => void) | null>(null); const [reading, startRead] = useTransition(); const [readEpoch, setReadEpoch] = useState(0);
+  const readAttempt = useRef<{ token: symbol; abort: AbortController; release: () => void } | null>(null);
+  const [reading, setReading] = useState(false);
   const [clientId, setClientId] = useState(() => initialClientId ?? suppliedSnapshot?.clients[0]?.clientId ?? "");
   const [versionId, setVersionId] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -98,11 +119,10 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
   const [saved, setSaved] = useState<{ identity: string; privacyEpoch: number } | null>(null);
   const [error, setError] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [clock, setClock] = useState(() => Date.now());
   const [offline, setOffline] = useState(false);
   const id = useId();
   useLayoutEffect(() => {
-    live.current = { context, snapshot, canManage, canSign, hasRecentAal2, identity, fingerprint };
+    live.current = { context, snapshot, canManage, canSign, hasRecentAal2, identity, fingerprint, suppliedSnapshot, loadError };
     if (lifecycle.current.fingerprint !== fingerprint) {
       lifecycle.current.epoch += 1; lifecycle.current.fingerprint = fingerprint;
       const operation = getNursingAssessmentPending().operation;
@@ -110,14 +130,20 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
       setEditor(null); setConfirmation(null); setErrors({}); setError(""); setSaved(null); composition.current = false;
     }
     observeNursingAssessmentAuthority(authority);
-  }, [context, snapshot, canManage, canSign, hasRecentAal2, identity, fingerprint, authority]);
+    try { observeNursingAssessmentSnapshot(scope, context.demo, validated, { canManage, canSign, hasRecentAal2 }); }
+    catch { quarantineNursingAssessmentSnapshot(scope, context.demo); }
+  }, [context, snapshot, validated, canManage, canSign, hasRecentAal2, identity, fingerprint, authority, scope, suppliedSnapshot, loadError]);
   useEffect(() => {
     const life = lifecycle.current; life.mounted = true;
-    return () => { life.mounted = false; life.epoch += 1; readLease.current?.(); readLease.current = null;
+    return () => { life.mounted = false; life.epoch += 1; const read = readAttempt.current;
+      readAttempt.current = null; read?.abort.abort(); read?.release();
       const operation = getNursingAssessmentPending().operation;
       if (operation?.identity === live.current.identity && operation.phase === "sending") settleNursingAssessment(operation, "unknown"); };
   }, []);
-  useEffect(() => { if (!reading && readLease.current) { readLease.current(); readLease.current = null; } }, [reading, readEpoch]);
+  useLayoutEffect(() => {
+    const read = readAttempt.current;
+    if (read) { readAttempt.current = null; read.abort.abort(); read.release(); setReading(false); }
+  }, [fingerprint, journal.privacyEpoch, journal.authorityEpoch, journal.capabilityEpoch, suppliedSnapshot, loadError]);
   useEffect(() => {
     const check = () => { setClock(Date.now()); setOffline(!navigator.onLine); };
     check(); const timer = window.setInterval(check, 1000);
@@ -130,7 +156,7 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
   const selected = client?.versions.find((version) => version.versionId === versionId) ?? latest;
   const previous = client?.versions.find((version) => version.versionId === selected?.previousVersionId);
   const ownOperation = journal.operation?.identity === identity ? journal.operation : null;
-  const recoverable = ownOperation && snapshot?.clients.some((item) => item.clientId === ownOperation.input.request.clientId) && permitted(context, ownOperation.input.request.action, canManage, canSign, hasRecentAal2, clock);
+  const recoverable = ownOperation && snapshot && clock < Date.parse(snapshot.staleAfter) && snapshot.clients.some((item) => item.clientId === ownOperation.input.request.clientId) && permitted(context, ownOperation.input.request.action, canManage, canSign, hasRecentAal2, clock);
   const pending = journal.operation; const busy = pending?.phase === "sending";
   const visibleEditor = editor?.fingerprint === fingerprint && editor.privacyEpoch === journal.privacyEpoch ? editor : null;
   const mode = visibleEditor?.mode ?? null;
@@ -164,7 +190,7 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
   }
   async function execute(operation: NursingAssessmentOperation) {
     const epoch = lifecycle.current.epoch; const capturedFingerprint = live.current.fingerprint;
-    const currentAttempt = () => { const current = getNursingAssessmentPending(); return lifecycle.current.mounted && lifecycle.current.epoch === epoch && live.current.fingerprint === capturedFingerprint && live.current.identity === operation.identity && allowed(operation.input.request.action, operation.input.request.clientId) && current.operation === operation && current.privacyEpoch === operation.privacyEpoch && current.authorityEpoch === operation.authorityEpoch && current.authoritySignature === operation.authoritySignature; };
+    const currentAttempt = () => { const current = getNursingAssessmentPending(); return lifecycle.current.mounted && lifecycle.current.epoch === epoch && live.current.fingerprint === capturedFingerprint && live.current.identity === operation.identity && allowed(operation.input.request.action, operation.input.request.clientId) && current.operation === operation && current.privacyEpoch === operation.privacyEpoch && current.authorityEpoch === operation.authorityEpoch && current.capabilityEpoch === operation.capabilityEpoch && current.authoritySignature === operation.authoritySignature; };
     if (!currentAttempt()) { settleNursingAssessment(operation, "unknown"); return; }
     try {
       const response = await fetchWithTimeout("/api/nursing-assessments", { method: operation.input.request.action === "create_draft" ? "POST" : "PATCH", cache: "no-store",
@@ -178,7 +204,7 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
       }
       const receipt = parseNursingActionSuccess(body, { ...operation.input, actorUserId: operation.scope.userId, organizationId: operation.scope.organizationId, branchId: operation.scope.branchId }, response.status);
       if (settleNursingAssessment(operation, receipt) && !getNursingAssessmentPending().operation && getNursingAssessmentPending().confirmed.some((entry) => entry.identity === operation.identity && entry.versionId === receipt.result.versionId)) {
-        setEditor(null); setConfirmation(null); setErrors({}); setSaved({ identity: operation.identity, privacyEpoch: operation.privacyEpoch }); performRead();
+        setEditor(null); setConfirmation(null); setErrors({}); setSaved({ identity: operation.identity, privacyEpoch: operation.privacyEpoch });
       }
     } catch { settleNursingAssessment(operation, "unknown"); }
   }
@@ -223,16 +249,51 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
   }
   function field(key: string) { return { id: `${id}-${key}`, "data-nursing-field": key, "aria-invalid": !!errors[key], "aria-describedby": errors[key] ? `${id}-${key}-error` : undefined }; }
   function fieldError(key: string) { return errors[key] ? <small id={`${id}-${key}-error`} role="alert">{errors[key]}</small> : null; }
-  function performRead() {
-    if (hasPendingOperations() || hasViewTransition() || reading) return;
-    const lease = tryAcquireViewTransition(); if (!lease) return;
-    readLease.current = lease; setReadEpoch((value) => value + 1);
-    startRead(() => { try { return router.refresh(); } catch { lease(); readLease.current = null; setError("清單無法重新載入，請保留原操作結果並再試一次。"); } });
+  async function performRead() {
+    if (context.demo || !readable || hasViewTransition() || readAttempt.current || !navigator.onLine) return;
+    const before = getNursingAssessmentPending();
+    const lease = tryAcquireNursingAssessmentRecoveryRead(scope, false); if (!lease) return;
+    const abort = new AbortController(); const token = Symbol();
+    const epoch = lifecycle.current.epoch; const capturedFingerprint = live.current.fingerprint;
+    const current = () => { const state = getNursingAssessmentPending(); return !abort.signal.aborted && lifecycle.current.mounted &&
+      readAttempt.current?.token === token && lifecycle.current.epoch === epoch && live.current.fingerprint === capturedFingerprint &&
+      live.current.suppliedSnapshot === suppliedSnapshot && live.current.loadError === loadError &&
+      live.current.identity === identity && state.privacyEpoch === before.privacyEpoch && state.authorityEpoch === before.authorityEpoch &&
+      state.capabilityEpoch === before.capabilityEpoch && state.operation === before.operation && state.authoritySignature === authority; };
+    readAttempt.current = { token, abort, release: lease };
+    if (!current()) { readAttempt.current = null; abort.abort(); lease(); return; }
+    setReading(true); setReadBinding(authorityBinding); setReadError(""); setReadStatus("");
+    try {
+      const bundle = await readNursingSnapshot(scope, abort.signal); if (!current()) return;
+      if (bundle.authoritySignature !== authority) throw new NursingSnapshotReadError(200, "INVALID_RESPONSE");
+      // Admission itself can quarantine visibility and advance its epoch. Report
+      // that rejection here, while this response still owns the read, rather
+      // than treating our own quarantine as an unrelated stale callback.
+      if (!observeNursingAssessmentSnapshot(scope, false, bundle.snapshot, bundle.capabilities)) {
+        quarantineNursingAssessmentSnapshot(scope, false); setReadOverride(null);
+        setReadError("未能取得授權的最新資料，舊內容已隱藏；請核對帳號權限後再試一次。");
+        return;
+      }
+      setClock(Date.now());
+      setReadOverride({ identity, authorityBinding, privacyEpoch: before.privacyEpoch, suppliedSnapshot, suppliedLoadError: loadError, bundle });
+      setReadStatus(before.operation ? "已更新授權資料；原操作仍待確認，未再次送出。" : "已更新護理資料。");
+    } catch (caught) {
+      if (!current()) return;
+      const transportOnly = caught instanceof NursingSnapshotReadError && caught.status === null && caught.code === "UNAVAILABLE";
+      if (!transportOnly) { quarantineNursingAssessmentSnapshot(scope, false); setReadOverride(null); }
+      setReadError(transportOnly ? "目前連線未完成，尚未取得最新資料；請保留原操作後再試一次。" : "未能取得授權的最新資料，舊內容已隱藏；請核對帳號權限後再試一次。");
+    } finally {
+      if (readAttempt.current?.token === token) { readAttempt.current = null; lease(); if (lifecycle.current.mounted) setReading(false); }
+    }
   }
-  function refresh() { if (!hasPendingOperations() && !hasViewTransition() && !reading) guard.requestExit(performRead); }
+  function refresh() { if (!hasPendingOperations() && !hasViewTransition() && !reading) guard.requestExit(() => { void performRead(); }); }
   const visibleConfirmation = confirmation?.fingerprint === fingerprint && confirmation.privacyEpoch === journal.privacyEpoch ? confirmation : null;
   return <div className={styles.workspace}>
     <section aria-label="護理操作回查" ref={recovery} tabIndex={-1} data-governance-focus-anchor>
+      {ownOperation?.phase === "unknown" && readable && !context.demo && <button className="button button--secondary" disabled={reading || offline || changingView} aria-busy={reading} onClick={() => { if (!composition.current) void performRead(); }}>更新授權資料（不重送）</button>}
+      {reading && <p role="status">正在更新授權資料，原操作不會再次送出。</p>}
+      {readBinding === authorityBinding && readError && <p className={styles.error} role="alert">{readError}</p>}
+      {readBinding === authorityBinding && readStatus && <p role="status">{readStatus}</p>}
       {pending && !ownOperation && <p role="status">另一個資料範圍有未確認操作。請回到原範圍回查；此處不顯示操作內容。</p>}
       {ownOperation && !recoverable && <p role="status">上次操作尚未確認。目前授權或個案指派已變更，內容已隱藏；恢復原授權後才能回查。</p>}
       {ownOperation && recoverable && <div className={styles.notice}><p role="status">{busy ? "護理操作確認中，請勿重複送出。" : "上次操作尚未確認，請勿建立另一筆。重試保留原內容與識別碼。"}</p>

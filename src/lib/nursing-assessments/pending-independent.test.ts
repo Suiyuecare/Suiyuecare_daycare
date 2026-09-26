@@ -5,7 +5,7 @@ import { hasPendingOperations, tryAcquirePendingOperation } from "@/lib/navigati
 import { buildDemoNursingAssessmentSnapshot } from "./demo";
 import {
   beginNursingAssessment, clearNursingAssessmentPendingOnLogout, getNursingAssessmentPending,
-  nursingAssessmentAuthoritySignature, observeNursingAssessmentAuthority,
+  nursingAssessmentAuthoritySignature, observeNursingAssessmentAuthority, observeNursingAssessmentSnapshot,
   reconcileNursingAssessmentConfirmed, retryNursingAssessment, settleNursingAssessment,
   type NursingAssessmentInput, type NursingAssessmentOperation,
 } from "./pending";
@@ -16,9 +16,10 @@ const branch = "51200000-0000-4000-8000-000000000001";
 const actor = "51000000-0000-4000-8000-000000000013";
 const key = "51700000-0000-4000-8000-000000000011";
 const resultId = "51800000-0000-4000-8000-000000000011";
-const now = "2026-09-26T10:00:00.000Z";
-const sourceAt = "2026-09-26T09:59:59.000Z";
-const freshAt = "2026-09-26T10:00:01.000Z";
+let now = "2026-09-26T10:00:00.000Z";
+let sourceAt = "2026-09-26T09:59:59.000Z";
+let freshAt = "2026-09-26T10:00:01.000Z";
+let testSerial = 0;
 const scope = { organizationId: org, branchId: branch, userId: actor };
 function context(overrides: Partial<TenantContext> = {}): TenantContext {
   return { ...scope, organizationName: "合成機構", branchName: "合成分支", displayName: "合成護理人員",
@@ -29,12 +30,23 @@ function observe(overrides: Partial<TenantContext> = {}) {
   observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(context(overrides)));
 }
 function source() {
-  const snapshot = buildDemoNursingAssessmentSnapshot(org, branch);
+  const snapshot = { ...buildDemoNursingAssessmentSnapshot(org, branch), demo: false, generatedAt: sourceAt,
+    staleAfter: new Date(Date.parse(sourceAt) + 300000).toISOString() };
   const client = snapshot.clients[0]!;
   const version = { ...client.versions[0]!, recordedBy: actor, createdAt: sourceAt };
+  snapshot.clients = snapshot.clients.map(row => row.clientId === client.clientId ? { ...row, versions: [version] } : row);
   return { snapshot, client, version, target: { clientId: client.clientId, assessmentKey: version.assessmentKey,
     versionId: version.versionId, version: version.version, contentHash: version.contentHash,
     state: version.state, content: version.content } };
+}
+function admit(overrides: Partial<TenantContext> = {}) {
+  const current = context(overrides);
+  return observeNursingAssessmentSnapshot({ organizationId: org, branchId: branch, userId: current.userId }, false, source().snapshot,
+    { canManage: true, canSign: true, hasRecentAal2: true });
+}
+function newerAdmission(overrides: Partial<TenantContext> = {}) {
+  vi.setSystemTime(Date.now() + 1); sourceAt = new Date().toISOString();
+  expect(admit(overrides)).toBe(true);
 }
 function createInput(): NursingAssessmentInput {
   const { client, version } = source();
@@ -66,7 +78,9 @@ function receipt(operation: NursingAssessmentOperation): NursingReceipt {
   return { organizationId: org, branchId: branch, actorUserId: actor, operationId: resultId, idempotencyKey: key,
     request, result, replayed: false, persisted: true, demo: false };
 }
-beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(now)); clearNursingAssessmentPendingOnLogout(); observe(); });
+beforeEach(() => { now = new Date(Date.parse("2026-09-26T10:00:00.000Z") + ++testSerial * 86400000).toISOString();
+  sourceAt = new Date(Date.parse(now) - 1000).toISOString(); freshAt = new Date(Date.parse(now) + 1000).toISOString();
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(now)); clearNursingAssessmentPendingOnLogout(); observe(); expect(admit()).toBe(true); });
 afterEach(() => { clearNursingAssessmentPendingOnLogout(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("independent nursing receipt and privacy regressions", () => {
@@ -109,16 +123,18 @@ describe("independent nursing receipt and privacy regressions", () => {
     observe({ userId: org });
     expect(beginNursingAssessment(scope, false, createInput(), sourceAt)).toBeNull();
     expect(hasPendingOperations()).toBe(false);
-    observe(); const first = beginNursingAssessment(scope, false, createInput(), sourceAt)!;
+    observe(); newerAdmission(); const first = beginNursingAssessment(scope, false, createInput(), sourceAt)!;
     settleNursingAssessment(first, "unknown"); observe({ userId: org });
     expect(retryNursingAssessment(first.token, scope, false)).toBeNull();
-    observe(); const retry = retryNursingAssessment(first.token, scope, false)!;
+    observe(); expect(retryNursingAssessment(first.token, scope, false)).toBeNull(); newerAdmission();
+    const retry = retryNursingAssessment(first.token, scope, false)!;
     expect(retry.body).toBe(first.body); expect(settleNursingAssessment(first, receipt(first))).toBe(false);
   });
   it("privilege revoke/restore ABA invalidates the original response without releasing the unknown request", () => {
     const first = beginSign(); observe({ scopes: ["clients.read", "nursing_assessments.read"] }); observe();
     expect(settleNursingAssessment(first, receipt(first))).toBe(false);
     expect(getNursingAssessmentPending().operation?.phase).toBe("unknown"); expect(hasPendingOperations()).toBe(true);
+    expect(retryNursingAssessment(first.token, scope, false)).toBeNull(); newerAdmission();
     const retry = retryNursingAssessment(first.token, scope, false)!;
     expect(retry.attempt).not.toBe(first.attempt); expect(retry.body).toBe(first.body);
   });
@@ -131,6 +147,7 @@ describe("independent nursing receipt and privacy regressions", () => {
   it("logout invalidates late responses and cannot release a newer request lease", () => {
     const old = beginNursingAssessment(scope, false, createInput(), sourceAt)!;
     clearNursingAssessmentPendingOnLogout(); observe();
+    expect(beginNursingAssessment(scope, false, createInput(), sourceAt)).toBeNull(); newerAdmission();
     const current = beginNursingAssessment(scope, false, createInput(), sourceAt)!;
     expect(settleNursingAssessment(old, receipt(old))).toBe(false);
     expect(getNursingAssessmentPending().operation).toBe(current); expect(hasPendingOperations()).toBe(true);
@@ -145,12 +162,13 @@ describe("independent nursing receipt and privacy regressions", () => {
     const saved = receipt(operation); settleNursingAssessment(operation, saved);
     const { snapshot, client } = source();
     const fresh = { ...snapshot, demo: false, generatedAt: freshAt,
-      staleAfter: "2026-09-26T10:05:01.000Z", clientTotal: 1,
+      staleAfter: new Date(Date.parse(freshAt) + 300000).toISOString(), clientTotal: 1,
       clients: [{ ...client, clientId: org, versions: [saved.result], versionsTotal: 1, versionsTruncated: false }] };
     reconcileNursingAssessmentConfirmed(scope, fresh, Date.now());
     expect(getNursingAssessmentPending().confirmed).toHaveLength(1);
     reconcileNursingAssessmentConfirmed(scope, { ...fresh, clients: [], clientTotal: 0 }, Date.now());
     expect(getNursingAssessmentPending().confirmed).toHaveLength(1);
+    vi.setSystemTime(new Date(freshAt));
     reconcileNursingAssessmentConfirmed(scope, { ...fresh, clients: [{ ...fresh.clients[0]!, clientId: client.clientId }] }, Date.now());
     expect(getNursingAssessmentPending().confirmed).toHaveLength(0);
   });

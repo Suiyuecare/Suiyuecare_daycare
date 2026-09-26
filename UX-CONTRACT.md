@@ -138,6 +138,12 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 第一個有結構化拒絕證據、且未曾未知的未提交操作可釋放本lease；未知寫入保留原操作等待明確手動原鍵重試。簽署回條額外核對原草稿內容，不把不同簽署hash誤當作前版hash。成功回條只標保存確認，不是清單更新；完整、有效、同範圍、正向同鏈結果版或較新版快照才能解除原個案防重送。缺列、截斷、過期、router.refresh完成均不是證據。
 
+2026-09-27追加手動GET：`/api/nursing-assessments/snapshot`只使用原授權與有稽核的snapshot RPC，不接收寫入鍵／body、不新增臨床紀錄。工作區「更新授權資料（不重送）」保留唯一原unknown lease，另取得自己的read fence；查詢中禁止另一寫入、重試或換分支。nonce、機構／分支／本人、canonical五段角色／scope／AAL2／原近期證據、來源時間與伺服器can*旗標嚴格綁定。管理者可合法唯讀，不因此取得護理寫入或簽署權限。未來／退步／過期或不可信資料不能替代目前授權；真實時間在資料入場驗證，不用每秒顯示時鐘判定新GET。
+
+GET及body讀取共有20秒上限，可取消；回覆不自動POST、取得MFA、刷新RSC、解除unknown或宣稱原筆已保存。純連線失敗保留尚可合法查看的舊資料並提示不是最新；授權拒絕、壞回覆及同generation指派撤銷遮蔽舊內容並提升來源floor。較新的授權GET可恢復原筆回查，仍只能由使用者明確重試原body／key，伺服器再核對冪等。floor及已接受時間在重新掛載、撤權還原、登出後不退步；舊props不能復活資料。讀取嘗試與override亦綁定發起時的伺服器props來源／loadError；新來源到達即取消舊GET，新權限縮減不能被保留的override遮住。來源generation更新但個案範圍未變不自行丟棄編輯；保存仍須核對編輯發起時的實際版本，不能靜默重定基準。
+
+這個GET只恢復已授權資料，不提供原操作精確receipt查證、真正重新驗證取得或scope改變後context重建；完整重載與分頁限制仍是正式門檻。
+
 登出同步清除本journal及舊editor，不能阻擋安全登出。無browser storage/history／離線佇列，完整重載不承諾恢復；32個待清單確認標記與100個案／50版本有界讀取仍須後續分頁／唯讀定位驗收。這些限制與真正hosted Auth、SQL、50位員工HTTP及人工WCAG完整驗收不得用合成Chromefixture代替。
 
 護理簽署的context時間只使用目前機構／分支／本人、實際同session一次性挑戰取得的四欄唯讀證據；缺少、過期、錯範圍或未來時間維持null。API每次簽署再次查證，不以context快取授權。只新增已核准護理員的範圍化MFA取得路徑，既有CEO／表單治理與通用近期驗證規則不變；一般頁面的登入與權限不因本次擴大。
@@ -170,4 +176,4 @@ GovernanceDialog／useUnsavedChanges維持同一模態與捨棄owner；只有未
 
 成功receipt只證明保存，不代表清單更新；只有同範圍、有效且包含確切原版本／事件、序號、狀態及時間的positive history proof才移除該鏈防重送標記。缺列、截斷、refresh完成不是證據。近期驗證只查本人／機構／分支／同session的真實已consumed事件，嚴格四欄證據、15分鐘及非未來；兩頁SSR只取得boolean，API簽署／更正含replay再次查證，不將模組證據假填全域context時間。
 
-邊界：32個待清單確認標記、有界讀取、完整重載無durable intent；未知鎖下獨立GET／MFA復原仍未製作，需取得新授權來源時明示聯絡主管，不以釋放unknown或舊props代替。合成Chrome／mock transport、portable與本機native測試均不是hosted真人登入、正式營運或全站WCAG證明。
+邊界：32個待清單確認標記、有界讀取、完整重載無durable intent；未知鎖下獨立GET已補，真正MFA與scope變更後context復原仍未製作，不以釋放unknown或舊props代替。合成Chrome／mock transport、portable與本機native測試均不是hosted真人登入、正式營運或全站WCAG證明。

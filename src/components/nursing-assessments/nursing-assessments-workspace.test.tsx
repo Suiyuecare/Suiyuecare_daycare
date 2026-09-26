@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TenantContext } from "@/lib/domain/types";
-import { clearNursingAssessmentPendingOnLogout, getNursingAssessmentPending } from "@/lib/nursing-assessments/pending";
+import { clearNursingAssessmentPendingOnLogout, getNursingAssessmentPending, nursingAssessmentAuthoritySignature } from "@/lib/nursing-assessments/pending";
 import type { NursingRequest, NursingVersion } from "@/lib/nursing-assessments/types";
 import { hasViewTransition } from "@/lib/navigation/pending-operation-lock";
 import { buildDemoNursingAssessmentSnapshot } from "@/lib/nursing-assessments/demo";
@@ -16,6 +16,20 @@ const formal = { ...demo, demo: false };
 const version = demo.clients[0]!.versions[0]!;
 const context: TenantContext = { organizationId: id, branchId: id, userId: version.recordedBy, organizationName: "合成機構", branchName: "合成分支", displayName: "合成護理員", roles: ["nurse"], scopes: ["clients.read", "nursing_assessments.read", "nursing_assessments.manage", "nursing_assessments.sign"], assuranceLevel: "aal2", recentAal2At: new Date().toISOString(), demo: false };
 const props = { context, snapshot: formal, canManage: true, canSign: true, hasRecentAal2: true, actorUserId: version.recordedBy };
+let testDay = 0;
+const baseTime = Date.now();
+function freshAfter(offset = 1000) {
+  const generatedAt = new Date(Date.parse(formal.generatedAt) + offset).toISOString();
+  vi.setSystemTime(new Date(generatedAt));
+  return { ...formal, generatedAt, staleAfter: new Date(Date.parse(generatedAt) + 300000).toISOString() };
+}
+function readSuccess(init: RequestInit) {
+  return Response.json({ requestId: "51000000-0000-4000-8000-000000000090", status: "ok", errors: [],
+    data: { schemaVersion: 1, organizationId: id, branchId: id, actorUserId: context.userId,
+      nonce: new Headers(init.headers).get("x-nursing-read-nonce"), snapshot: formal,
+      capabilities: { canManage: true, canSign: true, hasRecentAal2: true },
+      authoritySignature: nursingAssessmentAuthoritySignature(context), demo: false } });
+}
 function sign() { fireEvent.click(screen.getByRole("button", { name: "簽署目前草稿" })); fireEvent.click(screen.getByRole("button", { name: "確認簽署" })); }
 function deny(status = 403) { return Response.json({ requestId: "51000000-0000-4000-8000-000000000090", status: "error", data: null, errors: [{ code: status === 409 ? "NURSING_VERSION_CONFLICT" : "NURSING_NOT_AUTHORIZED", message: "合成拒絕" }] }, { status }); }
 function signed(): NursingVersion { const at = new Date().toISOString(); return { ...structuredClone(version), versionId: "51000000-0000-4000-8000-000000000021", version: 2, previousVersionId: version.versionId, previousContentHash: version.contentHash, contentHash: "b".repeat(64), state: "signed", signedAt: at, signedBy: context.userId, signerDisplayName: "合成護理員", signaturePurpose: "人工護理評估簽署", signatureChallengeId: "51000000-0000-4000-8000-000000000022", createdAt: at }; }
@@ -24,8 +38,12 @@ beforeAll(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
 });
-beforeEach(() => clearNursingAssessmentPendingOnLogout());
-afterEach(() => { cleanup(); clearNursingAssessmentPendingOnLogout(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(baseTime + ++testDay * 86400000));
+  formal.generatedAt = new Date().toISOString(); formal.staleAfter = new Date(Date.now() + 300000).toISOString();
+  context.recentAal2At = new Date().toISOString(); clearNursingAssessmentPendingOnLogout();
+});
+afterEach(() => { cleanup(); clearNursingAssessmentPendingOnLogout(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("manual nursing workspace", () => {
   it("authorized managers can read without acquiring nurse-only write privileges", () => {
     render(<NursingAssessmentsWorkspace {...props} context={{ ...context, roles: ["organization_manager"] }} canManage={false} canSign={false}/>);
@@ -36,19 +54,21 @@ describe("manual nursing workspace", () => {
     rerender(<NursingAssessmentsWorkspace {...props} context={{ ...context, userId: "51000000-0000-4000-8000-000000000014" }}/>);
     expect(screen.queryByRole("heading", { name: "合成個案甲" })).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "儲存草稿" })).not.toBeInTheDocument();
     rerender(<NursingAssessmentsWorkspace {...props}/>); expect(screen.queryByRole("heading", { name: "合成個案甲" })).not.toBeInTheDocument();
-    rerender(<NursingAssessmentsWorkspace {...props} snapshot={{ ...formal, generatedAt: new Date(Date.parse(formal.generatedAt) + 1000).toISOString() }}/>);
+    rerender(<NursingAssessmentsWorkspace {...props} snapshot={freshAfter()}/>);
     expect(screen.getByRole("heading", { name: "合成個案甲" })).toBeInTheDocument(); expect(screen.queryByRole("button", { name: "儲存草稿" })).not.toBeInTheDocument();
   });
   it("global logout clearing immediately redacts retained snapshot and editor", () => {
     render(<NursingAssessmentsWorkspace {...props}/>); fireEvent.click(screen.getByRole("button", { name: "修訂最新草稿" }));
     act(() => clearNursingAssessmentPendingOnLogout()); expect(screen.queryByRole("heading", { name: "合成個案甲" })).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "儲存草稿" })).not.toBeInTheDocument();
   });
-  it("local refresh owns a shared view lease, blocking writes until the React transition completes", async () => {
-    let finish!: () => void; refresh.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
-    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); render(<NursingAssessmentsWorkspace {...props}/>);
+  it("explicit GET owns a shared view lease, blocking writes until the read completes", async () => {
+    let finish!: () => void;
+    const fetch = vi.fn((_url, init: RequestInit) => new Promise<Response>((resolve) => { finish = () => resolve(readSuccess(init)); }));
+    vi.stubGlobal("fetch", fetch); render(<NursingAssessmentsWorkspace {...props}/>);
     fireEvent.click(screen.getByRole("button", { name: "重新載入" })); expect(hasViewTransition()).toBe(true); expect(screen.getByRole("button", { name: "新增護理評估" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "簽署目前草稿" })); expect(fetch).not.toHaveBeenCalled(); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "簽署目前草稿" })); expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0]![1].method).toBe("GET"); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await act(async () => finish()); expect(hasViewTransition()).toBe(false);
+    expect(refresh).not.toHaveBeenCalled();
   });
   it("signed correction requires a valid reason and an explicit second confirmation", async () => {
     const result = signed(); const clients = structuredClone(formal.clients); clients[0]!.versions.unshift(result); clients[0]!.versionsTotal = 2;
@@ -79,7 +99,8 @@ describe("manual nursing workspace", () => {
     const { rerender } = render(<NursingAssessmentsWorkspace {...props}/>); fireEvent.click(screen.getByRole("button", { name: "簽署目前草稿" }));
     rerender(<NursingAssessmentsWorkspace {...props} context={{ ...context, scopes: context.scopes.filter((scope) => scope !== "nursing_assessments.read") }}/>);
     expect(screen.queryByText("合成個案甲")).not.toBeInTheDocument(); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(screen.queryByText(`已記錄：${version.content.domains.observations.detail}`)).not.toBeInTheDocument();
-    rerender(<NursingAssessmentsWorkspace {...props}/>); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(screen.getByRole("heading", { name: "合成個案甲" })).toBeInTheDocument();
+    rerender(<NursingAssessmentsWorkspace {...props}/>); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(screen.queryByRole("heading", { name: "合成個案甲" })).not.toBeInTheDocument();
+    rerender(<NursingAssessmentsWorkspace {...props} snapshot={freshAfter()}/>); expect(screen.getByRole("heading", { name: "合成個案甲" })).toBeInTheDocument();
   });
   it("removing manage permission does not hide authorized history but disables draft writes", () => {
     render(<NursingAssessmentsWorkspace {...props} canManage={false} context={{ ...context, scopes: context.scopes.filter((scope) => scope !== "nursing_assessments.manage") }}/>);
@@ -119,17 +140,18 @@ describe("manual nursing workspace", () => {
   });
   it("confirmation never rebases an original sign onto a newer source snapshot", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const { rerender } = render(<NursingAssessmentsWorkspace {...props}/>);
-    fireEvent.click(screen.getByRole("button", { name: "簽署目前草稿" })); rerender(<NursingAssessmentsWorkspace {...props} snapshot={{ ...formal, generatedAt: new Date(Date.parse(formal.generatedAt) + 1000).toISOString() }}/>);
+    fireEvent.click(screen.getByRole("button", { name: "簽署目前草稿" })); rerender(<NursingAssessmentsWorkspace {...props} snapshot={freshAfter()}/>);
     fireEvent.click(screen.getByRole("button", { name: "確認簽署" })); expect(fetch).not.toHaveBeenCalled(); expect(screen.getAllByRole("alert")[0]).toHaveTextContent("畫面版本或授權已更新");
   });
   it("valid receipt saves but same-client writes remain blocked until a positive newer snapshot proves the exact chain", async () => {
     const result = signed(); const fetch = vi.fn((_url, init: RequestInit) => Promise.resolve(success(init, result))); vi.stubGlobal("fetch", fetch);
     const { rerender } = render(<NursingAssessmentsWorkspace {...props}/>); sign(); await waitFor(() => expect(getNursingAssessmentPending().confirmed).toHaveLength(1));
     expect(screen.getByText(/清單尚未確認更新/u)).toBeInTheDocument(); expect(screen.getByRole("button", { name: "新增護理評估" })).toBeDisabled();
-    rerender(<NursingAssessmentsWorkspace {...props} snapshot={{ ...formal, generatedAt: new Date(Date.parse(result.createdAt) + 1).toISOString() }}/>);
+    vi.setSystemTime(new Date(Date.parse(result.createdAt) + 1));
+    rerender(<NursingAssessmentsWorkspace {...props} snapshot={freshAfter(1)}/>);
     expect(getNursingAssessmentPending().confirmed).toHaveLength(1); expect(screen.queryByText("護理操作已保存，清單已確認更新。")).not.toBeInTheDocument();
     const clients = structuredClone(formal.clients); clients[0]!.versions.unshift(result); clients[0]!.versionsTotal = 2;
-    rerender(<NursingAssessmentsWorkspace {...props} snapshot={{ ...formal, clients, generatedAt: new Date(Date.parse(result.createdAt) + 2).toISOString(), staleAfter: new Date(Date.parse(result.createdAt) + 300002).toISOString() }}/>);
+    rerender(<NursingAssessmentsWorkspace {...props} snapshot={{ ...freshAfter(2), clients }}/ >);
     await waitFor(() => expect(getNursingAssessmentPending().confirmed).toHaveLength(0)); expect(screen.getByText("護理操作已保存，清單已確認更新。")).toBeInTheDocument(); expect(screen.getByRole("button", { name: "新增護理評估" })).not.toBeDisabled();
   });
   it("GREEN retains unknown operation across workspace remount without another POST", async () => {
@@ -198,8 +220,7 @@ describe("manual nursing workspace", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const { rerender } = render(<NursingAssessmentsWorkspace {...props}/>);
     fireEvent.click(screen.getByRole("button", { name: "修訂最新草稿" }));
-    rerender(<NursingAssessmentsWorkspace {...props} snapshot={{ ...formal,
-      generatedAt: new Date(Date.parse(formal.generatedAt) + 1000).toISOString() }}/>);
+    rerender(<NursingAssessmentsWorkspace {...props} snapshot={freshAfter()}/>);
     fireEvent.click(screen.getByRole("button", { name: "儲存草稿" }));
     expect(screen.getByRole("alert")).toHaveTextContent("畫面版本已更新");
     expect(fetch).not.toHaveBeenCalled();

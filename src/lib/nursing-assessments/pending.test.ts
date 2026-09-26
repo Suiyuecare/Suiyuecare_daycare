@@ -7,7 +7,7 @@ import { parseNursingRequest } from "./parser";
 import type { NursingAssessmentSnapshot, NursingReceipt, NursingRequest } from "./types";
 import { beginNursingAssessment, clearNursingAssessmentPendingOnLogout, getNursingAssessmentPending,
   isConfirmedNursingAssessmentRejection, nursingAssessmentAuthoritySignature, nursingAssessmentScopeIdentity,
-  observeNursingAssessmentAuthority, reconcileNursingAssessmentConfirmed, retryNursingAssessment,
+  observeNursingAssessmentAuthority, observeNursingAssessmentSnapshot, reconcileNursingAssessmentConfirmed, retryNursingAssessment,
   settleNursingAssessment, type NursingAssessmentTarget } from "./pending";
 
 const guardFault = vi.hoisted(() => ({ fail: false }));
@@ -32,6 +32,13 @@ const scope = { organizationId: uuid(80), branchId: uuid(81), userId: uuid(13) }
 const context: TenantContext = { ...scope, organizationName: "合成機構", branchName: "合成分支", displayName: "合成護理",
   roles: ["nurse"], scopes: ["clients.read", "nursing_assessments.read", "nursing_assessments.manage", "nursing_assessments.sign"],
   assuranceLevel: "aal2", recentAal2At: "2026-09-26T11:00:00.000Z", demo: false };
+let testSerial = 0;
+function admit(currentScope = scope, currentContext = context) {
+  const snapshot = { ...buildDemoNursingAssessmentSnapshot(currentScope.organizationId, currentScope.branchId), demo: false };
+  const age = currentContext.recentAal2At === null ? Infinity : Date.now() - Date.parse(currentContext.recentAal2At);
+  return observeNursingAssessmentSnapshot(currentScope, false, snapshot, { canManage: currentContext.roles.includes("nurse") && currentContext.scopes.includes("nursing_assessments.manage"),
+    canSign: currentContext.roles.includes("nurse") && currentContext.scopes.includes("nursing_assessments.sign"), hasRecentAal2: age >= 0 && age <= 15 * 60_000 });
+}
 const source = () => buildDemoNursingAssessmentSnapshot(scope.organizationId, scope.branchId).clients[0].versions[0];
 const target = (): NursingAssessmentTarget => ({ clientId: uuid(1), assessmentKey: source().assessmentKey,
   versionId: source().versionId, version: source().version, state: source().state, contentHash: source().contentHash, content: source().content });
@@ -67,8 +74,10 @@ function snapshotWith(saved: NursingReceipt): NursingAssessmentSnapshot {
     ? { ...client, versions: [saved.result, ...client.versions], versionsTotal: client.versionsTotal + 1 } : client) };
 }
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-26T11:00:00.000Z"));
+  vi.useFakeTimers(); vi.setSystemTime(new Date(Date.parse("2026-09-26T11:00:00.000Z") + ++testSerial * 86400000));
+  context.recentAal2At = new Date().toISOString();
   clearNursingAssessmentPendingOnLogout(); observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(context));
+  expect(admit()).toBe(true);
 });
 afterEach(() => { guardFault.fail = false; leaseInterleave.run = null; clearNursingAssessmentPendingOnLogout(); document.body.innerHTML = ""; vi.restoreAllMocks(); vi.useRealTimers(); });
 
@@ -117,6 +126,11 @@ describe("bounded immutable nursing write journal", () => {
     };
     expect(begin()).toBeNull(); expect(getNursingAssessmentPending().operation).toBeNull(); expect(hasPendingOperations()).toBe(false);
   });
+  it("rejects old source admission when synchronous lease notifications publish a newer same-capability generation", () => {
+    leaseInterleave.run = () => { vi.setSystemTime(Date.now() + 1); expect(admit()).toBe(true); };
+    expect(begin("revise_draft")).toBeNull();
+    expect(getNursingAssessmentPending().operation).toBeNull(); expect(hasPendingOperations()).toBe(false);
+  });
   it.each(["organizationId", "branchId", "userId"] as const)("rejects foreign %s beginning and retrying", (field) => {
     expect(beginNursingAssessment({ ...scope, [field]: uuid(999) }, false, input(), new Date().toISOString())).toBeNull();
     const first = begin(); settleNursingAssessment(first, "unknown"); expect(retryNursingAssessment(first.token, { ...scope, [field]: uuid(999) }, false)).toBeNull();
@@ -136,9 +150,10 @@ describe("bounded immutable nursing write journal", () => {
     observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature({ ...context, ...change } as TenantContext)); expect(begin()).toBeNull(); expect(hasPendingOperations()).toBe(false);
   });
   it("drafts do not invent recent reauth, but sign/retry require actual current recency", () => {
-    observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature({ ...context, recentAal2At: null }));
+    const noRecent = { ...context, recentAal2At: null };
+    observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(noRecent)); admit(scope, noRecent);
     const first = begin(); expect(first).not.toBeNull(); settleNursingAssessment(first, "denied"); expect(begin("sign")).toBeNull();
-    observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(context)); const sign = begin("sign"); settleNursingAssessment(sign, "unknown");
+    observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(context)); admit(); const sign = begin("sign"); settleNursingAssessment(sign, "unknown");
     vi.advanceTimersByTime(16 * 60_000); expect(retryNursingAssessment(sign.token, scope, false)).toBeNull(); expect(hasPendingOperations()).toBe(true);
   });
   it("actual recency expiring in flight preserves unknown and never marks success", () => {
@@ -151,11 +166,16 @@ describe("bounded immutable nursing write journal", () => {
     const dropped: TenantContext = kind === "scope" ? { ...context, branchId: uuid(99) } : kind === "permission" ? { ...context, scopes: [] } : { ...context, assuranceLevel: "aal1" };
     observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(dropped)); observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(context));
     expect(settleNursingAssessment(first, receipt())).toBe(false); expect(settleNursingAssessment(first, "denied")).toBe(false);
+    expect(retryNursingAssessment(first.token, scope, false)).toBeNull();
+    vi.setSystemTime(Date.now() + 1); expect(admit()).toBe(true);
     const retry = retryNursingAssessment(first.token, scope, false)!; expect(retry.body).toBe(first.body); expect(retry.everUnknown).toBe(true); expect(retry.authorityEpoch).toBeGreaterThan(first.authorityEpoch);
   });
   it("safe logout erases clinical payload and old replies cannot release a new actor's lease", () => {
     const old = begin(); const privacy = getNursingAssessmentPending().privacyEpoch; clearNursingAssessmentPendingOnLogout();
-    observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature({ ...context, userId: uuid(99) }));
+    const nextContext = { ...context, userId: uuid(99) }, nextScope = { ...scope, userId: uuid(99) };
+    observeNursingAssessmentAuthority(nursingAssessmentAuthoritySignature(nextContext));
+    expect(beginNursingAssessment(nextScope, false, input(), new Date().toISOString())).toBeNull();
+    vi.setSystemTime(Date.now() + 1); expect(admit(nextScope, nextContext)).toBe(true);
     const next = beginNursingAssessment({ ...scope, userId: uuid(99) }, false, input(), new Date().toISOString())!;
     expect(next).not.toBeNull(); expect(getNursingAssessmentPending().privacyEpoch).toBeGreaterThan(privacy);
     expect(settleNursingAssessment(old, receipt())).toBe(false); expect(getNursingAssessmentPending().operation).toBe(next); expect(hasPendingOperations()).toBe(true);
@@ -205,6 +225,11 @@ describe("bounded immutable nursing write journal", () => {
     const first = begin(); settleNursingAssessment(first, receipt()); expect(begin()).toBeNull(); expect(begin("sign")).not.toBeNull();
   });
   it("has a bounded 32-marker cap and never silently drops stale source protection", () => {
+    const base = buildDemoNursingAssessmentSnapshot(scope.organizationId, scope.branchId);
+    const allClients = { ...base, demo: false, clients: Array.from({ length: 32 }, (_, index) => ({ ...base.clients[1]!, clientId: uuid(1001 + index) })), clientTotal: 32 };
+    expect(observeNursingAssessmentSnapshot(scope, false, allClients, { canManage: true, canSign: true, hasRecentAal2: true })).toBe(false);
+    vi.setSystemTime(Date.now() + 1); allClients.generatedAt = new Date().toISOString(); allClients.staleAfter = new Date(Date.now() + 300000).toISOString();
+    expect(observeNursingAssessmentSnapshot(scope, false, allClients, { canManage: true, canSign: true, hasRecentAal2: true })).toBe(true);
     for (let i = 1; i <= 32; i++) {
       const value = input("create_draft", i); value.request.clientId = uuid(1000 + i);
       const first = beginNursingAssessment(scope, false, value, new Date().toISOString())!; expect(first).not.toBeNull(); settleNursingAssessment(first, receipt(value, i));
