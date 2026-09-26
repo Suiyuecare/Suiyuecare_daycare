@@ -1,0 +1,92 @@
+---
+version: alpha
+name: "歲悅日照管理"
+description: "沿用歲悅 Finance 的暖色工作台，讓現場與管理人員清楚完成下一項工作。"
+colors:
+  primary: "#ea880c"
+  primary-text: "#b45309"
+  background: "#fff9f2"
+  surface: "#ffffff"
+  soft: "#fff4e4"
+  ink: "#2f2a26"
+  muted: "#6e6259"
+  border: "#f1cfa8"
+  danger: "#8a1010"
+  success: "#2a6010"
+typography:
+  sans:
+    fontFamily: '"PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif'
+  utility:
+    fontFamily: "ui-monospace, monospace"
+rounded:
+  DEFAULT: "10px"
+  sm: "8px"
+  md: "10px"
+spacing:
+  page-padding: "32px"
+  control-height: "44px"
+components:
+  button:
+    rounded: "10px"
+  card:
+    rounded: "10px"
+  input:
+    rounded: "10px"
+---
+
+# 歲悅日照管理設計依據
+
+## Overview
+
+使用者指定的 Finance 畫面為視覺依據，不另作品牌改造。既有 `src/app/globals.css` 是 runtime token 的唯一來源；本文件採 Model B，記錄已實作值，不產生第二套 CSS。
+
+本次範圍是頁面 82 的題目式量表規則審核入口，不代表重新驗收全部 89 頁。使用者為臺灣日照機構主任及授權管理者；繁體中文、`zh-TW`、`Asia/Taipei`，非日本市場。主要工作是核對版本、送審、獨立核准和查閱退休歷程。
+
+保留熟悉的左側欄與頂部 frame；畫面辨識特徵是暖橘選中狀態與奶油色篩選區。不要大型宣傳標題、裝飾圖表、密集工程警告或另一套 header。安全限制不能因簡化文字而隱藏。
+
+## Colors
+
+`--brand`／`--brand-strong` 用於行動與可讀文字，`--ink`／`--ink-muted` 用於正文及說明，`--surface`／`--surface-soft` 區分內容與篩選區，`--line` 作邊界。成功、危險均須文字，不只靠顏色。新元件引用 CSS 變數，不複製色碼。
+
+淺色是目前已實作主題；不宣稱已驗收深色。forced-colors 保留系統色與可操作捲軸。
+
+## Typography
+
+沿用 Finance 字型堆疊；標題、正文及控制項以字級與 600–700 粗細分層，不新增 display 字型。主頁標題沿用 `.page-heading` 的 28–36px，新管理區段標題 20px，正文 15px、表單輸入至少 16px。雜湊只放進預設收起的技術詳情，長值可換行，不做需要 hover 才看得到的截斷。
+
+## Layout
+
+既有 `--sidebar: 300px`、`--header-height: 82px`、`--content-padding: 32px` 與 AppShell 不變。新區段自然高度、沿用既有內容捲動者；不將整頁固定到 viewport。窄螢幕分成單欄，控制項與主要觸控目標至少 44px，不產生頁面水平溢位。
+
+篩選只有一個量表選擇；歷程最多每批 20 件，明示載入筆數及總數，以「載入更多」取真正游標，不假裝任意頁碼。原頁 82 自訂表單工作區仍保留。
+
+## Elevation & Depth
+
+沿用 `--admin-shadow` 的低陰影與細邊框。不要逐卡強烈浮起；模態確認沿用 `.core-dialog` 與原生 dialog top layer，不自建任意 z-index。
+
+## Shapes
+
+一般卡片／控制項採現有 10px，44px 控制高度。既有 client selection 的 18px 與 sidebar pill 是具業務名稱的既有例外，不因此套到所有卡片。
+
+## Components
+
+| 角色 | 唯一 runtime owner | 本次 consumers |
+|---|---|---|
+| 文字／色彩／邊框／圓角 | `src/app/globals.css` | 全部新規則管理元件 |
+| Header／sidebar | `src/components/app/app-shell.tsx` | 原 page 82，不另造 frame |
+| Button／field／dialog surface | `.button`／`.field`／`.core-dialog` | 管理區段及確認視窗 |
+| 模態確認行為 | `src/components/ui/governance-dialog.tsx` | 採用／退休同一個確認入口 |
+| 有界請求／範圍回執 | `client-fetch.ts`／`rule-governance-client.ts` | 讀取、寫入及原操作重試 |
+
+Native select 的關閉外觀沿用 `.control`，開啟選單接受作業系統幾何與鍵盤行為，不宣称其 popup 和 Finance 完全相同。日期採有格式提示的 YYYY-MM-DD 文字欄位與正式 schema 驗證，不自製 calendar。文字欄位明確標籤；textarea 不可拖曳改變佈局，保留充分高度和內部捲動。
+
+pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後出現。錯誤不消失、不展示原始資料庫文字。審核理由、期限與正式啟用後果始終可見；題庫原文、公式和雜湊在詳情中。
+
+圖示沿用 lucide-react，decorative 圖示 aria-hidden。新區段不另加進場動畫；共同 reduced-motion 保護與 focus-visible 生效。捲軸為全域 application 基線，幾何可局部穩定 gutter，不使用 opt-in class 才有色彩。
+
+## Do's and Don'ts
+
+- 送審成功不是正式評估已完成；已採用也不等於臨床簽署能力已開放。
+- 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
+- 不把別的分支、展示資料或資料庫服務密鑰拿來補載入失敗。
+- 既有畫面存在 native confirm／validation bubbles 等差異，列為後續 migration，未以文件替它們宣稱合規；本次新區段不用這些模式。

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
+import { QuestionnaireRuleWorkspace } from "@/components/questionnaire-rule-governance/questionnaire-rule-workspace";
 import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
@@ -3988,6 +3989,7 @@ export default async function StaffCatalogPage({
     const canManage = context.demo || context.scopes.includes("forms.manage");
     const recentAal2 =
       context.demo || (canManage ? await hasCustomFormGovernanceAccess(context, true) : false);
+    const questionnaireAal2 = !context.demo && canManage ? await hasRecentAal2() : false;
     return (
       <FormRuleVersionsWorkspace
         key={[context.organizationId, context.branchId, context.userId,
@@ -3999,6 +4001,13 @@ export default async function StaffCatalogPage({
         loadError={loadError}
         page={page}
         snapshot={snapshot}
+        questionnaireRules={<QuestionnaireRuleWorkspace
+          key={[context.organizationId, context.branchId, context.userId, context.assuranceLevel,
+            [...context.scopes].sort().join(","), String(questionnaireAal2)].join(":")}
+          scope={{ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }}
+          canManage={canManage} hasRecentAal2={questionnaireAal2} demo={context.demo}
+          today={new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())}
+        />}
       />
     );
   }

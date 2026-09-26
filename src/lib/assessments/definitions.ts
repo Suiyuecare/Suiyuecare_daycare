@@ -707,7 +707,9 @@ export const ASSESSMENT_VERSIONS: Readonly<
 export function getAssessmentDefinition(
   versionId: string,
 ): AssessmentDefinition | undefined {
-  return ASSESSMENT_VERSIONS[versionId as AssessmentVersionId];
+  return Object.hasOwn(ASSESSMENT_VERSIONS, versionId)
+    ? ASSESSMENT_VERSIONS[versionId as AssessmentVersionId]
+    : undefined;
 }
 
 export const ASSESSMENT_INSTRUMENTS: readonly AssessmentInstrument[] = [

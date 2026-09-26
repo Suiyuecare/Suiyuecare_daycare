@@ -1,0 +1,17 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "typed" },
+  "requiredCapabilities": ["Select/Listbox", "Date", "Form", "Scrollbar", "Toast", "CRUD"],
+  "sourceRoots": ["src/components/questionnaire-rule-governance", "src/components/ui"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/questionnaire-rule-governance src/components/ui/governance-dialog.test.tsx src/lib/questionnaire-assessments/rule-governance-client.test.ts",
+    "build": "DAYCARE_DISABLE_FILESYSTEM_CACHE=true pnpm build"
+  },
+  "evidence": {
+    "crudFullFlow": "src/components/questionnaire-rule-governance/rule-governance-action.test.tsx",
+    "failurePaths": "src/components/questionnaire-rule-governance/questionnaire-rule-workspace.test.tsx"
+  }
+}
