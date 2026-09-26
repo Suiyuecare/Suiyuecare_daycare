@@ -144,7 +144,7 @@
 .notes textarea {
   width: 100%;
   min-height: 100px;
-  resize: vertical;
+  resize: none;
   border: 1px solid var(--border, #eadbc9);
   border-radius: 12px;
   padding: .75rem .85rem;
@@ -282,6 +282,107 @@
   background: #f8f4ee;
   color: var(--text-muted, #74685d);
 }
+
+.editorFields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.records {
+  padding: 1rem;
+  border: 1px solid var(--border, #eadbc9);
+  border-radius: 18px;
+  background: var(--surface, #fffdfa);
+}
+
+.recordsHeading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+}
+
+.recordsHeading h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.records p,
+.ruleNotice p {
+  margin: .6rem 0;
+  line-height: 1.6;
+}
+
+.recordPicker {
+  display: grid;
+  gap: .5rem;
+}
+
+.recordPicker select {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid var(--border, #eadbc9);
+  border-radius: 12px;
+  padding: .65rem .8rem;
+  background: var(--surface, #fffdfa);
+  color: var(--text, #302d2a);
+  font: inherit;
+}
+
+.versionHistory,
+.ruleNotice {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: .75rem;
+}
+
+.versionHistory summary,
+.ruleNotice summary {
+  min-height: 44px;
+  padding-block: .65rem;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.versionHistory ol {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.versionHistory li {
+  padding: .5rem 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.switchNotice {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border, #eadbc9);
+  border-radius: 12px;
+  background: var(--surface-subtle, #fff8ee);
+}
+
+.workspace :is(input, select, textarea, button, summary):focus-visible,
+.choice:has(input:focus-visible) {
+  outline: 3px solid var(--brand-strong, #8d3d00);
+  outline-offset: 3px;
+}
+
+.workspace :is(button, summary, .choice):hover:not(:disabled) {
+  filter: brightness(.96);
+}
+
+.workspace button:not(:disabled) { cursor: pointer; }
+.workspace button:disabled { cursor: not-allowed; }
+.workspace button:active:not(:disabled) { transform: translateY(1px); }
+.actions button { min-width: 9rem; }
+
+.workspace :disabled { opacity: .7; }
 
 @media (max-width: 640px) {
   .selection,

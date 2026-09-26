@@ -13,19 +13,10 @@ import {
 } from "@/lib/integrations/http";
 import { deterministicUuid } from "@/lib/integrations/security";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { parseClaimReconciliationDatabaseReceipt } from "@/lib/service-management/claim-operation-receipts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type ReconcileClaimResult = {
-  claim_batch_id: string;
-  status: string;
-  item_count: number;
-  accepted_count: number;
-  rejected_count: number;
-  total_amount: string | number;
-  replayed: boolean;
-};
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
@@ -90,9 +81,9 @@ export async function POST(request: Request) {
         p_results: results,
         p_idempotency_key: databaseIdempotencyKey,
       })
-      .maybeSingle<ReconcileClaimResult>();
+      .maybeSingle<unknown>();
 
-    if (error || !data) {
+    if (error) {
       throw databaseFailure(
         error?.code === "42501"
           ? "CLAIM_RECONCILIATION_NOT_AUTHORIZED"
@@ -107,20 +98,27 @@ export async function POST(request: Request) {
             ? "相同冪等鍵曾用於不同的申報對帳內容。"
             : error?.code === "P2001"
               ? "此批次已由另一項操作完成對帳，請重新載入最新狀態。"
-            : "申報結果未完成對帳；請確認逐筆覆蓋與總額後，以相同冪等鍵重試。",
+            : "申報對帳結果尚未確認；請保留原批次、逐筆回覆與總額，以相同冪等鍵重試。",
         error?.code === "42501" ? 403 : 409,
       );
     }
 
+    let receipt;
+    try { receipt = parseClaimReconciliationDatabaseReceipt(data, input); }
+    catch {
+      throw databaseFailure("CLAIM_RECONCILIATION_RECEIPT_INVALID",
+        "申報對帳回執尚未核對完成；請保留原批次、逐筆回覆與總額，以相同冪等鍵重試。", 502);
+    }
+
     return ok(
       {
-        claimBatchId: data.claim_batch_id,
-        status: data.status,
-        itemCount: data.item_count,
-        acceptedCount: data.accepted_count,
-        rejectedCount: data.rejected_count,
-        totalAmount: String(data.total_amount),
-        replayed: data.replayed,
+        claimBatchId: receipt.claim_batch_id,
+        status: receipt.status,
+        itemCount: receipt.item_count,
+        acceptedCount: receipt.accepted_count,
+        rejectedCount: receipt.rejected_count,
+        totalAmount: receipt.total_amount,
+        replayed: receipt.replayed,
         persisted: true,
         demo: false,
       },
