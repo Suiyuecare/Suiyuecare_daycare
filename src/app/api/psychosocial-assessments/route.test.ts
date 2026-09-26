@@ -4,6 +4,7 @@ const stubs = vi.hoisted(() => ({
   authorizeStaffRequest: vi.fn(),
   readJsonObject: vi.fn(),
   requireRecentAal2: vi.fn(),
+  requireScoped: vi.fn(),
   createServerSupabaseClient: vi.fn(),
   rpc: vi.fn(),
   maybeSingle: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock("@/lib/integrations/http", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: stubs.createServerSupabaseClient,
 }));
+vi.mock("@/lib/social-work-records/reauth", () => ({ requireRecentSocialWorkAal2: stubs.requireScoped }));
 
 import { PATCH, POST } from "./route";
 
@@ -132,7 +134,8 @@ describe("psychosocial assessment API boundary", () => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
     stubs.readJsonObject.mockResolvedValue(createBody);
-    stubs.requireRecentAal2.mockResolvedValue(undefined);
+    stubs.requireRecentAal2.mockRejectedValue(new Error("generic evidence must not authorize psychosocial signing"));
+    stubs.requireScoped.mockResolvedValue(undefined);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
   });
@@ -211,13 +214,14 @@ describe("psychosocial assessment API boundary", () => {
       expectedVersion: 2,
       correctionReason: "修正實際觀察事實",
     });
-    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("reauth"), {
+    stubs.requireScoped.mockRejectedValue(Object.assign(new Error("reauth"), {
       code: "AAL2_REQUIRED",
       httpStatus: 403,
     }));
     const response = await PATCH(request("PATCH"));
     expect(response.status).toBe(403);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledWith(actor);
+    expect(stubs.requireScoped).toHaveBeenCalledWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
     expect(stubs.rpc).not.toHaveBeenCalled();
   });
 
@@ -240,7 +244,8 @@ describe("psychosocial assessment API boundary", () => {
     const response = await PATCH(request("PATCH"));
     const body = await response.json();
     expect(response.status).toBe(201);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledWith(actor);
+    expect(stubs.requireScoped).toHaveBeenCalledWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
     expect(body.data).toMatchObject({
       action: "sign",
       clientId,

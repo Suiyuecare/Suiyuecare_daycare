@@ -35,6 +35,8 @@ import { clearBodyAssessmentPendingOnLogout } from "@/lib/body-assessments/pendi
 import { clearNursingAssessmentPendingOnLogout, nursingAssessmentAuthoritySignature, observeNursingAssessmentAuthority } from "@/lib/nursing-assessments/pending";
 import { clearStaffAnnouncementPendingOnLogout, observeStaffAnnouncementAuthority, staffAnnouncementAuthoritySignature } from "@/lib/staff-announcements/pending";
 import { clearReferralPendingOnLogout, observeReferralAuthority, referralAuthoritySignature } from "@/lib/referral-management/pending";
+import { clearSocialWorkPendingOnLogout, observeSocialWorkAuthority, socialWorkAuthoritySignature } from "@/lib/social-work-records/pending";
+import { clearPsychosocialAssessmentPendingOnLogout, observePsychosocialAssessmentAuthority, psychosocialAssessmentAuthoritySignature } from "@/lib/psychosocial-assessments/pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -106,6 +108,8 @@ export function AppShell({
   const announcementAuthority = staffAnnouncementAuthoritySignature(context);
   const nursingAuthority = nursingAssessmentAuthoritySignature(context);
   const referralAuthority = referralAuthoritySignature(context);
+  const socialWorkAuthority = socialWorkAuthoritySignature(context);
+  const psychosocialAuthority = psychosocialAssessmentAuthoritySignature(context);
 
   // Track authority outside the announcement route too: an unmounted editor
   // must not accept an old reply after permissions change and later return.
@@ -118,6 +122,12 @@ export function AppShell({
   useLayoutEffect(() => {
     observeReferralAuthority(referralAuthority);
   }, [referralAuthority]);
+  useLayoutEffect(() => {
+    observeSocialWorkAuthority(socialWorkAuthority);
+  }, [socialWorkAuthority]);
+  useLayoutEffect(() => {
+    observePsychosocialAssessmentAuthority(psychosocialAuthority);
+  }, [psychosocialAuthority]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -221,6 +231,8 @@ export function AppShell({
     clearNursingAssessmentPendingOnLogout();
     clearStaffAnnouncementPendingOnLogout();
     clearReferralPendingOnLogout();
+    clearSocialWorkPendingOnLogout();
+    clearPsychosocialAssessmentPendingOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();

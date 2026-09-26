@@ -208,12 +208,17 @@ try {
   sql(`update public.client_assignments set ends_at=null where id='${assignment}';drop trigger native_referral_pause_snapshot on public.audit_events;`);
   // A selected MFA admission path cannot fall through to a different module
   // which became effective only AFTER evidence insertion. Selection priority
-  // is executive -> custom -> nursing -> referral, after the challenge lock.
+  // is executive -> custom -> nursing -> referral -> social work, after the
+  // challenge lock. Isolate the two paths tested here via synthetic metadata;
+  // disabling referral must not accidentally preserve a third valid sign path.
   sql(`insert into public.membership_roles(membership_id,role_id,assigned_at)
     select 'dc700000-0000-4000-8000-000000000001',id,clock_timestamp()-interval '1 minute' from public.roles where role_key='nurse' and is_system;
     update public.role_permissions set granted_at=clock_timestamp()+interval '1 hour'
       where role_id in(select id from public.roles where role_key='nurse' and is_system)
       and permission_id in(select id from public.permissions where permission_key like 'referral_management.%');
+    update public.role_permissions set granted_at=clock_timestamp()+interval '1 hour'
+      where role_id in(select id from public.roles where role_key in('case_manager_social_worker','nurse') and is_system)
+      and permission_id in(select id from public.permissions where permission_key='social_work_records.sign');
     create function native_referral_test.pause_reauth() returns trigger language plpgsql set search_path='' as $$begin
     if new.user_id='${actor}'::uuid then perform pg_advisory_xact_lock(hashtextextended('native-referral-mfa-pause',0));end if;return new;end;$$;
     create trigger native_referral_pause_reauth after insert or update on private.reauth_events for each row execute function native_referral_test.pause_reauth();`);

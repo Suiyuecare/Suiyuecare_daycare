@@ -4,6 +4,7 @@ const stubs = vi.hoisted(() => ({
   authorizeStaffRequest: vi.fn(),
   readJsonObject: vi.fn(),
   requireRecentAal2: vi.fn(),
+  requireScoped: vi.fn(),
   createServerSupabaseClient: vi.fn(),
   rpc: vi.fn(),
   maybeSingle: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@/lib/integrations/http", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: stubs.createServerSupabaseClient,
 }));
+vi.mock("@/lib/social-work-records/reauth", () => ({ requireRecentSocialWorkAal2: stubs.requireScoped }));
 
 import { PATCH, POST } from "./route";
 import {
@@ -162,7 +164,8 @@ describe("social-work service API boundary", () => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
     stubs.readJsonObject.mockResolvedValue(createBody);
-    stubs.requireRecentAal2.mockResolvedValue(undefined);
+    stubs.requireRecentAal2.mockRejectedValue(new Error("generic evidence must not authorize social work"));
+    stubs.requireScoped.mockResolvedValue(undefined);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
   });
@@ -230,13 +233,14 @@ describe("social-work service API boundary", () => {
       serviceResult: "更正合成結果",
       correctionReason: "修正實際事實",
     });
-    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("reauth"), {
+    stubs.requireScoped.mockRejectedValue(Object.assign(new Error("reauth"), {
       code: "AAL2_REQUIRED",
       httpStatus: 403,
     }));
     const response = await PATCH(request("PATCH"));
     expect(response.status).toBe(403);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledWith(actor);
+    expect(stubs.requireScoped).toHaveBeenCalledWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
     expect(stubs.rpc).not.toHaveBeenCalled();
   });
 
@@ -259,7 +263,8 @@ describe("social-work service API boundary", () => {
     const response = await PATCH(request("PATCH"));
     const body = await response.json();
     expect(response.status).toBe(201);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledWith(actor);
+    expect(stubs.requireScoped).toHaveBeenCalledWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
     expect(body.data).toMatchObject({
       action: "sign", recordVersion: 2, recordState: "signed",
     });
@@ -327,9 +332,10 @@ describe("social-work service API boundary", () => {
     expect(stubs.rpc).toHaveBeenCalledTimes(2);
     expect(stubs.rpc.mock.calls.map(([, args]) => args.p_idempotency_key))
       .toEqual([idempotencyKey, idempotencyKey]);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledTimes(
+    expect(stubs.requireScoped).toHaveBeenCalledTimes(
       action === "sign" || action === "correct" ? 2 : 0,
     );
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("keeps create HTTP and real client receipt parsing aligned (replayed=%s)", async (replayed) => {

@@ -1,6 +1,13 @@
 begin;
 select plan(63);
 set local time zone 'Asia/Taipei';
+-- Isolate this suite's referral-MFA acquisition path. Pages 28/29 now have a
+-- separately valid MFA path; retaining that unrelated effective sign grant
+-- would make a referral-only grant revocation correctly leave MFA available.
+-- This changes synthetic grant metadata only, never an authorization helper.
+update public.role_permissions set granted_at=clock_timestamp()+interval '1 hour'
+ where role_id in(select id from public.roles where role_key='case_manager_social_worker' and is_system)
+ and permission_id in(select id from public.permissions where permission_key='social_work_records.sign');
 -- Complete synthetic Supabase-owned Google/session/AMR metadata. No admission
 -- helper, role predicate, signature challenge guard or RLS function is replaced.
 select set_config('test.referral_oauth',floor(extract(epoch from clock_timestamp()-interval '2 minutes'))::text,true);

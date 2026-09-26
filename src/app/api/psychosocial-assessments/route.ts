@@ -6,8 +6,8 @@ import {
   databaseFailure,
   handleIntegrationRoute,
   readJsonObject,
-  requireRecentAal2,
 } from "@/lib/integrations/http";
+import { requireRecentSocialWorkAal2 } from "@/lib/social-work-records/reauth";
 import {
   parseCreatePsychosocialDraft,
   parsePsychosocialAssessmentMutation,
@@ -103,7 +103,7 @@ async function authorize(
       403,
     );
   }
-  if (permission === "social_work_records.sign") await requireRecentAal2(actor);
+  if (permission === "social_work_records.sign") await requireRecentSocialWorkAal2(actor);
   return actor;
 }
 
@@ -288,7 +288,7 @@ export async function PATCH(request: Request) {
         403,
       );
     }
-    if (signing) await requireRecentAal2(actor);
+    if (signing) await requireRecentSocialWorkAal2(actor);
     const input = parsePsychosocialAssessmentMutation(
       body,
       request.headers.get("idempotency-key"),

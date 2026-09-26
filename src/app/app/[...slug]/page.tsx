@@ -669,6 +669,7 @@ import { BodyAssessmentSnapshotError, loadBodyAssessmentSnapshot } from "@/lib/b
 import { NursingAssessmentsWorkspace } from "@/components/nursing-assessments/nursing-assessments-workspace";
 import { getNursingRecentAal2At } from "@/lib/nursing-assessments/reauth";
 import { getReferralRecentAal2At } from "@/lib/referral-management/reauth";
+import { getSocialWorkRecentAal2At } from "@/lib/social-work-records/reauth";
 import { loadNursingAssessmentSnapshot } from "@/lib/nursing-assessments/snapshot";
 import {
   FeedbackComplaintSnapshotError,
@@ -2069,13 +2070,14 @@ export default async function StaffCatalogPage({
     try {
       [snapshot, recentAal2] = await Promise.all([
         loadPsychosocialAssessmentSnapshot(context, filters),
-        canSign ? hasRecentAal2() : Promise.resolve(false),
+        canSign ? getSocialWorkRecentAal2At(context).then(value => value !== null) : Promise.resolve(false),
       ]);
     } catch (error) {
       if (!(error instanceof PsychosocialAssessmentSnapshotError)) throw error;
       loadError = true;
     }
     return <PsychosocialAssessmentsWorkspace
+      context={context}
       canManage={canManage}
       canSign={canSign}
       filters={filters}
@@ -2120,14 +2122,14 @@ export default async function StaffCatalogPage({
       try {
         [snapshot, recentAal2] = await Promise.all([
           loadSocialWorkRecordSnapshot(context, filters),
-          canSign ? hasRecentAal2() : Promise.resolve(false),
+          canSign ? getSocialWorkRecentAal2At(context).then(value => value !== null) : Promise.resolve(false),
         ]);
       } catch (error) {
         if (!(error instanceof SocialWorkRecordSnapshotError)) throw error;
         loadError = true;
       }
     }
-    return <SocialWorkRecordsWorkspace canManage={canManage} canSign={canSign}
+    return <SocialWorkRecordsWorkspace context={context} canManage={canManage} canSign={canSign}
       filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
       page={page} snapshot={snapshot} />;
   }

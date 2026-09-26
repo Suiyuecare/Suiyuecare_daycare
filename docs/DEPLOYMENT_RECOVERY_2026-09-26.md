@@ -177,3 +177,14 @@ Chrome真正Next頁39重現Node與瀏覽器的日期分隔U+2009／ASCII差異�
 ### 社工新寫入回覆的跨層契約修正
 
 頁29實際PATCH新紀錄回200，但真正前端parser只接受新寫入201／原鍵重播200。新增跨層測試重現六種PATCH動作全部失敗（6 RED、10原有／create通過）；API改為依真正DB `replayed`旗標回201或200，未改parser、RPC、授權或近期AAL2。六種動作各驗新寫入／相同鍵重播，另驗create兩種回覆，實際API response經真正client parser全部通過；最終API／domain兩檔22項、該兩個API來源ESLint零警告通過。原始RED／GREEN日誌`social-work-http-contract-*`保留；這不代表原生社工開通或頁28／29未知寫入journal已修，兩頁後續變更須另凍結驗證。
+
+## 社工兩頁限定開通與共享操作候選
+
+最新本機143份migration；相對最後一次2026-09-26T13:56:32Z hosted130份唯讀證據有13份未套用候選，不稱新的live核對。頁28／29新增固定原內容／鍵journal、共享modal／未保存確認、AppShell跨頁authority與登出清除；限定真正核准非CEO社工的原scope、角色、指派及同session簽署證據。獨立review抓出same-generation指派撤銷ABA及sign-only誤示唯讀，均RED／GREEN修正。詳見[社工候選驗證](SOCIAL_WORK_WRITE_READINESS_2026-09-26.md)。
+
+- 原生PostgreSQL17.11全套 **14／14** 通過，143份精確migration；新社工84項＋21實際backend探測、原轉介63／12、護理64／8均GREEN，沒有替換授權predicate。custom print五分鐘TTL測試單captured clock修復後67項／12探測通過；lifecycle測試真正factor後同步JWT時間的窄修，66項／6探測通過。
+- 四個實際變動portable suite **280／280**（84社工、63轉介、66lifecycle、67print），0legacy overrides；不是正式Supabase或全133套最新通過證據。第一遍全套因舊lifecycle JWT時間fixture失敗，修復有142／143 deterministic RED與GREEN；第二遍全套主動停止，以精確變動回歸收斂，保留原日誌，不稱全量portable通過。142份的132套／6182項仍只是前一基線。
+- 格式窄修前全量Vitest **511檔／7184項** 通過、523.17秒、無略過；之後頁29時間格式增加2項，最終社工121focused及心理社會96focused、獨立11檔240項通過。最新全量max3及max2跑次因ABCD大型表單5秒逾時主動停止，不稱完整來源GREEN；相同ABCD11項＋格式2項在max1隔離 **13／13通過、17.97秒**，未改test timeout或source。完整最新全量仍須在穩定資源／受保護CI重跑，不能把歷史全量與scoped結果加總冒稱一次完整通過。
+- 凍結後lint零警告、型別、隔離production build、兩頁strict premium及diff-check通過。真正Next demo89／89路由通過；頁29ICU日期空白hydration問題已重現、修復、fresh Chrome重驗。合成Chrome兩頁desktop／390px、unknown→403→remount原鍵、same-generation指派ABA及positive history核對通過。沒有完整人工WCAG／真人Auth／正式保存證據。
+
+所有完整正式上線門檻維持：未知鎖下GET／MFA復原、超出有界history的精確定位、完整重載intent、Vercel指定專案403、區域／DPA／商用備份、CMS WORM與掃毒、官方量表／申報、Finance同店真金額及家屬／持續營運。沒有GitHub push、Vercel公開預覽／promotion、hosted DDL、區域移轉或新增費用。所有owned測試cluster停止，成功runner僅清除明確owned pgdata；失敗資料及日誌／備份／證據保留。

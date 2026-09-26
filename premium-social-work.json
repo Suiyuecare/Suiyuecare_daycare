@@ -1,0 +1,17 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Select/Listbox", "Form", "Scrollbar", "Toast", "CRUD"],
+  "sourceRoots": ["src/components/social-work-records", "src/components/ui"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/social-work-records src/lib/social-work-records src/app/api/social-work-records/route.test.ts src/components/app/app-shell-logout.test.tsx",
+    "build": "pnpm build"
+  },
+  "evidence": {
+    "crudFullFlow": "src/components/social-work-records/social-work-record-actions.test.tsx",
+    "failurePaths": "src/lib/social-work-records/pending.test.ts"
+  }
+}

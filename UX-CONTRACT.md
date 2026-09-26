@@ -157,3 +157,15 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 GovernanceDialog／useUnsavedChanges維持同一模態與捨棄owner；只有未送出內容可明確捨棄，未知操作不可捨棄而重建。沿用native select／datetime-local台北時間具名例外、noValidate／inline欄位錯誤及first-error focus、IME不誤送出、16px文字、44px控制及不可拖曳textarea。此次只調整頁39內容區，不改Finance frame。合成Chrome／API假回條、61項domain覆核不等於真人社工、hosted RPC／外部投遞、所有頁面或完整人工WCAG驗收。
 
 必要證據：source lint/typecheck/Vitest/build、嚴格 premium scoped audit、desktop／390px 瀏覽器、鍵盤／模態取消與焦點回復、loading／empty／error／offline／conflict／unknown retries、跨scope壞回執不顯示。靜態報告不能代替真人驗收。
+
+### 心理社會評估與社工服務紀錄（頁28／29）
+
+權威來源為各模組parser、snapshot-contract、pending、workspace controller、原API／RPC與增量20260926141155_social_work_approved_staff_admission.sql；2026-09-26核對。manual-psychosocial-v1保持人工文字評估；社工服務、結果與追蹤是版本化人工紀錄，未製造正式量表分數或外部送達。附加Auth只准已核准、有效機構／分支、職務及個案指派，不改通用Auth、角色上限或AAL2。
+
+每頁單一workspace擁有全部草稿、簽署、更正及追蹤操作；GovernanceDialog與useUnsavedChanges擁有確認／未保存離開行為。native date／datetime-local／datalist為具名平台例外，日期仍經正式schema檢查；欄位noValidate、first-error focus、inline錯誤、IME防誤送出、16px文字及44px操作。只有sign而沒有manage的合法員工不被誤標唯讀；實際API每次仍重新授權。
+
+首次送出固定actor、機構／分支、原鍵、完整body及來源版。未知後的4xx不能證明前次未保存；重新掛載不自動POST／refresh，手動重試只用原鍵／內容。AppShell在其他頁仍觀察authority，登出先同步清除journal；權限／指派ABA、卸載、跨範圍令舊callback失效。同一或更舊generation的個案指派移除建立privacy floor，舊props重掛不可復活資料；必須真正較新的授權來源才可恢復原操作。
+
+成功receipt只證明保存，不代表清單更新；只有同範圍、有效且包含確切原版本／事件、序號、狀態及時間的positive history proof才移除該鏈防重送標記。缺列、截斷、refresh完成不是證據。近期驗證只查本人／機構／分支／同session的真實已consumed事件，嚴格四欄證據、15分鐘及非未來；兩頁SSR只取得boolean，API簽署／更正含replay再次查證，不將模組證據假填全域context時間。
+
+邊界：32個待清單確認標記、有界讀取、完整重載無durable intent；未知鎖下獨立GET／MFA復原仍未製作，需取得新授權來源時明示聯絡主管，不以釋放unknown或舊props代替。合成Chrome／mock transport、portable與本機native測試均不是hosted真人登入、正式營運或全站WCAG證明。

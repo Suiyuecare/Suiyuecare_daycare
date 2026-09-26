@@ -20,8 +20,8 @@ import {
   databaseFailure,
   handleIntegrationRoute,
   readJsonObject,
-  requireRecentAal2,
 } from "@/lib/integrations/http";
+import { requireRecentSocialWorkAal2 } from "@/lib/social-work-records/reauth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -111,7 +111,7 @@ async function authorize(
       403,
     );
   }
-  if (permission === "social_work_records.sign") await requireRecentAal2(actor);
+  if (permission === "social_work_records.sign") await requireRecentSocialWorkAal2(actor);
   return actor;
 }
 
@@ -310,7 +310,7 @@ export async function PATCH(request: Request) {
         403,
       );
     }
-    if (signing) await requireRecentAal2(actor);
+    if (signing) await requireRecentSocialWorkAal2(actor);
 
     const result = ["track", "complete_follow_up", "cancel_follow_up"].includes(
       String(body.action),

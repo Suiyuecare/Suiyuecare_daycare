@@ -4,7 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { TenantContext } from "@/lib/domain/types";
 import { getNavigationGroups } from "@/lib/catalog";
-const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), pendingSocialWork: vi.fn(), observeSocialWork: vi.fn(), pendingPsychosocial: vi.fn(), observePsychosocial: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname, useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
 vi.mock("@/lib/service-management/claim-validation-pending", () => ({ clearClaimValidationPendingOnLogout: mocks.pendingClaims }));
@@ -20,6 +20,14 @@ vi.mock("@/lib/staff-announcements/pending", () => ({ clearStaffAnnouncementPend
 vi.mock("@/lib/referral-management/pending", () => ({ clearReferralPendingOnLogout: mocks.pendingReferrals,
   observeReferralAuthority: mocks.observeReferrals,
   referralAuthoritySignature: (context: TenantContext) => JSON.stringify([context.organizationId, context.branchId, context.userId,
+    context.demo, [...context.roles].sort(), [...context.scopes].sort(), context.assuranceLevel]) }));
+vi.mock("@/lib/social-work-records/pending", () => ({ clearSocialWorkPendingOnLogout: mocks.pendingSocialWork,
+  observeSocialWorkAuthority: mocks.observeSocialWork,
+  socialWorkAuthoritySignature: (context: TenantContext) => JSON.stringify([context.organizationId, context.branchId, context.userId,
+    context.demo, [...context.roles].sort(), [...context.scopes].sort(), context.assuranceLevel]) }));
+vi.mock("@/lib/psychosocial-assessments/pending", () => ({ clearPsychosocialAssessmentPendingOnLogout: mocks.pendingPsychosocial,
+  observePsychosocialAssessmentAuthority: mocks.observePsychosocial,
+  psychosocialAssessmentAuthoritySignature: (context: TenantContext) => JSON.stringify([context.organizationId, context.branchId, context.userId,
     context.demo, [...context.roles].sort(), [...context.scopes].sort(), context.assuranceLevel]) }));
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));
@@ -60,6 +68,8 @@ describe("staff shell logout privacy", () => {
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingClaims.mock.invocationCallOrder[0]);
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingAnnouncements.mock.invocationCallOrder[0]);
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingReferrals.mock.invocationCallOrder[0]);
+    expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingSocialWork.mock.invocationCallOrder[0]);
+    expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingPsychosocial.mock.invocationCallOrder[0]);
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("合成未保存編輯")).not.toBeInTheDocument();
   });
@@ -108,6 +118,8 @@ describe("staff shell logout privacy", () => {
     expect(mocks.pendingNursing).not.toHaveBeenCalled();
     expect(mocks.pendingAnnouncements).not.toHaveBeenCalled();
     expect(mocks.pendingReferrals).not.toHaveBeenCalled();
+    expect(mocks.pendingSocialWork).not.toHaveBeenCalled();
+    expect(mocks.pendingPsychosocial).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
@@ -126,6 +138,11 @@ describe("staff shell logout privacy", () => {
     expect(mocks.pendingNursing.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
     expect(mocks.pendingAnnouncements).toHaveBeenCalledOnce();
     expect(mocks.pendingReferrals).toHaveBeenCalledOnce();
+    for (const clearJournal of [mocks.pendingSocialWork, mocks.pendingPsychosocial]) {
+      expect(clearJournal).toHaveBeenCalledOnce();
+      expect(clearJournal.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
+      expect(clearJournal.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
+    }
     expect(mocks.pendingReferrals.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
     expect(mocks.pendingReferrals.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
     expect(mocks.pendingClaims.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
@@ -159,6 +176,10 @@ describe("staff shell logout privacy", () => {
     expect(mocks.pendingNursing.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
     expect(mocks.pendingAnnouncements).toHaveBeenCalledOnce();
     expect(mocks.pendingAnnouncements.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
+    for (const clearJournal of [mocks.pendingSocialWork, mocks.pendingPsychosocial]) {
+      expect(clearJournal).toHaveBeenCalledOnce();
+      expect(clearJournal.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
+    }
   });
   it("offers retry without restoring data when sign-out itself is uncertain", async () => {
     mocks.signOut.mockResolvedValue({ error: new Error("uncertain") });
@@ -197,5 +218,16 @@ describe("staff shell logout privacy", () => {
     shell.rerender(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
     expect(mocks.observeReferrals).toHaveBeenCalledTimes(3);
     expect(mocks.observeReferrals.mock.calls[2][0]).toBe(first);
+  });
+  it.each(["social work", "psychosocial"] as const)("observes %s authority ABA outside its page", (module) => {
+    const observe = module === "social work" ? mocks.observeSocialWork : mocks.observePsychosocial;
+    const shell = render(<AppShell context={actor} navigation={[]}><p>合成其他工作頁</p></AppShell>);
+    const first = observe.mock.calls[0][0];
+    shell.rerender(<AppShell context={{ ...actor, userId: "other-synthetic", roles: ["case_manager_social_worker"], scopes: ["clients.read", "social_work_records.read"] }} navigation={[]}><p>合成其他工作頁</p></AppShell>);
+    expect(observe).toHaveBeenCalledTimes(2);
+    expect(observe.mock.calls[1][0]).not.toBe(first);
+    shell.rerender(<AppShell context={actor} navigation={[]}><p>合成其他工作頁</p></AppShell>);
+    expect(observe).toHaveBeenCalledTimes(3);
+    expect(observe.mock.calls[2][0]).toBe(first);
   });
 });

@@ -1,141 +1,65 @@
 // @vitest-environment jsdom
-
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { buildDemoSocialWorkRecordSnapshot } from "@/lib/social-work-records/demo";
-
-import {
-  NewSocialWorkRecordForm,
-  SocialWorkRecordActions,
-  SocialWorkRecordFreshness,
-} from "./social-work-record-actions";
-
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-
-const demo = buildDemoSocialWorkRecordSnapshot();
-const formal = { ...demo, demo: false as const };
-
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
-
-function fillCreate() {
-  fireEvent.click(screen.getByText("新增服務草稿", { selector: "summary" }));
-  fireEvent.change(screen.getByLabelText("個案"), {
-    target: { value: formal.clientOptions[0]!.clientId },
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { pageCatalog } from "@/lib/catalog";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
+import { clearSocialWorkPendingOnLogout, getSocialWorkPending, parseSocialWorkInput } from "@/lib/social-work-records/pending";
+import { swFixture, swFresh, swNoFollowUp, swProvenSnapshot, swSuccess, swUuid } from "@/lib/social-work-records/pending-fixtures.test-helper";
+import { SocialWorkRecordsWorkspace } from "./social-work-records-workspace";
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+let serial = 0; let fixture: ReturnType<typeof swFixture>; let external: (() => void) | null = null;
+const page = pageCatalog.find((entry) => entry.number === 29)!;
+function props() { return { context: fixture.context, snapshot: fixture.snapshot, ...fixture.caps, page, filters: { dateFrom: null, dateTo: null, clientId: null, serviceType: null, authorUserId: null } }; }
+function clickAction(name: string) { fireEvent.click(screen.getAllByRole("button", { name })[0]!); }
+function dialog(name?: string) { return name ? screen.getByRole("dialog", { name }) : screen.getAllByRole("dialog").find((node) => node.hasAttribute("open"))!; }
+function fillCreate() { clickAction("新增服務草稿"); const surface = within(dialog("新增服務草稿")); fireEvent.change(surface.getByLabelText("個案"), { target: { value: fixture.snapshot.clientOptions[0]!.clientId } }); fireEvent.change(surface.getByLabelText("服務類型"), { target: { value: "合成家庭支持" } }); fireEvent.change(surface.getByLabelText("服務內容"), { target: { value: "合成服務內容" } }); fireEvent.change(surface.getByLabelText("服務結果"), { target: { value: "合成服務結果" } }); }
+function submitCreate() { fireEvent.click(within(dialog("新增服務草稿")).getByRole("button", { name: "新增服務草稿" })); }
+function submitSign() { clickAction("簽署紀錄"); fireEvent.click(within(dialog("簽署紀錄")).getByRole("button", { name: "簽署紀錄" })); }
+function deny(status = 403) { return new Response(JSON.stringify({ requestId: swUuid(21), status: "error", data: null, errors: [{ code: status === 403 ? "SOCIAL_WORK_NOT_AUTHORIZED" : "SOCIAL_WORK_VERSION_CONFLICT", message: "denied" }] }), { status }); }
+function success(init: RequestInit, replayed = false) { const input = parseSocialWorkInput(JSON.parse(String(init.body)), new Headers(init.headers).get("idempotency-key")!); return new Response(JSON.stringify(swSuccess(input, replayed)), { status: replayed ? 200 : 201 }); }
+function empty() { return { ...fixture.snapshot, records: [], recordTotal: 0, matchingTotal: 0, recordsTruncated: false, clientOptions: [], metrics: { currentMonth: 0, pendingFollowUp: 0, overdueFollowUp: 0, drafts: 0, signed: 0 } }; }
+beforeAll(() => { Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } }); Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } }); });
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(Date.parse("2026-09-26T04:00:00.000Z") + ++serial * 10_000)); clearSocialWorkPendingOnLogout(); fixture = swFixture(); });
+afterEach(() => { cleanup(); external?.(); external = null; clearSocialWorkPendingOnLogout(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+describe("single-owner social-work workspace recovery", () => {
+  it("demo remains visibly read-only with no POST", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} context={{ ...fixture.context, demo: true }} snapshot={{ ...fixture.snapshot, demo: true }} />); expect(screen.getByRole("button", { name: "新增服務草稿" })).toBeDisabled(); expect(fetch).not.toHaveBeenCalled(); });
+  it("one canonical create dialog validates inline, focuses first error and creates no key or POST", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const uuid = vi.spyOn(crypto, "randomUUID"); render(<SocialWorkRecordsWorkspace {...props()} />); clickAction("新增服務草稿"); submitCreate(); const client = within(dialog()).getByLabelText("個案"); expect(client).toHaveFocus(); expect(client).toHaveAttribute("aria-invalid", "true"); expect(client).toHaveAccessibleDescription("請選擇目前可服務的個案。"); expect(client.closest("form")).toHaveAttribute("novalidate"); expect(fetch).not.toHaveBeenCalled(); expect(uuid).not.toHaveBeenCalled(); });
+  it("sign requires explicit shared confirmation and does not autosend", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} />); clickAction("簽署紀錄"); expect(dialog("簽署紀錄")).toBeInTheDocument(); expect(within(dialog()).getByRole("button", { name: "取消" })).toHaveFocus(); expect(fetch).not.toHaveBeenCalled(); });
+  it("unknown disables edits and remount retains exact original body/key without an automatic POST", async () => { const fetch = vi.fn().mockRejectedValue(new TypeError("synthetic lost ACK")); vi.stubGlobal("fetch", fetch); const view = render(<SocialWorkRecordsWorkspace {...props()} />); fillCreate(); submitCreate(); await waitFor(() => expect(getSocialWorkPending().operation?.phase).toBe("unknown")); expect(within(dialog()).getByLabelText("服務結果")).toBeDisabled(); const first = fetch.mock.calls[0]![1]; view.unmount(); render(<SocialWorkRecordsWorkspace {...props()} />); expect(fetch).toHaveBeenCalledTimes(1); clickAction("以相同內容重試"); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2)); expect(fetch.mock.calls[1]![1].body).toBe(first.body); expect(new Headers(fetch.mock.calls[1]![1].headers).get("idempotency-key")).toBe(new Headers(first.headers).get("idempotency-key")); expect(refresh).not.toHaveBeenCalled(); });
+  it.each([403, 409])("lost ACK then %i retains same intent and prohibits fresh write", async (status) => { const fetch = vi.fn().mockRejectedValueOnce(new TypeError("lost ACK")).mockResolvedValue(deny(status)); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); await waitFor(() => expect(getSocialWorkPending().operation?.phase).toBe("unknown")); clickAction("重試同一社工操作"); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2)); await waitFor(() => expect(getSocialWorkPending().operation?.phase).toBe("unknown")); expect(fetch.mock.calls[0]![1].body).toBe(fetch.mock.calls[1]![1].body); expect(new Headers(fetch.mock.calls[0]![1].headers).get("idempotency-key")).toBe(new Headers(fetch.mock.calls[1]![1].headers).get("idempotency-key")); expect(screen.getByRole("button", { name: "新增服務草稿" })).toBeDisabled(); });
+  it("first strict denial releases own lock and preserves editable unsent content", async () => { vi.stubGlobal("fetch", vi.fn().mockResolvedValue(deny())); render(<SocialWorkRecordsWorkspace {...props()} />); fillCreate(); submitCreate(); await waitFor(() => expect(getSocialWorkPending().operation).toBeNull()); expect(within(dialog()).getByRole("alert")).toHaveTextContent("本次操作未保存"); expect(within(dialog()).getByLabelText("服務結果")).toHaveValue("合成服務結果"); expect(hasPendingOperations()).toBe(false); });
+  it("malformed 2xx and wrong chain cannot show saved status", async () => { vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 201 }))); render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); await waitFor(() => expect(getSocialWorkPending().operation?.phase).toBe("unknown")); expect(getSocialWorkPending().confirmed).toHaveLength(0); expect(screen.queryByText(/已保存/u)).not.toBeInTheDocument(); });
+  it("double submit creates only one original POST", async () => { const fetch = vi.fn().mockRejectedValue(new TypeError("lost ACK")); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} />); fillCreate(); const button = within(dialog()).getByRole("button", { name: "新增服務草稿" }); fireEvent.click(button); fireEvent.click(button); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1)); });
+  it("permission ABA discards unsent/editor and rejects a late old receipt", async () => { let finish!: (response: Response) => void; let captured!: RequestInit; const fetch = vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((resolve) => { finish = resolve; }); }); vi.stubGlobal("fetch", fetch); const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); rerender(<SocialWorkRecordsWorkspace {...props()} canSign={false} context={{ ...fixture.context, scopes: fixture.context.scopes.filter((scope) => scope !== "social_work_records.sign") }} />); rerender(<SocialWorkRecordsWorkspace {...props()} />); await act(async () => finish(success(captured))); expect(getSocialWorkPending().operation?.phase).toBe("unknown"); expect(getSocialWorkPending().confirmed).toHaveLength(0); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(refresh).not.toHaveBeenCalled(); });
+  it("assignment ABA hides original content and does not accept late response", async () => { let finish!: (response: Response) => void; let captured!: RequestInit; vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((resolve) => { finish = resolve; }); })); const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={empty()} />); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(screen.getByRole("region", { name: "社工操作回查" })).toHaveTextContent("原內容已隱藏"); rerender(<SocialWorkRecordsWorkspace {...props()} />); await act(async () => finish(success(captured))); expect(getSocialWorkPending().operation?.phase).toBe("unknown"); expect(getSocialWorkPending().confirmed).toHaveLength(0); });
+  it("actor/read ABA requires genuinely newer source, retained old snapshots stay redacted", () => { const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); rerender(<SocialWorkRecordsWorkspace {...props()} context={{ ...fixture.context, userId: swUuid(90) }} />); expect(screen.queryByText("日照個案甲")).not.toBeInTheDocument(); rerender(<SocialWorkRecordsWorkspace {...props()} />); expect(screen.queryByText("日照個案甲")).not.toBeInTheDocument(); vi.setSystemTime(Date.now() + 1000); rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={swFresh(fixture.snapshot)} />); expect(screen.getAllByText("日照個案甲").length).toBeGreaterThan(0); });
+  it("logout immediately redacts history/editor and old response cannot clear new work", async () => { let finish!: (response: Response) => void; let captured!: RequestInit; const fetch = vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((resolve) => { finish = resolve; }); }); vi.stubGlobal("fetch", fetch); const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); act(() => clearSocialWorkPendingOnLogout()); expect(screen.queryByText("日照個案甲")).not.toBeInTheDocument(); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); await act(async () => finish(success(captured))); expect(getSocialWorkPending().operation).toBeNull(); vi.setSystemTime(Date.now() + 1000); rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={swFresh(fixture.snapshot)} />); expect(screen.getByRole("button", { name: "新增服務草稿" })).not.toBeDisabled(); });
+  it("load failure keeps coordinator/journal but redacts clinical content and blocks refresh/retry", async () => { vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("lost ACK"))); const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); await waitFor(() => expect(getSocialWorkPending().operation?.phase).toBe("unknown")); rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={null} loadError />); expect(getSocialWorkPending().operation).not.toBeNull(); expect(screen.queryByText("日照個案甲")).not.toBeInTheDocument(); expect(screen.getByRole("button", { name: "重新載入" })).toBeDisabled(); expect(screen.getByRole("region", { name: "社工操作回查" })).toHaveTextContent("尚無原操作的獨立授權回查入口"); });
+  it("unknown close is view-only: leaves journal/lease and allows exact manual retry", async () => { const fetch = vi.fn().mockRejectedValue(new TypeError("lost ACK")); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); await waitFor(() => expect(getSocialWorkPending().operation?.phase).toBe("unknown")); clickAction("回待確認清單"); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(hasPendingOperations()).toBe(true); expect(screen.getByRole("button", { name: "以相同內容重試" })).not.toBeDisabled(); });
+  it("canonical discard, cancellation and active IME cannot prematurely save or discard", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} />); fillCreate(); const content = within(dialog()).getByLabelText("服務內容"); fireEvent.compositionStart(content); submitCreate(); fireEvent.click(within(dialog()).getByRole("button", { name: "取消" })); expect(dialog("新增服務草稿")).toBeInTheDocument(); expect(fetch).not.toHaveBeenCalled(); fireEvent.compositionEnd(content); fireEvent.click(within(dialog()).getByRole("button", { name: "取消" })); expect(dialog("放棄未保存的社工填寫？")).toBeInTheDocument(); expect(screen.queryByRole("dialog", { name: "新增服務草稿" })).not.toBeInTheDocument(); fireEvent.click(within(dialog()).getByRole("button", { name: "繼續填寫" })); expect(within(dialog("新增服務草稿")).getByLabelText("服務內容")).toHaveValue("合成服務內容"); });
+  it("external pending acquired before or after render prevents new keys/dialog/write and releasing restores", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); external = tryAcquirePendingOperation(); render(<SocialWorkRecordsWorkspace {...props()} />); expect(screen.getByRole("button", { name: "新增服務草稿" })).toBeDisabled(); act(() => { external!(); external = null; }); expect(screen.getByRole("button", { name: "新增服務草稿" })).not.toBeDisabled(); act(() => { external = tryAcquirePendingOperation(); }); clickAction("新增服務草稿"); expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(fetch).not.toHaveBeenCalled(); });
+  it("write-only capability loss retains authorized history and disables sign without inventing recency", () => { render(<SocialWorkRecordsWorkspace {...props()} canManage={false} hasRecentAal2={false} />); expect(screen.getAllByText("日照個案甲").length).toBeGreaterThan(0); expect(screen.getByRole("button", { name: "新增服務草稿" })).toBeDisabled(); expect(screen.getAllByRole("button", { name: "簽署紀錄" })[0]).toBeDisabled(); });
+  it("a sign-only capability does not falsely claim read-only or block authorized signing", () => { render(<SocialWorkRecordsWorkspace {...props()} canManage={false} context={{ ...fixture.context, scopes: fixture.context.scopes.filter((scope) => scope !== "social_work_records.manage") }} />); expect(screen.getByRole("button", { name: "新增服務草稿" })).toBeDisabled(); expect(screen.getAllByRole("button", { name: "簽署紀錄" })[0]).not.toBeDisabled(); expect(screen.getAllByRole("button", { name: "建立更正版" })[0]).not.toBeDisabled(); expect(screen.queryByText(/目前只有查看權限/u)).not.toBeInTheDocument(); expect(screen.queryByText(/均由 API 及資料庫拒絕/u)).not.toBeInTheDocument(); clickAction("簽署紀錄"); expect(dialog("簽署紀錄")).toBeInTheDocument(); });
+  it("fresh success leaves positive confirmation marker and does not auto-refresh or fake updated list", async () => { vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => Promise.resolve(success(init)))); render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); await waitFor(() => expect(getSocialWorkPending().confirmed).toHaveLength(1)); expect(screen.getByText("社工操作已保存，清單尚未確認更新。")).toBeInTheDocument(); expect(screen.queryByText("社工操作已保存，清單已確認更新。")).not.toBeInTheDocument(); expect(refresh).not.toHaveBeenCalled(); clickAction("重新載入清單"); await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1)); expect(getSocialWorkPending().confirmed).toHaveLength(1); });
+  it("manual GET refresh owns shared view lease until transition resolves", async () => { let finish!: () => void; refresh.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; })); vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => Promise.resolve(success(init)))); render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); await waitFor(() => expect(getSocialWorkPending().confirmed).toHaveLength(1)); clickAction("重新載入清單"); expect(hasViewTransition()).toBe(true); expect(screen.getByRole("button", { name: "新增服務草稿" })).toBeDisabled(); await act(async () => finish()); expect(hasViewTransition()).toBe(false); expect(getSocialWorkPending().confirmed).toHaveLength(1); });
+  it("unmount pending rejects late receipt without clearing original lock", async () => { let finish!: (response: Response) => void; let captured!: RequestInit; const fetch = vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((resolve) => { finish = resolve; }); }); vi.stubGlobal("fetch", fetch); const view = render(<SocialWorkRecordsWorkspace {...props()} />); submitSign(); view.unmount(); await act(async () => finish(success(captured))); expect(getSocialWorkPending().operation?.phase).toBe("unknown"); expect(getSocialWorkPending().confirmed).toHaveLength(0); render(<SocialWorkRecordsWorkspace {...props()} />); expect(fetch).toHaveBeenCalledTimes(1); expect(screen.getByRole("button", { name: "以相同內容重試" })).toBeInTheDocument(); });
+  it("source generation change cannot rebase a confirmation onto new props", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); clickAction("簽署紀錄"); vi.setSystemTime(Date.now() + 1000); rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={swFresh(fixture.snapshot)} />); fireEvent.click(within(dialog()).getByRole("button", { name: "簽署紀錄" })); expect(fetch).not.toHaveBeenCalled(); expect(within(dialog()).getByRole("alert")).toHaveTextContent("畫面版本"); });
+  it.each(["revise_draft", "correct", "track", "complete_follow_up", "cancel_follow_up"] as const)("%s sends an appended exact source and requires positive fresh proof", async (action) => {
+    if (action === "track") fixture.snapshot = swNoFollowUp(fixture.snapshot);
+    let input!: ReturnType<typeof parseSocialWorkInput>; let receipt!: ReturnType<typeof swSuccess>;
+    const fetch = vi.fn((_url, init: RequestInit) => { input = parseSocialWorkInput(JSON.parse(String(init.body)), new Headers(init.headers).get("idempotency-key")!); receipt = swSuccess(input); return Promise.resolve(new Response(JSON.stringify(receipt), { status: 201 })); }); vi.stubGlobal("fetch", fetch);
+    const labels = { revise_draft: "建立草稿新版", correct: "建立更正版", track: "建立追蹤", complete_follow_up: "完成追蹤", cancel_follow_up: "取消追蹤" }; const { rerender } = render(<SocialWorkRecordsWorkspace {...props()} />); clickAction(labels[action]); const surface = within(dialog());
+    if (action === "revise_draft" || action === "correct") fireEvent.change(surface.getByLabelText("服務結果"), { target: { value: "合成更新結果" } });
+    if (action === "correct") fireEvent.change(surface.getByLabelText("更正理由"), { target: { value: "合成更正理由" } });
+    if (action === "track") { fireEvent.change(surface.getByLabelText("追蹤期限"), { target: { value: "2026-10-01" } }); fireEvent.change(surface.getByLabelText("追蹤計畫"), { target: { value: "合成追蹤計畫" } }); }
+    if (action === "complete_follow_up") fireEvent.change(surface.getByLabelText("追蹤結果"), { target: { value: "合成追蹤結果" } });
+    if (action === "cancel_follow_up") fireEvent.change(surface.getByLabelText("取消理由"), { target: { value: "合成取消理由" } });
+    fireEvent.click(surface.getByRole("button", { name: labels[action] })); await waitFor(() => expect(getSocialWorkPending().confirmed).toHaveLength(1)); expect(fetch.mock.calls[0]![1].method).toBe("PATCH"); expect(input.action).toBe(action); expect(refresh).not.toHaveBeenCalled();
+    vi.setSystemTime(Date.now() + 1000); rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={swProvenSnapshot(fixture.snapshot, input, receipt)} />); await waitFor(() => expect(getSocialWorkPending().confirmed).toHaveLength(0)); expect(screen.getByText("社工操作已保存，清單已確認更新。")).toBeInTheDocument(); expect(screen.queryByText("社工操作已保存，清單尚未確認更新。")).not.toBeInTheDocument();
   });
-  fireEvent.change(screen.getByLabelText("服務類型"), {
-    target: { value: "家庭支持" },
-  });
-  fireEvent.change(screen.getByLabelText("服務內容"), {
-    target: { value: "合成服務內容" },
-  });
-  fireEvent.change(screen.getByLabelText("服務結果"), {
-    target: { value: "合成服務結果" },
-  });
-}
-
-function submitCreate() {
-  fireEvent.click(screen.getByRole("button", { name: "新增服務草稿" }));
-}
-
-function idempotencyHeader(call: unknown[]) {
-  const headers = (call[1] as RequestInit).headers as Record<string, string>;
-  return headers["idempotency-key"];
-}
-
-function successEnvelope(overrides: Record<string, unknown> = {}) {
-  return {
-    requestId: "29800000-0000-4000-8000-000000000099",
-    status: "ok",
-    data: {
-      receiptKind: "record",
-      action: "create_draft",
-      operationId: "29800000-0000-4000-8000-000000000001",
-      recordKey: "29700000-0000-4000-8000-000000000001",
-      versionId: "29710000-0000-4000-8000-000000000001",
-      recordVersion: 1,
-      recordState: "draft",
-      committedAt: "2026-09-02T01:15:00Z",
-      replayed: false,
-      persisted: true,
-      demo: false,
-      ...overrides,
-    },
-    errors: [],
-  };
-}
-
-describe("social-work record client write boundary", () => {
-  it("keeps the synthetic demo action visibly disabled", () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    render(<NewSocialWorkRecordForm canManage snapshot={demo} />);
-    expect(screen.getByRole("button", { name: /展示唯讀/u }))
-      .toHaveProperty("disabled", true);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("reuses the same idempotency key after an unknown network result", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<NewSocialWorkRecordForm canManage snapshot={formal} />);
-    fillCreate();
-    submitCreate();
-    await screen.findByText(/操作結果未知/u);
-    submitCreate();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(idempotencyHeader(fetchMock.mock.calls[1]!))
-      .toBe(idempotencyHeader(fetchMock.mock.calls[0]!));
-  });
-
-  it("rotates the idempotency key after editing uncertain content", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<NewSocialWorkRecordForm canManage snapshot={formal} />);
-    fillCreate();
-    submitCreate();
-    await screen.findByText(/操作結果未知/u);
-    fireEvent.change(screen.getByLabelText("服務結果"), {
-      target: { value: "修改後的合成結果" },
-    });
-    submitCreate();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(idempotencyHeader(fetchMock.mock.calls[1]!))
-      .not.toBe(idempotencyHeader(fetchMock.mock.calls[0]!));
-  });
-
-  it("does not accept a forged 2xx receipt as success", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
-      JSON.stringify(successEnvelope({ recordVersion: 2 })),
-      { status: 201, headers: { "Content-Type": "application/json" } },
-    )));
-    render(<NewSocialWorkRecordForm canManage snapshot={formal} />);
-    fillCreate();
-    submitCreate();
-    await screen.findByText(/操作結果未知/u);
-    expect(screen.queryByText(/已確認完成/u)).toBeNull();
-  });
-
-  it("disables signing until a recent AAL2 reauthentication exists", () => {
-    const draft = formal.records.find((record) => record.recordState === "draft")!;
-    render(<SocialWorkRecordActions canManage canSign hasRecentAal2={false}
-      record={draft} snapshot={formal} />);
-    fireEvent.click(screen.getByText("簽署紀錄", { selector: "summary" }));
-    expect(screen.getByRole("button", { name: "簽署紀錄" }))
-      .toHaveProperty("disabled", true);
-    expect(screen.getByRole("alert").textContent).toMatch(/最近 15 分鐘/u);
-  });
-
-  it("announces staleness and resets for a newer snapshot boundary", async () => {
-    const { rerender } = render(<SocialWorkRecordFreshness demo={false}
-      staleAfter={new Date(Date.now() - 1_000).toISOString()} />);
-    await screen.findByRole("status");
-    rerender(<SocialWorkRecordFreshness demo={false}
-      staleAfter={new Date(Date.now() + 60_000).toISOString()} />);
-    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
-    expect(screen.getByText("資料為目前快照")).toBeDefined();
-  });
+  it("invalid correction/track/complete/cancel required text focuses the field without a POST", () => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); render(<SocialWorkRecordsWorkspace {...props()} />); clickAction("取消追蹤"); fireEvent.click(within(dialog()).getByRole("button", { name: "取消追蹤" })); expect(within(dialog()).getByLabelText("取消理由")).toHaveFocus(); expect(fetch).not.toHaveBeenCalled(); });
+  it("fresh accepted generation prevents remount from rendering retained older props", () => { const first = render(<SocialWorkRecordsWorkspace {...props()} />); vi.setSystemTime(Date.now() + 1000); const newer = swFresh(fixture.snapshot); first.rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={newer} />); first.unmount(); render(<SocialWorkRecordsWorkspace {...props()} />); expect(screen.queryByText("日照個案甲")).not.toBeInTheDocument(); expect(screen.getByRole("heading", { name: "社工服務紀錄暫時無法載入" })).toBeInTheDocument(); });
+  it("same-generation assignment loss stays redacted after old-source restore/remount until fresh source", () => { const first = render(<SocialWorkRecordsWorkspace {...props()} />); first.rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={empty()} />); first.rerender(<SocialWorkRecordsWorkspace {...props()} />); first.unmount(); const next = render(<SocialWorkRecordsWorkspace {...props()} />); expect(screen.queryByText("日照個案甲")).not.toBeInTheDocument(); vi.setSystemTime(Date.now() + 1000); next.rerender(<SocialWorkRecordsWorkspace {...props()} snapshot={swFresh(fixture.snapshot)} />); expect(screen.getAllByText("日照個案甲").length).toBeGreaterThan(0); });
 });

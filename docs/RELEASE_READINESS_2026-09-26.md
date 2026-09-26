@@ -10,8 +10,8 @@
 
 負責人可先看較短的 [正式部署剩餘工作與驗收](FORMAL_DEPLOYMENT_CHECKLIST_2026-09-26.md)。第二輪已修正人工觀察未保存確認、共用分支確認、ADL／IADL不適用狀態與理由，以及量表16px輸入；仍未發布，不能替代完整官方表單、真人規則核准、hosted登入／Finance／備份或營運驗收。
 
-- **資料庫：** 本機候選為 138 份 migration；本次新鮮唯讀核對 hosted 仍為 130 份，最新為 `20260925141114_governed_questionnaire_drafts`。八份增量尚未套用。現有 Supabase 專案為 ACTIVE_HEALTHY，區域仍是 Seoul（`ap-northeast-2`），不是既定的 Tokyo（`ap-northeast-1`）。
-- **發布連線：** Vercel 指定專案 `prj_eiwNI6buPlPXynMCWhatuzqxD74H`／團隊 `entrepreneur-9585s-projects` 的本次實際查詢回 403，團隊清單為空；現有連線沒有該團隊範圍授權，不代表專案不存在。無法核對 production branch、預覽保護與當前方案，因此未盲目推送分支或發布。沒有使用先前曝光的 Token。
+- **資料庫：** 本機候選目前143份migration；最後一次2026-09-26T13:56:32Z唯讀hosted證據為130份、最新`20260925141114_governed_questionnaire_drafts`。13份候選增量未套用，不能把較早查詢稱當前live狀態。該次Supabase為ACTIVE_HEALTHY、Seoul（`ap-northeast-2`），不是原規劃Tokyo。
+- **發布連線：** 後續團隊清單已成功取得`entrepreneur-9585s-projects`，不再是空清單；該team專案清單只回另一HR專案，指定日照部署清單實際403。專案詳情另有idOrName工具轉接錯誤，不證明專案不存在。尚未核對日照production branch／預覽保護與方案，沒有盲目push／發布，也未使用曝光Token。
 - **店務摘要：** 本機候選已新增每 55 秒、前景／有連線／非展示／沒有其他作業鎖時的只讀 GET 刷新；無新來源最多兩次重試，再轉人工。只依實際來源時間判定新鮮度，不把刷新呼叫當作讀取完成。尚未部署，且正式 Finance gateway、同店映射及真實金額對帳仍未通過；不得稱為兩套正式系統已即時相通。
 - **前台安全：** 申報驗證與人工身體觀察已在本機候選補上跨元件保留原操作、未知結果原鍵重試、共用操作鎖、範圍遮蔽、遲到回覆及舊清單防重複保護。這不是全部 89 頁／官方表單功能完成，亦不是員工真實登入、正式簽署或 hosted 資料寫入已通過。
 
