@@ -24,8 +24,8 @@
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|
 | Select/Listbox | 原生 select＋`.control` | DESIGN.md | native；平台 popup 可接受 | 元件鍵盤＋窄版瀏覽器 |
-| Date | 治理：格式提示 text input；店務／身體／公告：native date／month／datetime-local | API 七鍵契約／period schema／body parser／announcement date | typed YYYY-MM-DD；native 具名例外 | 閏日／順序／first-error／原生鍵盤與手機 |
-| Form | `governance-dialog.tsx`＋各流程的嚴格 client 契約 | API＋本契約 | review／retirement／claim validation／body signature／announcements | validation、unknown retry |
+| Date | 治理：格式提示 text input；店務／身體／公告／護理／轉介：native date／month／datetime-local | API 七鍵契約／period schema／body parser／announcement date／referral parser | typed YYYY-MM-DD；native 具名例外 | 閏日／順序／first-error／原生鍵盤與手機 |
+| Form | `governance-dialog.tsx`＋各流程的嚴格 client 契約 | API＋本契約 | review／retirement／claim validation／body signature／announcements／nursing／referrals | validation、unknown retry |
 | Scrollbar | `src/app/globals.css` | DESIGN.md | 穩定 gutter | computed style＋forced-colors |
 | Toast | 共用 dialog 的持續 inline status／alert | 本契約 | success／error | live region test |
 | CRUD | `questionnaire-rule-workspace.tsx` | Domain contract | stay-inline／cursor load-more | state／full-flow tests |
@@ -143,5 +143,17 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 護理簽署的context時間只使用目前機構／分支／本人、實際同session一次性挑戰取得的四欄唯讀證據；缺少、過期、錯範圍或未來時間維持null。API每次簽署再次查證，不以context快取授權。只新增已核准護理員的範圍化MFA取得路徑，既有CEO／表單治理與通用近期驗證規則不變；一般頁面的登入與權限不因本次擴大。
 
 既有 custom form 工作區是 sibling 比較來源，frame、按鈕、field 與 error vocabulary 延用；旧 native confirm 與 bubble 差異不本次全域洗版。審核與退休 UI 檢查為 scoped 候選，真人核准、hosted HTTP 與正式量表簽署仍是上線門檻。
+
+### 轉介原操作（頁39）
+
+權威來源為`referral-management/parser.ts`、`projection.ts`、`pending.ts`、`api/referrals/route.ts`與原轉介RPC；2026-09-26核對。只修復前台原操作與共享編輯器，不放寬伺服器近期AAL2或既有CEO-only資料庫邊界。實際核准社工登入不代表轉介RPC已開通，另列為正式阻擋；站內queued也不表示外部送達，接收單位目錄／附件／匯出／provider仍未配置。
+
+同一workspace擁有建立、狀態轉換、更正、確認及回查，桌機與手機入口不得各保有獨立操作鍵。首次寫入固定actor／機構／分支、完整原body、key、來源事件及sequence；未知結果、已知拒絕在未知之後、重新掛載均保留原筆。只有第一次有嚴格未提交證據的拒絕才釋放本lease。AppShell在其他頁追蹤authority並在登出同步清除本journal；切換範圍／撤權及ABA使舊callback失效，舊actor的snapshot不得作重新授權證據。
+
+新增作業須有效60秒資料來源與實際server can*旗標／指定個案；context不偽造generic近期MFA時間。已經未知的原筆回查不單因原snapshot超過60秒便永久封鎖，仍以目前範圍、scope、server旗標與個案核對，再由原API重新授權；不可修改原body或換鍵。完整重載沒有durable intent、32個正向清單待確認標記及scope恢復的唯讀定位仍須後續驗收。
+
+成功回條只標保存，不把router.refresh視為清單更新；需同機構／分支、個案、轉介鏈、原確定event／sequence／state及時間的正向history證據才解除原鏈防重送。缺列或較新但沒有原事件的資料不是證據；部分清單內確切包含該原事件可作正向證據，不能由截斷清單的缺列推論完成。
+
+GovernanceDialog／useUnsavedChanges維持同一模態與捨棄owner；只有未送出內容可明確捨棄，未知操作不可捨棄而重建。沿用native select／datetime-local台北時間具名例外、noValidate／inline欄位錯誤及first-error focus、IME不誤送出、16px文字、44px控制及不可拖曳textarea。此次只調整頁39內容區，不改Finance frame。合成Chrome／API假回條、61項domain覆核不等於真人社工、hosted RPC／外部投遞、所有頁面或完整人工WCAG驗收。
 
 必要證據：source lint/typecheck/Vitest/build、嚴格 premium scoped audit、desktop／390px 瀏覽器、鍵盤／模態取消與焦點回復、loading／empty／error／offline／conflict／unknown retries、跨scope壞回執不顯示。靜態報告不能代替真人驗收。

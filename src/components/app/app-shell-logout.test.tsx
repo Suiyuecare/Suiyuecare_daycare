@@ -4,7 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { TenantContext } from "@/lib/domain/types";
 import { getNavigationGroups } from "@/lib/catalog";
-const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname, useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
 vi.mock("@/lib/service-management/claim-validation-pending", () => ({ clearClaimValidationPendingOnLogout: mocks.pendingClaims }));
@@ -17,6 +17,10 @@ vi.mock("@/lib/staff-announcements/pending", () => ({ clearStaffAnnouncementPend
   observeStaffAnnouncementAuthority: mocks.observeAnnouncements,
   staffAnnouncementAuthoritySignature: (context: TenantContext) => JSON.stringify([context.organizationId, context.branchId, context.userId,
     context.demo, [...context.roles].sort(), [...context.scopes].sort(), context.assuranceLevel, context.recentAal2At]) }));
+vi.mock("@/lib/referral-management/pending", () => ({ clearReferralPendingOnLogout: mocks.pendingReferrals,
+  observeReferralAuthority: mocks.observeReferrals,
+  referralAuthoritySignature: (context: TenantContext) => JSON.stringify([context.organizationId, context.branchId, context.userId,
+    context.demo, [...context.roles].sort(), [...context.scopes].sort(), context.assuranceLevel]) }));
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));
 vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
@@ -55,6 +59,7 @@ describe("staff shell logout privacy", () => {
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingNursing.mock.invocationCallOrder[0]);
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingClaims.mock.invocationCallOrder[0]);
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingAnnouncements.mock.invocationCallOrder[0]);
+    expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingReferrals.mock.invocationCallOrder[0]);
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("合成未保存編輯")).not.toBeInTheDocument();
   });
@@ -102,6 +107,7 @@ describe("staff shell logout privacy", () => {
     expect(mocks.pendingBody).not.toHaveBeenCalled();
     expect(mocks.pendingNursing).not.toHaveBeenCalled();
     expect(mocks.pendingAnnouncements).not.toHaveBeenCalled();
+    expect(mocks.pendingReferrals).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
@@ -119,6 +125,9 @@ describe("staff shell logout privacy", () => {
     expect(mocks.pendingNursing.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
     expect(mocks.pendingNursing.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
     expect(mocks.pendingAnnouncements).toHaveBeenCalledOnce();
+    expect(mocks.pendingReferrals).toHaveBeenCalledOnce();
+    expect(mocks.pendingReferrals.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
+    expect(mocks.pendingReferrals.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
     expect(mocks.pendingClaims.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
     expect(mocks.pendingClaims.mock.invocationCallOrder[0]).toBeLessThan(mocks.signOut.mock.invocationCallOrder[0]);
     expect(mocks.pendingBody.mock.invocationCallOrder[0]).toBeLessThan(mocks.clear.mock.invocationCallOrder[0]);
@@ -178,5 +187,15 @@ describe("staff shell logout privacy", () => {
     shell.rerender(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
     expect(mocks.observeNursing).toHaveBeenCalledTimes(3);
     expect(mocks.observeNursing.mock.calls[2][0]).toBe(first);
+  });
+  it("observes referral authority and its ABA return while another route is mounted", () => {
+    const shell = render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
+    const first = mocks.observeReferrals.mock.calls[0][0];
+    shell.rerender(<AppShell context={{ ...actor, roles: ["case_manager_social_worker"], scopes: ["clients.read", "referral_management.read"] }} navigation={[]}><p>合成工作頁</p></AppShell>);
+    expect(mocks.observeReferrals).toHaveBeenCalledTimes(2);
+    expect(mocks.observeReferrals.mock.calls[1][0]).not.toBe(first);
+    shell.rerender(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
+    expect(mocks.observeReferrals).toHaveBeenCalledTimes(3);
+    expect(mocks.observeReferrals.mock.calls[2][0]).toBe(first);
   });
 });

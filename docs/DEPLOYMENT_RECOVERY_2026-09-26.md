@@ -133,3 +133,27 @@ Supabase唯讀重新確認：`mmxqxsokpcdvuzmdhptg` 為 ACTIVE_HEALTHY、首爾 
 頁51加入同分頁原鍵／原内容重試、共享確認與未保存保護、讀取鎖、scope／actor／指派ABA遮蔽、登出同步清除及晚回覆拒絕。保存回條不假稱清單更新。手機16px輸入／44px操作／first-error focus與IME；實測修正局部對比，不更改Finance frame。`manual-nursing-v1`仍是人工文字紀錄，不冒稱官方量表已完成。最終範圍與原始證據見[護理部署候選驗證](NURSING_WRITE_READINESS_2026-09-26.md)。
 
 本輪另以正式資料庫唯讀系統catalog核對185項無policy INFO：private138表、public47表，anon／authenticated均無直接SELECT／INSERT／UPDATE／DELETE授權。這排除了該185表的直接表授權問題，不代表每個security-definer RPC安全或可用；仍需逐項驗收。保留密碼保護WARN，不稱零安全警告。個人範圍Vercel列專案另被connector管理政策拒絕缺少必填teamId；沒有假造團隊或繞過政策。指定日照403仍是正式部署授權缺口。
+
+### 護理切片凍結與公告演示載入
+
+護理修正保存於本機提交`3bc9bdb`：全量500檔／6757項通過，162.37秒、無跳過；精確Finance候選跨repo契約已納入。141份migration的portable為131套／6118斷言（93 legacy／38 enforced），native為12／12套，護理最終63斷言＋8組實際backend等待；lint、型別、隔離production build、diff-check及護理strict scoped audit均通過。早期6756加1項跳過、55項SQL、主動停止的portable日誌均不作最後證據。
+
+逐頁檢查發現公告演示loader先套用正式read scope，但既有demo context只有合成scope，導致頁68錯誤。提交`40ccd98`只准`context.demo`進入原合成builder；保留filter／release驗證、正式無權限拒絕及API展示寫入拒絕。focused loader／API28項通過；其後本機安全demo的89／89路由通過。Chrome實際公告頁可見合成清單，建立／發布／撤回／已讀仍停用，沒有JS錯誤。
+
+Chrome另開實際Next頁51（不是單元fixture）：390px有正確標題與合成內容、無overlay／JS錯誤／水平溢位，合成寫入按鈕停用。這只證明demo SSR載入／hydration，不能取代真人Auth、正式HTTP或量表簽署。正式build在沒有Auth時轉登入是預期保護，沒有為路由smoke在production打開DEMO_MODE。後續轉介UI修改須重新驗證89路由及全量回歸。
+
+## 轉介原操作、手動只讀回查與最後凍結
+
+頁39六個寫入動作移到workspace層共用journal；首次原來源／內容／鍵不因逾時、4xx、編輯或元件重掛而更換。共用未保存確認、IME防誤送出、16px／44px操作；AppShell在離開頁39後仍觀察權限，登出同步清除原操作與鎖。全域不含個資的generation watermark與privacy floor另修正「取得新資料後重掛舊props又顯示舊個案」的漏洞。
+
+新增`GET /api/referrals/snapshot`只用原授權與稽核snapshot RPC；nonce／actor／scope／篩選嚴格綁定，no-store、拒絕redirect，不傳寫入鍵、不重播POST或釋放原未知鎖。GET失敗在編輯器關閉時也顯示；晚到GET不越過帳號、權限、指派、範圍及卸載界線。MFA政策及通用CEO-only入口沒有放寬。
+
+Chrome真正Next頁39重現Node與瀏覽器的日期分隔U+2009／ASCII差異造成hydration failure；改以formatToParts明確組成固定年月日時分，390px新session再次載入無overlay／JS錯誤／溢位。最終demo89／89入口通過。這不是全部89頁可工作，也不是正式登入證據。
+
+最終全量Vitest **505檔／6963項全部通過，215.70秒，無跳過**；Finance跨repo精確候選納入，lint零警告、型別、隔離production build、diff-check與轉介strict scoped audit通過。獨立9檔231項通過。SQL未變更，141份／portable6118／native12套沿用上一護理切片最後證據的範圍。
+
+實際Chrome手機lost ACK→403→重掛→分支ABA→拒絕GET→合法GET→手動成功僅3POST／1鍵／1份內容，2GET不自動寫入；正向同鏈事件才解除舊清單防護，登出與舊資料再掛仍隱藏。桌機composition事件0POST；手動GET期間鎖住重試，卸載後晚GET不假成功，重掛仍保留unknown。axe僅開啟表單範圍：手機15、桌機12規則通過且0違反／0 incomplete，不擴稱全站人工WCAG。詳細來源及未完成邊界見[轉介候選驗證](REFERRAL_WRITE_READINESS_2026-09-26.md)，證據前綴`referral-`。
+
+另以未覆寫授權函式的原生PG17.11、141份migration、真正合成Auth/session/AMR實驗確認：已核准非CEO社工登入eligible=true，但轉介snapshot仍42501；合法CEO對照可讀，停用／過期／session撤銷拒絕，0events／operations／outbox及0外部連線。該後端開通為待修P0，不能用上述UI與mock API測試假稱真社工可工作；頁28／29安全復原也仍待補。
+
+此次仍無GitHub push、公開預覽、Vercel發布、hosted DDL、區域遷移或新增費用。指定Vercel授權、區域決定、官方量表／申報、CMS封存掃毒、Finance真同店、家屬及持續營運門檻均未因局部回歸通過而解除。

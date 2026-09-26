@@ -106,6 +106,8 @@ pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後
 
 護理工作區採具名無障礙例外：提示卡文字使用既有`--ink`，主要操作使用既有`--brand-strong`配白字。Chrome／axe實測原橘色小字與白字按鈕對比不足；僅調整頁51內容區，不更改Finance header／sidebar token、幾何或品牌配色基線。
 
+頁39轉介沿用既有panel／metric／desktop table／mobile cards與Finance AppShell；所有桌機／手機操作只打開同一workspace-owned GovernanceDialog。16px輸入、44px操作、不可拖曳textarea、共用field／status與原生datetime-local台北時間具名例外，不自造日期popup或第二套frame。原事件／送達限制留在可展開歷程與管理说明；一般操作顯示短提示、原筆回查及明確可做的下一步。展示資料與尚未配置的外部送達不隱藏成假成功。
+
 - 送審成功不是正式評估已完成；已採用也不等於臨床簽署能力已開放。
 - 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
 - 不把別的分支、展示資料或資料庫服務密鑰拿來補載入失敗。

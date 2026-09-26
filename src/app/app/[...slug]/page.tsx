@@ -3432,7 +3432,7 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
-    return <ReferralManagementWorkspace filters={filters}
+    return <ReferralManagementWorkspace context={context} filters={filters}
       loadError={loadError} page={page} snapshot={snapshot} />;
   }
 

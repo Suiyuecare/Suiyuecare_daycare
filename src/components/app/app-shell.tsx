@@ -34,6 +34,7 @@ import { clearClaimValidationPendingOnLogout } from "@/lib/service-management/cl
 import { clearBodyAssessmentPendingOnLogout } from "@/lib/body-assessments/pending";
 import { clearNursingAssessmentPendingOnLogout, nursingAssessmentAuthoritySignature, observeNursingAssessmentAuthority } from "@/lib/nursing-assessments/pending";
 import { clearStaffAnnouncementPendingOnLogout, observeStaffAnnouncementAuthority, staffAnnouncementAuthoritySignature } from "@/lib/staff-announcements/pending";
+import { clearReferralPendingOnLogout, observeReferralAuthority, referralAuthoritySignature } from "@/lib/referral-management/pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -104,6 +105,7 @@ export function AppShell({
     : activePage?.title ?? appBranding.applicationName;
   const announcementAuthority = staffAnnouncementAuthoritySignature(context);
   const nursingAuthority = nursingAssessmentAuthoritySignature(context);
+  const referralAuthority = referralAuthoritySignature(context);
 
   // Track authority outside the announcement route too: an unmounted editor
   // must not accept an old reply after permissions change and later return.
@@ -113,6 +115,9 @@ export function AppShell({
   useLayoutEffect(() => {
     observeNursingAssessmentAuthority(nursingAuthority);
   }, [nursingAuthority]);
+  useLayoutEffect(() => {
+    observeReferralAuthority(referralAuthority);
+  }, [referralAuthority]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -215,6 +220,7 @@ export function AppShell({
     clearBodyAssessmentPendingOnLogout();
     clearNursingAssessmentPendingOnLogout();
     clearStaffAnnouncementPendingOnLogout();
+    clearReferralPendingOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();

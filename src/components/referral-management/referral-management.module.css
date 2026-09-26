@@ -12,8 +12,8 @@
 .filters, .editor form { background: #fff; border: 1px solid var(--line); border-radius: .9rem; display: grid; gap: .8rem; padding: 1rem; }
 .filters { align-items: end; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .filters label, .formGrid label, .actionEditor label { color: var(--ink); display: grid; font-size: .9rem; gap: .35rem; }
-.filters input, .filters select, .formGrid input, .formGrid select, .formGrid textarea, .actionEditor select, .actionEditor textarea { background: #fff; border: 1px solid var(--line); border-radius: .55rem; color: var(--ink); font-size: 1rem; min-height: 44px; padding: .65rem .7rem; width: 100%; }
-.filters textarea, .formGrid textarea, .actionEditor textarea { min-height: 6.5rem; resize: vertical; }
+.filters input, .filters select, .formGrid input, .formGrid select, .formGrid textarea, .actionEditor select, .actionEditor textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-size: 1rem; min-height: 44px; padding: .65rem .7rem; width: 100%; }
+.filters textarea, .formGrid textarea, .actionEditor textarea { min-height: 6.5rem; resize: none; }
 .wide { grid-column: span 2; }
 .editor { background: var(--surface-soft); border: 1px solid var(--line); border-radius: .9rem; }
 .editor > summary { color: var(--brand-strong); cursor: pointer; font-weight: 750; min-height: 44px; padding: .9rem 1rem; }
@@ -34,6 +34,9 @@
 .overdue { background: #ffede8; color: #963c27; }
 .actions { display: grid; gap: .6rem; margin-top: .65rem; }
 .actionEditor { background: var(--surface-soft); border: 1px solid var(--line); border-radius: .7rem; }
+.actionEditor .formGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.actionEditor .formGrid .wide { grid-column: 1 / -1; }
+.editor > button { margin: .8rem; }
 .actionEditor > summary { color: var(--brand-strong); cursor: pointer; font-weight: 700; min-height: 44px; padding: .7rem; }
 .actionEditor form { display: grid; gap: .6rem; padding: 0 .7rem .7rem; }
 .history { border-top: 1px solid var(--line); margin-top: .8rem; padding-top: .4rem; }
@@ -59,7 +62,7 @@
   .snapshotMeta { align-items: flex-start; text-align: left; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics article { min-height: 6.5rem; }
-  .filters, .formGrid { grid-template-columns: 1fr; }
+  .filters, .formGrid, .actionEditor .formGrid { grid-template-columns: 1fr; }
   .wide { grid-column: auto; }
   .tableWrap { display: none; }
   .cards { display: grid; gap: .8rem; }

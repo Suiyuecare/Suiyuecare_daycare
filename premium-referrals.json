@@ -1,0 +1,17 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Select/Listbox", "Form", "Scrollbar", "Toast", "CRUD"],
+  "sourceRoots": ["src/components/referral-management", "src/components/ui"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/referral-management src/lib/referral-management src/components/app/app-shell-logout.test.tsx",
+    "build": "pnpm build"
+  },
+  "evidence": {
+    "crudFullFlow": "src/components/referral-management/referral-management.test.tsx",
+    "failurePaths": "src/lib/referral-management/pending.test.ts"
+  }
+}
