@@ -19,6 +19,7 @@ const suites = [
   "test-questionnaire-rule-governance-native.mjs",
   "test-staff-announcements-native.mjs",
   "test-claim-operation-receipts-native.mjs",
+  "test-nursing-assessments-native.mjs",
 ];
 for (const suite of suites) {
   console.log(`Native gate: ${suite}`);

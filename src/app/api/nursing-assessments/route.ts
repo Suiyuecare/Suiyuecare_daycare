@@ -1,6 +1,7 @@
 import { ok } from "@/lib/api/response";
 import { IntegrationError } from "@/lib/integrations/errors";
-import { authorizeStaffRequest, handleIntegrationRoute, readJsonObject, requireRecentAal2 } from "@/lib/integrations/http";
+import { authorizeStaffRequest, handleIntegrationRoute, readJsonObject } from "@/lib/integrations/http";
+import { requireRecentNursingAal2 } from "@/lib/nursing-assessments/reauth";
 import { parseNursingReceipt, parseNursingRequest } from "@/lib/nursing-assessments/parser";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -21,7 +22,7 @@ async function mutate(request: Request, create: boolean) {
       !actor.scopes.includes("nursing_assessments.read") || !actor.scopes.includes(permission)) {
       throw new IntegrationError("NURSING_NOT_AUTHORIZED", "目前護理身分與權限不允許這項操作。", 403);
     }
-    if (signing) await requireRecentAal2(actor);
+    if (signing) await requireRecentNursingAal2(actor);
     const input = parseNursingRequest(await readJsonObject(request, 128 * 1024), request.headers.get("idempotency-key"));
     if (input.request.action !== operation) throw new IntegrationError("INVALID_NURSING_ASSESSMENT", "操作標頭與內容不一致。", 400);
     const supabase = await createServerSupabaseClient();

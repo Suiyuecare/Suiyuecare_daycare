@@ -9,6 +9,7 @@ import type { RoleKey, TenantContext } from "@/lib/domain/types";
 import { demoBranding } from "@/lib/config/branding";
 import { isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getNursingRecentAal2At } from "@/lib/nursing-assessments/reauth";
 
 type MembershipRecord = {
   organization_id: string;
@@ -147,7 +148,7 @@ export const getTenantContext = cache(
       return null;
     }
 
-    return {
+    const context: TenantContext = {
       organizationId: membership.organization_id,
       organizationName: organization.name,
       branchId: branch.id,
@@ -161,6 +162,10 @@ export const getTenantContext = cache(
       recentAal2At: null,
       demo: false,
     };
+    // Populate only a database-verified nursing timestamp. No global admission
+    // or high-risk permission is expanded and missing evidence stays null.
+    if (audience === "staff") context.recentAal2At = await getNursingRecentAal2At(context, db);
+    return context;
   },
 );
 

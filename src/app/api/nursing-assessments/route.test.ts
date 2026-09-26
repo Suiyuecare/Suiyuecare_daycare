@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDemoNursingAssessmentSnapshot } from "@/lib/nursing-assessments/demo";
 const stubs = vi.hoisted(() => ({ actor: vi.fn(), reauth: vi.fn(), client: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/integrations/http", () => ({
-  authorizeStaffRequest: stubs.actor, requireRecentAal2: stubs.reauth,
+  authorizeStaffRequest: stubs.actor,
   readJsonObject: async (request: Request) => request.json(),
   handleIntegrationRoute: async (operation: (id: string) => Promise<Response>) => {
     try { return await operation("51000000-0000-4000-8000-000000000099"); }
@@ -10,6 +10,7 @@ vi.mock("@/lib/integrations/http", () => ({
       return Response.json({ code: e.code }, { status: e.httpStatus ?? 500 }); }
   },
 }));
+vi.mock("@/lib/nursing-assessments/reauth", () => ({ requireRecentNursingAal2: stubs.reauth }));
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: stubs.client }));
 import { POST, PATCH } from "./route";
 const id = "51000000-0000-4000-8000-000000000001";

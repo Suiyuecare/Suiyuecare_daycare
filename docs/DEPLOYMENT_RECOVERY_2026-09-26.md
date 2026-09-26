@@ -115,3 +115,21 @@ R1只標保存查證，不拿它假稱最新清單已更新；舊來源防護及
 R1焦點／token最後凍結後全量Vitest **497檔／6,662項，180.09秒，全通過無略過**；ESLint、TypeScript、隔離production build及公告／共享UI premium strict通過。140份migration的portable **130套／6,055項**（93 legacy／37 enforced）及native **11／11套**通過；公告68項原套件、54項新receipt套件、3個真正backend撤權／資料變動探測均有原始證據。Chrome手機390×844無水平溢位，原查證成功焦點回具名section但不搶別的link；not_found／錯nonce／403／權限ABA晚回覆不假成功。同一成功原鍵5個手動GET／5個nonce只查證不重寫，未知操作仍原key／body人工POST重試。詳見[公告R1凍結驗證](ANNOUNCEMENT_WRITE_READINESS_2026-09-26.md)；未做本頁axe或人工WCAG、不證明hosted登入／RLS／通知／RSC或災難復原。
 
 原始證據前綴`announcement-receipt-`在同一私有驗證目錄；正式登入、hosted RPC、通知、全89頁及所有[正式上線門檻](PRODUCTION_GATES.md)未因本機切片通過解除。仍未GitHub push、公開預覽或Vercel promotion，無雲端DDL及新增費用。
+
+## 護理安全切片開始前：新的唯讀雲端核對
+
+前述團隊空清單／連線403是歷史狀態，不沿用為本輪權限證據。現在團隊清單成功取得 `entrepreneur-9585s-projects`；其專案清單只回 `suiyuecare-hr2`，不能當作日照專案。指定日照 `prj_eiwNI6buPlPXynMCWhatuzqxD74H` 的部署清單實際回403，故仍無可確認的日照部署、production branch或預覽保護。專案詳情工具的兩次不同參數嘗試均被 `idOrName` 轉接驗證錯誤拒絕，停止該機制，不將工具錯誤說成專案不存在／授權拒絕。
+
+Supabase唯讀重新確認：`mmxqxsokpcdvuzmdhptg` 為 ACTIVE_HEALTHY、首爾 `ap-northeast-2`、PostgreSQL 17.6.1.166；migration130份，最新 `20260925141114_governed_questionnaire_drafts`。本機140份的10份增量沒有套用。沒有變更區域、方案、Auth、RLS或雲端DDL。
+
+本輪正式專案security advisor成功執行，2026-09-26T11:28:18.760Z記錄185項INFO `rls_enabled_no_policy`、1項WARN `auth_leaked_password_protection` 未啟用；沒有把它稱為安全顧問零警告。無policy資料表可能是RPC-only fail-closed設計，尚須逐項核對ACL／RPC，不能直接稱185項漏洞；密碼保護與Google-only政策也需实际Auth設定證據。這是正式專案當前唯讀發現，不是本機140份schema的advisor報告，亦不取代ASVS／滲透測試。
+
+本輪不使用曝光Token、不讀取憑證檔、不呼叫他系統發布，也不新增費用。日照部署授權與區域／營運門檻仍須解決；有用的本機臨床工作流程修正繼續執行。
+
+## 護理員實際開通與原操作安全修正
+
+新增CLI增量`20260926113847_nursing_approved_staff_admission.sql`，本機141份、正式130份的11份差異尚未套用。真正合成Google／session／AMR核准護理員在原基線仍被CEO-only護理入口拒絕；本機修正其限定機構、分支、護理角色、指派與MFA取得／簽署路徑。未放寬通用權限或驗證；伺服器使用護理專用四欄唯讀證據的原驗證時間。獨立覆核另抓出未生效主管角色提前提供view_all的漏洞，已在護理專用權限修正生效時間；有效主管合法唯讀保留。
+
+頁51加入同分頁原鍵／原内容重試、共享確認與未保存保護、讀取鎖、scope／actor／指派ABA遮蔽、登出同步清除及晚回覆拒絕。保存回條不假稱清單更新。手機16px輸入／44px操作／first-error focus與IME；實測修正局部對比，不更改Finance frame。`manual-nursing-v1`仍是人工文字紀錄，不冒稱官方量表已完成。最終範圍與原始證據見[護理部署候選驗證](NURSING_WRITE_READINESS_2026-09-26.md)。
+
+本輪另以正式資料庫唯讀系統catalog核對185項無policy INFO：private138表、public47表，anon／authenticated均無直接SELECT／INSERT／UPDATE／DELETE授權。這排除了該185表的直接表授權問題，不代表每個security-definer RPC安全或可用；仍需逐項驗收。保留密碼保護WARN，不稱零安全警告。個人範圍Vercel列專案另被connector管理政策拒絕缺少必填teamId；沒有假造團隊或繞過政策。指定日照403仍是正式部署授權缺口。

@@ -128,6 +128,20 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 ## Migration and verification
 
+### 人工護理評估（頁51）
+
+權威來源為`nursing-assessments/parser.ts`、`pending.ts`、`api/nursing-assessments/route.ts`及既有護理RPC；2026-09-26核對。保持manual-nursing-v1非標準化文字紀錄、缺值／不適用理由與人工複評安排；不是正式官方量表，計分、附件、匯出、通知與離線服務仍未配置。新增incremental員工開通修正僅對齊已核准且固定機構的員工登入，不放寬護理職務、個案指派、讀寫scope、AAL2或近期簽署要求。
+
+單一workspace是選個案、歷史、文字編輯、簽署確認與回查owner。GovernanceDialog擁有簽署／更正與未保存捨棄確認；useUnsavedChanges擁有導覽語意，pending-navigation-guard只保護已送出未知操作。native select／date為具名平台例外；noValidate、欄位標籤、inline錯誤與first-error focus、中文IME不誤送出、16px輸入及44px控制。新成功／錯誤採持續inline status，不新增toast queue。
+
+`pending.ts`在同一分頁記憶體固定機構、分支、actor、原鍵、完整body及原來源版本／內容。create_draft、revise_draft、sign、correct都共享無資料lease但各自journal不清除其他owner。卸載／重新掛載不自動POST；未知後的403／409不能證明前次未保存，也不能換鍵／修改body。AppShell在工作區外觀察authority epoch；帳號、機構、分支、讀寫權限／AAL、指派ABA及卸載／登出使晚到回覆無效。讀取授權失效即遮蔽歷史及原臨床內容；只有管理權限失效不隱藏仍授權的唯讀歷史。
+
+第一個有結構化拒絕證據、且未曾未知的未提交操作可釋放本lease；未知寫入保留原操作等待明確手動原鍵重試。簽署回條額外核對原草稿內容，不把不同簽署hash誤當作前版hash。成功回條只標保存確認，不是清單更新；完整、有效、同範圍、正向同鏈結果版或較新版快照才能解除原個案防重送。缺列、截斷、過期、router.refresh完成均不是證據。
+
+登出同步清除本journal及舊editor，不能阻擋安全登出。無browser storage/history／離線佇列，完整重載不承諾恢復；32個待清單確認標記與100個案／50版本有界讀取仍須後續分頁／唯讀定位驗收。這些限制與真正hosted Auth、SQL、50位員工HTTP及人工WCAG完整驗收不得用合成Chromefixture代替。
+
+護理簽署的context時間只使用目前機構／分支／本人、實際同session一次性挑戰取得的四欄唯讀證據；缺少、過期、錯範圍或未來時間維持null。API每次簽署再次查證，不以context快取授權。只新增已核准護理員的範圍化MFA取得路徑，既有CEO／表單治理與通用近期驗證規則不變；一般頁面的登入與權限不因本次擴大。
+
 既有 custom form 工作區是 sibling 比較來源，frame、按鈕、field 與 error vocabulary 延用；旧 native confirm 與 bubble 差異不本次全域洗版。審核與退休 UI 檢查為 scoped 候選，真人核准、hosted HTTP 與正式量表簽署仍是上線門檻。
 
 必要證據：source lint/typecheck/Vitest/build、嚴格 premium scoped audit、desktop／390px 瀏覽器、鍵盤／模態取消與焦點回復、loading／empty／error／offline／conflict／unknown retries、跨scope壞回執不顯示。靜態報告不能代替真人驗收。

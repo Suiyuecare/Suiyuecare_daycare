@@ -102,6 +102,10 @@ pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後
 
 本機假API與scoped audit不代表hosted資料寫入、歷史已讀回查、所有89頁或人工WCAG完整驗收；部署限制仍見正式門檻。
 
+頁51人工護理評估遷移至同一GovernanceDialog與useUnsavedChanges：簽署／更正明確確認，未送出輸入離開前確認，未知操作集中在工作區回查區段。日期是沿用既有native date的具名人工護理例外，接受作業系統popup；以正式schema驗證西元日期與複評順序，不宣稱calendar與Finance像素相同。表單採16px輸入、至少44px控制、不可拖曳textarea、noValidate與first-error focus；不另造header/sidebar或模態owner。回查成功後原入口停用時回到護理owner指定區段，不落到BODY。manual-nursing-v1仍為人工文字紀錄，不因版型與安全修正變成官方量表、正式分數或附件服務。
+
+護理工作區採具名無障礙例外：提示卡文字使用既有`--ink`，主要操作使用既有`--brand-strong`配白字。Chrome／axe實測原橘色小字與白字按鈕對比不足；僅調整頁51內容區，不更改Finance header／sidebar token、幾何或品牌配色基線。
+
 - 送審成功不是正式評估已完成；已採用也不等於臨床簽署能力已開放。
 - 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
 - 不把別的分支、展示資料或資料庫服務密鑰拿來補載入失敗。

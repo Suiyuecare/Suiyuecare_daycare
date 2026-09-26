@@ -667,6 +667,7 @@ import { BodyAssessmentsWorkspace } from "@/components/body-assessments/body-ass
 import { parseBodyAssessmentFilters } from "@/lib/body-assessments/query";
 import { BodyAssessmentSnapshotError, loadBodyAssessmentSnapshot } from "@/lib/body-assessments/snapshot";
 import { NursingAssessmentsWorkspace } from "@/components/nursing-assessments/nursing-assessments-workspace";
+import { getNursingRecentAal2At } from "@/lib/nursing-assessments/reauth";
 import { loadNursingAssessmentSnapshot } from "@/lib/nursing-assessments/snapshot";
 import {
   FeedbackComplaintSnapshotError,
@@ -4041,9 +4042,9 @@ export default async function StaffCatalogPage({
     let loadError = false;
     try { snapshot = await loadNursingAssessmentSnapshot(context); }
     catch { loadError = true; }
-    const recentAal2 = !context.demo && await hasRecentAal2();
+    const recentAal2 = !context.demo && (await getNursingRecentAal2At(context)) !== null;
     const authorizedNurse = !context.demo && context.roles.includes("nurse");
-    return <NursingAssessmentsWorkspace snapshot={snapshot} loadError={loadError}
+    return <NursingAssessmentsWorkspace context={context} snapshot={snapshot} loadError={loadError}
       initialClientId={selectedClientId}
       actorUserId={context.userId} hasRecentAal2={recentAal2}
       canManage={authorizedNurse && context.scopes.includes("nursing_assessments.manage")}
