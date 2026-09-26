@@ -9,15 +9,18 @@ import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { hasPendingOperations, hasViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
-import { beginNursingAssessment, getNursingAssessmentPending, getNursingAssessmentSnapshotAdmission, isConfirmedNursingAssessmentRejection,
+import { beginNursingAssessment, beginNursingAssessmentReceiptCheck, cancelNursingAssessmentReceiptCheck,
+  getNursingAssessmentPending, getNursingAssessmentSnapshotAdmission, isConfirmedNursingAssessmentRejection, isNursingAssessmentReceiptCheckCurrent,
   nursingAssessmentAuthoritySignature, nursingAssessmentScopeIdentity, observeNursingAssessmentAuthority,
   observeNursingAssessmentSnapshot, quarantineNursingAssessmentSnapshot,
-  reconcileNursingAssessmentConfirmed, retryNursingAssessment, settleNursingAssessment, tryAcquireNursingAssessmentRecoveryRead, useNursingAssessmentPending,
+  reconcileNursingAssessmentConfirmed, retryNursingAssessment, settleNursingAssessment, settleNursingAssessmentReceiptCheck,
+  tryAcquireNursingAssessmentRecoveryRead, useNursingAssessmentPending,
   type NursingAssessmentOperation, type NursingAssessmentTarget } from "@/lib/nursing-assessments/pending";
 import { NURSING_DOMAIN_LABELS, type NursingAssessmentSnapshot, type NursingContent,
   type NursingDomainKey, type NursingRequest, type NursingVersion } from "@/lib/nursing-assessments/types";
 import styles from "./nursing-assessments.module.css";
 import { readNursingSnapshot, NursingSnapshotReadError } from "@/lib/nursing-assessments/snapshot-client";
+import { readNursingOperationReceipt, NursingOperationReceiptReadError } from "@/lib/nursing-assessments/operation-receipt-client";
 
 const keys = Object.keys(NURSING_DOMAIN_LABELS) as NursingDomainKey[];
 const stateLabels = { recorded: "已記錄", missing: "缺值／尚未取得", not_applicable: "不適用" };
@@ -108,8 +111,10 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
   const live = useRef({ context, snapshot, canManage, canSign, hasRecentAal2, identity, fingerprint, suppliedSnapshot, loadError });
   const composition = useRef(false); const form = useRef<HTMLFormElement | null>(null);
   const recovery = useRef<HTMLElement | null>(null); const trigger = useRef<HTMLElement | null>(null);
+  const receiptFocus = useRef<{ identity: string; privacyEpoch: number; from: Element | null } | null>(null);
   const readAttempt = useRef<{ token: symbol; abort: AbortController; release: () => void } | null>(null);
   const [reading, setReading] = useState(false);
+  const [readPurpose, setReadPurpose] = useState<"snapshot" | "receipt">("snapshot");
   const [clientId, setClientId] = useState(() => initialClientId ?? suppliedSnapshot?.clients[0]?.clientId ?? "");
   const [versionId, setVersionId] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -156,13 +161,22 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
   const selected = client?.versions.find((version) => version.versionId === versionId) ?? latest;
   const previous = client?.versions.find((version) => version.versionId === selected?.previousVersionId);
   const ownOperation = journal.operation?.identity === identity ? journal.operation : null;
-  const recoverable = ownOperation && snapshot && clock < Date.parse(snapshot.staleAfter) && snapshot.clients.some((item) => item.clientId === ownOperation.input.request.clientId) && permitted(context, ownOperation.input.request.action, canManage, canSign, hasRecentAal2, clock);
+  const readRecoverable = ownOperation && readable && snapshot && !snapshot.demo && clock < Date.parse(snapshot.staleAfter) &&
+    snapshot.clients.some((item) => item.clientId === ownOperation.input.request.clientId);
+  const recoverable = readRecoverable && permitted(context, ownOperation!.input.request.action, canManage, canSign, hasRecentAal2, clock);
   const pending = journal.operation; const busy = pending?.phase === "sending";
   const visibleEditor = editor?.fingerprint === fingerprint && editor.privacyEpoch === journal.privacyEpoch ? editor : null;
   const mode = visibleEditor?.mode ?? null;
   const stale = !snapshot || clock >= Date.parse(snapshot.staleAfter);
   const confirmed = journal.confirmed.filter((entry) => entry.identity === identity);
   const unavailable = !snapshot || snapshot.demo || stale || offline || !!pending || pendingWork || changingView || reading || confirmed.length >= 32 || confirmed.some((entry) => entry.clientId === client?.clientId);
+  useLayoutEffect(() => {
+    const focus = receiptFocus.current;
+    if (!focus || journal.operation) return;
+    receiptFocus.current = null;
+    if (focus.identity === identity && focus.privacyEpoch === journal.privacyEpoch && readable &&
+      (document.activeElement === document.body || document.activeElement === focus.from)) recovery.current?.focus();
+  }, [journal.operation, journal.privacyEpoch, identity, readable, saved]);
   const existing = latest && client ? { clientId: client.clientId, assessmentKey: latest.assessmentKey,
     previousVersionId: latest.versionId, expectedVersion: latest.version, expectedContentHash: latest.contentHash } : null;
 
@@ -262,7 +276,7 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
       state.capabilityEpoch === before.capabilityEpoch && state.operation === before.operation && state.authoritySignature === authority; };
     readAttempt.current = { token, abort, release: lease };
     if (!current()) { readAttempt.current = null; abort.abort(); lease(); return; }
-    setReading(true); setReadBinding(authorityBinding); setReadError(""); setReadStatus("");
+    setReading(true); setReadPurpose("snapshot"); setReadBinding(authorityBinding); setReadError(""); setReadStatus("");
     try {
       const bundle = await readNursingSnapshot(scope, abort.signal); if (!current()) return;
       if (bundle.authoritySignature !== authority) throw new NursingSnapshotReadError(200, "INVALID_RESPONSE");
@@ -286,20 +300,60 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
       if (readAttempt.current?.token === token) { readAttempt.current = null; lease(); if (lifecycle.current.mounted) setReading(false); }
     }
   }
+  async function checkOriginalReceipt() {
+    if (context.demo || !readable || hasViewTransition() || readAttempt.current || !navigator.onLine || composition.current) return;
+    const check = beginNursingAssessmentReceiptCheck(scope, false); if (!check) return;
+    const abort = new AbortController(), epoch = lifecycle.current.epoch, capturedFingerprint = live.current.fingerprint;
+    const from = document.activeElement;
+    const releaseCheck = () => { cancelNursingAssessmentReceiptCheck(check); };
+    const current = () => !abort.signal.aborted && lifecycle.current.mounted && lifecycle.current.epoch === epoch &&
+      readAttempt.current?.token === check.token && live.current.fingerprint === capturedFingerprint &&
+      live.current.suppliedSnapshot === suppliedSnapshot && live.current.loadError === loadError &&
+      live.current.identity === check.identity && isNursingAssessmentReceiptCheckCurrent(check);
+    readAttempt.current = { token: check.token, abort, release: releaseCheck };
+    if (!current()) { readAttempt.current = null; abort.abort(); releaseCheck(); return; }
+    setReading(true); setReadPurpose("receipt"); setReadBinding(authorityBinding); setReadError(""); setReadStatus("");
+    try {
+      const proof = await readNursingOperationReceipt(scope, { key: check.operation.input.idempotencyKey,
+        request: check.operation.input.request, nonce: check.nonce }, abort.signal);
+      if (!current()) return;
+      const result = settleNursingAssessmentReceiptCheck(check, proof);
+      if (result === "confirmed") {
+        receiptFocus.current = { identity: check.identity, privacyEpoch: check.privacyEpoch, from };
+        setEditor(null); setConfirmation(null); setErrors({}); setSaved({ identity: check.identity, privacyEpoch: check.privacyEpoch });
+        setReadStatus("已查證原紀錄保存成功；清單仍待核對，沒有再次送出。");
+      } else if (result === "not_found") {
+        setReadStatus("尚未取得原紀錄保存證明；原操作保持待確認，請稍後再查。沒有再次送出。");
+      } else if (result === "unavailable") {
+        quarantineNursingAssessmentSnapshot(scope, false); setReadOverride(null);
+        setReadError("原紀錄證明未通過核對，舊內容已隱藏；請更新授權資料後再查證。");
+      }
+    } catch (caught) {
+      if (!current()) return;
+      const transportOnly = caught instanceof NursingOperationReceiptReadError && caught.status === null && caught.code === "UNAVAILABLE";
+      if (!transportOnly) { quarantineNursingAssessmentSnapshot(scope, false); setReadOverride(null); }
+      setReadError(transportOnly ? "目前連線未完成，原操作仍待確認；請保留內容後再查證。" : "尚未取得授權的原紀錄證明，舊內容已隱藏；請更新授權資料後再查證。");
+    } finally {
+      releaseCheck();
+      if (readAttempt.current?.token === check.token) { readAttempt.current = null; if (lifecycle.current.mounted) setReading(false); }
+    }
+  }
   function refresh() { if (!hasPendingOperations() && !hasViewTransition() && !reading) guard.requestExit(() => { void performRead(); }); }
   const visibleConfirmation = confirmation?.fingerprint === fingerprint && confirmation.privacyEpoch === journal.privacyEpoch ? confirmation : null;
   return <div className={styles.workspace}>
     <section aria-label="護理操作回查" ref={recovery} tabIndex={-1} data-governance-focus-anchor>
       {ownOperation?.phase === "unknown" && readable && !context.demo && <button className="button button--secondary" disabled={reading || offline || changingView} aria-busy={reading} onClick={() => { if (!composition.current) void performRead(); }}>更新授權資料（不重送）</button>}
-      {reading && <p role="status">正在更新授權資料，原操作不會再次送出。</p>}
-      {readBinding === authorityBinding && readError && <p className={styles.error} role="alert">{readError}</p>}
-      {readBinding === authorityBinding && readStatus && <p role="status">{readStatus}</p>}
+      {ownOperation?.phase === "unknown" && readRecoverable && !visibleConfirmation && <button className="button button--secondary" disabled={reading || offline || changingView} aria-busy={reading} onClick={() => { void checkOriginalReceipt(); }}>查證原紀錄（不重送）</button>}
+      {reading && !visibleConfirmation && <p role="status">{readPurpose === "receipt" ? "正在查證原紀錄，原操作不會再次送出。" : "正在更新授權資料，原操作不會再次送出。"}</p>}
+      {readBinding === authorityBinding && readError && !visibleConfirmation && <p className={styles.error} role="alert">{readError}</p>}
+      {readBinding === authorityBinding && readStatus && !visibleConfirmation && <p role="status">{readStatus}</p>}
       {pending && !ownOperation && <p role="status">另一個資料範圍有未確認操作。請回到原範圍回查；此處不顯示操作內容。</p>}
-      {ownOperation && !recoverable && <p role="status">上次操作尚未確認。目前授權或個案指派已變更，內容已隱藏；恢復原授權後才能回查。</p>}
-      {ownOperation && recoverable && <div className={styles.notice}><p role="status">{busy ? "護理操作確認中，請勿重複送出。" : "上次操作尚未確認，請勿建立另一筆。重試保留原內容與識別碼。"}</p>
+      {ownOperation && !readRecoverable && <p role="status">上次操作尚未確認。目前授權資料或個案指派需重新核對，內容已隱藏；取得新授權資料後才能回查。</p>}
+      {ownOperation && readRecoverable && <div className={styles.notice}><p role="status">{busy ? "護理操作確認中，請勿重複送出。" : "上次操作尚未確認，請勿建立另一筆。可先查證保存結果；重試仍保留原內容與識別碼。"}</p>
         <details><summary>查看原操作內容（唯讀）</summary>{"content" in ownOperation.input.request ? <NursingContentView content={ownOperation.input.request.content}/> : ownOperation.target ? <NursingContentView content={ownOperation.target.content}/> : null}
           {ownOperation.input.request.action === "correct" && <p>更正理由：{ownOperation.input.request.correctionReason}</p>}</details>
-        <button className="button button--primary" disabled={busy || offline || changingView} onClick={retry}>{busy ? "確認中…" : "以相同內容重試"}</button></div>}
+        {!recoverable && <p role="status">目前只能查證或查看原操作；重新送出仍須有效的寫入權限與簽署驗證。</p>}
+        <button className="button button--primary" disabled={!recoverable || busy || offline || changingView || reading} onClick={retry}>{busy ? "確認中…" : "以相同內容重試"}</button></div>}
       {confirmed.length > 0 && <div className={styles.notice}><p role="status">護理操作已保存，清單尚未確認更新；請先更新清單核對。</p><button className="button button--secondary" disabled={!!pending || changingView} onClick={refresh}>重新載入清單</button></div>}
       {saved?.identity === identity && saved.privacyEpoch === journal.privacyEpoch && confirmed.length === 0 && <p className={styles.status} role="status">護理操作已保存，清單已確認更新。</p>}
       {(journal.navigationBlocked || guard.notice) && <p role="status">{guard.notice || "請先回查未確認操作，再離開此頁。"}</p>}
@@ -364,8 +418,12 @@ export function NursingAssessmentsWorkspace({ context, snapshot: suppliedSnapsho
       {visibleConfirmation && <><NursingContentView content={"content" in visibleConfirmation.request ? visibleConfirmation.request.content : visibleConfirmation.target.content}/>
         {visibleConfirmation.request.action === "correct" && <p>更正理由：{visibleConfirmation.request.correctionReason}</p>}</>}
       {error && <p role="alert">{error}</p>}
+      {visibleConfirmation && readBinding === authorityBinding && readError && <p className={styles.error} role="alert">{readError}</p>}
+      {visibleConfirmation && readBinding === authorityBinding && readStatus && <p role="status">{readStatus}</p>}
       {ownOperation?.phase === "unknown" && <><p role="alert">上次操作尚未確認；請以相同內容重試。</p><button className="button button--secondary" type="button" onClick={() => { if (!composition.current) setConfirmation(null); }}>回待確認清單</button>
-        <button className="button button--primary" type="button" disabled={!recoverable || offline || changingView} onClick={retry}>重試同一護理操作</button></>}
+        {readRecoverable && <button className="button button--secondary" type="button" disabled={reading || offline || changingView} aria-busy={reading} onClick={() => { void checkOriginalReceipt(); }}>查證原紀錄（不重送）</button>}
+        {reading && <p role="status">正在查證原紀錄，原操作不會再次送出。</p>}
+        <button className="button button--primary" type="button" disabled={!recoverable || offline || changingView || reading} onClick={retry}>重試同一護理操作</button></>}
       <button className="button button--primary" type="button" disabled={!!pending || pendingWork || changingView} onClick={() => { if (composition.current || !visibleConfirmation || hasPendingOperations() || hasViewTransition() || visibleConfirmation.epoch !== lifecycle.current.epoch) return; begin(visibleConfirmation.request, visibleConfirmation.sourceAt, visibleConfirmation.target); }}>{visibleConfirmation?.request.action === "correct" ? "確認更正並簽署" : "確認簽署"}</button>
     </GovernanceDialog>
     <GovernanceDialog open={guard.open} title="放棄未保存的護理編輯？" cancelLabel="繼續編輯" onRequestClose={() => { if (!composition.current) guard.cancel(); }} returnFocusRef={guard.returnFocusRef} fallbackFocusRef={recovery}>

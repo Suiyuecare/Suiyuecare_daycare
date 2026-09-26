@@ -224,3 +224,17 @@ GET不取得MFA、不重建已改變的canonical context，也未解決fullreloa
 - 明確清空外部配置、關閉demo的真Next正式版本機啟動：護理GET503／SERVICE_NOT_CONFIGURED、data=null、private/no-store；Chrome登入正常且未配置Google按鈕停用。不是hosted401／403或真人登入證據。
 
 原始證據前綴`nursing-recovery-`及子目錄`nursing-browser/`保存於既有私有verification目錄。SQL仍143份，本輪未重跑舊14套native，沒有hosted新查詢、DDL、GitHub push、Vercel公開預覽／promotion、正式個資操作、區域移轉或新增費用。頁28／29／39／51手動授權GET本機均已補；真正MFA／context恢復、精確原操作保存查證、完整重載intent、安全分頁及所有[正式上線門檻](PRODUCTION_GATES.md)仍需完成。
+
+## 頁51本人原操作保存查證（2026-09-27，後續候選）
+
+新增獨立、手動、唯讀receipt GET及第144份增量migration：目前原actor／機構／分支／個案讀取權限，四種action、原鍵／完整body／不可變版本鏈及hash都必須匹配。資料庫取原歷史證據、不重播；browser以actual admission物件、nonce與epochs／發起來源再次核對。查不到或原交易未提交保留unknown及原鍵內容；只有committed正向证据確認保存，仍不稱清單已更新。過期原簽署證據可由合法原本人回查，但不能用來簽新紀錄或繞過過期重播拒絕。跨session TimeZone維持原receipt／hash與同一時刻驗證，沒有改寫歷史紀錄。
+
+新增原生runner已接入完整15套與shared cleanup contract。修正runner原錯誤須在catch保留並throw、finally完成owned cleanup的偏差，沒有弱化source測試。完整程式回歸另發現既有ABCD測試只等待DOM保存文字便立即斷言parent passive callbacks；獨立核對runtime同一成功分支及新子元件初值後，只改test等待全部既有callbacks條件，保持3fetch、dirty false、busy true／false及原timeout。portable首次指出兩份舊社工测试期待舊错误文字；只更新精確字串，保留42501、same-session近期簽署證據與全正負斷言，沒有改Auth／runtime／歷史migration。
+
+本輪原生15套、護理55項SQL及實際交易等待已通過；真Chrome十場景、desktop1440／mobile390的原key/body、0額外寫入、read fence、撤權／卸載／換源／ABA、16分鐘後歷史簽署唯讀查證及focus均通過。無水平溢位、輸入16px、可見控制至少44px、console/pageErrors空；此輪未跑axe，不稱全WCAG。首跑量到closed dialog隱藏副本0×0的verifier誤判保留，只修證據查詢而非runtime。所有結果及最新完整回歸表見[護理候選驗證](NURSING_WRITE_READINESS_2026-09-26.md)。
+
+最終凍結來源完整Vitest **533檔／7,913項全部通過，250.47秒，無略過**；最新focused23檔／629項、lint零warning、TypeScript、101靜態輸出production build及diff-check通過。完整portable **144份migration／134套／6,321項通過，退出0**（93套legacy、41套enforced，不能替代原生／hosted）；既有專案scope與護理scope strict各0 findings、正式相依套件已知advisory0。全部首次失敗保留為診斷，不冒稱完整UI／真人／雲端／全89頁通過。
+
+真Next production未配置、關閉demo的兩GET實際503／SERVICE_NOT_CONFIGURED、data=null、private/no-store；新隔離Chrome desktop／390px登入卡正常、Google按鈕正確停用、沒有外部資源／Auth請求、overlay或JS錯誤。這不是正式401／403、Google登入或PostgREST驗收。所有owned browser／server已停止，保留build與證據。
+
+最新唯讀雲端核對：2026-09-26T17:28:24Z指定Vercel專案部署仍403；2026-09-26T17:30:06Z Supabase仍首爾ACTIVE_HEALTHY／17.6.1.166／130migrations，相對本機144份有14份候選未套用。沒有push、預覽、DDL、費用或區域變動；不以本機通過跳過原核准區域、真員工、CMS、量表、Finance、申報、家屬與持續營運門檻。READ COMMITTED的最終授權重查非權限列持鎖至COMMIT；完整重載intent、有界分頁、真正MFA／context復原及其他模組精確receipt仍未完成。

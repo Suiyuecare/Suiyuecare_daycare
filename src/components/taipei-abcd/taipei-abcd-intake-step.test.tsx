@@ -57,8 +57,12 @@ describe("Taipei intake draft UI", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
     fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "讀回合成個案" } }); expect(onDirty).toHaveBeenLastCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" })); await screen.findByText(/已保存 A 表草稿第 1 版/);
-    expect(fetchMock).toHaveBeenCalledTimes(3); expect(onDirty).toHaveBeenLastCalledWith(false);
-    expect(onBusy).toHaveBeenCalledWith(true); expect(onBusy).toHaveBeenLastCalledWith(false);
+    // A saved DOM message may precede the parent-facing passive effects.
+    // Keep every required callback value and the original waitFor timeout.
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3); expect(onDirty).toHaveBeenLastCalledWith(false);
+      expect(onBusy).toHaveBeenCalledWith(true); expect(onBusy).toHaveBeenLastCalledWith(false);
+    });
   });
   it("starts C on the parent-supplied Taipei current month without hydration clock guessing", () => {
     render(<TaipeiAbcdIntakeStep {...ids} demo today="2026-09-14" />); fireEvent.click(screen.getByRole("button", { name: "C 表 · 當月執行" }));

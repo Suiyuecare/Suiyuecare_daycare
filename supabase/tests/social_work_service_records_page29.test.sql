@@ -382,7 +382,7 @@ select throws_ok($$select * from public.sign_social_work_service_record(
   (select record_key from social_work_record_revise_result),
   (select version_id from social_work_record_revise_result), 2,
   '29900000-0000-4000-8000-000000000013')$$,
-  '42501', 'current same-session recent AAL2 evidence is required for social-work signing',
+  '42501', 'current same-session recent social-work AAL2 evidence is required',
   'AAL2 JWT without a recent same-session challenge cannot sign'
 );
 

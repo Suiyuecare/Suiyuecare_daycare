@@ -142,7 +142,9 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 GET及body讀取共有20秒上限，可取消；回覆不自動POST、取得MFA、刷新RSC、解除unknown或宣稱原筆已保存。純連線失敗保留尚可合法查看的舊資料並提示不是最新；授權拒絕、壞回覆及同generation指派撤銷遮蔽舊內容並提升來源floor。較新的授權GET可恢復原筆回查，仍只能由使用者明確重試原body／key，伺服器再核對冪等。floor及已接受時間在重新掛載、撤權還原、登出後不退步；舊props不能復活資料。讀取嘗試與override亦綁定發起時的伺服器props來源／loadError；新來源到達即取消舊GET，新權限縮減不能被保留的override遮住。來源generation更新但個案範圍未變不自行丟棄編輯；保存仍須核對編輯發起時的實際版本，不能靜默重定基準。
 
-這個GET只恢復已授權資料，不提供原操作精確receipt查證、真正重新驗證取得或scope改變後context重建；完整重載與分頁限制仍是正式門檻。
+snapshot GET只恢復已授權資料，不提供原操作保存證據。後續独立`/api/nursing-assessments/receipt`與「查證原紀錄（不重送）」只讀目前本人原鍵；GET不POST／重播／取得MFA，20秒包含body、有自己的可取消read fence，不釋放原unknown lease。完整原body、scope／actor／action／key／nonce及actual admission物件、權限／privacy／capability epoch／發起server props均須匹配。只有完整committed receipt將unknown轉為保存確認，清單仍待正向核對；not_found保留unknown，不能當作失敗或重建依據。授權／壞回覆隔離內容，純傳輸錯誤不偽裝未保存。現有合法讀取可查原過期簽署證據，但不能因此新簽或重播。查證成功入口移除時回到具名回查區段；使用者已移焦到其他控制則不搶焦點。
+
+兩種GET都不提供真正重新驗證取得或scope改變後context重建；完整重載與分頁限制仍是正式門檻。資料庫歷史查證保留原receipt與hash，跨session TimeZone只接受原raw時間與資料列同一時刻；最終權限重查不是直到COMMIT的完整序列化。READ COMMITTED合成native證據不替代hosted HTTP或真人簽署驗收。
 
 登出同步清除本journal及舊editor，不能阻擋安全登出。無browser storage/history／離線佇列，完整重載不承諾恢復；32個待清單確認標記與100個案／50版本有界讀取仍須後續分頁／唯讀定位驗收。這些限制與真正hosted Auth、SQL、50位員工HTTP及人工WCAG完整驗收不得用合成Chromefixture代替。
 

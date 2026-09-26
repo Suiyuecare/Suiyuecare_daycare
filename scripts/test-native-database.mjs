@@ -20,6 +20,7 @@ const suites = [
   "test-staff-announcements-native.mjs",
   "test-claim-operation-receipts-native.mjs",
   "test-nursing-assessments-native.mjs",
+  "test-nursing-operation-receipt-native.mjs",
   "test-referral-admission-native.mjs",
   "test-social-work-admission-native.mjs",
 ];

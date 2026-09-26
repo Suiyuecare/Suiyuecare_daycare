@@ -33,7 +33,7 @@
 ## 上線前仍須完成
 
 1. 32個待回查標記、100個案／50版本讀取上限仍須安全分頁／定位；完整重載沒有持久原操作復原，本次只保證同分頁元件重新掛載。
-2. 明確只讀原操作保存查證尚未提供；未知寫入仍須由伺服器冪等核對，不承諾已知道保存結果。2026-09-27已補保留原鎖、可取消且綁定當前身份的護理授權資料GET，修正unknown阻擋取得新快照的問題；GET不重送原寫入、不解除其鎖。真正近期MFA取得及範圍改變後context復原仍待製作，不能以暫放鎖或router.refresh繞過。
+2. 2026-09-27本機已補保留原鎖的授權資料GET及本人原操作receipt GET，兩者均不重送原寫入。只有後者取得完整、匹配且目前授權的原始證據，才能標示保存已確認；`not_found`不能證明未保存。真正近期MFA取得及範圍改變後context復原仍待製作，不能以暫放鎖或router.refresh繞過；完整本機結果與正式環境界線見下列最新章節。
 3. 正式專業／官方護理量表、計分、附件及匯出另行完成；目前人工文字紀錄不得稱作官方量表已啟用。
 4. 精準套用未執行遷移、實際核准護理員Google→額外驗證→個案→草稿→讀回→簽署→更正→停權驗收；跨店、未指派及逾期驗證資料外洩必須為0。
 5. 完整雲端部署、資料區域、備份還原、持續營運與全系統門檻仍以[正式上線門檻](PRODUCTION_GATES.md)及[正式部署清單](FORMAL_DEPLOYMENT_CHECKLIST_2026-09-26.md)為準。
@@ -60,3 +60,33 @@
 私有原始證據位於`/Users/seniorlifepr/.codex/verification/daycare-20260926`：`nursing-recovery-{focused,full-vitest-with-finance,lint,typecheck,build,premium-commands}.log`、`nursing-recovery-premium-{project,scoped}.json`、`nursing-recovery-production-denial.json`與`nursing-browser/{verification,axe,contrast-review}.json`及viewport截圖。早期錯環境或失敗原始報告不刪除、不冒充GREEN。
 
 本輪SQL未變，仍143份migration；既有原生／portable結果只適用其當時來源，不稱本輪重新執行。没有GitHub push、Vercel公開預覽／promotion、hosted DDL、正式帳號開通、區域移轉或新增費用。前列的精確receipt、真正MFA／context復原、完整重載與有界分頁仍須完成；本機切片通過不解除正式部署門檻。
+
+## 2026-09-27：本人原操作唯讀查證（後續候選）
+
+unknown回查區段增加「查證原紀錄（不重送）」。它呼叫獨立`GET /api/nursing-assessments/receipt`，不帶body、不POST、不重播寫入、不取得新MFA。授權資料更新與原紀錄查證是兩個不同動作；取得新的清單不代表原筆已保存。
+
+資料庫只查目前`auth.uid()`本人的原操作鍵；機構、分支、個案、四種action與目前讀取權限一致，且查詢前與稽核等待後重新驗證。資料庫／API／browser journal依次驗原request、版本鏈、內容hash與完整receipt；browser再綁定凍結原body、來源admission物件、nonce、帳號／權限／privacy／capability epoch及發起時server props。仿造handle、同generation撤指派、跨分支ABA、新來源及卸載後晚回覆均不得確認。GET使用自己的可取消read fence，查詢期間禁止重試或切分支；取消不釋放原unknown寫入鎖。
+
+- `committed`只有完整正向證據可將原unknown轉為「保存已確認，清單仍待核對」；不自動刷新清單／POST，不因receipt解除同個案最新資料防重送。
+- `not_found`只表示這次沒有讀到已提交且匹配的證據；原交易仍可能在進行中，保留原鍵、內容與unknown，不能改鍵或重建。
+- 現在仍有合法讀取權限的人，可查自己先前已完成的簽署，即使其原15分鐘簽署驗證已過期；此歷史證據不能簽新紀錄或允許過期重播。
+- 授權／格式／原body不匹配使舊內容隔離，重掛不能復活；純傳輸失敗保留仍合法的原操作並提供再查。成功焦點回到具名回查區段，使用者已移往另一控制項則不搶焦點。
+
+新增第144份增量migration。舊版hash由session TimeZone產生，查證不得改寫原證據；只有原時間字串具嚴格offset並與資料列同一時刻，才用原字串重建完整歷史hash／receipt。錯誤時刻、額外欄位、錯request／hash仍拒絕，沒有改寫已簽紀錄。
+
+本機驗證、瀏覽器與凍結來源的最終結果記錄於本章後續驗證表；正式hosted Auth／PostgREST／真正员工操作、雲端DDL、全89頁與人工WCAG均不由合成資料替代。最終授權重查不是持鎖至COMMIT的完整權限序列化；原生撤權競態證據適用READ COMMITTED，不宣稱REPEATABLE READ即時性。32標記、100個案／50版本、真正MFA／context復原與完整重載intent仍是未完成門檻。
+
+| 本輪最新驗證 | 結果與明示界線 |
+|---|---|
+| 完整程式回歸 | **533檔／7,913項全部通過，250.47秒，無略過**；單worker、原timeout及精確Finance隔離候選。初次runner source與後續ABCD passive-effect測試失敗保留，不冒稱通過；後者只等待原callbacks，不減少斷言或改runtime |
+| 集中／独立覆核 | 最新23檔／629項全部通過；涵蓋新receipt、既有snapshot、journal入場／撤權／來源ABA、UI及cleanup／packaging。兩份獨立新receipt測試97項；SQL／API另做唯讀review無新增阻斷，均不替代真人hosted驗收 |
+| 原生PG17.11 | **144份原樣migration、15／15套全部通過**；新receipt 55項pgTAP、四動作跨UTC／臺北雙向、11種壞證據回滾、expired-signature只讀、真uncommitted→same-key committed與5種觀察到等待後實際撤權全部通過。沒有替換Auth謂詞、外部網路或雲端DDL |
+| 完整portable SQL | **144份migration編譯、134套／6,321斷言全部通過，退出0**；93套legacy PGlite-only fixture、41套enforced admission。首次RED及三套184項針對GREEN保留；只修兩個舊expected-message，不把legacy fixture當hosted真Auth／RLS／多人證據 |
+| 型別／lint／建置 | 最後ESLint零warning、TypeScript、diff-check通過；production build完成101靜態輸出及新動態receipt route。build後只有測試／文件修正、runtime不變；外部配置清空、demo關閉 |
+| UI規範／相依套件 | 既有專案scope與護理scope strict audit均0 findings；新test-only focus target改成真輸入，未弱化focus斷言。曾錯用audit結果檔當config的全庫掃描不屬既有專案scope，原結果保留，不能稱全庫UX已通過。135個正式依賴／214含optional、已知advisory0；不是滲透／ASVS證明 |
+| 真Chrome合成UI | 10場景各原寫入1次＋人工receipt GET1次；額外POST／PATCH、snapshot GET、refresh及branch API皆0。原key/body、not_found／拒絕／壞證據、read fence、晚回覆／卸載／ABA／換源、16分鐘後原簽署唯讀與焦點均通過；desktop1440／mobile390無溢位、16px輸入、可見操作≥44px，console/pageErrors空。沒有本輪axe或全WCAG聲明 |
+| 證據對應 | browser七份runtime SHA-256與目前來源完全一致；原生144份migration hash全對應。首跑尺寸誤量closed dialog 0×0只修verifier、保留首敗；root另實際檢视手機保存狀態與簽署視窗，不把隱藏副本當可見UI |
+| 真Next production本機 | 兩GET未配置實際503／SERVICE_NOT_CONFIGURED、data=null、private/no-store；新Chrome桌面／手機登入卡正常且Google未配置停用，0外部資源／Auth請求、overlay及JS錯誤。root owned server以SIGTERM明確停止（exit143、listener拒連），agent owned server及全新Chrome已關閉；保留build／證據 |
+| 正式雲端唯讀核對 | 2026-09-26T17:28:24Z指定Vercel部署清單仍403；17:30:06Z Supabase首爾ACTIVE_HEALTHY、17.6.1.166、130份migration，相對候選14份未套用。不表示專案不存在，不新增／覆蓋專案、push、發布、DDL、區域或費用 |
+
+私有證據前綴`nursing-receipt-`、`nursing-operation-all15-native-20260927.log`及`nursing-receipt-browser/`位於原verification目錄。第一次portable失敗是兩份舊社工測試精確錯誤文案與新guard不同，僅修expected string且維持42501及全部正負斷言；三套針對修復184／184及完整134套／6,321項GREEN均有獨立日誌。源碼已保存為本機候選，未push、未發布或套用正式DDL。

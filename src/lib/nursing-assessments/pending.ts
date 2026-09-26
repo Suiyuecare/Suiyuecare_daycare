@@ -9,6 +9,7 @@ import { installPendingNavigationGuard } from "@/lib/navigation/pending-navigati
 import { canonicalNursingJson, nursingContentSchema, parseNursingReceipt, parseNursingRequest, projectNursingAssessmentSnapshot } from "./parser";
 import type { NursingAssessmentSnapshot, NursingContent, NursingReceipt, NursingRequest, NursingVersion } from "./types";
 import { nursingReadAuthoritySignature } from "./read-authority";
+import { parseNursingOperationReceipt } from "./operation-receipt";
 
 const uuid = z.uuid().transform((value) => value.toLowerCase());
 const timestamp = z.string().max(64).refine((value) => isStrictOffsetDateTime(value) && Number.isFinite(Date.parse(value)))
@@ -70,10 +71,14 @@ type Journal = Readonly<{ operation: NursingAssessmentOperation | null; confirme
 const EMPTY: Journal = { operation: null, confirmed: [], navigationBlocked: false, privacyEpoch: 0, authorityEpoch: 0, capabilityEpoch: 0,
   authoritySignature: null, snapshotFloor: null, acceptedSnapshotAt: null };
 let journal: Journal = EMPTY;
-let admission: { identity: string; fingerprint: string; generatedAt: string; staleAfter: string; clients: string[];
-  capabilities: NursingAssessmentCapabilities; sources: Map<string, NursingAssessmentSnapshot["clients"][number]> } | null = null;
+type NursingAssessmentAdmission = { identity: string; fingerprint: string; generatedAt: string; staleAfter: string; clients: string[];
+  capabilities: NursingAssessmentCapabilities; sources: Map<string, NursingAssessmentSnapshot["clients"][number]> };
+let admission: NursingAssessmentAdmission | null = null;
 let release: (() => void) | null = null;
 let removeGuards: (() => void) | null = null;
+export type NursingAssessmentReceiptCheck = Readonly<{ token: symbol; nonce: string; operation: NursingAssessmentOperation;
+  identity: string; privacyEpoch: number; authorityEpoch: number; capabilityEpoch: number; authoritySignature: string; snapshotAt: string }>;
+const receiptChecks = new WeakMap<NursingAssessmentReceiptCheck, { release: () => void; source: NursingAssessmentAdmission }>();
 const listeners = new Set<() => void>();
 const emit = () => { for (const listener of [...listeners]) listener(); };
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
@@ -94,6 +99,64 @@ export function tryAcquireNursingAssessmentRecoveryRead(scope: NursingAssessment
   if (lease && (before.operation !== journal.operation || before.privacyEpoch !== journal.privacyEpoch || before.authorityEpoch !== journal.authorityEpoch ||
     before.capabilityEpoch !== journal.capabilityEpoch || identity !== authorityIdentity(journal.authoritySignature))) { lease(); return null; }
   return lease;
+}
+function admittedForRead(identity: string, clientId: string) {
+  return permitted("read", identity) && admission?.identity === identity && admission.clients.includes(clientId) &&
+    Date.now() >= Date.parse(admission.generatedAt) && Date.now() < Date.parse(admission.staleAfter);
+}
+/** A nonce-bound own-history check is not a signature replay. The private map
+ * prevents cloned handles, foreign leases or a stale source authorizing release. */
+export function beginNursingAssessmentReceiptCheck(scope: NursingAssessmentScope, demo: boolean): NursingAssessmentReceiptCheck | null {
+  if (demo || hasViewTransition()) return null;
+  const identity = nursingAssessmentScopeIdentity(scope, false), operation = journal.operation;
+  if (!operation || operation.phase !== "unknown" || operation.identity !== identity ||
+    !admittedForRead(identity, operation.input.request.clientId)) return null;
+  const source = admission!;
+  const before = journal;
+  const lease = tryAcquireNursingAssessmentRecoveryRead(scope, false); if (!lease) return null;
+  if (operation !== journal.operation || source !== admission || before.privacyEpoch !== journal.privacyEpoch ||
+    before.authorityEpoch !== journal.authorityEpoch || before.capabilityEpoch !== journal.capabilityEpoch ||
+    before.authoritySignature !== journal.authoritySignature || !admittedForRead(identity, operation.input.request.clientId)) {
+    lease(); return null;
+  }
+  try {
+    const check: NursingAssessmentReceiptCheck = Object.freeze({ token: Symbol(), nonce: uuid.parse(crypto.randomUUID()), operation, identity,
+      privacyEpoch: journal.privacyEpoch, authorityEpoch: journal.authorityEpoch, capabilityEpoch: journal.capabilityEpoch,
+      authoritySignature: journal.authoritySignature!, snapshotAt: source.generatedAt });
+    receiptChecks.set(check, { release: lease, source }); return check;
+  } catch (error) { lease(); throw error; }
+}
+export function isNursingAssessmentReceiptCheckCurrent(check: NursingAssessmentReceiptCheck) {
+  const held = receiptChecks.get(check);
+  return !!held && held.source === admission && check.operation === journal.operation && check.operation.phase === "unknown" &&
+    check.privacyEpoch === journal.privacyEpoch && check.authorityEpoch === journal.authorityEpoch &&
+    check.capabilityEpoch === journal.capabilityEpoch && check.authoritySignature === journal.authoritySignature &&
+    admittedForRead(check.identity, check.operation.input.request.clientId);
+}
+export function cancelNursingAssessmentReceiptCheck(check: NursingAssessmentReceiptCheck) {
+  const held = receiptChecks.get(check); if (!held) return false;
+  receiptChecks.delete(check); held.release(); return true;
+}
+/** Only positive, exact immutable history can settle an unknown write. Missing
+ * or invalid proof preserves the original intent and its separate write lease. */
+export function settleNursingAssessmentReceiptCheck(check: NursingAssessmentReceiptCheck, value: unknown): "confirmed" | "not_found" | "unavailable" | "stale" {
+  if (!isNursingAssessmentReceiptCheckCurrent(check)) { cancelNursingAssessmentReceiptCheck(check); return "stale"; }
+  try {
+    const current = check.operation;
+    const proof = parseNursingOperationReceipt(value, { ...current.scope, clientId: current.input.request.clientId,
+      action: current.input.request.action, idempotencyKey: current.input.idempotencyKey, nonce: check.nonce, request: current.input.request });
+    if (proof.status === "not_found") return "not_found";
+    const receipt = proof.receipt;
+    if (current.target && (receipt.result.versionId === current.target.versionId ||
+      current.input.request.action === "sign" && canonicalNursingJson(receipt.result.content) !== canonicalNursingJson(current.target.content))) return "unavailable";
+    if (!isNursingAssessmentReceiptCheckCurrent(check) || journal.confirmed.length >= 32) return "stale";
+    const confirmed = Object.freeze({ identity: current.identity, clientId: current.input.request.clientId,
+      assessmentKey: receipt.result.assessmentKey, versionId: receipt.result.versionId, version: receipt.result.version,
+      state: receipt.result.state, committedAt: timestamp.parse(receipt.result.createdAt), snapshotAt: current.snapshotAt });
+    journal = { ...journal, operation: null, navigationBlocked: false, confirmed: [...journal.confirmed, confirmed] };
+    unlock(); emit(); return "confirmed";
+  } catch { return "unavailable"; }
+  finally { cancelNursingAssessmentReceiptCheck(check); }
 }
 function floorAt(source: string | null) {
   return source && (!journal.snapshotFloor || Date.parse(source) > Date.parse(journal.snapshotFloor)) ? source : journal.snapshotFloor;
