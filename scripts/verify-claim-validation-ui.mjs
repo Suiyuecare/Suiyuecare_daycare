@@ -9,14 +9,15 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argumentsToParse = process.argv.slice(2);
-if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before"].includes(argumentsToParse[0])) {
+if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before", "--announcements-receipt-before"].includes(argumentsToParse[0])) {
   throw new Error("Only a named synthetic fixture is accepted.");
 }
 const bodyFixture = argumentsToParse[0] === "--body";
 const questionnaireFixture = argumentsToParse[0] === "--questionnaire";
 const announcementFixture = argumentsToParse[0]?.startsWith("--announcements");
 const baselineAnnouncement = argumentsToParse[0] === "--announcements-before";
-const announcementWrite = argumentsToParse[0]?.startsWith("--announcements-write");
+const baselineReceipt = argumentsToParse[0] === "--announcements-receipt-before";
+const announcementWrite = argumentsToParse[0]?.startsWith("--announcements-write") || baselineReceipt;
 const baselineWrite = argumentsToParse[0] === "--announcements-write-before";
 const route = bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture ? "/app/staff/assessments/barthel-adl" : announcementFixture ? "/app/staff/operations/announcements" : "/app/staff/service-management/claims";
 const require = createRequire(import.meta.url);
@@ -35,6 +36,7 @@ const stubs = {
     return null;
   },
   load(id) {
+    if (baselineReceipt && ["src/components/staff-announcements/staff-announcement-controller.tsx", "src/lib/staff-announcements/pending.ts"].some((name) => id === resolve(repo, name))) return execFileSync("git", ["show", `d3df299:${id.slice(repo.length + 1)}`], { cwd: repo, encoding: "utf8" });
     if (baselineWrite && ["staff-announcement-actions.tsx", "staff-announcements-workspace.tsx", "staff-announcements.module.css"].some((name) => id === resolve(repo, `src/components/staff-announcements/${name}`))) return execFileSync("git", ["show", `03ecf2d:${id.slice(repo.length + 1)}`], { cwd: repo, encoding: "utf8" });
     if (baselineAnnouncement && id === resolve(repo, "src/components/staff-announcements/staff-announcements-workspace.tsx")) return execFileSync("git", ["show", "3738dfe:src/components/staff-announcements/staff-announcements-workspace.tsx"], { cwd: repo, encoding: "utf8" });
     if (id === "\0fixture:next/navigation") return `const router={refresh(){window.fixture.refreshes++},replace(){},push(){}}; export function useRouter(){return router} export function usePathname(){return ${JSON.stringify(route)}}`;

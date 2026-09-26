@@ -7,7 +7,9 @@ import { buildDemoStaffAnnouncementSnapshot } from "./demo";
 import { beginStaffAnnouncement, clearStaffAnnouncementPendingOnLogout, getStaffAnnouncementPending,
   isConfirmedStaffAnnouncementRejection, observeStaffAnnouncementAuthority, reconcileStaffAnnouncementConfirmed,
   retryStaffAnnouncement, settleStaffAnnouncement, staffAnnouncementAuthoritySignature, staffAnnouncementScopeIdentity,
-  hasStaffAnnouncementConfirmedTarget } from "./pending";
+  hasStaffAnnouncementConfirmedTarget, beginStaffAnnouncementReceiptCheck, settleStaffAnnouncementReceiptCheck,
+  failStaffAnnouncementReceiptCheck, type StaffAnnouncementConfirmed } from "./pending";
+import { parseStaffAnnouncementReceipt } from "./receipt";
 
 const org = "11111111-1111-4111-8111-111111111111";
 const branch = "22222222-2222-4222-8222-222222222222";
@@ -278,5 +280,174 @@ describe("independent memory-only announcement journal", () => {
     expect(isConfirmedStaffAnnouncementRejection(denied, Number(status))).toBe(true);
     expect(isConfirmedStaffAnnouncementRejection({ ...denied, private: "secret" }, Number(status))).toBe(false);
     expect(isConfirmedStaffAnnouncementRejection({ ...denied, errors: [{ code: "STAFF_ANNOUNCEMENT_SAVE_FAILED", message: "未知" }] }, 409)).toBe(false);
+  });
+});
+
+describe("confirmed-only original operation receipt checks", () => {
+  const nonce = "88888888-8888-4888-8888-888888888888";
+  const verifiedAt = "2026-09-26T10:00:03.000Z";
+  const recordedAt = "2026-09-26T10:00:02.000Z";
+  function confirmedDraft() {
+    const operation = beginStaffAnnouncement(scope, false, draft(), sourceAt)!;
+    settleStaffAnnouncement(operation, savedDraft()); return getStaffAnnouncementPending().confirmed[0];
+  }
+  function proof(check: NonNullable<ReturnType<typeof beginStaffAnnouncementReceiptCheck>>) {
+    const entry = check.entry;
+    return parseStaffAnnouncementReceipt({ schemaVersion: 1, status: "committed", persisted: true, demo: false,
+      organizationId: org, branchId: branch, actorUserId: actor, action: entry.action, idempotencyKey: entry.idempotencyKey,
+      nonce: check.request.nonce, verifiedAt, evidence: { announcementKey: entry.announcementKey,
+        versionId: entry.versionId, version: entry.version, sourceVersionId: entry.sourceVersionId,
+        releaseVersionId: entry.releaseVersionId, effectiveAt: entry.readAt ?? entry.committedAt, recordedAt } }, check.request);
+  }
+  it("retains original key/source and only marks verified, without clearing source guard or pretending list updated", () => {
+    const entry = confirmedDraft(); expect(entry.idempotencyKey).toBe(key); expect(entry.sourceVersionId).toBeNull(); expect(entry.verifiedAt).toBeNull();
+    const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    expect(check).not.toBeNull(); expect(hasPendingOperations()).toBe(false);
+    expect(settleStaffAnnouncementReceiptCheck(check, proof(check))).toBe(true);
+    const current = getStaffAnnouncementPending().confirmed[0];
+    expect(current.verifiedAt).toBe(verifiedAt); expect(current.versionId).toBe(versionId);
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(1); expect(getStaffAnnouncementPending().receiptCheck).toBeNull();
+    expect(hasStaffAnnouncementConfirmedTarget(scope, false, draft())).toBe(true);
+    expect(beginStaffAnnouncement(scope, false, draft(), freshAt)).toBeNull();
+    expect(beginStaffAnnouncementReceiptCheck(current, scope, false, nonce)).toBeNull();
+    reconcileStaffAnnouncementConfirmed(scope, freshSnapshot(), Date.parse(freshAt));
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(0);
+  });
+  it("never invents a marker from a forged, absent, stale-reference or foreign entry", () => {
+    const entry = confirmedDraft();
+    expect(beginStaffAnnouncementReceiptCheck({ ...entry }, scope, false, nonce)).toBeNull();
+    expect(beginStaffAnnouncementReceiptCheck(entry, { ...scope, userId: org }, false, nonce)).toBeNull();
+    expect(beginStaffAnnouncementReceiptCheck(entry, scope, true, nonce)).toBeNull();
+    observeStaffAnnouncementAuthority(authority({ branchId: org }));
+    expect(beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)).toBeNull();
+    observeStaffAnnouncementAuthority(authority());
+    reconcileStaffAnnouncementConfirmed(scope, freshSnapshot(), Date.parse(freshAt));
+    expect(beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)).toBeNull();
+  });
+  it("holds at most one GET and blocks another write or retry without acquiring a mutation lease", () => {
+    const entry = confirmedDraft(); const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    expect(beginStaffAnnouncementReceiptCheck(entry, scope, false, org)).toBeNull();
+    expect(beginStaffAnnouncement(scope, false, parseStaffAnnouncementInput("read", { release_version_id: org }, branch), sourceAt,
+      { ...target, announcementKey: org, versionId: org, activeReleaseVersionId: org })).toBeNull();
+    expect(retryStaffAnnouncement(Symbol(), scope, false)).toBeNull(); expect(hasPendingOperations()).toBe(false);
+    expect(failStaffAnnouncementReceiptCheck(check)).toBe(true); expect(getStaffAnnouncementPending().confirmed[0]).toBe(entry);
+    expect(failStaffAnnouncementReceiptCheck(check)).toBe(false);
+  });
+  it("does not trust a copied check that reuses an opaque token with replaced request or entry", () => {
+    const entry = confirmedDraft(); const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    const copied = { ...check, entry: { ...entry, announcementKey: org }, request: { ...check.request, nonce: org } };
+    expect(settleStaffAnnouncementReceiptCheck(copied, proof(check))).toBe(false);
+    expect(failStaffAnnouncementReceiptCheck(copied)).toBe(false);
+    expect(getStaffAnnouncementPending().receiptCheck).toBe(check); expect(getStaffAnnouncementPending().confirmed[0]).toBe(entry);
+  });
+  it("not_found and transport failure leave the original marker unverified and cannot clear an unknown write", () => {
+    const entry = confirmedDraft(); const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    const missing = parseStaffAnnouncementReceipt({ ...proof(check), status: "not_found", persisted: false, evidence: null }, check.request);
+    expect(settleStaffAnnouncementReceiptCheck(check, missing)).toBe(true);
+    expect(getStaffAnnouncementPending().confirmed[0]).toBe(entry); expect(entry.verifiedAt).toBeNull();
+    const next = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!; failStaffAnnouncementReceiptCheck(next);
+    expect(getStaffAnnouncementPending().confirmed[0]).toBe(entry);
+    reconcileStaffAnnouncementConfirmed(scope, freshSnapshot(), Date.parse(freshAt));
+    const original = beginStaffAnnouncement(scope, false, draft(), sourceAt)!; settleStaffAnnouncement(original, "unknown");
+    const held = getStaffAnnouncementPending().operation;
+    expect(beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)).toBeNull();
+    expect(settleStaffAnnouncementReceiptCheck(next, proof(next))).toBe(false);
+    expect(getStaffAnnouncementPending().operation).toBe(held); expect(hasPendingOperations()).toBe(true);
+  });
+  it("preserves exact historical read ID/version/source/read_at even after another release replaces it", () => {
+    const input = parseStaffAnnouncementInput("read", { release_version_id: versionId }, key);
+    const operation = beginStaffAnnouncement(scope, false, input, sourceAt, { ...target, version: 7 })!;
+    const oldReadAt = "2025-09-26T10:00:00.000Z";
+    settleStaffAnnouncement(operation, { requestId, data: { action: "read", releaseVersionId: versionId, announcementKey,
+      readAt: oldReadAt, replayed: true, persisted: true, demo: false } });
+    const entry = getStaffAnnouncementPending().confirmed[0];
+    expect(entry).toMatchObject({ idempotencyKey: key, versionId, version: 7, sourceVersionId: versionId, releaseVersionId: versionId });
+    const snapshot = freshSnapshot(); reconcileStaffAnnouncementConfirmed(scope, { ...snapshot,
+      items: [{ ...snapshot.items[0], version: 8, versionId: org, activeReleaseVersionId: org, actorIsRecipient: true, actorReadAt: freshAt }] }, Date.parse(freshAt));
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(1);
+    const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    const receipt = proof(check); expect(settleStaffAnnouncementReceiptCheck(check, receipt)).toBe(true);
+    expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).toBe(verifiedAt);
+    expect(getStaffAnnouncementPending().confirmed[0].readAt).toBe(oldReadAt);
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(1);
+  });
+  it.each(["announcementKey", "versionId", "version", "sourceVersionId", "releaseVersionId", "effectiveAt"])(
+    "rejects structurally valid but wrong exact original read %s", (field) => {
+      const input = parseStaffAnnouncementInput("read", { release_version_id: versionId }, key);
+      const operation = beginStaffAnnouncement(scope, false, input, sourceAt, target)!;
+      settleStaffAnnouncement(operation, { requestId, data: { action: "read", releaseVersionId: versionId, announcementKey,
+        readAt: freshAt, replayed: false, persisted: true, demo: false } });
+      const entry = getStaffAnnouncementPending().confirmed[0]; const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+      const receipt = proof(check); if (receipt.status !== "committed") throw new Error("test requires committed");
+      const evidence = { ...receipt.evidence, [field]: field === "version" ? 2 : field === "effectiveAt" ? sourceAt : org };
+      if (["versionId", "sourceVersionId", "releaseVersionId"].includes(field)) {
+        evidence.versionId = org; evidence.sourceVersionId = org; evidence.releaseVersionId = org;
+      }
+      expect(() => settleStaffAnnouncementReceiptCheck(check, { ...receipt, evidence })).toThrow();
+      expect(getStaffAnnouncementPending().confirmed[0]).toBe(entry); expect(entry.verifiedAt).toBeNull();
+      failStaffAnnouncementReceiptCheck(check);
+    });
+  it("retains publish and withdrawal sources and demands the original withdrawal time", () => {
+    const publish = parseStaffAnnouncementInput("publish", { draft_version_id: versionId }, key);
+    const operation = beginStaffAnnouncement(scope, false, publish, sourceAt, { ...target, publishAt: freshAt, expiresAt: null })!;
+    settleStaffAnnouncement(operation, { requestId, data: { action: "publish", versionId: branch, announcementKey, version: 2,
+      draftVersionId: versionId, lifecycle: "scheduled", publishAt: freshAt, expiresAt: null, recipientCount: 1,
+      replayed: false, persisted: true, demo: false } });
+    const entry = getStaffAnnouncementPending().confirmed[0]; expect(entry.sourceVersionId).toBe(versionId);
+    const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!; settleStaffAnnouncementReceiptCheck(check, proof(check));
+    expect(getStaffAnnouncementPending().confirmed[0].releaseVersionId).toBe(branch);
+    clearStaffAnnouncementPendingOnLogout(); observeStaffAnnouncementAuthority(authority());
+    const withdraw = parseStaffAnnouncementInput("withdraw", { expected_latest_version_id: versionId, release_version_id: branch, reason: "合成撤回" }, key);
+    const withdrawal = beginStaffAnnouncement(scope, false, withdraw, sourceAt, { ...target, version: 2, activeReleaseVersionId: branch })!;
+    settleStaffAnnouncement(withdrawal, { requestId, data: { action: "withdraw", versionId: actor, announcementKey, version: 3,
+      previousVersionId: versionId, lifecycle: "withdrawn", releaseVersionId: branch, reason: "合成撤回", withdrawnAt: freshAt,
+      replayed: false, persisted: true, demo: false } });
+    const withdrawn = getStaffAnnouncementPending().confirmed[0]; expect(withdrawn.sourceVersionId).toBe(versionId);
+    const withdrawalCheck = beginStaffAnnouncementReceiptCheck(withdrawn, scope, false, nonce)!;
+    const receipt = proof(withdrawalCheck); if (receipt.status !== "committed") throw new Error("test requires committed");
+    expect(() => settleStaffAnnouncementReceiptCheck(withdrawalCheck, { ...receipt,
+      evidence: { ...receipt.evidence, effectiveAt: sourceAt } })).toThrow();
+    expect(settleStaffAnnouncementReceiptCheck(withdrawalCheck, receipt)).toBe(true);
+  });
+  it("discards authority/scope ABA checks atomically and late callbacks cannot clear a newer GET", () => {
+    const entry = confirmedDraft(); const original = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    observeStaffAnnouncementAuthority(authority({ scopes: ["announcements.read"] }));
+    expect(getStaffAnnouncementPending().receiptCheck).toBeNull();
+    observeStaffAnnouncementAuthority(authority());
+    const newer = beginStaffAnnouncementReceiptCheck(entry, scope, false, org)!;
+    expect(settleStaffAnnouncementReceiptCheck(original, proof(original))).toBe(false);
+    expect(failStaffAnnouncementReceiptCheck(original)).toBe(false); expect(getStaffAnnouncementPending().receiptCheck).toBe(newer);
+    expect(settleStaffAnnouncementReceiptCheck(newer, proof(newer))).toBe(true);
+  });
+  it("logout rejects old proof and failure without releasing an unrelated lease or marking the new actor", () => {
+    const entry = confirmedDraft(); const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    clearStaffAnnouncementPendingOnLogout(); observeStaffAnnouncementAuthority(authority({ userId: org }));
+    const external = tryAcquirePendingOperation()!;
+    expect(settleStaffAnnouncementReceiptCheck(check, proof(check))).toBe(false); expect(failStaffAnnouncementReceiptCheck(check)).toBe(false);
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(0); expect(hasPendingOperations()).toBe(true); external();
+  });
+  it("a fresh snapshot removing the checked marker never lets late GET recreate it", () => {
+    const entry = confirmedDraft(); const check = beginStaffAnnouncementReceiptCheck(entry, scope, false, nonce)!;
+    reconcileStaffAnnouncementConfirmed(scope, freshSnapshot(), Date.parse(freshAt));
+    expect(settleStaffAnnouncementReceiptCheck(check, proof(check))).toBe(true);
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(0); expect(getStaffAnnouncementPending().receiptCheck).toBeNull();
+  });
+  it("keeps the 32-marker cap after verification while still allowing one exact GET at the cap", () => {
+    let last!: StaffAnnouncementConfirmed; let lastScope = scope;
+    for (let index = 0; index < 32; index += 1) {
+      const userId = `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`;
+      lastScope = { ...scope, userId }; observeStaffAnnouncementAuthority(authority({ userId }));
+      const operation = beginStaffAnnouncement(lastScope, false, draft(), sourceAt)!; settleStaffAnnouncement(operation, savedDraft());
+      last = getStaffAnnouncementPending().confirmed.at(-1)!;
+    }
+    const check = beginStaffAnnouncementReceiptCheck(last, lastScope, false, nonce)!; expect(check).not.toBeNull();
+    const receipt = { schemaVersion: 1, status: "committed", persisted: true, demo: false,
+      organizationId: org, branchId: branch, actorUserId: lastScope.userId, action: last.action,
+      idempotencyKey: last.idempotencyKey, nonce, verifiedAt, evidence: { announcementKey, versionId, version: 1,
+        sourceVersionId: null, releaseVersionId: null, effectiveAt: null, recordedAt } };
+    settleStaffAnnouncementReceiptCheck(check, parseStaffAnnouncementReceipt(receipt, check.request));
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(32);
+    expect(getStaffAnnouncementPending().confirmed.at(-1)?.verifiedAt).toBe(verifiedAt);
+    expect(beginStaffAnnouncement(lastScope, false, draft(), freshAt)).toBeNull();
   });
 });

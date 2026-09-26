@@ -20,13 +20,17 @@ const initial: StaffAnnouncementSnapshot = { ...base, demo: false, generatedAt: 
   items: [base.items[0]], availableTotal: 1, itemsTruncated: false,
   pagination: { page: 1, pageSize: 20, matchingTotal: 1, totalPages: 1, rangeStart: 1, rangeEnd: 1 } };
 type State = { mode: "success" | "unknown" | "invalid" | "wrong-chain" | "denied" | "deferred";
+  receiptMode: "success" | "not_found" | "wrong-nonce" | "denied" | "deferred";
+  lookups: { action: string; key: string; nonce: string }[]; resolveReceipt: (() => void) | null;
   writes: { action: string; key: string; body: string }[]; refreshes: number; resolve: (() => void) | null;
   remount: () => void; foreign: (value: boolean) => void; allowed: (value: boolean) => void; fresh: () => void;
   offpage: () => void; last: StaffAnnouncementMutationResult | null; branchRequests: string[] };
-const state: State = { mode: "success", writes: [], refreshes: 0, resolve: null, remount: () => {}, foreign: () => {}, allowed: () => {},
+const state: State = { mode: "success", receiptMode: "success", lookups: [], resolveReceipt: null,
+  writes: [], refreshes: 0, resolve: null, remount: () => {}, foreign: () => {}, allowed: () => {},
   fresh: () => {}, offpage: () => {}, last: null, branchRequests: [] };
 (window as unknown as Window & { fixture: State }).fixture = state;
 const receipts = new Map<string, StaffAnnouncementMutationResult>();
+const receiptTimes = new Map<string, string>();
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.href);
   if (url.origin !== location.origin) throw new Error("External fixture requests are blocked");
@@ -35,6 +39,29 @@ window.fetch = async (input, init) => {
     if (init?.method === "DELETE") return Response.json({ status: "ok", data: { cleared: true } });
     return Response.json({ requestId: uuid(91), status: "ok", errors: [], data: { currentBranchId: actor.branchId,
       branches: [{ id: actor.branchId, name: actor.branchName }] } });
+  }
+  if (url.pathname === "/api/staff-announcements/receipt" && init?.method === "GET") {
+    const headers = new Headers(init.headers); const key = headers.get("idempotency-key") ?? "";
+    const action = headers.get("x-announcement-action") ?? ""; const nonce = headers.get("x-receipt-nonce") ?? "";
+    state.lookups.push({ action, key, nonce }); const mode = state.receiptMode;
+    if (mode === "deferred") await new Promise<void>((resolve) => { state.resolveReceipt = resolve; });
+    if (mode === "denied") return Response.json({ requestId: uuid(90), status: "error", data: null,
+      errors: [{ code: "STAFF_ANNOUNCEMENT_NOT_AUTHORIZED", message: "Synthetic rejection" }] }, { status: 403 });
+    const prior = receipts.get(key); const found = mode !== "not_found" && !!prior && prior.action === action;
+    const versionId = prior?.action === "read" ? prior.releaseVersionId : prior?.versionId;
+    const evidence = found && prior ? { announcementKey: prior.announcementKey, versionId,
+      version: prior.action === "read" ? initial.items[0].activeReleaseVersion! : prior.version,
+      sourceVersionId: prior.action === "draft" ? prior.previousVersionId : prior.action === "publish"
+        ? prior.draftVersionId : prior.action === "withdraw" ? prior.previousVersionId : prior.releaseVersionId,
+      releaseVersionId: prior.action === "read" || prior.action === "withdraw" ? prior.releaseVersionId
+        : prior.action === "publish" ? prior.versionId : null,
+      effectiveAt: prior.action === "read" ? prior.readAt : prior.action === "withdraw" ? prior.withdrawnAt : null,
+      recordedAt: receiptTimes.get(key)! } : null;
+    return Response.json({ requestId: uuid(90), status: "ok", errors: [], data: {
+      schemaVersion: 1, status: found ? "committed" : "not_found", persisted: found, demo: false,
+      organizationId: actor.organizationId, branchId: actor.branchId, actorUserId: actor.userId, action,
+      idempotencyKey: key, nonce: mode === "wrong-nonce" ? uuid(999) : nonce,
+      verifiedAt: new Date().toISOString(), evidence } });
   }
   if (url.pathname !== "/api/staff-announcements" || init?.method !== "POST") throw new Error("Only synthetic announcement operations are allowed");
   const headers = new Headers(init.headers); const key = headers.get("idempotency-key") ?? "";
@@ -55,7 +82,7 @@ window.fetch = async (input, init) => {
       version: item.version + 1, previousVersionId: request.expected_latest_version_id, lifecycle: "withdrawn", releaseVersionId: request.release_version_id,
       reason: request.reason, withdrawnAt: new Date().toISOString() }
     : { ...common, announcementKey: item.announcementKey, action: "read", releaseVersionId: request.release_version_id, readAt: new Date().toISOString() };
-  receipts.set(key, result); state.last = result;
+  receipts.set(key, result); if (!receiptTimes.has(key)) receiptTimes.set(key, new Date().toISOString()); state.last = result;
   if (mode === "unknown") throw new Error("Synthetic lost acknowledgement");
   if (mode === "invalid") return Response.json({});
   return Response.json({ requestId: uuid(90), status: "ok", data: mode === "wrong-chain" ? { ...result, announcementKey: uuid(999) } : result, errors: [] }, { status: replayed ? 200 : 201 });

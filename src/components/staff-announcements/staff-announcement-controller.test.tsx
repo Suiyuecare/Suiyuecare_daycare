@@ -3,9 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TenantContext } from "@/lib/domain/types";
 import { buildDemoStaffAnnouncementSnapshot } from "@/lib/staff-announcements/demo";
-import { clearStaffAnnouncementPendingOnLogout, getStaffAnnouncementPending } from "@/lib/staff-announcements/pending";
+import { beginStaffAnnouncement, clearStaffAnnouncementPendingOnLogout, getStaffAnnouncementPending, observeStaffAnnouncementAuthority,
+  settleStaffAnnouncement, staffAnnouncementAuthoritySignature, type StaffAnnouncementConfirmed } from "@/lib/staff-announcements/pending";
+import { parseStaffAnnouncementInput } from "@/lib/integrations/staff-announcements";
 import { hasPendingOperations, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
-import type { StaffAnnouncementItem, StaffAnnouncementSnapshot } from "@/lib/staff-announcements/types";
+import type { StaffAnnouncementItem, StaffAnnouncementMutationResult, StaffAnnouncementSnapshot } from "@/lib/staff-announcements/types";
 import { StaffAnnouncementController } from "./staff-announcement-controller";
 import { StaffAnnouncementDraftAction, StaffAnnouncementPublishAction, StaffAnnouncementReadAction, StaffAnnouncementWithdrawAction } from "./staff-announcement-actions";
 
@@ -111,6 +113,14 @@ describe("workspace announcement controller", () => {
     view.rerender(<View source={{ ...source, items: [saved], generatedAt: new Date(Date.now() + 1).toISOString() }} />);
     await waitFor(() => expect(getStaffAnnouncementPending().confirmed).toHaveLength(0));
     expect(screen.queryByText(/清單尚未確認更新/u)).toBeNull(); expect(screen.getByText("公告操作已保存，清單已確認更新。")).toBeTruthy();
+  });
+  it("GREEN offers an explicit original-receipt check for an off-page confirmed success, not an automatic retry", async () => {
+    const fetch = successfulFetch(); vi.stubGlobal("fetch", fetch); const source = snapshot(); const view = render(<View source={source} />);
+    const dialog = openDraft(); complete(dialog); submitDraft(dialog);
+    await waitFor(() => expect(getStaffAnnouncementPending().confirmed).toHaveLength(1));
+    view.rerender(<View source={{ ...source, items: [], generatedAt: new Date().toISOString() }} row={false} />);
+    expect(screen.getByRole("button", { name: "查證原操作保存" })).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1); expect(getStaffAnnouncementPending().confirmed).toHaveLength(1);
   });
   it("returns focus to this owner's recovery region when the committed trigger is disabled without a row section", async () => {
     vi.stubGlobal("fetch", successfulFetch());
@@ -232,5 +242,176 @@ describe("workspace announcement controller", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("lost ACK"))); render(<View />); const dialog = openDraft(); complete(dialog); submitDraft(dialog);
     await waitFor(() => expect(getStaffAnnouncementPending().operation?.phase).toBe("unknown")); act(() => clearStaffAnnouncementPendingOnLogout());
     expect(getStaffAnnouncementPending().operation).toBeNull(); expect(hasPendingOperations()).toBe(false); expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+// Synthetic known-success markers are created through the real mutation
+// journal, never by replacing production state or bypassing its source checks.
+function primeConfirmed(action: "draft" | "publish" | "withdraw" | "read" = "draft", index = 0): StaffAnnouncementConfirmed {
+  observeStaffAnnouncementAuthority(staffAnnouncementAuthoritySignature(context));
+  const item = action === "draft" || action === "publish" ? { ...draft, versionId: uuid(100 + index), announcementKey: uuid(200 + index) }
+    : { ...published, versionId: uuid(100 + index), announcementKey: uuid(200 + index), activeReleaseVersionId: uuid(300 + index) };
+  const wire = action === "draft" ? { previous_version_id: item.versionId, title: "合成草稿", body: "合成內容", publish_at: item.publishAt,
+    expires_at: null, audience_user_ids: [uuid(4)], audience_role_ids: [], change_reason: "合成更正" }
+    : action === "publish" ? { draft_version_id: item.versionId }
+      : action === "withdraw" ? { expected_latest_version_id: item.versionId, release_version_id: item.activeReleaseVersionId, reason: "合成撤回" }
+        : { release_version_id: item.activeReleaseVersionId };
+  const target = { announcementKey: item.announcementKey, versionId: action === "read" ? item.activeReleaseVersionId! : item.versionId,
+    version: action === "read" ? item.activeReleaseVersion! : item.version, activeReleaseVersionId: item.activeReleaseVersionId,
+    publishAt: item.publishAt, expiresAt: item.expiresAt };
+  const operation = beginStaffAnnouncement({ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }, false,
+    parseStaffAnnouncementInput(action, wire, uuid(400 + index)), new Date(Date.now() - 1000).toISOString(), target)!;
+  expect(operation).not.toBeNull();
+  const result = receipt(action, wire, item);
+  expect(settleStaffAnnouncement(operation, { requestId: uuid(90), data: { ...result, ...(action !== "read" ? { versionId: uuid(500 + index) } : {}) } as StaffAnnouncementMutationResult })).toBe(true);
+  return getStaffAnnouncementPending().confirmed.at(-1)!;
+}
+function receiptProof(init: RequestInit, entry: StaffAnnouncementConfirmed, changes: Record<string, unknown> = {}) {
+  const headers = new Headers(init.headers);
+  const now = new Date().toISOString();
+  return { schemaVersion: 1, organizationId: headers.get("x-organization-id"), branchId: headers.get("x-branch-id"), actorUserId: context.userId,
+    action: headers.get("x-announcement-action"), idempotencyKey: headers.get("idempotency-key"), nonce: headers.get("x-receipt-nonce"),
+    demo: false, verifiedAt: now, status: "committed", persisted: true,
+    evidence: { announcementKey: entry.announcementKey, versionId: entry.versionId, version: entry.version,
+      sourceVersionId: entry.sourceVersionId, releaseVersionId: entry.releaseVersionId, effectiveAt: entry.readAt ?? entry.committedAt,
+      recordedAt: entry.snapshotAt }, ...changes };
+}
+describe("explicit known-success receipt checks", () => {
+  it("GREEN restores owned focus to the explicit recovery section after proof removes its trigger", async () => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }));
+    render(<View source={snapshot([])} />); const button = screen.getByRole("button", { name: "查證原操作保存" }); button.focus(); fireEvent.click(button);
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(button.isConnected).toBe(false); expect(document.activeElement).toBe(screen.getByRole("region", { name: "公告操作回查" }));
+  });
+  it("does not steal focus from another control chosen while the receipt check was in flight", async () => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }));
+    render(<View source={snapshot([])} />); const button = screen.getByRole("button", { name: "查證原操作保存" }); button.focus(); fireEvent.click(button);
+    const other = screen.getByRole("link", { name: "其他頁面" }); other.focus();
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(button.isConnected).toBe(false); expect(document.activeElement).toBe(other);
+  });
+  it.each(["draft", "publish", "withdraw", "read"] as const)("verifies the exact %s receipt without clearing its source guard or claiming the current list refreshed", async (action) => {
+    const entry = primeConfirmed(action);
+    const fetch = vi.fn(async (_url, init: RequestInit) => response(receiptProof(init, entry), 200)); vi.stubGlobal("fetch", fetch);
+    const source = snapshot([]); render(<View source={source} />);
+    expect(fetch).not.toHaveBeenCalled(); fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" }));
+    await waitFor(() => expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).not.toBeNull());
+    expect(screen.getByText("原操作保存已查證；清單仍需更新。")).toBeTruthy();
+    expect(screen.getByText("操作已保存，但目前清單尚未確認更新。")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "查證原操作保存" })).toBeNull(); expect(getStaffAnnouncementPending().confirmed).toHaveLength(1);
+    const [url, init] = fetch.mock.calls[0]; expect(url).toBe("/api/staff-announcements/receipt"); expect(init.method).toBe("GET"); expect(init.cache).toBe("no-store"); expect(init.body).toBeUndefined();
+    const headers = new Headers(init.headers); expect(headers.get("idempotency-key")).toBe(entry.idempotencyKey); expect(headers.get("x-announcement-action")).toBe(action);
+    expect(headers.get("x-organization-id")).toBe(context.organizationId); expect(headers.get("x-branch-id")).toBe(context.branchId); expect(headers.get("x-receipt-nonce")).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(screen.getByRole("list", { name: "已保存操作查證" }).textContent).not.toContain(entry.idempotencyKey);
+    expect(fetch).toHaveBeenCalledTimes(1); expect(refresh).not.toHaveBeenCalled();
+  });
+  it.each(["not_found", "403", "network", "malformed", "wrong-nonce", "wrong-actor", "wrong-chain", "wrong-version", "wrong-source"])("keeps %s evidence unverified and explicitly retryable without a mutation", async (mode) => {
+    const entry = primeConfirmed();
+    const fetch = vi.fn(async (_url, init: RequestInit) => {
+      if (mode === "network") throw new Error("synthetic unavailable");
+      if (mode === "403") return denial(); if (mode === "malformed") return Response.json({});
+      const proof = receiptProof(init, entry, mode === "not_found" ? { status: "not_found", persisted: false, evidence: null }
+        : mode === "wrong-nonce" ? { nonce: uuid(999) } : mode === "wrong-actor" ? { actorUserId: uuid(999) } : {});
+      if (mode.startsWith("wrong-") && ["wrong-chain", "wrong-version", "wrong-source"].includes(mode)) proof.evidence = { ...proof.evidence!,
+        ...(mode === "wrong-chain" ? { announcementKey: uuid(999) } : mode === "wrong-version" ? { version: 99 } : { sourceVersionId: uuid(999) }) };
+      return response(proof, 200);
+    }); vi.stubGlobal("fetch", fetch); render(<View source={snapshot([])} />);
+    fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" }));
+    await waitFor(() => expect(screen.getByText("尚未取得原操作證明，請稍後再查。")).toBeTruthy());
+    expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).toBeNull(); expect(getStaffAnnouncementPending().confirmed).toHaveLength(1); expect(getStaffAnnouncementPending().receiptCheck).toBeNull();
+    expect(screen.getByRole("button", { name: "查證原操作保存" }).hasAttribute("disabled")).toBe(false); expect(fetch).toHaveBeenCalledTimes(1); expect(refresh).not.toHaveBeenCalled();
+  });
+  it("allows only one manual GET and blocks writes until it finishes", async () => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    const fetch = vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }); vi.stubGlobal("fetch", fetch);
+    render(<View source={snapshot([])} />); const button = screen.getByRole("button", { name: "查證原操作保存" }); fireEvent.click(button); fireEvent.click(button);
+    expect(fetch).toHaveBeenCalledTimes(1); expect(screen.getByRole("button", { name: "查證中…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "建立公告" }).hasAttribute("disabled")).toBe(true); expect(screen.getByRole("button", { name: "重新載入清單" }).hasAttribute("disabled")).toBe(true);
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(getStaffAnnouncementPending().receiptCheck).toBeNull(); expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).not.toBeNull(); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each(["scope", "capability"])("rejects a late proof through %s ABA and leaves the old receipt check manually available", async (mode) => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    const fetch = vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }); vi.stubGlobal("fetch", fetch);
+    const source = snapshot([]); const view = render(<View source={source} />); fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" }));
+    view.rerender(mode === "scope" ? <View actor={{ ...context, branchId: uuid(999) }} source={null} row={false} /> : <View source={source} canRead={false} />);
+    expect((captured.signal as AbortSignal).aborted).toBe(true); view.rerender(<View source={source} />);
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).toBeNull(); expect(getStaffAnnouncementPending().receiptCheck).toBeNull();
+    expect(screen.queryByText("原操作保存已查證；清單仍需更新。")).toBeNull(); expect(screen.queryByText("尚未取得原操作證明，請稍後再查。")).toBeNull();
+    expect(screen.getByRole("button", { name: "查證原操作保存" }).hasAttribute("disabled")).toBe(false); expect(refresh).not.toHaveBeenCalled();
+  });
+  it("rejects a late proof after logout, aborts its GET, and never recreates the cleared marker", async () => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    const fetch = vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }); vi.stubGlobal("fetch", fetch);
+    render(<View source={snapshot([])} />); fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" }));
+    act(() => clearStaffAnnouncementPendingOnLogout()); expect((captured.signal as AbortSignal).aborted).toBe(true);
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(0); expect(getStaffAnnouncementPending().receiptCheck).toBeNull(); expect(screen.queryByRole("list", { name: "已保存操作查證" })).toBeNull(); expect(refresh).not.toHaveBeenCalled();
+  });
+  it("permits manual checks at the 32-marker cap but does not release that cap on proof alone", async () => {
+    for (let index = 0; index < 32; index += 1) primeConfirmed("draft", index);
+    const entry = getStaffAnnouncementPending().confirmed[0]; const fetch = vi.fn(async (_url, init: RequestInit) => response(receiptProof(init, entry), 200)); vi.stubGlobal("fetch", fetch);
+    render(<View source={snapshot([])} />); expect(screen.getAllByRole("button", { name: "查證原操作保存" })).toHaveLength(32);
+    expect(screen.getByRole("button", { name: "建立公告" }).hasAttribute("disabled")).toBe(true); fireEvent.click(screen.getAllByRole("button", { name: "查證原操作保存" })[0]);
+    await waitFor(() => expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).not.toBeNull());
+    expect(getStaffAnnouncementPending().confirmed).toHaveLength(32); expect(screen.getAllByRole("button", { name: "查證原操作保存" })).toHaveLength(31); expect(screen.getByRole("button", { name: "建立公告" }).hasAttribute("disabled")).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1); expect(refresh).not.toHaveBeenCalled();
+  });
+  it("never offers a receipt GET for an unknown original operation", async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error("synthetic unknown ACK")); vi.stubGlobal("fetch", fetch); render(<View />);
+    const dialog = openDraft(); complete(dialog); submitDraft(dialog); await waitFor(() => expect(getStaffAnnouncementPending().operation?.phase).toBe("unknown"));
+    expect(screen.queryByRole("button", { name: "查證原操作保存" })).toBeNull(); expect(screen.getByRole("button", { name: "重試同一操作" })).toBeTruthy(); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("does not duplicate the saved explanation and only a positive fresh snapshot proves the list updated after GET", async () => {
+    const fetch = vi.fn(async (_url, init: RequestInit) => init.method === "GET" ? response(receiptProof(init, entry), 200)
+      : response(receipt("draft", JSON.parse(String(init.body))))); vi.stubGlobal("fetch", fetch);
+    const source = snapshot(); const view = render(<View source={source} />); const dialog = openDraft(); complete(dialog); submitDraft(dialog);
+    await waitFor(() => expect(getStaffAnnouncementPending().confirmed).toHaveLength(1)); const entry = getStaffAnnouncementPending().confirmed[0];
+    view.rerender(<View source={{ ...source, items: [], generatedAt: new Date().toISOString() }} />);
+    expect(screen.queryByText("公告操作已保存；清單尚未確認更新，請重新載入確認結果。")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" }));
+    await waitFor(() => expect(screen.getByText("原操作保存已查證；清單仍需更新。")).toBeTruthy());
+    expect(screen.queryByText("公告操作已保存，清單已確認更新。")).toBeNull(); expect(refresh).toHaveBeenCalledTimes(1);
+    view.rerender(<View source={{ ...source, items: [{ ...draft, versionId: entry.versionId, version: entry.version, announcementKey: entry.announcementKey }], generatedAt: new Date(Date.now() + 1).toISOString() }} />);
+    await waitFor(() => expect(getStaffAnnouncementPending().confirmed).toHaveLength(0));
+    expect(screen.getByText("公告操作已保存，清單已確認更新。")).toBeTruthy(); expect(screen.queryByRole("list", { name: "已保存操作查證" })).toBeNull(); expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("does not claim list update when logout clears an earlier saved marker", async () => {
+    vi.stubGlobal("fetch", successfulFetch()); render(<View />); const dialog = openDraft(); complete(dialog); submitDraft(dialog);
+    await waitFor(() => expect(getStaffAnnouncementPending().confirmed).toHaveLength(1)); act(() => clearStaffAnnouncementPendingOnLogout());
+    expect(screen.queryByText("公告操作已保存，清單已確認更新。")).toBeNull(); expect(screen.queryByText("操作已保存，但目前清單尚未確認更新。")).toBeNull();
+  });
+  it("rejects a late proof through a global authority ABA even with unchanged controller props", async () => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }));
+    render(<View source={snapshot([])} />); fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" }));
+    act(() => { observeStaffAnnouncementAuthority(staffAnnouncementAuthoritySignature({ ...context, branchId: uuid(999) })); observeStaffAnnouncementAuthority(staffAnnouncementAuthoritySignature(context)); });
+    expect((captured.signal as AbortSignal).aborted).toBe(true); await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).toBeNull(); expect(screen.queryByText("原操作保存已查證；清單仍需更新。")).toBeNull();
+    expect(screen.getByRole("button", { name: "查證原操作保存" }).hasAttribute("disabled")).toBe(false);
+  });
+  it("unmount aborts the GET and a remounted controller does not accept its late proof", async () => {
+    const entry = primeConfirmed(); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }));
+    const view = render(<View source={snapshot([])} />); fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" })); view.unmount();
+    expect((captured.signal as AbortSignal).aborted).toBe(true); render(<View source={snapshot([])} />);
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).toBeNull(); expect(getStaffAnnouncementPending().receiptCheck).toBeNull(); expect(screen.getByRole("button", { name: "查證原操作保存" }).hasAttribute("disabled")).toBe(false);
+  });
+  it("rejects proof when actual recent-AAL2 time expires in flight without marking verification", async () => {
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now); const entry = primeConfirmed("publish"); let resolve!: (response: Response) => void; let captured!: RequestInit;
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => { captured = init; return new Promise<Response>((done) => { resolve = done; }); }));
+    render(<View source={snapshot([])} />); fireEvent.click(screen.getByRole("button", { name: "查證原操作保存" })); now += 16 * 60_000;
+    await act(async () => resolve(response(receiptProof(captured, entry), 200)));
+    expect(getStaffAnnouncementPending().confirmed[0].verifiedAt).toBeNull(); expect(getStaffAnnouncementPending().receiptCheck).toBeNull(); expect(refresh).not.toHaveBeenCalled(); expect(screen.queryByText("原操作保存已查證；清單仍需更新。")).toBeNull();
+  });
+  it("an unrelated unknown write disables receipt GET and retains its exact payload and lease", async () => {
+    primeConfirmed(); const fetch = vi.fn().mockRejectedValue(new Error("synthetic unknown ACK")); vi.stubGlobal("fetch", fetch); render(<View source={snapshot([])} />);
+    const dialog = openDraft(); complete(dialog); submitDraft(dialog); await waitFor(() => expect(getStaffAnnouncementPending().operation?.phase).toBe("unknown")); const operation = getStaffAnnouncementPending().operation!;
+    const check = screen.getByRole("button", { name: "查證原操作保存" }); expect(check.hasAttribute("disabled")).toBe(true); fireEvent.click(check);
+    expect(fetch).toHaveBeenCalledTimes(1); expect(getStaffAnnouncementPending().receiptCheck).toBeNull(); expect(getStaffAnnouncementPending().operation!.body).toBe(operation.body); expect(hasPendingOperations()).toBe(true);
   });
 });

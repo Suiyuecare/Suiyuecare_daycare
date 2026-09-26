@@ -1,6 +1,6 @@
 # 公告操作安全復原（頁68）
 
-本文件只記錄本機候選的工程驗證，不是正式環境、實際員工授權、通知投遞或所有89頁上線證明。本輪不變更資料庫migration、API／RPC授權、角色、近期AAL2或既有公告生命週期。
+本文件只記錄本機候選的工程驗證，不是正式環境、實際員工授權、通知投遞或所有89頁上線證明。前一輪固定原寫入不變更資料庫；本輪R1新增只讀原操作回查API／RPC及一份migration，仍保留角色、近期AAL2與既有公告生命週期。
 
 ## 缺陷與改善範圍
 
@@ -71,9 +71,36 @@ pnpm exec vitest run \
 
 ### 尚未完成的正向回查與復原邊界
 
-1. **歷史已讀的正向證據：** 已保存的已讀 marker 要求同一發布版本、本人收件身分及相同實際已讀時間。如果在取得新清單前，別人發布了較新版本，現有清單／目前發布版明細可能已無舊版回條，不能憑新版、舊版消失或重整清除 marker。尚需精確舊發布版本的授權回查入口或其他正向證據流程；本輪沒有擴充 SQL／API，不能宣稱此情境已可自行完成回查。
-2. **篩選外的新公告：** 新公告可能不符合目前關鍵字／狀態，或落在其他分頁。重新載入相同篩選不保證包含它，marker 會保留；需調整篩選／分頁並取得實際同鏈資料。尚未提供以成功回條直接定位新公告的專用正向回查入口。
+1. **歷史已讀的保存查證與清單同步分開：** R1已可依本人原鍵查證舊發布版、原已讀時間及原結果，即使後來發布新版或撤回。但精確原操作回條不是最新來源；防重送marker仍保留，目前清單／目前發布版明細也可能已無舊版。尚需最新同鏈定位及舊已讀guard完成路徑，不能憑新版、消失或回查成功直接放寬舊來源。
+2. **篩選外的新公告：** R1已可不依目前篩選／分頁查證本人原成功操作，但沒有最新公告定位／載入入口。重新載入相同篩選不保證包含它；仍需取得實際同鏈新資料才能解除來源防護。
 3. **32 個 marker 上限：** journal 全域最多保留 32 個尚未由正向讀取證據解除的 confirmed marker。達到上限時，新操作在取得鎖之前拒絕；不自動淘汰、假裝更新或用新鍵繞過。未解決的歷史回條／篩選外公告可能累積至此上限，屬正式營運前仍須驗收的可用性限制。
 4. **只支援同一分頁記憶體復原：** React 卸載／重新掛載不等於完整頁面重載。完整重載、瀏覽器關閉、程序終止或另開分頁後，journal 無法復原；不為保存操作鍵而將公告內容寫進 localStorage、sessionStorage 或 history。瀏覽器警告不保證攔截，且沒有跨分頁／跨裝置操作協調或自動補送。
 
 上述限制不得以清空 marker、關閉防護、重新建立操作鍵或放寬授權來假裝解決。正式部署仍須通過[全部上線門檻](PRODUCTION_GATES.md)；本文件不宣稱頁68所有正式作業、全部89頁或正式部署已完成。
+
+## R1：原成功操作的獨立只讀查證
+
+此輪增量為`20260926105727_staff_announcement_operation_receipt.sql`及`GET /api/staff-announcements/receipt`。操作鍵及一次性nonce使用header，不入URL；不接受指定別人的actor、不讀取正文、不呼叫公告寫入／replay RPC，也不使用service_role。原帳本、原不可變結果版及本人已讀回條逐筆核對；只回最小版本／動作識別與三種明確時間，不回標題、正文、受眾、雜湊或驗證資料。只新增查閱稽核，非業務寫入。
+
+SQL依目前有效員工、機構／分支及原動作的read／manage／publish權限查證；發布／撤回仍要求近期AAL2與原已消耗但未失效驗證。稽核後重新檢查授權。查不到回`not_found/persisted:false`，不能表示原操作失敗／不存在進行中交易。
+
+client保存原操作鍵、來源與結果版，精確核對nonce、身分範圍、動作、版本及原業務時間。查證只標`verifiedAt`；同一時刻只有一個手動GET，與公告寫入互斥。錯綁、403、未知錯誤／逾時、卸載、登出與權限ABA不會清除marker或解除新操作。UI沿用Finance框架及既有按鈕，只顯示動作與狀態；成功為「原操作保存已查證；清單仍需更新」。
+
+### R1最終凍結驗證
+
+- 最終全量Vitest **497檔／6,662項通過，180.09秒，無略過**。Finance跨repo使用精確恢復候選；jsdom整頁navigation未實作的診斷仍保留，不把它當作真瀏覽器證據。完整ESLint、TypeScript與production build通過；build明確關閉展示／synthetic preview／Google整合並移除Supabase、LINE、Finance及AWS外部憑證，不是正式登入或雲端部署驗收。
+- API新增28項路由測試；焦點與token凍結後，独立覆核另跑controller／pending **100／100通過**。公告及共享UI的premium strict配置0 findings，只代表此配置規則與sourceRoots，非全產品可用性或安全掃描。
+- 本輪**140份migration**重新編譯。Portable SQL **130套／6,055項斷言**通過，含93套legacy PGlite-only及37套enforced開通fixture；原生PostgreSQL17.11 **11／11套**通過。公告原套件68項、新receipt套件54項及3個真正獨立backend探測通過；查閱稽核等待途中撤權拒絕釋放回條，交易回滾，業務寫入0。這些不是正式Supabase／PITR／50人HTTP壓測。
+- 最後一版Chrome 390×844與1440×1000使用實際元件及loopback合成API。390px頁面scrollWidth=390，重新載入按鈕118×44。未找到回條、錯nonce、403及權限失去→恢復後的晚到回覆均不冒稱成功；同一原鍵總共5次手動GET使用5個不同nonce，整段只有原本1次POST、1次原保存後refresh，查證成功不额外POST或refresh。
+- 真Chrome重現並修掉查證按鈕成功後被移除而焦點落到BODY的問題：原按鈕仍持有焦點才回到具名「公告操作回查」section；使用者已移到其他link時不搶焦點。回復請求綁定原check token及身分／權限／隱私epoch，舊失敗不能清理新操作。沒有全域搜尋、延遲聚焦或版型變更。
+- 未知原寫入不開放R1 GET，無自動送出；手動重試共2次合成POST、1個key、1份相同body、0 GET，成功後只有真正同鏈正向來源才清除marker並顯示清單更新。Chrome errors命令無錯誤輸出；未執行本頁axe或人工螢幕閱讀器，不能宣稱完整WCAG。
+- 本機Supabase CLI安全顧問先因Unix socket URL解析失敗；另一次經socket／TCP核對同一隨機DB、程序、埠與sentinel的127.0.0.1替代連線仍因CLI強制TLS而失敗。**沒有advisor findings，不稱顧問通過或警告0**。兩次失敗证据分别保留於`/tmp/daycare-announcement-advisors-native.8kx7QB`及`/tmp/daycare-announcement-advisors-tcp.RFQ9Wb`；程序已停止，未碰hosted資料或放寬安全設定。
+
+R1原始證據在私有驗證目錄，最後凍結檔前綴`announcement-receipt-focus-final-`；Chrome紀錄見`announcement-receipt-browser-final.json`，portable／native另保留同輪log。此前「最終凍結」495檔／139份等段落是前一輪歷史，不替本輪背書。
+
+### R1仍未涵蓋
+
+- 結果不明的原寫入仍只有原body／key手動POST重試；未實作payload-bound唯讀查證。
+- 查證成功不移除舊來源guard或提高32上限；最新來源定位與歷史已讀guard的安全完成仍待下一階段。
+- 完整重載時，未提交操作的key／body不能靠成功帳本恢復；尚需durable intent及明確執行流程。沒有寫入瀏覽器儲存或自動補送。
+- 本機隔離DB、合成API及瀏覽器驗證不證明正式員工Google登入、hosted RPC、RSC清單刷新、通知或全部89頁上線。

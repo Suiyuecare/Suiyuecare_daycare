@@ -92,6 +92,13 @@ try {
   assert.equal(actual, expected, "Exact announcement pgTAP assertion count");
   assert.doesNotMatch(output, /^not ok \d+\b|^# Looks like/m);
   console.log(`Native migration compilation: ${migrations.length}/${migrations.length}; exact announcement suite: ${actual}/${expected}.`);
+  const receiptSource = await readFile(join(root, "supabase/tests/staff_announcement_operation_receipt.test.sql"), "utf8");
+  const receiptExpected = Number(receiptSource.match(/select\s+plan\((\d+)\)/i)?.[1]);
+  const receiptOutput = sql(receiptSource);
+  const receiptActual = receiptOutput.split("\n").filter((line) => /^ok \d+\b/.test(line)).length;
+  assert.equal(receiptActual, receiptExpected, "Exact immutable own receipt pgTAP assertion count");
+  assert.doesNotMatch(receiptOutput, /^not ok \d+\b|^# Looks like/m);
+  console.log(`Native exact immutable own operation receipt suite: ${receiptActual}/${receiptExpected}.`);
 
   // Commit only legitimate synthetic fixtures for independent-backend races.
   const boundary = source.indexOf("\nselect ok(");
@@ -102,7 +109,7 @@ try {
   const jwt = setup.split("\n").find((line) => line.startsWith("JWT="))?.slice(4);
   assert.ok(jwt);
   sql(`create schema native_announcement_test;create function native_announcement_test.pause_audit() returns trigger language plpgsql set search_path='' as $$begin
-    if new.metadata->>'projection'='page68_staff_announcement_management_v2' then perform pg_advisory_xact_lock(hashtextextended('native-announcement-audit-pause',0));end if;return new;end;$$;
+    if new.metadata->>'projection' in ('page68_staff_announcement_management_v2','page68_own_operation_receipt_v1') then perform pg_advisory_xact_lock(hashtextextended('native-announcement-audit-pause',0));end if;return new;end;$$;
     create trigger native_announcement_pause_audit before insert on public.audit_events for each row execute function native_announcement_test.pause_audit();`);
   const read = (name) => concurrent(`begin;set local application_name=${quote(name)};select set_config('request.jwt.claims',${quote(jwt)},true);set local role authenticated;
     select 'PAGE='||to_jsonb(page)::text from public.staff_announcement_management_snapshot_v2('${org}'::uuid,'${branch}'::uuid) page;commit;`);
@@ -134,8 +141,39 @@ try {
   denyStale(await revokedPage);
   assert.equal(projectionCount(), originalAudits);
   console.log("Native admission revoked during read: 42501, no data/counts or successful snapshot audit.");
+  sql("update private.executive_access_policy set enabled=true where allowed_user_id='db100000-0000-4000-8000-000000000001';");
+  const businessCounts = () => sql(`select jsonb_build_object('versions',(select count(*) from public.staff_announcement_versions),
+    'operations',(select count(*) from private.staff_announcement_operations),'recipients',(select count(*) from public.staff_announcement_recipients),
+    'reads',(select count(*) from public.staff_announcement_read_receipts))::text;`).trim();
+  const receiptAuditCount = () => sql("select count(*) from public.audit_events where metadata->>'projection'='page68_own_operation_receipt_v1';").trim();
+  const previousCounts = businessCounts();
+  const key = "dbc00000-0000-4000-8000-000000000010";
+  const nonce = "dbd00000-0000-4000-8000-000000000001";
+  const receiptStatement = `select 'RECEIPT='||public.staff_announcement_operation_receipt('${org}'::uuid,'${branch}'::uuid,
+    'draft',${quote(key)}::uuid,${quote(nonce)}::uuid)::text;`;
+  const successfulReceipt = sql(`begin;select set_config('request.jwt.claims',${quote(jwt)},true);set local role authenticated;${receiptStatement}commit;`)
+    .split("\n").find((line) => line.startsWith("RECEIPT="))?.slice(8);
+  assert.ok(successfulReceipt);
+  const receipt = JSON.parse(successfulReceipt);
+  assert.equal(receipt.status, "committed"); assert.equal(receipt.idempotencyKey, key); assert.equal(receipt.nonce, nonce);
+  assert.equal(receipt.persisted, true); assert.equal(receipt.demo, false); assert.equal(receipt.evidence.version, 1);
+  assert.equal(businessCounts(), previousCounts, "Read-only receipt lookup changed a business table");
+  const receiptAudits = receiptAuditCount();
+  const receiptHolder = await hold();
+  const revokedReceipt = concurrent(`begin;set local application_name='native_announcement_receipt_revoked_scope';
+    select set_config('request.jwt.claims',${quote(jwt)},true);set local role authenticated;${receiptStatement}commit;`);
+  try {
+    probes.push({ name: "receipt_admission_revoked_during_audit_wait", waiter: await waitForBlocked("native_announcement_receipt_revoked_scope") });
+    sql("update private.executive_access_policy set enabled=false where allowed_user_id='db100000-0000-4000-8000-000000000001';");
+  } finally { await receiptHolder.release(); }
+  const deniedReceipt = await revokedReceipt;
+  assert.notEqual(deniedReceipt.status, 0);
+  assert.match(deniedReceipt.stderr, /42501.*announcement operation receipt authority expired after audit/s);
+  assert.doesNotMatch(deniedReceipt.stdout, /^RECEIPT=/m);
+  assert.equal(receiptAuditCount(), receiptAudits); assert.equal(businessCounts(), previousCounts);
+  console.log("Native own-operation receipt: exact nonce/key proof, zero business writes; independent post-audit admission revocation denies evidence and audit.");
   sql("drop trigger native_announcement_pause_audit on public.audit_events;drop schema native_announcement_test cascade;");
-  await writeFile(join(runtime, "evidence.json"), JSON.stringify({ engine, compiledMigrations: migrations.length, suiteAssertions: actual, exactSqlCompatibilityTransforms: 0, probes, replacedAuthorizationFunctions: 0, hostedConnections: 0 }, null, 2));
+  await writeFile(join(runtime, "evidence.json"), JSON.stringify({ engine, compiledMigrations: migrations.length, suiteAssertions: actual, receiptSuiteAssertions: receiptActual, exactSqlCompatibilityTransforms: 0, probes, replacedAuthorizationFunctions: 0, hostedConnections: 0 }, null, 2));
   console.log(`Native staff announcements verified; evidence: ${join(runtime, "evidence.json")}.`);
 } catch (error) { testFailure = error; throw error; } finally {
   const cleanupErrors = [];

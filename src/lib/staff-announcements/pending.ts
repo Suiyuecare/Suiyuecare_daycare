@@ -5,8 +5,9 @@ import { z } from "zod";
 import type { TenantContext } from "@/lib/domain/types";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { parseStaffAnnouncementAction, parseStaffAnnouncementApiEnvelope, parseStaffAnnouncementInput, STAFF_ANNOUNCEMENT_MAX_BYTES } from "@/lib/integrations/staff-announcements";
-import { hasPendingOperations, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
 import { installPendingNavigationGuard } from "@/lib/navigation/pending-navigation-guard";
+import { parseStaffAnnouncementReceipt, type StaffAnnouncementReceipt, type StaffAnnouncementReceiptRequest } from "./receipt";
 import type { StaffAnnouncementMutationInput, StaffAnnouncementMutationResult, StaffAnnouncementSnapshot } from "./types";
 
 export type StaffAnnouncementScope = { organizationId: string; branchId: string; userId: string };
@@ -45,13 +46,18 @@ export type StaffAnnouncementOperation = Readonly<{
   privacyEpoch: number; authorityEpoch: number; authoritySignature: string;
 }>;
 export type StaffAnnouncementConfirmed = Readonly<{
-  identity: string; action: StaffAnnouncementMutationInput["action"]; announcementKey: string;
-  versionId: string | null; version: number | null; releaseVersionId: string | null; readAt: string | null;
-  snapshotAt: string; committedAt: string | null; newAnnouncement: boolean;
+  identity: string; action: StaffAnnouncementMutationInput["action"]; idempotencyKey: string; announcementKey: string;
+  versionId: string; version: number; sourceVersionId: string | null; releaseVersionId: string | null; readAt: string | null;
+  snapshotAt: string; committedAt: string | null; newAnnouncement: boolean; verifiedAt: string | null;
+}>;
+export type StaffAnnouncementReceiptCheck = Readonly<{
+  token: symbol; entry: StaffAnnouncementConfirmed; request: Readonly<StaffAnnouncementReceiptRequest>;
+  privacyEpoch: number; authorityEpoch: number; authoritySignature: string;
 }>;
 type Journal = Readonly<{ operation: StaffAnnouncementOperation | null; confirmed: readonly StaffAnnouncementConfirmed[];
+  receiptCheck: StaffAnnouncementReceiptCheck | null;
   navigationBlocked: boolean; privacyEpoch: number; authorityEpoch: number; authoritySignature: string | null }>;
-const EMPTY: Journal = { operation: null, confirmed: [], navigationBlocked: false, privacyEpoch: 0, authorityEpoch: 0, authoritySignature: null };
+const EMPTY: Journal = { operation: null, confirmed: [], receiptCheck: null, navigationBlocked: false, privacyEpoch: 0, authorityEpoch: 0, authoritySignature: null };
 let journal: Journal = EMPTY;
 let release: (() => void) | null = null;
 let removeGuards: (() => void) | null = null;
@@ -68,7 +74,7 @@ export function observeStaffAnnouncementAuthority(signature: string) {
   if (!signature || signature.length > 20_000) throw new Error("INVALID_STAFF_ANNOUNCEMENT_AUTHORITY");
   authorityIdentity(signature);
   if (signature === journal.authoritySignature) return journal.authorityEpoch;
-  journal = { ...journal, authoritySignature: signature, authorityEpoch: journal.authorityEpoch + 1,
+  journal = { ...journal, authoritySignature: signature, authorityEpoch: journal.authorityEpoch + 1, receiptCheck: null,
     operation: journal.operation ? Object.freeze({ ...journal.operation, phase: "unknown" as const,
       everUnknown: true, attempt: Symbol() }) : null };
   emit(); return journal.authorityEpoch;
@@ -95,7 +101,7 @@ export function hasStaffAnnouncementConfirmedTarget(scope: StaffAnnouncementScop
  * automated retries, offline queue or data-bearing shared navigation state. */
 export function beginStaffAnnouncement(scope: StaffAnnouncementScope, demo: boolean, value: StaffAnnouncementMutationInput,
   snapshotAt: string, target?: StaffAnnouncementTarget): StaffAnnouncementOperation | null {
-  if (demo || journal.operation || journal.confirmed.length >= 32 || hasPendingOperations() || !journal.authoritySignature) return null;
+  if (demo || journal.operation || journal.receiptCheck || journal.confirmed.length >= 32 || hasPendingOperations() || !journal.authoritySignature) return null;
   const normalizedScope = scopeSchema.parse(scope);
   const identity = staffAnnouncementScopeIdentity(normalizedScope, demo);
   if (identity !== authorityIdentity(journal.authoritySignature)) return null;
@@ -139,7 +145,7 @@ export function beginStaffAnnouncement(scope: StaffAnnouncementScope, demo: bool
 }
 export function retryStaffAnnouncement(token: symbol, scope: StaffAnnouncementScope, demo: boolean): StaffAnnouncementOperation | null {
   const current = journal.operation;
-  if (!current || current.token !== token || current.phase !== "unknown" || demo || !journal.authoritySignature ||
+  if (!current || current.token !== token || current.phase !== "unknown" || demo || journal.receiptCheck || !journal.authoritySignature ||
     current.identity !== staffAnnouncementScopeIdentity(scope, demo) || current.identity !== authorityIdentity(journal.authoritySignature)) return null;
   const operation = Object.freeze({ ...current, phase: "sending" as const, attempt: Symbol(),
     authorityEpoch: journal.authorityEpoch, authoritySignature: journal.authoritySignature, privacyEpoch: journal.privacyEpoch });
@@ -167,17 +173,68 @@ export function settleStaffAnnouncement(operation: StaffAnnouncementOperation,
       (receipt.action === "withdraw" && (receipt.versionId === receipt.previousVersionId || receipt.versionId === receipt.releaseVersionId))) {
       throw new Error("INVALID_STAFF_ANNOUNCEMENT_RECEIPT_BINDING");
     }
-    confirmed = Object.freeze({ identity: current.identity, action: receipt.action, announcementKey: receipt.announcementKey,
-      versionId: receipt.action === "read" ? null : receipt.versionId, version: receipt.action === "read" ? null : receipt.version,
+    confirmed = Object.freeze({ identity: current.identity, action: receipt.action, idempotencyKey: current.input.idempotencyKey, announcementKey: receipt.announcementKey,
+      versionId: receipt.action === "read" ? target!.versionId : receipt.versionId, version: receipt.action === "read" ? target!.version : receipt.version,
+      sourceVersionId: current.input.action === "draft" ? current.input.previousVersionId
+        : current.input.action === "publish" ? current.input.draftVersionId
+          : current.input.action === "withdraw" ? current.input.expectedLatestVersionId : current.input.releaseVersionId,
       releaseVersionId: receipt.action === "read" || receipt.action === "withdraw" ? receipt.releaseVersionId
         : receipt.action === "publish" ? receipt.versionId : null,
       readAt: receipt.action === "read" ? receipt.readAt : null, snapshotAt: current.snapshotAt,
       committedAt: receipt.action === "read" ? receipt.readAt : receipt.action === "withdraw" ? receipt.withdrawnAt : null,
-      newAnnouncement: current.input.action === "draft" && current.input.previousVersionId === null });
+      newAnnouncement: current.input.action === "draft" && current.input.previousVersionId === null, verifiedAt: null });
   }
   journal = { ...journal, operation: null, navigationBlocked: false,
     confirmed: confirmed ? [...journal.confirmed, confirmed] : journal.confirmed };
   unlock(); emit(); return true;
+}
+
+/** R1 checks only a known successful write. It never replays a mutation, clears
+ * an unknown write, removes a source guard, or bypasses the 32-marker bound. */
+export function beginStaffAnnouncementReceiptCheck(entry: StaffAnnouncementConfirmed, scope: StaffAnnouncementScope,
+  demo: boolean, nonce: string): StaffAnnouncementReceiptCheck | null {
+  if (demo || journal.operation || journal.receiptCheck || hasPendingOperations() || hasViewTransition() ||
+    !journal.authoritySignature || !journal.confirmed.includes(entry) || entry.verifiedAt !== null) return null;
+  const normalizedScope = scopeSchema.parse(scope); const identity = staffAnnouncementScopeIdentity(normalizedScope, false);
+  if (entry.identity !== identity || identity !== authorityIdentity(journal.authoritySignature)) return null;
+  const request = Object.freeze({ ...normalizedScope, action: entry.action, idempotencyKey: entry.idempotencyKey, nonce: uuid.parse(nonce) });
+  const check = Object.freeze({ token: Symbol(), entry, request, privacyEpoch: journal.privacyEpoch,
+    authorityEpoch: journal.authorityEpoch, authoritySignature: journal.authoritySignature });
+  journal = { ...journal, receiptCheck: check };
+  try { emit(); return journal.receiptCheck?.token === check.token ? check : null; }
+  catch (error) {
+    if (journal.receiptCheck?.token === check.token) journal = { ...journal, receiptCheck: null };
+    throw error;
+  }
+}
+function currentReceiptCheck(check: StaffAnnouncementReceiptCheck) {
+  return journal.receiptCheck === check && check.privacyEpoch === journal.privacyEpoch &&
+    check.authorityEpoch === journal.authorityEpoch && check.authoritySignature === journal.authoritySignature &&
+    check.entry.identity === authorityIdentity(journal.authoritySignature);
+}
+export function failStaffAnnouncementReceiptCheck(check: StaffAnnouncementReceiptCheck) {
+  if (!currentReceiptCheck(check)) return false;
+  journal = { ...journal, receiptCheck: null }; emit(); return true;
+}
+export function settleStaffAnnouncementReceiptCheck(check: StaffAnnouncementReceiptCheck, value: StaffAnnouncementReceipt) {
+  if (!currentReceiptCheck(check)) return false;
+  const proof = parseStaffAnnouncementReceipt(value, check.request);
+  if (proof.status === "committed") {
+    const entry = check.entry; const evidence = proof.evidence;
+    if (evidence.announcementKey !== entry.announcementKey || evidence.versionId !== entry.versionId ||
+      evidence.version !== entry.version || evidence.sourceVersionId !== entry.sourceVersionId ||
+      evidence.releaseVersionId !== entry.releaseVersionId ||
+      entry.action === "read" && evidence.effectiveAt !== entry.readAt ||
+      entry.action === "withdraw" && evidence.effectiveAt !== entry.committedAt) {
+      throw new Error("INVALID_STAFF_ANNOUNCEMENT_RECEIPT_BINDING");
+    }
+    // Snapshot reconciliation may already have removed this exact marker. Do
+    // not recreate it, or write verification onto a replacement marker.
+    if (!journal.confirmed.includes(entry)) return failStaffAnnouncementReceiptCheck(check);
+    journal = { ...journal, receiptCheck: null, confirmed: journal.confirmed.map((candidate) => candidate === entry
+      ? Object.freeze({ ...candidate, verifiedAt: proof.verifiedAt }) : candidate) };
+  } else journal = { ...journal, receiptCheck: null };
+  emit(); return true;
 }
 /** A live page is not a complete dataset. Absence, a queued refresh and browser
  * ACK time prove nothing. Only returned same-chain positive evidence clears. */

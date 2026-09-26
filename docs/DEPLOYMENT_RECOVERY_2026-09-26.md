@@ -99,3 +99,19 @@
 - sharedDialog32項與公告focused11檔196項通過，strict公告／sharedUI配置0findings。既有axe數字不冒充本輪新檢查；人工WCAG完整驗收仍未完成。
 
 精確內容與限制見[公告操作驗證](ANNOUNCEMENT_WRITE_READINESS_2026-09-26.md)。歷史release已讀正向回查、篩選外新公告定位、32筆待回查上限及完整重載復原仍須完成；全89頁、官方表單／申報、CMS封存掃毒、Finance真正同店資料、家屬、正式災難復原、真員工與團隊發布授權等門檻没有因本切片通過而解除。原始本輪證據前綴為`announcement-write-`，保留在同一私有驗證目錄；無GitHub push、公開預覽、Vercel promotion、hosted DDL或新增費用。
+
+## 後續R1：精確原成功操作的只讀保存查證
+
+以上139份／九份未套用是前一輪狀態。本機R1新增CLI產生的`20260926105727_staff_announcement_operation_receipt.sql`，目前140份migration；hosted仍僅有前次唯讀130份的證據，**沒有本輪雲端重新核對或套用**。若仍130份，候選增量為10份，不冒稱正式環境已升版。
+
+新增本人原鍵GET回查，嚴格核對機構／分支／actor／action／nonce／原來源與結果，不回公告內容或受眾。歷史已讀已被新版取代、撤回，或新草稿不在當頁，都能獨立查證其原成功操作。保留原權限／近期AAL2與原驗證證據，查閱前後均重驗；只有select稽核，不新增公告、讀回條、受眾或操作帳本。
+
+R1只標保存查證，不拿它假稱最新清單已更新；舊來源防護及32上限保留。未知寫入唯讀查證、最新同鏈來源定位／guard安全完成、完整重載durable intent仍未完成。手機實測發現查證按鈕消失的焦點問題後繼續修正並重跑，沒有為了發布略過。
+
+安全顧問單次本機嘗試因Supabase CLI將Unix socket URL誤解為資料庫名稱而回3D000，沒有執行任何advisor檢查；**不**稱零警告或安全顧問通過。此前該隔離PostgreSQL17.11已編譯140份migration；本輪精確權限／撤權測試不替代顧問或正式ASVS／滲透測試。失敗資料、stdout／stderr與證據保留於`/tmp/daycare-announcement-advisors-native.8kx7QB`，程序已停止，無hosted連線。
+
+其後只另試一次不同的127.0.0.1 TCP機制，先以socket及TCP核對同一隨機DB、PID、埠與唯一sentinel；140份migration編譯成功，但CLI仍強制TLS而被隔離DB拒絕。沒有advisor findings或JSON結果，不稱安全檢查通過。證據保留於`/tmp/daycare-announcement-advisors-tcp.RFQ9Wb/evidence.json`；程序已停止，沒有再試、修改正式設定或讀取憑證檔。
+
+R1焦點／token最後凍結後全量Vitest **497檔／6,662項，180.09秒，全通過無略過**；ESLint、TypeScript、隔離production build及公告／共享UI premium strict通過。140份migration的portable **130套／6,055項**（93 legacy／37 enforced）及native **11／11套**通過；公告68項原套件、54項新receipt套件、3個真正backend撤權／資料變動探測均有原始證據。Chrome手機390×844無水平溢位，原查證成功焦點回具名section但不搶別的link；not_found／錯nonce／403／權限ABA晚回覆不假成功。同一成功原鍵5個手動GET／5個nonce只查證不重寫，未知操作仍原key／body人工POST重試。詳見[公告R1凍結驗證](ANNOUNCEMENT_WRITE_READINESS_2026-09-26.md)；未做本頁axe或人工WCAG、不證明hosted登入／RLS／通知／RSC或災難復原。
+
+原始證據前綴`announcement-receipt-`在同一私有驗證目錄；正式登入、hosted RPC、通知、全89頁及所有[正式上線門檻](PRODUCTION_GATES.md)未因本機切片通過解除。仍未GitHub push、公開預覽或Vercel promotion，無雲端DDL及新增費用。
