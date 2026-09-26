@@ -35,6 +35,16 @@ describe("payload-free shared pending navigation owner", () => {
     expect(click(link("/app/clients")).defaultPrevented).toBe(false);
     expect(click(link("/app/clients", { target: "" })).defaultPrevented).toBe(true);
   });
+  it("protects named link and form targets that identify the current tab", () => {
+    const previousName = window.name; window.name = "synthetic-current-tab";
+    try {
+      guard(); expect(click(link("/app/clients", { target: window.name })).defaultPrevented).toBe(true);
+      const form = document.createElement("form"); form.action = "/app/clients"; form.target = window.name;
+      document.body.append(form);
+      const event = new SubmitEvent("submit", { bubbles: true, cancelable: true }); form.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    } finally { window.name = previousName; }
+  });
   it("handles submitter method, target and destination overrides", () => {
     guard(); const form = document.createElement("form"); form.action = "/app/clients"; form.target = "_blank";
     const button = document.createElement("button"); button.setAttribute("formtarget", ""); button.setAttribute("formaction", "https://finance.example.com/");

@@ -8,6 +8,8 @@
 
 最新恢復來源、重新執行的工程／Chrome 證據與限制，以 [部署候選恢復與前台安全補強](DEPLOYMENT_RECOVERY_2026-09-26.md) 為準。本文件下方各輪的凍結測試數字均保留為**當時來源的歷史結果**，不是後續全部修改的最新通過證明。主機重新啟動後舊 `/private/tmp` checkout、runtime 及暫存證據已不存在；不能沿用舊路徑宣稱當前已驗收。
 
+負責人可先看較短的 [正式部署剩餘工作與驗收](FORMAL_DEPLOYMENT_CHECKLIST_2026-09-26.md)。第二輪已修正人工觀察未保存確認、共用分支確認、ADL／IADL不適用狀態與理由，以及量表16px輸入；仍未發布，不能替代完整官方表單、真人規則核准、hosted登入／Finance／備份或營運驗收。
+
 - **資料庫：** 本機候選為 138 份 migration；本次新鮮唯讀核對 hosted 仍為 130 份，最新為 `20260925141114_governed_questionnaire_drafts`。八份增量尚未套用。現有 Supabase 專案為 ACTIVE_HEALTHY，區域仍是 Seoul（`ap-northeast-2`），不是既定的 Tokyo（`ap-northeast-1`）。
 - **發布連線：** Vercel 指定專案 `prj_eiwNI6buPlPXynMCWhatuzqxD74H`／團隊 `entrepreneur-9585s-projects` 的本次實際查詢回 403，團隊清單為空；現有連線沒有該團隊範圍授權，不代表專案不存在。無法核對 production branch、預覽保護與當前方案，因此未盲目推送分支或發布。沒有使用先前曝光的 Token。
 - **店務摘要：** 本機候選已新增每 55 秒、前景／有連線／非展示／沒有其他作業鎖時的只讀 GET 刷新；無新來源最多兩次重試，再轉人工。只依實際來源時間判定新鮮度，不把刷新呼叫當作讀取完成。尚未部署，且正式 Finance gateway、同店映射及真實金額對帳仍未通過；不得稱為兩套正式系統已即時相通。

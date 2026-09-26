@@ -36,6 +36,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
 import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { clearUnsavedChangesOnLogout, requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavigationLink } from "./navigation-link";
 
@@ -194,6 +195,9 @@ export function AppShell({
 
   async function logout() {
     if (logoutRunning.current) return;
+    // Privacy cleanup is unconditional; an unsent editor must never prevent
+    // logout or run an old navigation callback after a different actor signs in.
+    clearUnsavedChangesOnLogout();
     clearClaimValidationPendingOnLogout();
     clearBodyAssessmentPendingOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
@@ -228,6 +232,7 @@ export function AppShell({
 
   function refreshCurrentPage() {
     if (hasPendingOperations()) return;
+    if (requestUnsavedExit(refreshCurrentPage)) return;
     const release = tryAcquireViewTransition();
     if (!release) return;
     refreshLease.current = release;
@@ -273,7 +278,8 @@ export function AppShell({
           </button>
         </div>
         <div className="sidebar__branch">
-          <BranchSwitcher compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
+          <BranchSwitcher key={JSON.stringify([context.organizationId, context.branchId, context.userId, context.demo,
+            [...context.roles].sort(), [...context.scopes].sort()])} compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
             readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
         </div>
         <nav className="sidebar__nav">

@@ -8,6 +8,7 @@ export type GovernanceDialogProps = {
   title: string;
   children: ReactNode;
   busy?: boolean;
+  cancelLabel?: string;
   onRequestClose: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
 };
@@ -23,6 +24,7 @@ export function GovernanceDialog({
   title,
   children,
   busy = false,
+  cancelLabel = "取消",
   onRequestClose,
   returnFocusRef,
 }: GovernanceDialogProps) {
@@ -113,7 +115,7 @@ export function GovernanceDialog({
         <header className="drawer__header">
           <h2 id={titleId} ref={titleRef} tabIndex={-1}>{title}</h2>
           <button className="button button--secondary" disabled={busy} onClick={requestClose}
-            ref={cancelRef} type="button">取消</button>
+            ref={cancelRef} type="button">{cancelLabel}</button>
         </header>
         <div className="drawer__body core-dialog__body">{children}</div>
       </div>

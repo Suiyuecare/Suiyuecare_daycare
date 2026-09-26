@@ -8,11 +8,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argumentsToParse = process.argv.slice(2);
-if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && argumentsToParse[0] !== "--body") {
-  throw new Error("Only the optional --body synthetic fixture is accepted.");
+if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire"].includes(argumentsToParse[0])) {
+  throw new Error("Only the optional --body or --questionnaire synthetic fixture is accepted.");
 }
 const bodyFixture = argumentsToParse[0] === "--body";
-const route = bodyFixture ? "/app/staff/assessments/physical" : "/app/staff/service-management/claims";
+const questionnaireFixture = argumentsToParse[0] === "--questionnaire";
+const route = bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture ? "/app/staff/assessments/barthel-adl" : "/app/staff/service-management/claims";
 const require = createRequire(import.meta.url);
 const vitePath = require.resolve("vite", { paths: [dirname(require.resolve("vitest/package.json"))] });
 const tailwindPath = require.resolve("@tailwindcss/postcss");
@@ -34,7 +35,7 @@ const stubs = {
 await build({ root: repo, configFile: false, envFile: false, logLevel: "error", plugins: [stubs],
   resolve: { alias: { "@": resolve(repo, "src") } },
   define: { "process.env": "{}", "process.env.NODE_ENV": JSON.stringify("production") }, build: { outDir: runtime, emptyOutDir: false, minify: false,
-    target: "es2022", lib: { entry: resolve(repo, bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
+    target: "es2022", lib: { entry: resolve(repo, bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
       name: "SyntheticClaims", formats: ["iife"], fileName: () => "fixture.js" } } });
 const css = await postcss([tailwind({ base: repo })]).process(await readFile(resolve(repo, "src/app/globals.css"), "utf8"),
   { from: resolve(repo, "src/app/globals.css") });
@@ -47,7 +48,7 @@ files["/suiyue-logo-transparent.png"] = [resolve(repo, "public/suiyue-logo-trans
 const bundled = (await import("node:fs/promises")).readdir;
 const cssFiles = (await bundled(runtime)).filter((name) => name.endsWith(".css") && name !== "global.css");
 for (const name of cssFiles) files[`/${name}`] = [resolve(runtime, name), "text/css"];
-const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LOCAL SYNTHETIC · ${bodyFixture ? "身體評估" : "申報"}安全重試</title><link rel="stylesheet" href="/global.css">${cssFiles.map((name) => `<link rel="stylesheet" href="/${name}">`).join("")}</head><body><div id="fixture-root"></div><script src="/fixture.js" defer></script></body></html>`;
+const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LOCAL SYNTHETIC · ${bodyFixture ? "身體評估" : questionnaireFixture ? "量表答案狀態" : "申報"}安全重試</title><link rel="stylesheet" href="/global.css">${cssFiles.map((name) => `<link rel="stylesheet" href="/${name}">`).join("")}</head><body><div id="fixture-root"></div><script src="/fixture.js" defer></script></body></html>`;
 const server = createServer(async (request, response) => {
   const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
   response.setHeader("Cache-Control", "private, no-store"); response.setHeader("X-Content-Type-Options", "nosniff");
@@ -59,6 +60,8 @@ const server = createServer(async (request, response) => {
 });
 await new Promise((done, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", done); });
 console.log(JSON.stringify({ syntheticOnly: true, url: `http://127.0.0.1:${server.address().port}/`, runtime,
-  scope: "Actual AppShell/composer/shared modal/CSS, synthetic fetch/router; not real Auth, routing or SQL evidence." }));
+  scope: questionnaireFixture
+    ? "Actual AppShell/questionnaire editor/CSS, fixed synthetic N/A draft and fetch/router; not real Auth, persistence, scoring activation or SQL evidence."
+    : "Actual AppShell/composer/shared modal/CSS, synthetic fetch/router; not real Auth, routing or SQL evidence." }));
 function stop() { server.close(); server.closeAllConnections(); process.exitCode = 0; }
 process.once("SIGINT", stop); process.once("SIGTERM", stop);

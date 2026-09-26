@@ -32,5 +32,8 @@ export function questionnairePreview(form: QuestionnaireFormDefinition, answers:
   const scoringContext: Record<string, string> = form.key === "spmsq" && context.education_adjustment ? { education_adjustment: context.education_adjustment } : {};
   const result = scoreAssessment({ versionId: form.scoreVersionId, answers: answers as AssessmentAnswers, context: scoringContext });
   const measurementIssue = form.key === "mna_sf" ? mnaMeasurementIssue(answers, context) : null;
-  return { result: measurementIssue ? { ...result, status: "incomplete" as const, score: null, classification: null } : result, measurementIssue };
+  // A measurement failure suppresses totals but must not downgrade invalid answers.
+  return { result: measurementIssue ? { ...result,
+    status: result.status === "invalid" ? "invalid" as const : "incomplete" as const,
+    score: null, classification: null } : result, measurementIssue };
 }

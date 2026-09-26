@@ -14,6 +14,8 @@ vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({
 vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
 import { AppShell } from "./app-shell";
 import { useCoreDraftGuard } from "@/components/core-care/client-continuation";
+import { registerUnsavedChangesOwner } from "@/lib/navigation/unsaved-changes";
+const unregisterOwners: (() => void)[] = [];
 const actor: TenantContext = { organizationId: "synthetic", branchId: "synthetic", userId: "synthetic", organizationName: "synthetic", branchName: "synthetic", displayName: "合成員工姓名", roles: ["care_worker"], scopes: [], assuranceLevel: "aal2", recentAal2At: null, demo: false };
 beforeEach(() => {
   mocks.pathname = "/app/staff/workspace/dashboard";
@@ -21,8 +23,31 @@ beforeEach(() => {
   mocks.fetch.mockResolvedValue(Response.json({ status: "ok", data: { cleared: true } }));
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
 });
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("staff shell logout privacy", () => {
+  it("waits for explicit editor discard before header refresh", async () => {
+    let dirty = true; let proceed: (() => void) | null = null;
+    unregisterOwners.push(registerUnsavedChangesOwner({ isDirty: () => dirty,
+      requestDiscard: (action) => { proceed = action; }, onInvalidate: () => {} }));
+    render(<AppShell context={actor} navigation={[]}><p>合成未保存編輯</p></AppShell>);
+    fireEvent.click(screen.getByRole("button", { name: "重新整理" }));
+    expect(mocks.refresh).not.toHaveBeenCalled(); expect(proceed).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "重新整理" }));
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    dirty = false; proceed!();
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  });
+  it("invalidates unsent editors before journal, cache and authentication cleanup, without asking", async () => {
+    const invalidate = vi.fn(); const requestDiscard = vi.fn();
+    unregisterOwners.push(registerUnsavedChangesOwner({ isDirty: () => true, requestDiscard, onInvalidate: invalidate }));
+    render(<AppShell context={actor} navigation={[]}><p>合成未保存編輯</p></AppShell>);
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(invalidate).toHaveBeenCalledOnce(); expect(requestDiscard).not.toHaveBeenCalled();
+    expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingBody.mock.invocationCallOrder[0]);
+    expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(mocks.pendingClaims.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+    expect(screen.queryByText("合成未保存編輯")).not.toBeInTheDocument();
+  });
   it("returns to the fixed company portal without forwarding identity or request context", () => {
     render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
     const links = screen.getAllByRole("link", { name: "回模組頁" });

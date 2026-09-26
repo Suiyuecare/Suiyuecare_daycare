@@ -88,7 +88,11 @@ pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後
 
 高風險確認視窗的主要按鈕使用既有 `--brand-strong` 配白字，以符合一般文字 AA 對比；只限 `.core-dialog`，不更改 Finance header／sidebar 的既有 token、位置或圓角。此具名無障礙例外來自 Chrome／axe 實測，而非另一套品牌配色。
 
+取消／繼續填寫使用既有 secondary，捨棄未保存內容使用 danger-soft／danger。由 `.core-dialog` 統一擁有語意樣式，不能被工作區的泛用 button 規則改成主要橘色。視窗標題列的取消按鈕不收縮、不拆字；390px 仍須至少 44px 高度並可見。身體觀察的離頁與分支切換確認沿用同一 owner，前一視窗關閉後才開下一個，不疊加兩層確認。
+
 圖示沿用 lucide-react，decorative 圖示 aria-hidden。新區段不另加進場動畫；共同 reduced-motion 保護與 focus-visible 生效。捲軸為全域 application 基線，幾何可局部穩定 gutter，不使用 opt-in class 才有色彩。
+
+題目式量表的 ADL／IADL 草稿狀態修正延用原題卡、radio與 notes 欄位，不增加另一種 frame。不適用原因與日期／測量／條件輸入由既有 questionnaire module 統一16px，避免繼承 compact label 的14.4px；標籤、卡片、Finance header／sidebar不改。狀態使用短文字而非只靠顏色，欄位錯誤可讀且關聯輸入，readonly保留原內容。
 
 ## Do's and Don'ts
 

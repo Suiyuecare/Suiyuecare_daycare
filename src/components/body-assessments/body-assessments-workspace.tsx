@@ -8,6 +8,7 @@ import { bodyObservationsReady, parseBodyAssessmentMutation, parseBodyAssessment
 import { BODY_AREAS, BODY_AREA_LABELS, BODY_OBSERVATION_STATES, BODY_STATE_LABELS,
   type BodyAssessmentRecord, type BodyAssessmentSnapshot, type BodyAssessmentVersion } from "@/lib/body-assessments/types";
 import { GovernanceDialog } from "@/components/ui/governance-dialog";
+import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { formatBodyAssessmentTime as time } from "@/lib/body-assessments/display-time";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition,
@@ -29,9 +30,13 @@ function Observations({ version }: { version: Pick<BodyAssessmentVersion, "obser
 }
 type EditorRow = { area: string; state: string; description: string; reason: string; disposition: string };
 type Editor = { record: BodyAssessmentRecord | null; clientId: string; observedAt: string; rows: EditorRow[]; reason: string; snapshotAt: string };
+function editorValues(editor: Editor) {
+  return JSON.stringify([editor.clientId, editor.observedAt, editor.rows, editor.reason]);
+}
 type Props = { page: PageCatalogEntry; snapshot: BodyAssessmentSnapshot; canManage: boolean; canSign: boolean; actorUserId: string };
 export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, actorUserId }: Props) {
   const router = useRouter(); const [editor, setEditor] = useState<Editor | null>(null);
+  const [editorBaseline, setEditorBaseline] = useState<string | null>(null);
   const [message, setMessage] = useState(""); const [receipt, setReceipt] = useState("");
   const [invalidSnapshot, setInvalidSnapshot] = useState<string | null>(null);
   const [expired, setExpired] = useState(false); const [signTarget, setSignTarget] = useState<string | null>(null);
@@ -54,7 +59,7 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
     if (context.current.fingerprint !== fingerprint || context.current.privacyEpoch !== journal.privacyEpoch) {
       context.current = { fingerprint, epoch: context.current.epoch + 1, privacyEpoch: journal.privacyEpoch };
       composing.current = false;
-      setEditor(null); setSignTarget(null); setCorrection(null); setMessage(""); setReceipt(""); setInvalidSnapshot(null);
+      setEditor(null); setEditorBaseline(null); setSignTarget(null); setCorrection(null); setMessage(""); setReceipt(""); setInvalidSnapshot(null);
     }
   }, [fingerprint, journal.privacyEpoch]);
   useEffect(() => { mounted.current = true; return () => {
@@ -77,12 +82,21 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
   const retryAllowed = !!ownOperation && uncertain && !snapshot.demo && !incomplete && !viewPending && !reading &&
     assignedClients.has(ownOperation.input.payload.client_id.toLowerCase()) &&
     (ownOperation.input.payload.action === "sign" || ownOperation.input.payload.action === "correct" ? canSign : canManage);
-  function requestRead() {
+  function closeEditor() { composing.current = false; setEditor(null); setEditorBaseline(null); }
+  const draftGuard = useUnsavedChanges({ dirty: !!editor && editorValues(editor) !== editorBaseline,
+    scopeKey: JSON.stringify([fingerprint, journal.privacyEpoch]), revisionKey: snapshot.generatedAt,
+    canPrompt: !signTarget && !correction && !operationPending && !viewPending && !reading,
+    permittedFormAttribute: "data-body-assessment-form", onDiscard: closeEditor });
+  function performRead() {
     if (hasPendingOperations() || hasViewTransition() || reading) return;
     const lease = tryAcquireViewTransition(); if (!lease) return;
     readLease.current = lease; setReadEpoch((value) => value + 1);
     startRead(() => { try { return router.refresh(); }
       catch { lease(); readLease.current = null; setMessage("已保存，但清單尚未更新；請重新載入核對，不要再次送出。"); } });
+  }
+  function requestRead() {
+    if (hasPendingOperations() || hasViewTransition() || reading) return;
+    draftGuard.requestExit(performRead);
   }
   function prepareQuery(event: FormEvent<HTMLFormElement>) {
     if (hasPendingOperations() || hasViewTransition()) { event.preventDefault(); return; }
@@ -92,10 +106,13 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
   }
   function openEditor(record: BodyAssessmentRecord | null) {
     if (blocked || (record && !assignedClients.has(record.client_id.toLowerCase())) || (record && record.record_state !== "draft" ? !canSign : !canManage)) return;
-    composing.current = false;
-    setMessage(""); setSignTarget(null);
-    setEditor({ record, snapshotAt: snapshot.generatedAt, clientId: record?.client_id ?? snapshot.filters.clientId ?? "", observedAt: record ? localTime(record.observed_at) : "",
-      rows: record?.observations.map((o) => ({ area: o.area, state: o.state, description: o.description ?? "", reason: o.reason ?? "", disposition: o.disposition ?? "" })) ?? [], reason: "" });
+    draftGuard.requestExit(() => {
+      composing.current = false;
+      setMessage(""); setSignTarget(null);
+      const next = { record, snapshotAt: snapshot.generatedAt, clientId: record?.client_id ?? snapshot.filters.clientId ?? "", observedAt: record ? localTime(record.observed_at) : "",
+        rows: record?.observations.map((o) => ({ area: o.area, state: o.state, description: o.description ?? "", reason: o.reason ?? "", disposition: o.disposition ?? "" })) ?? [], reason: "" };
+      setEditorBaseline(editorValues(next)); setEditor(next);
+    });
   }
   function updateRow(index: number, patch: Partial<EditorRow>) {
     setEditor((current) => current ? { ...current, rows: current.rows.map((r, i) => i === index ? { ...r, ...patch } : r) } : null);
@@ -141,7 +158,7 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
       const confirmed = parseBodyAssessmentSuccess(envelope, attempt.input, attempt.scope, response.status);
       if (!settleBodyAssessment(attempt, confirmed)) return;
       setReceipt(`已保存第 ${confirmed.version} 版（${stateLabel[confirmed.record_state]}）`);
-      setEditor(null); setSignTarget(null); setCorrection(null); requestRead();
+      closeEditor(); setSignTarget(null); setCorrection(null); performRead();
     } catch {
       const current = isCurrent(attempt, epoch); settleBodyAssessment(attempt, "unknown");
       if (current) setMessage("結果尚未確認。已保留本次內容與操作鍵，請按「重試相同操作」核對，避免另建重複紀錄。");
@@ -213,6 +230,7 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
         <button type="submit" disabled={operationPending || viewPending || reading}>查看已保存紀錄</button>
       </form></div> : <p role="status">已保存紀錄的個案權限已變更；此處不顯示原個案識別，請恢復權限後核對原回執。</p>)}
     {receipt && <p role="status">{receipt}</p>}
+    {draftGuard.notice && <p role="alert">{draftGuard.notice}</p>}
     {editor && <form aria-label="身體評估編輯" className={styles.editor} data-body-assessment-form noValidate ref={editorForm}
       onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
       onKeyDown={(event) => { if (event.key === "Enter" && (event.nativeEvent.isComposing || composing.current)) event.preventDefault(); }}
@@ -235,7 +253,7 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
         <button type="button" disabled={editor.rows.length >= BODY_AREAS.length} onClick={() => setEditor({ ...editor, rows: [...editor.rows, { area: "", state: "", description: "", reason: "", disposition: "" }] })}>加入觀察部位</button>
         <label>{editor.record?.record_state !== "draft" && editor.record ? "更正理由（至少 8 字）" : "建立／修訂理由"}<textarea className="resize-none" required maxLength={1000} value={editor.reason} onChange={(e) => setEditor({ ...editor, reason: e.target.value })} /></label>
         <div className={styles.actions}><button type="submit" ref={confirmationTrigger}>{editor.record && editor.record.record_state !== "draft" ? "確認內容並簽署更正版" : "保存草稿"}</button>
-          <button type="button" onClick={() => { composing.current = false; setEditor(null); }}>取消編輯</button></div></fieldset>
+          <button type="button" onClick={() => draftGuard.requestExit(closeEditor)}>取消編輯</button></div></fieldset>
       {editor.record && editor.record.record_state !== "draft" && <p>更正會保留前版與本次理由；需最近 15 分鐘內完成雙因素驗證。</p>}
     </form>}
     {snapshot.records.length === 0 && <p className={styles.empty}>目前查詢範圍尚無身體評估紀錄。</p>}
@@ -248,8 +266,8 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
         <button type="button" disabled={blocked || record.historyTruncated || (record.record_state === "draft" ? !canManage : !canSign)} onClick={() => openEditor(record)}>{record.record_state === "draft" ? "修訂草稿" : "建立更正版"}</button>
         {record.record_state === "draft" && <button type="button" disabled={blocked || !canSign || record.historyTruncated || !bodyObservationsReady(record.observations)} onClick={(event) => {
           if (blocked || !canSign) return;
-          composing.current = false;
-          confirmationTrigger.current = event.currentTarget; setEditor(null); setSignTarget(record.version_id);
+          const trigger = event.currentTarget;
+          draftGuard.requestExit(() => { closeEditor(); confirmationTrigger.current = trigger; setSignTarget(record.version_id); });
         }}>核對並簽署</button>}
       </div>
       {record.record_state === "draft" && !bodyObservationsReady(record.observations) && <p>異常描述或人工處置待補，尚不能簽署。</p>}
@@ -262,6 +280,15 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
           <p className={styles.hash}>內容雜湊：{version.content_hash}</p></section>)}
       </details>
     </article>)}
+    {draftGuard.open && <GovernanceDialog open title="捨棄尚未保存的填寫？" cancelLabel="繼續填寫"
+      returnFocusRef={draftGuard.returnFocusRef} onRequestClose={draftGuard.cancel}>
+      <div onCompositionStart={draftGuard.compositionStart} onCompositionEnd={draftGuard.compositionEnd}
+        onKeyDown={(event) => { if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault(); }}>
+        <p>本次輸入尚未保存。捨棄後無法還原，不會刪除已保存的紀錄。</p>
+        {draftGuard.notice && <p role="alert">{draftGuard.notice}</p>}
+        <button className="button button--danger" type="button" onClick={draftGuard.confirmDiscard}>捨棄填寫並繼續</button>
+      </div>
+    </GovernanceDialog>}
     {(signingRecord || correction) && <GovernanceDialog open title={correction ? "確認身體評估更正簽署" : "確認身體評估簽署"}
       busy={busy || uncertain} returnFocusRef={confirmationTrigger} onRequestClose={() => { setSignTarget(null); setCorrection(null); }}>
       <p>簽署會固定本次部位、觀察及處置並保留原版；仍須最近 15 分鐘內完成雙因素驗證。</p>

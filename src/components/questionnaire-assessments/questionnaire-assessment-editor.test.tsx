@@ -38,6 +38,16 @@ const workspace = (snapshot = defaultSnapshot(), canManage = true, selectedForm 
   form={selectedForm} loadError={false} pageTitle={selectedForm.title} selectedClientId={clientId} snapshot={snapshot} />);
 const button = (name: string) => screen.getByRole("button", { name });
 const posts = () => stubs.fetch.mock.calls.filter(([, init]) => init?.method === "POST");
+const functionalForms = [QUESTIONNAIRE_FORMS.barthel_adl, QUESTIONNAIRE_FORMS.lawton_iadl];
+const functionalSnapshot = (selectedForm = functionalForms[0]!, reason = "合成個案本次無法適用此項") => {
+  const responses = Object.fromEntries(selectedForm.questions.map(({ id, choices }, index) => [id,
+    index === 0 ? { state: "answered", value: choices[0]!.value } : index === 1 ? { state: "not_applicable", reason } : { state: "missing" },
+  ])) as QuestionnaireAnswers;
+  const latest = { ...draft(), formVersion: selectedForm.version, answers: responses, context: {} };
+  return { ...defaultSnapshot(), formKey: selectedForm.key,
+    clients: [{ ...defaultSnapshot().clients[0]!, latest, assessments: [{ ...latest, assessmentCreatedAt: stamp }], assessmentTotal: 1 }] } satisfies QuestionnaireSnapshot;
+};
+const questionCard = (number: number) => within(screen.getByRole("radiogroup", { name: `第 ${number} 題` }).closest("section")!);
 
 describe("questionnaire independent drafts and version browsing", () => {
   beforeEach(() => { vi.clearAllMocks(); stubs.acquire.mockReturnValue(stubs.release); vi.spyOn(window, "confirm").mockReturnValue(false); });
@@ -50,6 +60,158 @@ describe("questionnaire independent drafts and version browsing", () => {
     expect(screen.getAllByRole("radiogroup")).toHaveLength(selectedForm.questions.length);
     expect(screen.getByText("僅供草稿核對，正式計分尚未啟用")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /簽署/ })).toBeNull();
+  });
+
+  it.each(functionalForms)("visibly distinguishes saved answered, N/A with reason and missing states in $key", (selectedForm) => {
+    workspace(functionalSnapshot(selectedForm), true, selectedForm);
+    expect(questionCard(1).getByText("已作答")).toBeVisible();
+    expect(questionCard(1).getByLabelText(selectedForm.questions[0]!.choices[0]!.label)).toBeChecked();
+    expect(questionCard(2).getByText("不適用", { exact: true })).toBeVisible();
+    expect(questionCard(2).getByLabelText("不適用（需原因）")).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toHaveValue("合成個案本次無法適用此項");
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toBeRequired();
+    expect(questionCard(3).getByText("未填")).toBeVisible();
+    expect(questionCard(3).getAllByRole("radio").every((node) => !(node as HTMLInputElement).checked)).toBe(true);
+    expect(screen.getByText(`已作答 1／${selectedForm.questions.length} 題 · 不適用 1 題 · 未填 ${selectedForm.questions.length - 2} 題`)).toBeVisible();
+    expect(screen.getByText("計分預覽：尚未完整作答")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /簽署/ })).toBeNull();
+  });
+
+  it.each(functionalForms)("edits the saved N/A reason and freezes it for an uncertain $key retry", async (selectedForm) => {
+    workspace(functionalSnapshot(selectedForm), true, selectedForm);
+    const reason = screen.getByRole("textbox", { name: "第 2 題不適用原因" });
+    fireEvent.change(reason, { target: { value: " 合成原因修訂：保留換行\n供覆核 " } });
+    stubs.fetch.mockResolvedValueOnce(response(null, 503));
+    fireEvent.click(button("保存修訂版本"));
+    await waitFor(() => expect(button("以相同內容重試")).toBeVisible());
+    const payload = JSON.parse(posts()[0]![1].body as string);
+    expect(payload.answers[selectedForm.questions[1]!.id]).toEqual({ state: "not_applicable", reason: " 合成原因修訂：保留換行\n供覆核 " });
+    expect(payload.answers[selectedForm.questions[2]!.id]).toEqual({ state: "missing" });
+    expect(payload).toMatchObject({ action: "revise", expectedVersion: 1, previousVersionId: versionId(101) });
+    expect(reason).toBeDisabled(); expect(button("清除第 2 題答案")).toBeDisabled();
+    expect(questionCard(2).getByLabelText("不適用（需原因）")).toBeDisabled();
+    stubs.fetch.mockResolvedValueOnce(response(null, 503));
+    fireEvent.click(button("以相同內容重試"));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(posts()[0]![1].body).toBe(posts()[1]![1].body);
+    expect(posts()[0]![1].headers["idempotency-key"]).toBe(posts()[1]![1].headers["idempotency-key"]);
+  });
+
+  it("restores missing when clearing N/A and discards the old reason when selecting an answer", async () => {
+    const selectedForm = functionalForms[0]!;
+    workspace(functionalSnapshot(selectedForm), true, selectedForm);
+    fireEvent.click(button("清除第 2 題答案"));
+    expect(questionCard(2).getByText("未填")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "第 2 題不適用原因" })).toBeNull();
+    expect(questionCard(2).getAllByRole("radio").every((node) => !(node as HTMLInputElement).checked)).toBe(true);
+    fireEvent.click(questionCard(1).getByLabelText("不適用（需原因）"));
+    fireEvent.change(screen.getByRole("textbox", { name: "第 1 題不適用原因" }), { target: { value: "合成原因" } });
+    fireEvent.click(questionCard(1).getByLabelText(selectedForm.questions[0]!.choices[0]!.label));
+    expect(screen.queryByRole("textbox", { name: "第 1 題不適用原因" })).toBeNull();
+    stubs.fetch.mockResolvedValueOnce(response(null, 503)); fireEvent.click(button("保存修訂版本"));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    const payload = JSON.parse(posts()[0]![1].body as string);
+    expect(payload.answers[selectedForm.questions[0]!.id]).toEqual({ state: "answered", value: selectedForm.questions[0]!.choices[0]!.value });
+    expect(payload.answers[selectedForm.questions[1]!.id]).toEqual({ state: "missing" });
+  });
+
+  it("marks a cleared answer as unsaved and requires confirmation before switching assessments", () => {
+    const selectedForm = functionalForms[0]!;
+    workspace(functionalSnapshot(selectedForm), true, selectedForm);
+    fireEvent.click(button("清除第 2 題答案")); fireEvent.click(button("新增一次評估"));
+    expect(screen.getByRole("region", { name: "尚未保存的內容" })).toBeVisible();
+    fireEvent.click(button("繼續填寫")); expect(questionCard(2).getByText("未填")).toBeVisible();
+  });
+
+  it("clears a scored answer back to missing without inventing a zero score", async () => {
+    const selectedForm = functionalForms[0]!;
+    workspace(functionalSnapshot(selectedForm), true, selectedForm);
+    fireEvent.click(button("清除第 1 題答案"));
+    expect(questionCard(1).getByText("未填")).toBeVisible();
+    expect(screen.getByText(`已作答 0／${selectedForm.questions.length} 題 · 不適用 1 題 · 未填 ${selectedForm.questions.length - 1} 題`)).toBeVisible();
+    expect(screen.getByText("計分預覽：尚未完整作答")).toBeVisible();
+    stubs.fetch.mockResolvedValueOnce(response(null, 503)); fireEvent.click(button("保存修訂版本"));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0]![1].body as string).answers[selectedForm.questions[0]!.id]).toEqual({ state: "missing" });
+  });
+
+  it.each(functionalForms)("reads the saved N/A reason back after a confirmed $key revision without enabling official scoring", async (selectedForm) => {
+    const snapshot = functionalSnapshot(selectedForm);
+    const latest = snapshot.clients[0]!.latest!;
+    const revised = { ...latest, version: 2, versionId: versionId(102), answers: {
+      ...latest.answers, [selectedForm.questions[1]!.id]: { state: "not_applicable" as const, reason: "合成修訂原因" },
+    } };
+    workspace(snapshot, true, selectedForm);
+    fireEvent.change(screen.getByRole("textbox", { name: "第 2 題不適用原因" }), { target: { value: "合成修訂原因" } });
+    stubs.fetch.mockResolvedValueOnce(response({ ...receipt("revise", 1, 2), formKey: selectedForm.key }))
+      .mockResolvedValueOnce(response({ ...history(), formKey: selectedForm.key, versions: [revised, latest], total: 2 }))
+      .mockResolvedValueOnce(response({ ...page(), formKey: selectedForm.key, assessments: [{ ...revised, assessmentCreatedAt: stamp }], total: 1 }));
+    fireEvent.click(button("保存修訂版本"));
+    await waitFor(() => expect(screen.getByText("草稿已保存並讀回；尚未簽署。")).toBeVisible());
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toHaveValue("合成修訂原因");
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).not.toBeDisabled();
+    expect(posts()).toHaveLength(1); expect(screen.queryByRole("button", { name: /簽署/ })).toBeNull();
+    expect(screen.getByText("計分預覽：尚未完整作答")).toBeVisible();
+  });
+
+  it.each(functionalForms)("shows an old $key version's own N/A reason read-only without replacing the latest reason", async (selectedForm) => {
+    const snapshot = functionalSnapshot(selectedForm);
+    const older = snapshot.clients[0]!.latest!;
+    const newer = { ...older, version: 2, versionId: versionId(102), answers: {
+      ...older.answers, [selectedForm.questions[1]!.id]: { state: "not_applicable" as const, reason: "合成最新原因" },
+    } };
+    workspace({ ...snapshot, clients: [{ ...snapshot.clients[0]!, latest: newer, assessments: [{ ...newer, assessmentCreatedAt: stamp }] }] }, true, selectedForm);
+    stubs.fetch.mockResolvedValueOnce(response({ ...history(), formKey: selectedForm.key, versions: [newer, older], total: 2 }));
+    fireEvent.click(button("查看版本歷程")); await waitFor(() => expect(button("查看 v1")).toBeVisible());
+    fireEvent.click(button("查看 v1"));
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toHaveValue("合成個案本次無法適用此項");
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toBeDisabled();
+    expect(button("清除第 2 題答案")).toBeDisabled();
+    fireEvent.click(button("修訂此草稿"));
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toHaveValue("合成最新原因");
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).not.toBeDisabled();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it.each(["", "   ", "a".repeat(501), "😀".repeat(501), "合成\u0001原因"])("blocks an invalid N/A reason before fetch and focuses its inline error field (%#)", (reason) => {
+    const selectedForm = functionalForms[0]!;
+    workspace(functionalSnapshot(selectedForm, reason), true, selectedForm);
+    const field = screen.getByRole("textbox", { name: "第 2 題不適用原因" });
+    expect(screen.getByText("必填，去除頭尾空白後 1–500 字；不列入分數。")).toBeVisible();
+    fireEvent.click(button("保存修訂版本"));
+    expect(stubs.fetch).not.toHaveBeenCalled(); expect(field).toHaveFocus(); expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field).toHaveAccessibleDescription(/請填寫不適用原因|不得超過 500 字|請移除不適用原因中的控制字元/);
+    fireEvent.change(field, { target: { value: "合成有效原因" } }); expect(field).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it.each(["a".repeat(500), "😀".repeat(500), `  ${"a".repeat(500)}  `])("accepts the SQL-equivalent 500-character trimmed boundary without silently changing reason (%#)", async (reason) => {
+    const selectedForm = functionalForms[0]!;
+    workspace(functionalSnapshot(selectedForm, reason), true, selectedForm);
+    stubs.fetch.mockResolvedValueOnce(response(null, 503)); fireEvent.click(button("保存修訂版本"));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0]![1].body as string).answers[selectedForm.questions[1]!.id]).toEqual({ state: "not_applicable", reason });
+  });
+
+  it("focuses the first invalid N/A reason and preserves every entered response", () => {
+    const selectedForm = functionalForms[0]!;
+    workspace(functionalSnapshot(selectedForm, ""), true, selectedForm);
+    fireEvent.click(questionCard(1).getByLabelText("不適用（需原因）"));
+    fireEvent.click(button("保存修訂版本"));
+    expect(screen.getByRole("textbox", { name: "第 1 題不適用原因" })).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toHaveValue("");
+    expect(questionCard(3).getByText("未填")).toBeVisible(); expect(posts()).toHaveLength(0);
+  });
+
+  it.each(functionalForms)("retains readable N/A reasons without editable controls for read-only $key accounts", (selectedForm) => {
+    workspace(functionalSnapshot(selectedForm), false, selectedForm);
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toHaveValue("合成個案本次無法適用此項");
+    expect(screen.getByRole("textbox", { name: "第 2 題不適用原因" })).toBeDisabled();
+    expect(questionCard(2).getByLabelText("不適用（需原因）")).toBeDisabled();
+    expect(button("清除第 2 題答案")).toBeDisabled(); expect(posts()).toHaveLength(0);
+  });
+
+  it("does not introduce unsupported N/A choices to other questionnaire forms", () => {
+    workspace(); expect(screen.queryByLabelText("不適用（需原因）")).toBeNull();
   });
 
   it("starts a separate assessment with blank answers rather than revising the existing chain", async () => {

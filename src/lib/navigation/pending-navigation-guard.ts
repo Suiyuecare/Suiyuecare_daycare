@@ -7,7 +7,7 @@ export type PendingNavigationGuardOptions = {
 };
 
 function sameTab(target: string | null) {
-  return !target || ["_self", "_top", "_parent"].includes(target.toLowerCase());
+  return !target || ["_self", "_top", "_parent"].includes(target.toLowerCase()) || target === window.name;
 }
 function httpDestination(value: string) {
   try { return /^https?:$/u.test(new URL(value, document.baseURI).protocol); }

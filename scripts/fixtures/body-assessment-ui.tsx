@@ -22,14 +22,26 @@ type FixtureState = { mode: "success" | "unknown" | "invalid" | "denied" | "defe
   writes: { key: string; body: string }[]; refreshes: number; resolve: (() => void) | null;
   remount: () => void; foreign: (value: boolean) => void; allowed: (value: boolean) => void;
   fresh: () => void; last: BodyAssessmentReceipt | null };
-const state: FixtureState = { mode: "success", writes: [], refreshes: 0, resolve: null,
+type BranchFixtureState = { branchRequests: { method: string; body: string }[] };
+const state: FixtureState & BranchFixtureState = { mode: "success", writes: [], refreshes: 0, resolve: null, branchRequests: [],
   remount: () => {}, foreign: () => {}, allowed: () => {}, fresh: () => {}, last: null };
 (window as unknown as Window & { fixture: FixtureState }).fixture = state;
 const receipts = new Map<string, BodyAssessmentReceipt>();
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.href);
   if (url.origin !== location.origin) throw new Error("External fixture requests are blocked");
-  if (url.pathname === "/api/context/branch") return Response.json({ status: "ok", data: { branches: [], cleared: true } });
+  if (url.pathname === "/api/context/branch") {
+    const method = init?.method ?? "GET";
+    state.branchRequests.push({ method, body: String(init?.body ?? "") });
+    if (method === "DELETE") return Response.json({ status: "ok", data: { cleared: true } });
+    if (method === "GET") return Response.json({ requestId: uuid(91), status: "ok", errors: [], data: {
+      currentBranchId: initial.branchId,
+      branches: [{ id: initial.branchId, name: context.branchName }, { id: uuid(999), name: "合成另一分支" }],
+    } });
+    // Deliberately unknown: never navigate a browser to a real staff route or
+    // claim a cookie/permission change from this synthetic UI harness.
+    return Response.json({ status: "error", errors: [] }, { status: 503 });
+  }
   if (url.pathname !== "/api/body-assessments" || init?.method !== "POST") throw new Error("Only the synthetic body API is available");
   const key = new Headers(init.headers).get("idempotency-key") ?? "";
   const body = String(init.body); state.writes.push({ key, body });

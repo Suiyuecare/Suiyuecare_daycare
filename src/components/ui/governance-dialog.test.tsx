@@ -47,6 +47,20 @@ function bounds(dialog: HTMLDialogElement) {
 }
 
 describe("GovernanceDialog controlled native confirmation", () => {
+  it("names the unsaved editor's least-destructive action without changing its focus or cancel behavior", () => {
+    const closeRequest = vi.fn();
+    const discard = vi.fn();
+    render(<GovernanceDialog open cancelLabel="繼續填寫" onRequestClose={closeRequest} title="尚有未保存的內容">
+      <button type="button" onClick={discard}>放棄未保存內容</button>
+    </GovernanceDialog>);
+    const keepEditing = screen.getByRole("button", { name: "繼續填寫" });
+    expect(keepEditing).toBe(document.activeElement);
+    expect(screen.queryByRole("button", { name: "取消" })).toBeNull();
+    fireEvent.click(keepEditing);
+    expect(closeRequest).toHaveBeenCalledOnce();
+    expect(discard).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toHaveProperty("open", true);
+  });
   it("does not open when closed and uses native showModal with cancel initial focus", () => {
     render(<Harness />);
     expect(screen.queryByRole("dialog")).toBeNull(); expect(showModal).not.toHaveBeenCalled();

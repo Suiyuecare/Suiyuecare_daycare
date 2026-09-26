@@ -48,3 +48,40 @@
 - 不自動新增收費資源；區域／商用方案須由負責人決定，真人專業覆核不得用合成員工代替。
 
 本次未 GitHub push、觸發 Actions、Vercel preview／promotion、hosted DDL、匯入真實個案或新增費用。
+
+## 第二輪：未保存保護與分支確認（仍未部署）
+
+- 共用 registry／hook 與人工觀察編輯器：精確比較可編輯基準值，取消／Escape 保留內容；明確捨棄後才刷新、切換編輯或前往其他工作。只有一個 dirty owner 能被確認；未知寫入／視圖鎖優先。來源、身份、角色、指派、卸載及安全登出使舊操作失效；不重播 POST、不把 POST Navigation 轉 GET、不寫 browser storage／history。
+- 分支切換移除 native confirm，沿用共用 GovernanceDialog；確認關閉與清理後才進入既有原子切換防護。POST 前再次檢查新未保存 owner、目前分支與選項；未知 503 仍遮蔽舊工作區，只提供安全重新載入，不重送切換。
+- Chrome 發現工作區 button CSS 會把取消與危險操作蓋成同一橘色，且手機「繼續填寫」拆字。本輪以共用 dialog specificity 修正，沒有改 Finance frame。390px 實測白底取消／淡紅危險按鈕，高度 45.28px，取消文字 nowrap，頁寬仍為 390px。
+- MNA-SF 測量缺漏不能把已存在的非法答案狀態降成 incomplete；改為保留 invalid，但仍不提供分數／分級。不啟用官方規則或正式簽署，不稱為完整版 MNA。
+- 獨立窄範圍覆核確認 logout owner 先 detach、異常回呼隔離、舊 token 不移除新 owner、分支最後檢查與 POST-origin Navigation 不重播；獨立四檔 70 項通過。這不是全部角色／89 頁／正式雲端安全認證。
+
+### 第二輪第一個凍結切片的工程及瀏覽器證據
+
+- 全量 Vitest：485 檔／6,365 項全部通過，52.74 秒，無略過；Finance 跨 repo 使用精確恢復的候選。此數字只涵蓋本切片，後續量表狀態顯示修改須另跑，不混用。
+- ESLint 零 warning、TypeScript、production build 通過。build 是本機編譯，不是 Vercel 部署或正式登入。
+- 真實 Chrome 合成 UI：取消／Escape 留下原理由且 0 POST；明確捨棄後 header refresh 恰 1 次、編輯器關閉且 0 保存。未保存→捨棄→分支確認各階段僅 1 個 open dialog；分支取消恢復選項焦點、0 POST；明確切換後合成 503 僅 1 POST、舊編輯器不可見。fixture 明示為合成，不連 hosted Auth／SQL、不改正式 cookie。
+- axe 4.13.0 scoped 未保存確認視窗，桌機／390px 均 0 違規、0 incomplete；僅限此視窗，不擴大為整站人工 WCAG 2.2 AA。
+- strict premium 官方配置 0 findings；只涵蓋維護配置的規則治理／共用 UI，不宣稱新增 hook 或所有89頁自動通過該靜態配置。
+- 原始紀錄、axe JSON 及新畫面保留於持久化證據目錄，檔名前綴 `unsaved-`／`body-unsaved-`／`body-branch-unknown-`。本輪無 SQL source 變更；先前 native 十套結果保留原有範圍，不改称本輪重新執行。
+
+### 新確認但尚未完成的業務缺口
+
+- 公告清單的 RPC 只取前 100 筆，篩選在客戶端，較舊已授權公告的版本入口可能被誤拒；尚需新的 server-side 篩選／分頁／直接明細授權與 101／250 筆回歸，不是只改錯誤文字。
+- 評鑑管理雖有第79頁入口，正式證據指派、複核、發布與不可變送出快照流程仍未完成；不得將 fallback 工作區解除封鎖冒充功能完成。
+- 家屬端正式發布、官方申報實檔及完整MNA／其他官方量表仍沒有通過證據。完整表單、真人核准、hosted 還原與實際員工驗收仍為正式 gate。
+- Vercel 403 與資料區域／費用選擇尚未取得新授權或決定，本輪沒有以相同失敗連線反覆查詢，也沒有使用曝光 Token 或新增費用。
+
+## 第二輪最終凍結：草稿狀態與輸入文字
+
+- ADL／IADL 重現已保存不適用狀態／理由不可見後，補明確狀態、原因編輯、清除與三種狀態分開計數。原因必填且符合原 API／SQL 的去頭尾空白1–500 Unicode字元；inline錯誤及第一個錯誤焦點，不先送POST。清除丟棄舊原因並回真正missing，不轉為零分；歷史版仍唯讀、未知回覆仍沿用原內容／操作鍵。題目、公式、正式啟用、簽署與授權沒有變動。
+- 14項RED重現，最終編輯器49項及預覽20項GREEN。另由獨立覆核者重跑編輯器／預覽／API共107項通過，未發現新的窄範圍缺陷。新增的native radio／textarea沿用既有題卡，不是官方計分選項或正式規則採用。
+- 最後Chrome發現原compact label使日期／文字答案只有14.4px；由現有questionnaire module統一修至16px，增加靜態規範回歸。390px的實際日期、補充文字及不適用原因都是16px；textarea不可拖曳、無水平溢位，不改Finance frame。
+- 新loopback fixture以固定合成ADL／IADL草稿驗證原理由可見、空白理由0POST與錯誤焦點、清除真正missing、鍵盤切到合法零分答案、原版讀回唯讀。它不連雲端，不能證明正式登入、保存、簽署或規則已啟用。新欄位為required；Native confirm／舊量表離頁guard未遷移，不混稱已使用新共用確認。
+- 最終全部來源全量Vitest：**486檔／6,389項通過，41.90秒，無略過**；Finance跨repo仍使用精確候選。jsdom整頁導覽診斷仍保留，不當成Chrome證據。ESLint零warning、TypeScript、production build及diff-check通過；build明確清空全部外部憑證、關閉展示及Google整合，沒有呼叫正式雲端。
+- 另重新跑portable SQL：138份migration、128套／5,933項斷言通過，仍包含93套legacy PGlite fixture及35套enforced開通測試。SQL未改；十套native是同一SQL來源的上一輪證據，本輪未重跑，不擴大為hosted還原或50名員工HTTP。
+- 安全本機展示89/89路由smoke再次通過；執行於本輪量表文字大小最後修改前，只是入口載入，不作最終表單作業證據。真正Chrome已重驗最終IADL16px與必填錯誤。正式依賴掃描當次無已知advisory，不替代滲透測試。
+- axe4.13.0 scoped IADL表單桌機／手機，以及最後16px表單手機錯誤狀態，均0違規、0 incomplete；只限已測表單，沒有聲稱全部89頁或人工WCAG2.2AA通過。當前官方premium配置strict為0 findings，其sourceRoots未涵蓋整份量表編輯器，不將該綠燈當全頁認證。
+
+最終證據檔為 `second-round-final-vitest-with-typography.log`、`second-round-final-build-with-typography.log`、`unsaved-portable-database.log`、`unsaved-dependency-audit.log`、`assessment-iadl-typography-final-*` 等。工作保留在獨立checkout，未套用原dirty Finance，未GitHub push、Actions、Vercel發布或hosted DDL。短版待辦見 [正式部署剩餘工作與驗收](FORMAL_DEPLOYMENT_CHECKLIST_2026-09-26.md)。

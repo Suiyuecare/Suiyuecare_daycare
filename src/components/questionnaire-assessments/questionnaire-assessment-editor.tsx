@@ -77,6 +77,8 @@ function QuestionnaireEditor({
   const [assessedOn, setAssessedOn] = useState(latest?.assessedOn ?? taipeiToday());
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
+  const [reasonErrors, setReasonErrors] = useState<Record<string, string>>({});
+  const reasonFields = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const operationKey = useRef<string | null>(null);
   const uncertain = useRef(false);
   const releaseOperation = useRef<(() => void) | null>(null);
@@ -154,7 +156,11 @@ function QuestionnaireEditor({
       window.removeEventListener("popstate", guardHistory, true);
     };
   }, [onDirtyChange]);
-  const missingCount = Object.values(answers).filter((answer) => answer.state === "missing").length;
+  const responses = form.questions.map(({ id }) => answers[id] ?? { state: "missing" as const });
+  const answeredCount = responses.filter((answer) => answer.state === "answered").length;
+  const notApplicableCount = responses.filter((answer) => answer.state === "not_applicable").length;
+  const missingCount = responses.filter((answer) => answer.state === "missing").length;
+  const allowsNotApplicable = form.key === "barthel_adl" || form.key === "lawton_iadl";
   const suicideAnswer = form.key === "bsrs5" ? answers.bsrs_suicide : null;
   const suicideConcern = suicideAnswer?.state === "answered" && Number(suicideAnswer.value) > 0;
   const { result: scorePreview, measurementIssue } = questionnairePreview(form, answers, context);
@@ -164,7 +170,24 @@ function QuestionnaireEditor({
 
   function setResponse(questionId: string, value: string) {
     setAnswers((current) => ({ ...current, [questionId]: { state: "answered", value } }));
+    clearReasonError(questionId);
+  }
+
+  function clearReasonError(questionId: string) {
+    setReasonErrors((current) => {
+      if (!current[questionId]) return current;
+      const next = { ...current };
+      delete next[questionId];
+      return next;
+    });
     setMessage("");
+  }
+
+  function markDirty() {
+    // Coordinate with header refresh and BranchSwitcher without storing data.
+    releaseDirty.current ??= tryAcquirePendingOperation();
+    dirty.current = true;
+    onDirtyChange(true);
   }
 
   async function save() {
@@ -233,13 +256,7 @@ function QuestionnaireEditor({
     className={styles.formPanel}
     noValidate
     aria-busy={pending}
-    onChange={() => {
-      // Coordinate with the existing header refresh and BranchSwitcher guards.
-      // The tab-local lease contains only an opaque Symbol, never draft data.
-      releaseDirty.current ??= tryAcquirePendingOperation();
-      dirty.current = true;
-      onDirtyChange(true);
-    }}
+    onChange={markDirty}
     onSubmit={async (event) => {
       event.preventDefault();
       if (!canManage || readOnly || pending || committed || reading || viewTransitionPending) return;
@@ -249,6 +266,24 @@ function QuestionnaireEditor({
         return;
       }
       if (measurementIssue) { setMessage(measurementIssue); return; }
+      const errors: Record<string, string> = {};
+      for (const { id } of form.questions) {
+        const answer = answers[id];
+        if (answer?.state !== "not_applicable") continue;
+        // Match the persisted trimmed, Unicode-character limit. The API still
+        // owns normalization, so validation never mutates the replay body.
+        const reason = answer.reason.trim();
+        if (!reason) errors[id] = "請填寫不適用原因（1–500 字）。";
+        else if (Array.from(reason).length > 500) errors[id] = "不適用原因去除頭尾空白後不得超過 500 字。";
+        else if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(reason)) errors[id] = "請移除不適用原因中的控制字元。";
+      }
+      setReasonErrors(errors);
+      const firstInvalid = form.questions.find(({ id }) => errors[id]);
+      if (firstInvalid) {
+        setMessage("請修正不適用原因後再保存；其他答案已保留。");
+        reasonFields.current[firstInvalid.id]?.focus();
+        return;
+      }
       setPending(true);
       setMessage("");
       try {
@@ -346,9 +381,25 @@ function QuestionnaireEditor({
       {form.questions.map((question, index) => {
         const answer = answers[question.id] ?? { state: "missing" as const };
         const value = answer.state === "answered" ? answer.value : "";
+        const reasonId = `${form.key}-${question.id}-reason`;
+        const reasonHintId = `${reasonId}-hint`;
+        const reasonErrorId = `${reasonId}-error`;
         return <section className={styles.questionCard} key={question.id}>
           <h3 className={styles.questionTitle}>{index + 1}. {question.prompt}</h3>
           {question.helpText ? <p className={styles.questionHelp}>{question.helpText}</p> : null}
+          <div className={styles.actions}>
+            <span>{answer.state === "answered" ? "已作答" : answer.state === "not_applicable" ? "不適用" : "未填"}</span>
+            {answer.state !== "missing" ? <button
+              aria-label={`清除第 ${index + 1} 題答案`}
+              className="button button--quiet"
+              onClick={() => {
+                setAnswers((current) => ({ ...current, [question.id]: { state: "missing" } }));
+                clearReasonError(question.id);
+                markDirty();
+              }}
+              type="button"
+            >清除答案</button> : null}
+          </div>
           <div className={styles.choiceGrid} role="radiogroup" aria-label={`第 ${index + 1} 題`}>
             {question.choices.map((choice) => <label className={styles.choice} key={choice.value}>
               <input
@@ -360,7 +411,39 @@ function QuestionnaireEditor({
               />
               <span>{choice.label}</span>
             </label>)}
+            {allowsNotApplicable ? <label className={styles.choice}>
+              <input
+                checked={answer.state === "not_applicable"}
+                name={question.id}
+                onChange={() => {
+                  setAnswers((current) => ({ ...current, [question.id]: { state: "not_applicable", reason: "" } }));
+                  clearReasonError(question.id);
+                }}
+                type="radio"
+                value="not_applicable"
+              />
+              <span>不適用（需原因）</span>
+            </label> : null}
           </div>
+          {answer.state === "not_applicable" ? <div className={styles.notes}>
+            <label htmlFor={reasonId}>第 {index + 1} 題不適用原因</label>
+            <textarea
+              aria-describedby={`${reasonHintId}${reasonErrors[question.id] ? ` ${reasonErrorId}` : ""}`}
+              aria-invalid={Boolean(reasonErrors[question.id])}
+              id={reasonId}
+              onChange={(event) => {
+                const reason = event.currentTarget.value;
+                setAnswers((current) => ({ ...current, [question.id]: { state: "not_applicable", reason } }));
+                clearReasonError(question.id);
+              }}
+              ref={(field) => { reasonFields.current[question.id] = field; }}
+              required
+              rows={3}
+              value={answer.reason}
+            />
+            <small id={reasonHintId}>必填，去除頭尾空白後 1–500 字；不列入分數。</small>
+            {reasonErrors[question.id] ? <p id={reasonErrorId} role="alert">{reasonErrors[question.id]}</p> : null}
+          </div> : null}
         </section>;
       })}
     </fieldset>
@@ -382,7 +465,7 @@ function QuestionnaireEditor({
     </section> : null}
     </fieldset>
     <div className={styles.actions}>
-      <span>已填 {form.questions.length - missingCount}／{form.questions.length} 題</span>
+      <span>已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</span>
       {!readOnly ? <button className="button button--primary" disabled={!canManage || pending || committed || reading || viewTransitionPending} type="submit">
         {pending ? "保存中…" : retryPending ? "以相同內容重試" : latest ? "保存修訂版本" : "保存本次評估"}
       </button> : <span>{latest ? "歷史版本僅供查看；修訂請選擇該次評估的最新草稿。" : "此量表僅供檢視，尚無已保存紀錄。"}</span>}

@@ -160,6 +160,15 @@
   font-weight: 400;
 }
 
+/* Keep editable text at 16px; labels can remain compact without shrinking
+   entered answers or triggering mobile browser focus zoom. */
+.meta input,
+.measurements input,
+.measurements select,
+.notes textarea {
+  font-size: 1rem;
+}
+
 .questions {
   display: grid;
   gap: .8rem;
