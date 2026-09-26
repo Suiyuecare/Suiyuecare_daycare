@@ -80,6 +80,8 @@
 
 ## 尚未通過的正式門檻
 
+最新申報安全候選已新增持久化範圍／原操作／逐筆內容核對；上方較早段落「缺少 request hash 回執」是當時結果，不是本批現況。實作、相容邊界及仍待改善的申報驗證離頁 P1 見 [申報回執驗收](CLAIM_RECEIPT_READINESS_2026-09-26.md)。本批新增第八份增量 migration，候選共 138 項；本批唯讀核對 hosted 仍為 130 項，Vercel 團隊讀取仍回 403。
+
 1. **主機方案：** 最近可讀取的 Vercel 專案中繼資料為 Hobby；先前管理 API 403，最新方案待重新核對。Vercel 官方條款限定 Hobby 為個人／非商業用途，不能拿該舊方案當作公司正式營運方案證據。先前查閱官方定價為 Pro US$20/月、含 US$20 用量抵用額，超額另計；Enterprise 列 99.99% SLA。正式採購前須重新核對價格、用途、SLA 與合約，本輪未升級方案或推送正式環境。
 2. **資料區域：** 此前唯讀中繼資料顯示 Supabase 正式專案位於 Seoul（`ap-northeast-2`）；本次最終凍結驗收未重查實際區域。既定目標為 Tokyo（`ap-northeast-1`）。Supabase 說明不能原地改區，須新建東京專案並遷移。此前工具估算新增專案約 US$10/月，須連同組織方案、備份及用量重新確認；不是整套系統的完整報價。尚未建立資源或切換資料，等待費用與方案決定。
 3. **登入與簽署：** 已依產品負責人要求，將明確允許的例行草稿作業保留 Google 登入且不加 App 驗證器。用藥、申報及正式簽署仍要求近期 AAL2，未在本輪解除。須確認高風險操作的最終政策並驗收員工實際帳號，不能為通過測試而關閉授權檢查。
@@ -87,7 +89,15 @@
 5. **資料保護與持續營運：** DPA／次處理者／跨境審查、正式附件掃毒與不可變封存、備份還原（RPO 15 分鐘／RTO 4 小時）、七年資料移轉兩次彩排、平行申報週期、50 人並行、第三方滲透測試及人工 WCAG 2.2 AA 尚無完整證據。
 6. **部署驗收：** 先前正式網域 HTTP 探針可回應 200，先前 Vercel 管理連線回傳 403；本次最終凍結驗收未重新查驗公開回應、管理存取或部署設定。本輪修改未上傳 GitHub、未觸發 Vercel 預覽、未合併 `main`，亦未提升 production alias；不能將先前 HTTP 200 當成候選已部署或功能驗收通過。
 7. **Finance 即時收支：** 最近唯讀核對尚無已部署連接器。本機真正 PostgREST／Deno 排演已完成，不能代替 hosted gateway 與真實金額對帳。正式 Finance migration lineage 比 checkout 新，須精準審核單份增量 migration，不可整庫 push/reset。E6 已找到但單店帳務範圍尚待確認；正式映射與伺服器專用秘密未配置。現有單店頁只檢查資料過期並提供手動更新，尚未定時讀取 Finance；不得稱為持續即時同步。未對 Finance 寫入或部署。
-8. **雲端資料版本：** 本輪累計新增七份 migration，候選為 137 項；最後唯讀核對正式專案仍為 130 項，最新為 `20260925141114_governed_questionnaire_drafts`。未將新增 DDL 套至正式資料庫，發布前須核准精準增量版本並重新核對 hosted 版本。CMS 原檔 WORM 封存與正式附件掃毒服務尚無通過證據；不得使用普通 Storage 取代不可變封存或把掃毒未配置當作已完成。
+8. **雲端資料版本：** 本輪累計新增八份 migration，候選為 138 項；最後唯讀核對正式專案仍為 130 項，最新為 `20260925141114_governed_questionnaire_drafts`。未將新增 DDL 套至正式資料庫，發布前須核准精準增量版本並重新核對 hosted 版本。CMS 原檔 WORM 封存與正式附件掃毒服務尚無通過證據；不得使用普通 Storage 取代不可變封存或把掃毒未配置當作已完成。
+
+### 申報安全凍結來源的全量驗收（後續申報介面修正前）
+
+- 471 個 Vitest 檔／6,117 項測試全通過，沒有略過。Finance 跨 repo 契約仍使用已驗收候選來源；ESLint 零警告及 TypeScript 通過。
+- 138 份 migration 編譯、128 份 SQL 測試／5,933 項斷言通過。portable SQL 包含 93 套舊 PGlite 開通替代 fixture 與 35 套強制開通 fixture，不擴大為 hosted 授權證據。
+- PostgreSQL 17.11 十套原生測試全部通過，包含新增申報回執的四個真正多 backend 探針。既有升級資料、資格／接送衝突、不可變簽署、量表、獨立覆核及規則治理回歸亦通過。
+- 量表 50 個同一操作者獨立連線仍為一筆提交／49 次精確重播；隔離 dump／第二庫 restore 約 1.6 秒，不等同 50 位員工 HTTP 壓測或正式 Supabase PITR。最新量表證據位於 `/tmp/daycare-questionnaire-native.jceZpE`，治理證據位於 `/tmp/daycare-questionnaire-rule-governance-native.9PGFA2/evidence.json`。
+- Next.js production build 成功產生 101 個靜態頁面並再次通過 TypeScript；`git diff --check` 通過。本批沒有 UI 修改／新瀏覽器驗收，未上傳 GitHub、觸發 Actions、發布 Vercel 或套用 hosted DDL；下一批申報介面變更須重新驗收。
 
 ## 可重跑的原生安全驗收
 
@@ -97,7 +107,7 @@
 INTAKE_NATIVE_PG_BIN=/absolute/path/to/postgresql/17/bin pnpm test:database:native
 ```
 
-九套必須全部通過；任何套件失敗會以非零結束。每套自行建立合成資料的暫存 Unix socket cluster，不接受正式資料庫 URL；結束會停止 cluster，成功後只清除本次 data，保留暫存稽核／備份產物供檢查。失敗或無法確認停止時保留資料。不得替換成正式 `DATABASE_URL` 或將這個還原腳本指向正式 Supabase。
+十套必須全部通過；任何套件失敗會以非零結束。每套自行建立合成資料的暫存 Unix socket cluster，不接受正式資料庫 URL；結束會停止 cluster，成功後只清除本次 data，保留暫存稽核／備份產物供檢查。失敗或無法確認停止時保留資料。不得替換成正式 `DATABASE_URL` 或將這個還原腳本指向正式 Supabase。
 
 ## 決策與下一步
 

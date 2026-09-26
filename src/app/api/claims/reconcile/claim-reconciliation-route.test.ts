@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { IntegrationError } from "@/lib/integrations/errors";
 import { deterministicUuid } from "@/lib/integrations/security";
+import { parseClaimReconciliationRequest } from "@/lib/integrations/claims";
+import { hashClaimReconciliationRequest } from "@/lib/service-management/claim-request-hash";
 
 const stubs = vi.hoisted(() => ({
   authorize: vi.fn(), reauth: vi.fn(), client: vi.fn(), rpc: vi.fn(), single: vi.fn(),
@@ -41,6 +43,11 @@ const body = {
 const receipt = {
   claim_batch_id: BATCH, status: "reconciled", item_count: 3,
   accepted_count: 2, rejected_count: 1, total_amount: "1200.10", replayed: false,
+  organization_id: ORG, branch_id: BRANCH,
+  idempotency_key: deterministicUuid(ORG, ACTOR, "claim-reconcile", KEY),
+  request_hash: hashClaimReconciliationRequest(parseClaimReconciliationRequest(body, KEY),
+    { organizationId: ORG, branchId: BRANCH }),
+  snapshot_hash_version: "postgres-jsonb-v1", committed_at: "2026-09-26T04:00:00.654321+00:00",
 };
 
 function request(value: unknown = body, key: string | null = KEY) {
@@ -72,7 +79,7 @@ describe("claim reconciliation route database receipt boundary", () => {
     expect(result.errors).toEqual([]);
     expect(result.data).toEqual({ claimBatchId: BATCH, status: "reconciled", itemCount: 3,
       acceptedCount: 2, rejectedCount: 1, totalAmount: "1200.10", replayed, persisted: true, demo: false });
-    expect(stubs.rpc).toHaveBeenCalledWith("reconcile_claim_batch", {
+    expect(stubs.rpc).toHaveBeenCalledWith("reconcile_claim_batch_receipt", {
       p_expected_organization_id: ORG,
       p_expected_branch_id: BRANCH,
       p_claim_batch_id: BATCH,
@@ -99,7 +106,9 @@ describe("claim reconciliation route database receipt boundary", () => {
     const input = { ...body, results: body.results.map((item) => ({ ...item, outcome })) };
     stubs.single.mockResolvedValue({ data: { ...receipt,
       accepted_count: outcome === "accepted" ? 3 : 0,
-      rejected_count: outcome === "rejected" ? 3 : 0 }, error: null });
+      rejected_count: outcome === "rejected" ? 3 : 0,
+      request_hash: hashClaimReconciliationRequest(parseClaimReconciliationRequest(input, KEY),
+        { organizationId: ORG, branchId: BRANCH }) }, error: null });
     expect((await POST(request(input))).status).toBe(200);
   });
 
@@ -219,6 +228,12 @@ describe("claim reconciliation route database receipt boundary", () => {
     { ...receipt, total_amount: "1200.100" },
     { ...receipt, total_amount: "1000000000000.00" },
     { ...receipt, replayed: "true" },
+    { ...receipt, organization_id: BATCH },
+    { ...receipt, branch_id: BATCH },
+    { ...receipt, idempotency_key: ITEM_A },
+    { ...receipt, request_hash: "b".repeat(64) },
+    { ...receipt, snapshot_hash_version: "legacy-js-v1" },
+    { ...receipt, committed_at: "not-a-time" },
     { ...receipt, private_detail: "SYNTH_PRIVATE_CONTENT" },
   ])("fails closed on malformed, unbound, or wrong-outcome receipt %j", async (data) => {
     stubs.single.mockResolvedValue({ data, error: null });
@@ -246,11 +261,51 @@ describe("claim reconciliation route database receipt boundary", () => {
       error: { code: "NETWORK", message: "SYNTH_PRIVATE_CONTENT", details: "SYNTH_PRIVATE_CONTENT" } });
     const response = await POST(request());
     const result = await response.json();
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(503);
     expect(result.data).toBeNull();
     expect(result.errors[0].code).toBe("CLAIM_RECONCILIATION_FAILED");
     expect(result.errors[0].message).toContain("尚未確認");
     expect(result.errors[0].message).toContain("相同冪等鍵");
     expect(JSON.stringify(result)).not.toMatch(/未完成對帳|沒有.*寫入|SYNTH_PRIVATE_CONTENT/u);
+  });
+
+  it("does not confuse swapped per-item outcomes with an equal accepted/rejected total", async () => {
+    const changed = { ...body, results: [
+      { ...body.results[0], outcome: "rejected" }, body.results[1],
+      { ...body.results[2], outcome: "accepted" },
+    ] };
+    expect((await POST(request(changed))).status).toBe(502);
+  });
+
+  it.each(["response_code", "response_message"])("binds each result's %s, not only its count", async (field) => {
+    const changed = { ...body, results: body.results.map((item, index) => index === 0
+      ? { ...item, [field]: "CHANGED" } : item) };
+    expect((await POST(request(changed))).status).toBe(502);
+  });
+
+  it("rejects differently cased duplicate UUIDs before any database call", async () => {
+    const id = "490abc00-0000-4000-8000-000000000009";
+    const response = await POST(request({ ...body, results: [
+      { ...body.results[0], claim_item_id: id }, { ...body.results[0], claim_item_id: id.toUpperCase() },
+    ] }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].code).toBe("DUPLICATE_CLAIM_RESULT");
+    expect(stubs.client).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["42501", 403, "CLAIM_RECONCILIATION_NOT_AUTHORIZED"],
+    ["23505", 409, "CLAIM_RECONCILIATION_IDEMPOTENCY_CONFLICT"],
+    ["P2001", 409, "CLAIM_RECONCILIATION_ALREADY_COMPLETED"],
+    ["23514", 422, "CLAIM_RECONCILIATION_REJECTED"],
+    ["22023", 422, "CLAIM_RECONCILIATION_REJECTED"],
+    ["55000", 422, "CLAIM_RECONCILIATION_REJECTED"],
+    ["57014", 503, "CLAIM_RECONCILIATION_FAILED"],
+    [undefined, 503, "CLAIM_RECONCILIATION_FAILED"],
+  ])("classifies database %s without exposing its payload", async (code, status, expectedCode) => {
+    stubs.single.mockResolvedValue({ data: null, error: { code, message: "SYNTH_PRIVATE_CONTENT" } });
+    const response = await POST(request()); const payload = await response.json();
+    expect(response.status).toBe(status); expect(payload.errors[0].code).toBe(expectedCode);
+    expect(payload.data).toBeNull(); expect(JSON.stringify(payload)).not.toContain("SYNTH_PRIVATE_CONTENT");
   });
 });

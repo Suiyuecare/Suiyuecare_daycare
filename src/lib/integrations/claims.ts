@@ -11,6 +11,9 @@ const moneySchema = z
   .string()
   .regex(/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/u)
   .max(15);
+// PostgreSQL UUID equality is case-insensitive. Canonicalize before duplicate
+// detection and before freezing a retry payload, not only in receipt parsing.
+const uuidSchema = z.uuid().transform((value) => value.toLowerCase());
 
 export const MAX_CLAIM_RECONCILIATION_BYTES = 2 * 1024 * 1024;
 export const MAX_CLAIM_RECONCILIATION_ITEMS = 5000;
@@ -56,14 +59,14 @@ const responseMessageSchema = z
 const exportSchema = z
   .object({
     idempotency_key: z.string().optional(),
-    claim_batch_id: z.uuid(),
+    claim_batch_id: uuidSchema,
     expected_total_amount: moneySchema,
   })
   .strict();
 
 const reconciliationResultSchema = z
   .object({
-    claim_item_id: z.uuid(),
+    claim_item_id: uuidSchema,
     outcome: z.enum(["accepted", "rejected"]),
     response_code: responseCodeSchema,
     response_message: responseMessageSchema.nullable().optional(),
@@ -73,7 +76,7 @@ const reconciliationResultSchema = z
 const reconcileSchema = z
   .object({
     idempotency_key: z.string().optional(),
-    claim_batch_id: z.uuid(),
+    claim_batch_id: uuidSchema,
     expected_total_amount: moneySchema,
     results: z
       .array(reconciliationResultSchema)
@@ -138,7 +141,7 @@ export function classifyClaimExportDatabaseFailure(
       httpStatus: 409,
     };
   }
-  if (databaseCode === "23514") {
+  if (["22023", "23514", "55000"].includes(databaseCode ?? "")) {
     return {
       code: "CLAIM_EXPORT_REJECTED",
       message: "服務已由其他批次配置，或申報明細未通過匯出驗證。",
@@ -154,8 +157,8 @@ export function classifyClaimExportDatabaseFailure(
   }
   return {
     code: "CLAIM_EXPORT_FAILED",
-    message: "申報批次未建立快照；請確認明細與總額後，以相同冪等鍵重試。",
-    httpStatus: 409,
+    message: "申報匯出結果尚未確認；請保留原批次與金額，以相同冪等鍵重試。",
+    httpStatus: 503,
   };
 }
 

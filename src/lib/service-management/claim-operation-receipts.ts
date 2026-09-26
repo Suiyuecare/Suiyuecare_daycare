@@ -11,7 +11,7 @@ const money = z.union([moneyText, z.number().finite().nonnegative().transform(St
 const safeCount = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const count = z.union([safeCount,
   z.string().regex(/^(?:0|[1-9]\d{0,15})$/u).transform(Number).pipe(safeCount)]);
-const itemCount = count.refine((value) => value > 0);
+const itemCount = count.refine((value) => value > 0 && value <= MAX_CLAIM_RECONCILIATION_ITEMS);
 const expectedSchema = z.object({ claimBatchId: uuid, expectedTotalAmount: moneyText });
 const exportReceipt = z.object({
   claim_batch_id: uuid,
@@ -42,6 +42,49 @@ export class ClaimOperationReceiptError extends Error {
     super("申報回執尚未核對完成；請保留原批次、金額及操作鍵重試。");
     this.name = "ClaimOperationReceiptError";
   }
+}
+
+const binding = z.object({ organization_id: uuid, branch_id: uuid, idempotency_key: uuid,
+  request_hash: z.string().regex(/^[a-f0-9]{64}$/u),
+  snapshot_hash_version: z.literal("postgres-jsonb-v1"),
+  committed_at: z.iso.datetime({ offset: true, precision: null }),
+});
+const expectedBinding = z.object({ organizationId: uuid, branchId: uuid,
+  databaseIdempotencyKey: uuid, requestHash: z.string().regex(/^[a-f0-9]{64}$/u) });
+export type ClaimOperationBinding = z.input<typeof expectedBinding>;
+const bindingKeys = new Set(Object.keys(binding.shape));
+const legacyMetadata = (value: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(value).filter(([key]) => !bindingKeys.has(key)));
+
+function checkBinding(raw: unknown, expected: ClaimOperationBinding) {
+  const receipt = binding.safeParse(raw);
+  const input = expectedBinding.safeParse(expected);
+  if (!receipt.success || !input.success ||
+    receipt.data.organization_id !== input.data.organizationId ||
+    receipt.data.branch_id !== input.data.branchId ||
+    receipt.data.idempotency_key !== input.data.databaseIdempotencyKey ||
+    receipt.data.request_hash !== input.data.requestHash) throw new ClaimOperationReceiptError();
+  return receipt.data;
+}
+
+/** Used by live routes: only database-persisted scope, operation key, request
+ * hash and original commit time can establish a receipt. Never echo input as
+ * evidence. Old metadata-only parsers below remain for legacy compatibility. */
+export function parseClaimExportBoundDatabaseReceipt(raw: unknown,
+  expected: { claimBatchId: string; expectedTotalAmount: string } & ClaimOperationBinding) {
+  const parsed = exportReceipt.extend(binding.shape).strict().safeParse(raw);
+  if (!parsed.success) throw new ClaimOperationReceiptError();
+  const metadata = checkBinding(parsed.data, expected);
+  return { ...parseClaimExportDatabaseReceipt(legacyMetadata(parsed.data), expected), ...metadata };
+}
+
+export function parseClaimReconciliationBoundDatabaseReceipt(raw: unknown,
+  expected: { claimBatchId: string; expectedTotalAmount: string;
+    results: Array<{ claimItemId: string; outcome: "accepted" | "rejected" }> } & ClaimOperationBinding) {
+  const parsed = reconciliationReceipt.extend(binding.shape).strict().safeParse(raw);
+  if (!parsed.success) throw new ClaimOperationReceiptError();
+  const metadata = checkBinding(parsed.data, expected);
+  return { ...parseClaimReconciliationDatabaseReceipt(legacyMetadata(parsed.data), expected), ...metadata };
 }
 
 /** These existing RPCs return snapshot metadata, not an official submission file.

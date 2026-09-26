@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { IntegrationError } from "@/lib/integrations/errors";
 import { deterministicUuid } from "@/lib/integrations/security";
+import { hashClaimExportRequest } from "@/lib/service-management/claim-request-hash";
 
 const stubs = vi.hoisted(() => ({
   authorize: vi.fn(),
@@ -46,6 +47,11 @@ const receipt = {
   item_count: 2,
   total_amount: "1200.10",
   replayed: false,
+  organization_id: ORG, branch_id: BRANCH,
+  idempotency_key: deterministicUuid(ORG, ACTOR, "claim-export", KEY),
+  request_hash: hashClaimExportRequest({ idempotencyKey: KEY, claimBatchId: BATCH,
+    expectedTotalAmount: "1200.10" }, { organizationId: ORG, branchId: BRANCH }),
+  snapshot_hash_version: "postgres-jsonb-v1", committed_at: "2026-09-26T04:00:00.123456+00:00",
 };
 
 function request(value: unknown = body, key: string | null = KEY) {
@@ -89,7 +95,7 @@ describe("claim export route database receipt boundary", () => {
       persisted: true,
       demo: false,
     });
-    expect(stubs.rpc).toHaveBeenCalledWith("export_claim_batch", {
+    expect(stubs.rpc).toHaveBeenCalledWith("export_claim_batch_receipt", {
       p_expected_organization_id: ORG,
       p_expected_branch_id: BRANCH,
       p_claim_batch_id: BATCH,
@@ -101,7 +107,7 @@ describe("claim export route database receipt boundary", () => {
   it.each([
     { item_count: "2", total_amount: 1200.1 },
     { item_count: 2, total_amount: "1200.1" },
-    { item_count: String(Number.MAX_SAFE_INTEGER), total_amount: "1200.10" },
+    { item_count: "5000", total_amount: "1200.10" },
   ])("accepts PostgreSQL numeric and bigint wire forms %j", async (wire) => {
     stubs.single.mockResolvedValue({ data: { ...receipt, ...wire }, error: null });
     const response = await POST(request());
@@ -218,6 +224,13 @@ describe("claim export route database receipt boundary", () => {
     { ...receipt, item_count: 1.5 },
     { ...receipt, item_count: "2.0" },
     { ...receipt, item_count: "9007199254740992" },
+    { ...receipt, item_count: 5001 },
+    { ...receipt, organization_id: BATCH },
+    { ...receipt, branch_id: BATCH },
+    { ...receipt, idempotency_key: OTHER_KEY },
+    { ...receipt, request_hash: "b".repeat(64) },
+    { ...receipt, snapshot_hash_version: "legacy-js-v1" },
+    { ...receipt, committed_at: "not-a-time" },
     { ...receipt, total_amount: "1200.11" },
     { ...receipt, total_amount: "-1200.10" },
     { ...receipt, total_amount: "1200.100" },
@@ -250,11 +263,27 @@ describe("claim export route database receipt boundary", () => {
       error: { code: "NETWORK", message: "SYNTH_PRIVATE_CONTENT", details: "SYNTH_PRIVATE_CONTENT" } });
     const response = await POST(request());
     const result = await response.json();
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(503);
     expect(result.data).toBeNull();
     expect(result.errors[0].code).toBe("CLAIM_EXPORT_FAILED");
     expect(result.errors[0].message).toContain("尚未確認");
     expect(result.errors[0].message).toContain("相同冪等鍵");
     expect(JSON.stringify(result)).not.toMatch(/未建立快照|沒有.*寫入|SYNTH_PRIVATE_CONTENT/u);
+  });
+
+  it.each([
+    ["42501", 403, "CLAIM_EXPORT_NOT_AUTHORIZED"],
+    ["23505", 409, "CLAIM_EXPORT_IDEMPOTENCY_CONFLICT"],
+    ["P2001", 409, "CLAIM_EXPORT_ALREADY_COMPLETED"],
+    ["23514", 422, "CLAIM_EXPORT_REJECTED"],
+    ["22023", 422, "CLAIM_EXPORT_REJECTED"],
+    ["55000", 422, "CLAIM_EXPORT_REJECTED"],
+    ["57014", 503, "CLAIM_EXPORT_FAILED"],
+    [undefined, 503, "CLAIM_EXPORT_FAILED"],
+  ])("classifies database %s without exposing its payload", async (code, status, expectedCode) => {
+    stubs.single.mockResolvedValue({ data: null, error: { code, message: "SYNTH_PRIVATE_CONTENT" } });
+    const response = await POST(request()); const payload = await response.json();
+    expect(response.status).toBe(status); expect(payload.errors[0].code).toBe(expectedCode);
+    expect(payload.data).toBeNull(); expect(JSON.stringify(payload)).not.toContain("SYNTH_PRIVATE_CONTENT");
   });
 });

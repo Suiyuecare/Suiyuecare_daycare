@@ -39,6 +39,7 @@ describe("claim operation database receipts", () => {
     { ...exportReceipt, format_version: "synthetic\nversion" }, { ...exportReceipt, format_version: "x".repeat(121) },
     { ...exportReceipt, item_count: 0 }, { ...exportReceipt, item_count: 1.5 },
     { ...exportReceipt, item_count: "01" }, { ...exportReceipt, item_count: "9007199254740992" },
+    { ...exportReceipt, item_count: "5001" },
     { ...exportReceipt, total_amount: "1200.11" }, { ...exportReceipt, total_amount: "1200.100" },
     { ...exportReceipt, total_amount: -1 }, { ...exportReceipt, total_amount: Infinity },
     { ...exportReceipt, total_amount: "1e3" }, { ...exportReceipt, replayed: "false" },
