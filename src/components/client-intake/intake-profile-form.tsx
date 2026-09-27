@@ -110,9 +110,14 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
     if (operation) await send(operation);
   }
   if (isolated) return <p role="status">原收案操作仍待核對，內容已隔離。請回原授權範圍核對；若登入或權限已變更，請安全登出後重新登入。</p>;
+  const missingItems = intakeMissingItems(profile);
   return <form ref={formRef} onSubmit={save} noValidate data-intake-write className={styles.form}>
-    <div><h2>{initial ? "核對個案基本資料" : "手動建立待收案個案"}</h2><p>先存基本資料，再接續安排到站、表單與文件。沒有的資料可以留待補，不要猜填。</p></div>
+    <div><h2>{initial ? "核對個案基本資料" : "手動建立待收案個案"}</h2><p>沒有的資料可留待補，請勿猜填。</p></div>
     {demo ? <p className={styles.notice}>合成資料試看：可以查看欄位，不會保存個案。</p> : pending ? <p className={styles.notice}>請先核對原次保存；在結果確認前，暫時不能修改資料。</p> : !canManage ? <p className={styles.notice}>目前僅可查看，請由有權限的收案人員修改。</p> : null}
+    <section className={styles.missingCard} aria-label="基本資料待核對"><h3>基本資料待核對{missingItems.length ? ` · ${missingItems.length} 項` : " · 基本欄位已提供"}</h3>
+      {!missingItems.length ? <p>基本欄位已提供；仍須確認評估、文件與正式收案審核。</p> : null}
+      {missingItems.length ? <ul className={styles.missingItems}>{missingItems.map((item) => <li key={item}>{item}</li>)}</ul> : null}
+    </section>
     <fieldset disabled={disabled}><legend>身分與聯繫</legend><div className={styles.grid}>
       {field("displayName", "姓名／顯示稱呼", "text", true)}{field("clientCode", "機構個案編號", "text", true)}
       {field("identityNumber", "身分證／居留證識別")}{field("dateOfBirth", "出生日期", "date")}
@@ -135,11 +140,10 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
       <label>告知同意狀態<select value={profile.consent.status} onChange={(e) => update("consent", { status: e.target.value as IntakeProfile["consent"]["status"], confirmedOn: null })}><option value="pending">待確認</option><option value="confirmed">已明確確認</option><option value="declined">尚未同意</option></select></label>
       <label>確認日期<input name="consent.confirmedOn" {...errorAttributes("consent.confirmedOn")} type="date" max={today} required={profile.consent.status === "confirmed"} disabled={profile.consent.status !== "confirmed"} value={profile.consent.confirmedOn ?? ""} onChange={(e) => update("consent", { ...profile.consent, confirmedOn: e.target.value || null })} /></label>
     </div><label>機構補充說明<textarea className="resize-none" name="notes" {...errorAttributes("notes")} value={profile.notes} rows={3} maxLength={4000} onChange={(e) => update("notes", e.target.value)} /></label></fieldset>
-    <p className={styles.notice}>目前仍待核對：{intakeMissingItems(profile).join("、") || "基本欄位已提供；仍須確認評估、文件與正式收案審核。"}</p>
     {error ? <div className={styles.error} role="alert" id={errorId}><p>{error}</p>{invalid.length ? <ul>{invalid.map((path) => <li key={path}><button type="button" onClick={() => focusField(path)}>{fieldLabel(path)}</button></li>)}</ul> : null}</div> : null}{message ? <p role="status">{message}</p> : null}
     {pending ? <div role="status"><p>{pending.phase === "saved" ? "已有保存回條，請重讀資料核對原版本，不會再次送出。" : "原次保存仍待確認，內容已固定；只能明確重試同一次操作。"}</p>
-      <button className="button button--primary" type="button" disabled={busy || pending.phase === "sending" || !canRecover} onClick={recover}>{busy ? "核對中…" : pending.phase === "saved" ? "重讀已保存資料（不重送）" : "重試原次保存"}</button>
+      <button className={`button button--primary ${styles.primary}`} type="button" disabled={busy || pending.phase === "sending" || !canRecover} onClick={recover}>{busy ? "核對中…" : pending.phase === "saved" ? "重讀已保存資料（不重送）" : "重試原次保存"}</button>
       <p>完整重新載入會失去此分頁的原操作，請先完成核對。</p>{state.navigationBlocked ? <p>請先核對原操作，再切換個案或離開。</p> : null}</div>
-      : <button className="button button--primary" type="submit" disabled={disabled}>{busy ? "儲存與核對中…" : initial ? "儲存基本資料" : "建立待收案個案"}</button>}
+      : <button className={`button button--primary ${styles.primary}`} type="submit" disabled={disabled}>{busy ? "儲存與核對中…" : initial ? "儲存基本資料" : "建立待收案個案"}</button>}
   </form>;
 }

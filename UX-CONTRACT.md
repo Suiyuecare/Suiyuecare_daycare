@@ -234,3 +234,15 @@ GovernanceDialog／useUnsavedChanges維持同一模態與捨棄owner；只有未
 - 附件此次是 `ClientDocumentsWorkspace`／`DocumentHistoryPanel` 的具名限縮變體：上傳固定原 FormData／key，已有有效回條後只核對清單，不重送原檔。GET 20 秒、寫入 25 秒均包含 JSON，傳入取消訊號與 generation fence。清單更新失敗收起舊摘要；下載回條驗證設定的 storage origin、個案、文件與版次，55 秒保守到期後需重新取得，未通過掃毒仍禁止下載。
 
 邊界：完整頁面重載、跨分頁或重新登入沒有 durable 原操作復原；附件尚無跨卸載 journal／完整 authority context，類別覆核仍沿用原流程。用藥尚無原 receipt 唯讀查證／可正向解除保存標記的資料來源。沒有新的 Auth session nonce，不以舊 props 代替新登入。真實掃毒、七年封存、正式量表採用、hosted schema／Auth／收支、真人簽署及 50 人並行仍須另行驗收。此切片的本機合成 Chrome 與單元測試不能作正式上線證明。
+
+### 2026-09-28：任務優先介面切片
+
+權威來源維持原 today-work／case-center 投影、query schema、questionnaire form/schema/rule snapshot、client-intake model／journal及每次API授權；本輪不改資料庫、臨床公式、正式題庫、角色或MFA。短狀態不能把無權限／未取得資料當零，不能把部分紀錄當整班完成，舊已簽版不能掩蓋新草稿／待簽版。不同班別只比較該班證據。
+
+AppShell 只從伺服器過濾後 navigation 建常用捷徑，全部既有授權入口保留；模組直達展開目前分類。原 privacy epochs、未保存捨棄、navigation pending、mobile focus trap、登出／清除順序均不變。SearchField local controlled 模式無網路請求，IME輸入不觸發送出；原GET模式保持明確套用、X清除、欄位與分頁語義。
+
+個案中心名單先於可選統計；收起篩選仍序列化原選值，快捷狀態保留日期／查詢／負責人且重設第1頁。沒有今日排程的名單不得稱今日應到；跨scope與權限不足仍拒絕，不用demo補位。
+
+量表先填寫，但回查原操作／保存待讀回置於表單之前。所有完整題目、必填、安全提醒與草稿／尚不可正式簽署保留；來源說明收起不等於規則已正式啟用。收案progress僅表現選定步驟／profile真實缺項，不把visited計為完成；CMS缺封存仍明示原因並停用原檔上傳。未保存離開、未知後原鍵重試及拒絕回條處理不變。
+
+驗證必須包含 desktop／390px實際元件、搜尋清除／GET篩選序列化、date/client/shift連結、native details鍵盤、選案16px與控制44px、unknown回查可見、權限與登出回歸。baseline與candidate均只用同一合成scope；fake transport不作hosted Auth／保存／掃毒證明。10位初次使用者、50人並行、真正200%縮放／輔具與正式資料验收仍獨立列為未完成，不以本機測試代替。

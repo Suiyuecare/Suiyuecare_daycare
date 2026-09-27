@@ -25,6 +25,20 @@
   font-weight: 650;
 }
 
+.assessorField {
+  display: grid;
+  min-width: 0;
+  gap: .4rem;
+  color: var(--ink-muted);
+  font-size: .9rem;
+  font-weight: 650;
+}
+
+.assessorField small {
+  font-weight: 400;
+  line-height: 1.5;
+}
+
 .meta input {
   width: 100%;
   min-height: 46px;
@@ -71,19 +85,41 @@
   text-underline-offset: .15em;
 }
 
+.formStatus {
+  display: grid;
+  flex: 0 0 auto;
+  gap: .4rem;
+}
+
 .draftBadge {
-  flex: none;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: .35rem .65rem;
-  background: #fff1d7;
-  color: #874b06;
+  background: var(--surface-soft);
+  color: var(--warning);
   font-size: .82rem;
   font-weight: 700;
 }
 
+.formGate {
+  margin: 0;
+  color: var(--warning);
+  font-size: .9rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.progress {
+  margin: 0 0 1rem;
+  border-block: 1px solid var(--line);
+  padding-block: .7rem;
+  color: var(--ink);
+  font-size: .95rem;
+  line-height: 1.6;
+}
+
 .meta {
   display: grid;
-  grid-template-columns: minmax(190px, .7fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(0, .7fr) minmax(0, 1fr);
   gap: 1rem;
   padding: 1rem 0;
 }
@@ -92,9 +128,11 @@
   align-self: end;
   min-height: 46px;
   padding: .65rem .8rem;
-  border-radius: 12px;
-  background: #f8f4ee;
-  color: var(--text, #302d2a);
+  border-radius: var(--control-radius);
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .measurements {
@@ -104,7 +142,7 @@
   gap: .75rem;
   margin: 0 0 1rem;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 14px;
+  border-radius: var(--card-radius);
   padding: 1rem;
   background: var(--surface-subtle, #fff8ee);
 }
@@ -128,7 +166,7 @@
 .measurements select {
   min-height: 46px;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   padding: .65rem .8rem;
   background: white;
   color: var(--text, #302d2a);
@@ -191,7 +229,7 @@
 .questionCard {
   display: grid;
   gap: .8rem;
-  padding: 1rem;
+  padding: clamp(1rem, 2vw, 1.25rem);
 }
 
 .questionTitle {
@@ -210,7 +248,7 @@
 
 .choiceGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: .55rem;
 }
 
@@ -221,28 +259,64 @@
   align-items: center;
   gap: .55rem;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   padding: .65rem .75rem;
   cursor: pointer;
-  color: var(--text, #302d2a);
+  color: var(--ink);
+  font-size: 1rem;
 }
 
 .choice:has(input:checked) {
-  border-color: var(--accent, #ed8b05);
-  background: #fff5e7;
-  box-shadow: inset 0 0 0 1px var(--accent, #ed8b05);
+  border-color: var(--brand-strong);
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px var(--brand-strong);
 }
 
 .choice input {
   width: 18px;
   height: 18px;
   margin: 0;
-  accent-color: var(--accent, #ed8b05);
+  flex: 0 0 18px;
+  accent-color: var(--brand-strong);
 }
 
 .choice span {
-  line-height: 1.4;
+  min-width: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
+
+.choice:has(input:disabled) { cursor: not-allowed; }
+
+.questionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  color: var(--ink-muted);
+  font-size: .9rem;
+}
+
+.questionActions button {
+  min-height: 44px;
+}
+
+.recovery {
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+  padding: 1rem;
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.recovery p {
+  margin: 0 0 .65rem;
+  line-height: 1.6;
+}
+
+.recovery p:last-child { margin-bottom: 0; }
 
 .actions {
   display: flex;
@@ -252,17 +326,22 @@
   padding-top: 1rem;
 }
 
+.actions :global(.button--primary) {
+  background: var(--brand-strong);
+  color: white;
+}
+
 .message {
   margin: .8rem 0 0;
   color: var(--text-muted, #74685d);
 }
 
 .urgent {
-  border: 1px solid #d9534f;
-  border-radius: 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--card-radius);
   padding: .8rem 1rem;
-  background: #fff0ee;
-  color: #8e211a;
+  background: var(--danger-soft);
+  color: var(--danger);
   font-weight: 650;
 }
 
@@ -272,11 +351,11 @@
   align-items: center;
   gap: .65rem 1rem;
   margin-top: 1rem;
-  border: 1px solid #f0d4a8;
-  border-radius: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
   padding: .85rem 1rem;
-  background: #fff7e9;
-  color: var(--text, #302d2a);
+  background: var(--surface-soft);
+  color: var(--ink);
 }
 
 .score strong {
@@ -286,7 +365,7 @@
 .score span {
   border-radius: 999px;
   padding: .25rem .6rem;
-  background: #ffedd0;
+  background: var(--surface-warm);
   font-weight: 700;
 }
 
@@ -295,6 +374,8 @@
   color: var(--text-muted, #74685d);
   line-height: 1.45;
 }
+
+.score .formGate { flex-basis: 100%; }
 
 .empty {
   padding: 1rem;
@@ -393,7 +474,8 @@
   outline-offset: 3px;
 }
 
-.workspace :is(button, summary, .choice):hover:not(:disabled) {
+.workspace :is(button, summary):hover:not(:disabled),
+.workspace .choice:hover:not(:has(input:disabled)) {
   filter: brightness(.96);
 }
 

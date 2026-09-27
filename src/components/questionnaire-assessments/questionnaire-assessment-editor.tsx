@@ -273,18 +273,20 @@ function QuestionnaireEditor({
       }
     }}
   >
+    {retryPending ? <section className={styles.recovery} aria-label="保存結果待確認">
+      <p role="status">保存結果待確認；請先核對原筆，勿重複新增。</p>
+      <button className="button button--secondary" disabled={checking || pending || reading || viewTransitionPending} onClick={() => void checkResult()} type="button">{checking ? "確認中…" : "確認保存結果"}</button>
+    </section> : null}
     <fieldset className={styles.editorFields} disabled={pending || retryPending || checking || committed || readOnly || reading || viewTransitionPending}>
     <div className={styles.formHeader}>
       <div>
         <h2>{form.title}</h2>
         <p>{form.instructions}</p>
-        <p className={styles.source}>
-          題目來源：{form.sourceUrl
-            ? <a href={form.sourceUrl} rel="noreferrer" target="_blank">{form.sourceLabel}</a>
-            : form.sourceLabel}
-        </p>
       </div>
-      <span className={styles.draftBadge}>{readOnly ? latest ? `查看 v${latest.version}` : "僅供檢視" : latest ? `修訂草稿 v${latest.version}` : "新增一次評估"}</span>
+      <div className={styles.formStatus}>
+        <span className={styles.draftBadge}>{readOnly ? latest ? `查看草稿 v${latest.version}` : "僅供檢視" : latest ? `修訂草稿 v${latest.version}` : "新增草稿"}</span>
+        <span className={styles.formGate}>尚不可簽署</span>
+      </div>
     </div>
 
     <div className={styles.meta}>
@@ -308,10 +310,14 @@ function QuestionnaireEditor({
         <small id={`${form.key}-date-hint`}>西元年－月－日，例如 2026-09-27。</small>
         {dateError ? <small id={`${form.key}-date-error`} role="alert">{dateError}</small> : null}
       </label>
-      <label>評估人員
+      <div className={styles.assessorField}>
+        <span>{readOnly ? "此版本記錄人員" : "本次記錄人員"}</span>
         <span className={styles.assessor}>{readOnly ? latest?.authorDisplayName : assessorName}</span>
-      </label>
+        <small>{readOnly ? "顯示此草稿的原保存人員。" : "由目前登入人員保存；不代表已簽署。"}</small>
+      </div>
     </div>
+
+    <p className={styles.progress} aria-label="作答進度" aria-live="polite">已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</p>
 
     {suicideConcern ? <div className={styles.urgent} role="alert">
       安全提醒：此題有記錄到困擾。請依機構危機處理流程立即轉知護理／主管並陪同關懷；本系統不會自動通知或代替專業處置。
@@ -348,19 +354,6 @@ function QuestionnaireEditor({
       {bmi !== null ? <p>依輸入身高與體重計算 BMI：{bmi.toFixed(1)}。請確認 F 題選擇的區間相符；若無法取得 BMI，改輸入小腿圍並選擇小腿圍選項。</p> : <p>輸入可取得的身高與體重；若無法取得 BMI，請改填小腿圍並依 F 題指示作答。</p>}
     </fieldset> : null}
 
-    {form.allowQualitativeNotes ? <label className={styles.notes}>
-      補充觀察與後續事項
-      <textarea
-        className="resize-none"
-        maxLength={3000}
-        onChange={(event) => { const value = event.currentTarget.value; setContext((current) => ({ ...current, qualitative_note: value })); }}
-        placeholder="選填；記錄本次觀察或需由人員追蹤的事項"
-        rows={4}
-        value={context.qualitative_note ?? ""}
-      />
-      <small>選填，最多 3,000 字；內容不會加入量表分數。</small>
-    </label> : null}
-
     <fieldset className={styles.questions} disabled={pending}>
       <legend className="sr-only">{form.title}題目</legend>
       {form.questions.map((question, index) => {
@@ -372,7 +365,7 @@ function QuestionnaireEditor({
         return <section className={styles.questionCard} key={question.id}>
           <h3 className={styles.questionTitle}>{index + 1}. {question.prompt}</h3>
           {question.helpText ? <p className={styles.questionHelp}>{question.helpText}</p> : null}
-          <div className={styles.actions}>
+          <div className={styles.questionActions}>
             <span>{answer.state === "answered" ? "已作答" : answer.state === "not_applicable" ? "不適用" : "未填"}</span>
             {answer.state !== "missing" ? <button
               aria-label={`清除第 ${index + 1} 題答案`}
@@ -434,6 +427,19 @@ function QuestionnaireEditor({
       })}
     </fieldset>
 
+    {form.allowQualitativeNotes ? <label className={styles.notes}>
+      補充觀察與後續事項
+      <textarea
+        className="resize-none"
+        maxLength={3000}
+        onChange={(event) => { const value = event.currentTarget.value; setContext((current) => ({ ...current, qualitative_note: value })); }}
+        placeholder="選填；記錄本次觀察或需由人員追蹤的事項"
+        rows={4}
+        value={context.qualitative_note ?? ""}
+      />
+      <small>選填，最多 3,000 字；內容不會加入量表分數。</small>
+    </label> : null}
+
     {scorePreview ? <section className={styles.score} aria-live="polite" aria-label="量表計分預覽">
       <strong>{scorePreview.status === "complete" && scorePreview.score
         ? `計分預覽 ${scorePreview.score.adjusted ?? scorePreview.score.raw}／${scorePreview.score.max}`
@@ -442,17 +448,23 @@ function QuestionnaireEditor({
         ? <span>{scorePreview.classification.label}</span> : null}
       <small>篩檢分數需由人員判讀。</small>
       {measurementIssue ? <p role="alert">{measurementIssue}</p> : null}
-      {scorePreview.rule?.reviewRequired || !scorePreview.rule?.activatedAt ? <details className={styles.ruleNotice}>
-        <summary>僅供草稿核對，正式計分尚未啟用</summary>
+      {scorePreview.rule?.reviewRequired || !scorePreview.rule?.activatedAt ? <p className={styles.formGate}>僅供草稿核對，正式計分尚未啟用</p> : null}
+    </section> : null}
+    <details className={styles.ruleNotice}>
+      <summary>題目來源與計分說明</summary>
+      <p className={styles.source}>
+        題目來源：{form.sourceUrl
+          ? <a href={form.sourceUrl} rel="noreferrer" target="_blank">{form.sourceLabel}</a>
+          : form.sourceLabel}
+      </p>
+      {scorePreview && (scorePreview.rule?.reviewRequired || !scorePreview.rule?.activatedAt) ? <>
         <p>此版本的正式計分規則仍待業務覆核；保存答案不代表完成正式簽署。</p>
         <p>計分版本：{scorePreview.versionId}。篩檢分數不等於診斷、醫囑或自動處置。</p>
         <p>待業務完成規則覆核與正式計分啟用後，才能作為正式紀錄使用。</p>
-      </details> : null}
-    </section> : null}
+      </> : null}
+    </details>
     </fieldset>
     <div className={styles.actions}>
-      <span>已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</span>
-      {retryPending ? <button className="button button--secondary" disabled={checking || pending || reading || viewTransitionPending} onClick={() => void checkResult()} type="button">{checking ? "確認中…" : "確認保存結果"}</button> : null}
       {!readOnly ? <button className="button button--primary" disabled={!canManage || !scope || pending || checking || committed || reading || viewTransitionPending} type="submit">
         {pending ? "保存中…" : retryPending ? "以相同內容重試" : latest ? "保存修訂版本" : "保存本次評估"}
       </button> : <span>{latest ? "歷史版本僅供查看；修訂請選擇該次評估的最新草稿。" : "此量表僅供檢視，尚無已保存紀錄。"}</span>}
@@ -625,12 +637,28 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
   const disabled = locked || reading || Boolean(journal.operation) || journal.confirmed.length > 0;
   const confirmedKey = journal.confirmed[0]?.receipt.assessmentKey ?? null;
   return <>
+    {exit.notice || reading || readError || feedback || reloadKey || confirmedKey || originalSourceKey.current !== sourceKey ? <section className={styles.recovery} aria-label="評估紀錄狀態">
+      {originalSourceKey.current !== sourceKey ? <p role="status">資料已有更新；本次填寫與原筆待確認操作已保留。請先完成保存或回查，再查看版本歷程。</p> : null}
+      {exit.notice ? <p role="status">{exit.notice}</p> : null}
+      {reading ? <p role="status">正在讀取評估紀錄…</p> : null}
+      {readError ? <p role="alert">{readError} <button className="button button--quiet" disabled={disabled} onClick={() => retryRead.current?.()} type="button">重新讀取歷程</button></p> : null}
+      {feedback ? <p role="status">{feedback}</p> : null}
+      {reloadKey || confirmedKey ? <button className="button button--secondary" disabled={reading} onClick={() => { void saved(reloadKey ?? confirmedKey!).catch(() => {}); }} type="button">重新讀取已保存紀錄</button> : null}
+    </section> : null}
+    {sourceReady ? <QuestionnaireEditor
+      assessorName={assessorName} baseline={baseline} canManage={canManage} client={client} form={form}
+      key={`${baseline?.versionId ?? "new"}-${readOnly ? "view" : "edit"}-${editorEpoch}`}
+      onDirtyChange={setDirty} onLockChange={setLocked} onSaved={saved} readOnly={readOnly} reading={reading}
+      scope={scope} sourceAt={sourceAt}
+    /> : <p role="status">正在確認個案查閱範圍；原筆保存內容不會自動重送。</p>}
+    {context && !context.demo ? <QuestionnaireReadinessPanel context={context} form={form} clientId={client.clientId}
+      draft={baseline} sourceKey={sourceKey} blockedReason={locked || journal.operation || journal.confirmed.length ? "保存結果仍待確認，請先完成原筆回查。" :
+        reading ? "請等待評估紀錄讀取完成。" : dirty || exit.open ? "內容已修改；請先保存，再檢查新版本。" : ""} /> : null}
     <section className={styles.records} aria-label="已保存的評估">
       <div className={styles.recordsHeading}><h2 ref={recordHeading} tabIndex={-1} data-governance-focus-anchor>評估紀錄</h2>
         {canManage ? <button className="button button--secondary" disabled={disabled} onClick={() => requestSwitch(startNew)} type="button">新增一次評估</button> : null}
       </div>
       <p>已保存 {total} 次評估；每次評估與修訂版本分開保留。</p>
-      {originalSourceKey.current !== sourceKey ? <p role="status">資料已有更新；本次填寫與原筆待確認操作已保留。請先完成保存或回查，再查看版本歷程。</p> : null}
       {total ? <>
         <label className={styles.recordPicker}>選擇已保存評估
           {/* Popup geometry is platform-owned, consistent with ClientSelectionCard. */}
@@ -653,18 +681,13 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
           })} type="button">修訂此草稿</button> : null}
           {cursor ? <button className="button button--secondary" disabled={disabled} onClick={() => void read("assessments", undefined, true)} type="button">載入較早評估</button> : null}
         </div>
-      </> : <p>{canManage ? "尚無評估紀錄，請填寫下方量表保存本次評估。" : "尚無已保存評估；目前帳號僅能檢視量表。"}</p>}
+      </> : <p>{canManage ? "尚無評估紀錄，請填寫量表保存本次評估。" : "尚無已保存評估；目前帳號僅能檢視量表。"}</p>}
       <GovernanceDialog open={exit.open} title="放棄尚未保存的修改？" cancelLabel="繼續填寫"
         busy={locked || reading || Boolean(journal.operation)} onRequestClose={exit.cancel} returnFocusRef={exit.returnFocusRef} fallbackFocusRef={recordHeading}>
         <p>切換後，本次尚未保存的修改不會保留。</p>
         <button className="button button--danger" disabled={locked || reading || Boolean(journal.operation)} onClick={exit.confirmDiscard}
           onCompositionStart={exit.compositionStart} onCompositionEnd={exit.compositionEnd} type="button">放棄修改並切換</button>
       </GovernanceDialog>
-      {exit.notice ? <p role="status">{exit.notice}</p> : null}
-      {reading ? <p role="status">正在讀取評估紀錄…</p> : null}
-      {readError ? <p role="alert">{readError} <button className="button button--quiet" disabled={disabled} onClick={() => retryRead.current?.()} type="button">重新讀取歷程</button></p> : null}
-      {feedback ? <p role="status">{feedback}</p> : null}
-      {reloadKey || confirmedKey ? <button className="button button--secondary" disabled={reading} onClick={() => { void saved(reloadKey ?? confirmedKey!).catch(() => {}); }} type="button">重新讀取已保存紀錄</button> : null}
       {versions.length ? <details className={styles.versionHistory} open>
         <summary>版本歷程（顯示 {versions.length}／共 {versionTotal} 版）</summary>
         <ol>{versions.map((version) => <li key={version.versionId}>
@@ -676,15 +699,6 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
         {beforeVersion ? <button className="button button--secondary" disabled={disabled} type="button" onClick={() => void read("versions", selectedKey, true)}>載入較早版本</button> : null}
       </details> : null}
     </section>
-    {context && !context.demo ? <QuestionnaireReadinessPanel context={context} form={form} clientId={client.clientId}
-      draft={baseline} sourceKey={sourceKey} blockedReason={locked || journal.operation || journal.confirmed.length ? "保存結果仍待確認，請先完成原筆回查。" :
-        reading ? "請等待評估紀錄讀取完成。" : dirty || exit.open ? "內容已修改；請先保存，再檢查新版本。" : ""} /> : null}
-    {sourceReady ? <QuestionnaireEditor
-      assessorName={assessorName} baseline={baseline} canManage={canManage} client={client} form={form}
-      key={`${baseline?.versionId ?? "new"}-${readOnly ? "view" : "edit"}-${editorEpoch}`}
-      onDirtyChange={setDirty} onLockChange={setLocked} onSaved={saved} readOnly={readOnly} reading={reading}
-      scope={scope} sourceAt={sourceAt}
-    /> : <p role="status">正在確認個案查閱範圍；原筆保存內容不會自動重送。</p>}
   </>;
 }
 

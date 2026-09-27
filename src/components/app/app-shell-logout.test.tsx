@@ -293,6 +293,41 @@ describe("staff shell logout privacy", () => {
     expect(mocks.observeReferrals).toHaveBeenCalledTimes(3);
     expect(mocks.observeReferrals.mock.calls[2][0]).toBe(first);
   });
+  it("keeps all authorized module entrances inside an optional all-features disclosure", () => {
+    const navigation = getNavigationGroups();
+    render(<AppShell context={actor} navigation={navigation}><p>合成工作頁</p></AppShell>);
+    const disclosure = screen.getByText("全部功能").closest("details")!;
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(screen.getByRole("link", { name: "評估量表" })).toHaveAttribute("href", "/app/staff/assessments/spmsq");
+    fireEvent.click(screen.getByText("全部功能"));
+    for (const group of navigation.filter((item) => item.id !== "workspace")) {
+      const control = screen.getByRole("button", { name: group.title });
+      if (control.getAttribute("aria-expanded") !== "true") fireEvent.click(control);
+    }
+    const sidebar = screen.getByLabelText("主要功能");
+    const entrances = new Set([...sidebar.querySelectorAll("a")].map((link) => link.getAttribute("href")));
+    for (const page of navigation.flatMap((group) => group.pages)) expect(entrances.has(`/app/${page.slug}`)).toBe(true);
+  });
+  it("opens the active module on deep links and does not invent unauthorized shortcuts", () => {
+    const navigation = getNavigationGroups().filter((group) => group.id === "daily-care");
+    mocks.pathname = `/app/${navigation[0].pages[0].slug}`;
+    render(<AppShell context={actor} navigation={navigation}><p>合成工作頁</p></AppShell>);
+    expect(screen.getByText("全部功能").closest("details")).toHaveAttribute("open");
+    for (const link of screen.getAllByRole("link", { name: navigation[0].pages[0].title })) expect(link).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: "評估量表" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "每日彙整" })).not.toBeInTheDocument();
+  });
+  it("reopens the active module after navigating from a manually closed all-features menu", () => {
+    const navigation = getNavigationGroups().filter((group) => ["daily-care", "assessments"].includes(group.id));
+    mocks.pathname = `/app/${navigation[0].pages[0].slug}`;
+    const shell = render(<AppShell context={actor} navigation={navigation}><p>合成工作頁</p></AppShell>);
+    const oldDisclosure = screen.getByText("全部功能").closest("details")!;
+    oldDisclosure.open = false;
+    mocks.pathname = `/app/${navigation[1].pages[0].slug}`;
+    shell.rerender(<AppShell context={actor} navigation={navigation}><p>合成工作頁</p></AppShell>);
+    expect(screen.getByText("全部功能").closest("details")).toHaveAttribute("open");
+    expect(screen.getByRole("link", { name: navigation[1].pages[0].title })).toHaveAttribute("aria-current", "page");
+  });
   it.each(["social work", "psychosocial"] as const)("observes %s authority ABA outside its page", (module) => {
     const observe = module === "social work" ? mocks.observeSocialWork : mocks.observePsychosocial;
     const shell = render(<AppShell context={actor} navigation={[]}><p>合成其他工作頁</p></AppShell>);

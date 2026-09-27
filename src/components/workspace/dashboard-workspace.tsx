@@ -33,13 +33,13 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = 
     <nav aria-label="所在位置" className="context-bar"><span>工作台</span><span aria-hidden="true">／</span><span aria-current="page" className="context-bar__crumb">今日工作</span></nav>
     <header className="page-heading today-heading">
       <div><p className="eyebrow">{dayLabel}・更新於 {updated}{snapshot.demo ? "・合成示範" : ""}</p>
-        <h1>今天的照顧工作，一眼掌握。</h1>
-        <p className="page-heading__description">先找個案，再接續出勤、量測與照顧日誌。</p></div>
+        <h1>今日工作</h1>
+        <p className="page-heading__description">選個案，接續完成當日紀錄。</p></div>
       <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
     </header>
     {canOpenReadiness ? <p className="callout"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
       href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink>
-      <span>帳號、個案、當班安排還沒建齊？從準備清單找到下一步。</span></p> : null}
+      <span>確認帳號、個案與當班安排。</span></p> : null}
     <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} />
     {roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
     <footer className="today-footer">

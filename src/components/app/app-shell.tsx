@@ -98,6 +98,8 @@ export function AppShell({
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
   const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const assessmentShortcut = availablePages.find((page) => page.moduleId === "assessments");
+  const summaryShortcut = availablePages.find((page) => page.number === 54);
   const [groupRoute, setGroupRoute] = useState(pathname);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
@@ -372,6 +374,19 @@ export function AppShell({
               <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
             </NavigationLink></div>
           </section> : null}
+          {assessmentShortcut || summaryShortcut ? <section className="nav-group" aria-label="常用工作">
+            <div className="nav-group__label nav-group__label--static">常用工作</div>
+            <div className="nav-group__items">
+              {assessmentShortcut ? <NavigationLink className="nav-link" href={`/app/${assessmentShortcut.slug}`} loadingLabel={assessmentShortcut.title} onClick={() => closeMenu({ returnFocus: false })}>
+                <span className="nav-link__icon"><ClipboardCheck aria-hidden="true" /></span><span>評估量表</span>
+              </NavigationLink> : null}
+              {summaryShortcut ? <NavigationLink className="nav-link" href={`/app/${summaryShortcut.slug}`} loadingLabel={summaryShortcut.title} onClick={() => closeMenu({ returnFocus: false })}>
+                <span className="nav-link__icon"><BookOpenCheck aria-hidden="true" /></span><span>每日彙整</span>
+              </NavigationLink> : null}
+            </div>
+          </section> : null}
+          {navigation.some((group) => group.id !== "workspace") ? <details key={pathname} className="task-details sidebar__all-features" open={Boolean(activeGroup && activeGroup.id !== "workspace")}>
+            <summary>全部功能</summary>
           {navigation.filter((group) => group.id !== "workspace").map((group) => {
             const Icon = moduleIcons[group.id];
             const expanded = openGroups.has(group.id);
@@ -387,6 +402,7 @@ export function AppShell({
               })}</div> : null}
             </section>;
           })}
+          </details> : null}
         </nav>
         <div className="sidebar__footer">
           <a className="button button--secondary sidebar__module-return" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>

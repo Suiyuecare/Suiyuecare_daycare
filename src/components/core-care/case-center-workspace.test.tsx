@@ -165,6 +165,35 @@ describe("case center front-line next step", () => {
 });
 
 describe("case center filters and readable fallback states", () => {
+  it("puts search and client work before optional management statistics and keeps full filters available", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46]} />);
+    const form = container.querySelector<HTMLFormElement>("form")!;
+    const statistics = screen.getByText("個案統計").closest("details")!;
+    const advanced = screen.getByText("更多篩選").closest("details")!;
+    expect(form.hasAttribute("novalidate")).toBe(true);
+    expect(screen.getByRole("searchbox").getAttribute("maxlength")).toBe("120");
+    expect(statistics.hasAttribute("open")).toBe(false);
+    expect(advanced.hasAttribute("open")).toBe(false);
+    expect(container.querySelector(".metric-grid")).toBeNull();
+    expect(form.compareDocumentPosition(workLinks(container)[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(workLinks(container)[0]!.compareDocumentPosition(statistics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const data = new FormData(form);
+    expect(Object.fromEntries(data)).toEqual({ date: serviceDate, q: "", lifecycle: "all", service: "all", responsible: "all" });
+    expect(statistics.querySelectorAll("dt")).toHaveLength(5);
+  });
+
+  it("keeps active advanced filters visible and shortcuts preserve date, query and responsibility", () => {
+    const selected = filters({ query: "合成 甲", lifecycle: "suspended", service: "paused", responsible: "me", page: 2 });
+    render(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot()} />);
+    expect(screen.getByText("更多篩選（已套用 3 項）").closest("details")!.hasAttribute("open")).toBe(true);
+    const quick = screen.getByRole("navigation", { name: "常用個案篩選" });
+    expect(within(quick).getByRole("link", { name: "服務中" }).getAttribute("href")).toBe(
+      caseCenterHref({ ...selected, lifecycle: "all", service: "serving", page: 1 }));
+    expect(within(quick).getByRole("link", { name: "待收案" }).getAttribute("href")).toBe(
+      caseCenterHref({ ...selected, lifecycle: "pending_admission", service: "all", page: 1 }));
+    expect(screen.getByRole("button", { name: "清除搜尋個案代碼或姓名" })).toBeTruthy();
+  });
+
   it("preserves all combined filters in pagination and resets only filter criteria on clear", () => {
     const selected = filters({ query: "合成 甲", lifecycle: "active", service: "serving", responsible: actorId, page: 2 });
     const { container } = render(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot({ page: 2, pageCount: 3, total: 53 })} />);

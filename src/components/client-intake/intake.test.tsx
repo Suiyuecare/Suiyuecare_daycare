@@ -74,6 +74,44 @@ beforeEach(async () => {
 });
 afterEach(() => { cleanup(); journal.clearCmsUploadOnLogout(); writes.clearIntakeWritesOnLogout(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("intake usability and truthful writes", () => {
+  it("keeps the current step and saved missing items clear without claiming unopened work is complete", () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    const snapshot: IntakeSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true,
+      profile: { ...emptyIntakeProfile, displayName: "合成測試個案", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null };
+    render(<IntakeWorkspace context={context} clients={[{ id, displayName: snapshot.profile.displayName, clientCode: snapshot.profile.clientCode }]}
+      initialSnapshot={snapshot} loadError={false} today="2026-09-14" archiveConfigured />);
+    const steps = screen.getByRole("navigation", { name: "收案流程" });
+    expect(within(steps).getByRole("button", { name: /2\s*基本資料.*目前步驟/u })).toHaveAttribute("aria-current", "step");
+    expect(within(steps).getByRole("button", { name: /每週到站與接送.*待查看/u })).not.toHaveAttribute("aria-current");
+    expect(within(steps).queryByText(/已完成/u)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "目前收案工作" })).toHaveTextContent("第 2 步／共 5 步");
+    expect(within(screen.getByRole("region", { name: "目前收案工作" })).queryByRole("heading")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "基本資料待核對" })).toHaveTextContent("身分識別資料");
+    fireEvent.click(within(steps).getByRole("button", { name: /1\s*匯入與建檔/u }));
+    expect(screen.getByRole("region", { name: "目前收案工作" })).toHaveTextContent("已保存基本資料 · 待核對 5 項");
+    expect(within(steps).getByRole("button", { name: /2\s*基本資料.*待核對 5 項/u })).not.toHaveAttribute("aria-current");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("keeps routine account details collapsed while admission and archive limitations stay visible", () => {
+    render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" />);
+    const background = screen.getByText(/一般建檔、CMS 核對與每週安排/u);
+    expect(background.closest("details")).not.toHaveAttribute("open"); expect(background).not.toBeVisible();
+    expect(screen.getByText("建檔不代表正式收案；評估、文件與服務狀態仍需各自確認。")).toBeVisible();
+    expect(screen.getByText(/HTML 匯入暫停：原檔封存尚未設定/u)).toBeVisible();
+    expect(screen.getByRole("button", { name: /2\s*基本資料.*先建立個案/u })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" })).toBeEnabled();
+  });
+  it("updates the visible missing-item list from current input without saving or treating a missing value as complete", () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    const missing = screen.getByRole("region", { name: "基本資料待核對" });
+    expect(missing).toHaveTextContent("5 項");
+    fireEvent.change(screen.getByLabelText("身分證／居留證識別"), { target: { value: "X123456789" } });
+    expect(missing).toHaveTextContent("4 項"); expect(within(missing).queryByText("身分識別資料")).not.toBeInTheDocument();
+    expect(missing).toHaveTextContent("告知同意確認"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
+    fireEvent.change(screen.getByLabelText("身分證／居留證識別"), { target: { value: "" } });
+    expect(missing).toHaveTextContent("5 項"); expect(missing).toHaveTextContent("身分識別資料"); expect(fetcher).not.toHaveBeenCalled();
+  });
   it("does not offer unknown-case CMS staging to assigned-only staff", () => {
     const context = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.manage", "clients.demographics.read", "imports.manage", "imports.approve"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
     journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(context));
@@ -93,7 +131,7 @@ describe("intake usability and truthful writes", () => {
   it("explains missing CMS archive configuration before file selection and leaves manual intake available", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const onManual = vi.fn();
     render(<CmsIntakeStep context={context} current={null} canImport canApprove demo={false} archiveConfigured={false} onSaved={vi.fn()} onManual={onManual} onDirty={vi.fn()} />);
-    expect(screen.getByText("HTML 匯入暫停；請保留原檔，可先手動建檔。")).toBeVisible();
+    expect(screen.getByText("HTML 匯入暫停：原檔封存尚未設定。請保留原檔，可先手動建檔。")).toBeVisible();
     expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
     expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" }));
@@ -101,7 +139,7 @@ describe("intake usability and truthful writes", () => {
   });
   it("labels missing information as missing, not complete", () => {
     render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
-    expect(screen.getByText(/目前仍待核對/)).toHaveTextContent("可聯繫的關係人"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
+    expect(screen.getByRole("region", { name: "基本資料待核對" })).toHaveTextContent("可聯繫的關係人"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
     fireEvent.click(screen.getByRole("button", { name: "＋新增聯絡人" })); expect(screen.getByLabelText("聯絡人姓名")).toBeVisible();
   });
   it("retains fields and idempotency key when an uncertain request is retried", async () => {

@@ -31,7 +31,7 @@ export function ClientSelectionCard({
   supplement?: ReactNode;
 }) {
   return (
-    <section className="client-selection-card">
+    <section aria-label={`${label}選擇`} className="client-selection-card" data-client-selection>
       <div className="client-selection-card__heading">
         <label className="client-selection-card__label" htmlFor={id}>{label}</label>
         {supplement ? <div className="client-selection-card__supplement">{supplement}</div> : null}

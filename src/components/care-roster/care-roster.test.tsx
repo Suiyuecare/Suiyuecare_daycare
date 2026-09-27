@@ -23,6 +23,11 @@ describe("careworker roster interface", () => {
   it("shows my assignments and separate shift tasks without manager controls", () => {
     render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} roster={roster} serviceDate={snapshot.serviceDate} access={snapshot.sourceAccess} />);
     expect(screen.getByRole("heading", { name: "我的當班個案" })).toBeVisible();
+    expect(screen.getByText("體溫：尚待記錄")).not.toBeVisible();
+    const detail = screen.getByText("陳O華・分工與紀錄詳情").closest("details")!;
+    expect(detail).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("陳O華・分工與紀錄詳情"));
+    expect(detail).toHaveAttribute("open");
     expect(screen.getByText("體溫：尚待記錄")).toBeVisible();
     expect(screen.queryByText("只看待指派")).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "班別" }), { target: { value: "morning" } });
@@ -31,7 +36,8 @@ describe("careworker roster interface", () => {
   it("never presents failed roster retrieval as no work or an expected denominator", () => {
     const unavailable = { ...roster, status: "unavailable" as const, assignments: [] };
     render(<TodayWorkList rows={buildTodayWorkRows(snapshot, unavailable)} roster={unavailable} serviceDate={snapshot.serviceDate} access={snapshot.sourceAccess} />);
-    expect(screen.getByText(/每日分工暫時無法取得/)).toBeVisible();
+    expect(screen.getByText(/今日安排未取得/)).toBeVisible();
+    expect(screen.getByText(/名單不代表今天應到/)).toBeVisible();
     expect(screen.queryByRole("heading", { name: "我的當班個案" })).not.toBeInTheDocument();
   });
   it("does not expose supervisor composer to worker", () => {

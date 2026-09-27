@@ -79,6 +79,47 @@ describe("questionnaire independent drafts and version browsing", () => {
     expect(screen.queryByRole("button", { name: /簽署/ })).toBeNull();
   });
 
+  it("puts the active questionnaire and concise progress before saved-history tools while keeping its formal gate visible", () => {
+    workspace();
+    const firstQuestion = screen.getByRole("radiogroup", { name: "第 1 題" });
+    const records = screen.getByRole("region", { name: "已保存的評估" });
+    const progress = screen.getByLabelText("作答進度");
+    expect(firstQuestion.compareDocumentPosition(records) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(progress.compareDocumentPosition(firstQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("尚不可簽署", { exact: true })).toBeVisible();
+    expect(screen.getByText("本次記錄人員")).toBeVisible();
+    expect(screen.getByText("目前登入人員", { exact: true })).toBeVisible();
+    const sourceDetails = screen.getByText("題目來源與計分說明").closest("details")!;
+    expect(sourceDetails).not.toHaveAttribute("open");
+    expect(within(sourceDetails).getByText(/題目來源：/u)).not.toBeVisible();
+    expect(screen.getByText("僅供草稿核對，正式計分尚未啟用")).toBeVisible();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it.each(Object.values(QUESTIONNAIRE_FORMS))("keeps every full official prompt and answer option visible in $key", (selectedForm) => {
+    const snapshot: QuestionnaireSnapshot = { ...defaultSnapshot(), formKey: selectedForm.key,
+      clients: [{ ...defaultSnapshot().clients[0]!, latest: null, assessments: [], assessmentTotal: 0 }] };
+    workspace(snapshot, true, selectedForm);
+    selectedForm.questions.forEach((question, index) => {
+      expect(screen.getByRole("heading", { name: `${index + 1}. ${question.prompt}` })).toBeVisible();
+      const group = within(screen.getByRole("radiogroup", { name: `第 ${index + 1} 題` }));
+      question.choices.forEach(choice => expect(group.getByRole("radio", { name: choice.label })).toBeVisible());
+    });
+    expect(screen.getAllByRole("radio").every(element => !(element as HTMLInputElement).checked)).toBe(true);
+  });
+
+  it("keeps uncertain-save recovery before question cards with exactly one recovery action", async () => {
+    workspace();
+    stubs.fetch.mockResolvedValueOnce(response(null, 503));
+    fireEvent.click(button("保存修訂版本"));
+    await waitFor(() => expect(button("確認保存結果")).toBeVisible());
+    const recovery = screen.getByRole("region", { name: "保存結果待確認" });
+    expect(recovery.compareDocumentPosition(screen.getByRole("radiogroup", { name: "第 1 題" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "確認保存結果" })).toHaveLength(1);
+    within(screen.getByRole("radiogroup", { name: "第 1 題" })).getAllByRole("radio").forEach(element => expect(element).toBeDisabled());
+    expect(posts()).toHaveLength(1);
+  });
+
   it.each(functionalForms)("visibly distinguishes saved answered, N/A with reason and missing states in $key", (selectedForm) => {
     workspace(functionalSnapshot(selectedForm), true, selectedForm);
     expect(questionCard(1).getByText("已作答")).toBeVisible();

@@ -27,6 +27,7 @@ describe("ClientSelectionCard", () => {
     );
 
     expect(container.querySelector(".client-selection-card")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "個案選擇" })).toHaveAttribute("data-client-selection");
     expect(container.querySelector(".client-selection-card__heading")).toHaveTextContent("尚未建檔");
     expect(screen.getByLabelText("個案")).toHaveValue("client-a");
     fireEvent.change(screen.getByLabelText("個案"), { target: { value: "client-b" } });
@@ -48,6 +49,7 @@ describe("ClientSelectionCard", () => {
     );
 
     expect(screen.getByLabelText("個案")).toHaveAttribute("name", "client");
+    expect(screen.getByRole("region", { name: "個案選擇" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "選取個案" })).toHaveAttribute("type", "submit");
     expect(screen.getByRole("option", { name: "請選擇個案" })).toBeDisabled();
   });

@@ -188,11 +188,11 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .client-selection-card__select {
   display: block; width: 100%; min-width: 0; min-height: 44px; flex: 1 1 auto; border: 1px solid var(--line);
   border-radius: var(--control-radius); background: var(--surface); padding: 10px 13px; color: var(--ink);
-  font-size: 14px; font-weight: 700;
+  font-size: 16px; font-weight: 700;
 }
 .client-selection-card .client-selection-card__select {
   width: 100%; max-width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: var(--control-radius);
-  background: var(--surface); padding: 10px 13px; color: var(--ink); font-size: 14px; font-weight: 700;
+  background: var(--surface); padding: 10px 13px; color: var(--ink); font-size: 16px; font-weight: 700;
 }
 .client-selection-card .client-selection-card__select:disabled { cursor: not-allowed; background: #f7f5f2; color: var(--ink-muted); }
 .client-selection-card__action { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
@@ -301,6 +301,12 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .nav-group__label { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; padding: 14px 10px 6px; background: transparent; color: var(--brand-strong); cursor: pointer; font-size: 12px; font-weight: 1000; letter-spacing: .12em; }
 .nav-group__label svg { width: 15px; height: 15px; }
 .nav-group__items { display: grid; }
+.task-details > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; padding: 10px 12px; font-weight: 700; overflow-wrap: anywhere; }
+.task-details > summary::before { content: "+"; margin-right: 8px; }
+.task-details[open] > summary::before { content: "−"; }
+.task-details > summary:focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 2px; }
+.sidebar__all-features { margin-top: 12px; border-top: 1px solid var(--line); }
+.sidebar__all-features > summary { color: var(--brand-strong); }
 .nav-link { display: grid; grid-template-columns: 38px minmax(0, 1fr); min-height: 54px; align-items: center; gap: 12px; margin-bottom: 8px; border-radius: 18px; padding: 8px 14px 8px 8px; color: var(--ink-muted); font-size: 16px; font-weight: 900; transition: background .18s, color .18s, transform .18s; }
 .nav-link__icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 14px; background: white; color: var(--brand-strong); }
 .nav-link:hover { background: var(--brand); color: var(--admin-brown); transform: translateX(2px); }
@@ -352,9 +358,9 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .metric-card__foot { margin: 8px 0 0; color: var(--ink-faint); font-size: .72rem; line-height: 1.45; }
 .today-heading { align-items: center; margin-bottom: 20px; }
 .today-counters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-.today-counter { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; text-align: left; padding: 16px 20px; min-height: 94px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); cursor: pointer; }
+.today-counter { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; text-align: left; padding: 10px 14px; min-height: 64px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); cursor: pointer; }
 .today-counter > span { font-weight: 800; }
-.today-counter > strong { grid-row: span 2; align-self: center; font-size: 1.8rem; }
+.today-counter > strong { grid-row: span 2; align-self: center; font-size: 1.5rem; }
 .today-counter > small { color: var(--ink-muted); }
 .today-counter[aria-pressed="true"], .today-view-buttons [aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand-strong); box-shadow: inset 0 0 0 1px var(--brand-strong); }
 .today-counter:disabled { cursor: default; }
@@ -381,7 +387,21 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .today-management { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .today-management summary { display: list-item; min-height: 44px; padding: 10px 4px; color: var(--ink); cursor: pointer; font-weight: 800; }
 .case-center-actions { display: grid; gap: 8px; }
+.case-center-panel .button--primary { background: var(--brand-strong); color: white; }
 .case-center-filters input, .case-center-filters select { font-size: 16px; min-height: 44px; }
+.today-client__details { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+.today-client__shift { color: var(--ink-muted); font-size: 14px; }
+.today-client__action.button--primary { background: var(--brand-strong); color: white; }
+.today-toolbar > .filter-search { min-width: 0; flex: 1 1 240px; }
+.case-center-quick-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.case-center-quick-filters a { display: inline-flex; min-height: 44px; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
+.case-center-quick-filters a[aria-current="page"] { border-color: var(--brand-strong); background: var(--brand-soft); }
+.case-center-filter-details { flex-basis: 100%; width: 100%; }
+.case-center-filter-details__fields { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; }
+.case-center-summary { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); }
+.case-center-summary__counts { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 16px 16px; }
+.case-center-summary__counts > div { flex: 1 1 140px; }
+.case-center-summary__counts dd { margin: 4px 0 0; font-weight: 700; }
 .case-center-actions a { min-height: 44px; white-space: normal; }
 .case-center-action-note { margin: 0; color: var(--ink-muted); font-size: .875rem; line-height: 1.6; }
 .core-client-continuation { margin-bottom: 16px; }
@@ -407,7 +427,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 }
 @media (max-width: 760px) {
   .today-counters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .today-counter { min-height: 82px; padding: 12px; gap: 4px; }
+  .today-counter { min-height: 64px; padding: 10px 12px; gap: 4px; }
   .today-counter > strong { font-size: 1.5rem; }
   .today-counter > span { font-size: .9rem; }
   .today-client { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 18px 16px; }

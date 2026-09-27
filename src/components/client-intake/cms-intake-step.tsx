@@ -132,7 +132,7 @@ function CmsIntakeEditor({ context, current, canImport, canApprove, demo, onSave
   return <section className={styles.form}>
     <div><h2>匯入 CMS 資料</h2><p>選擇中央系統下載的 HTML，核對後建立個案。</p></div>
     {current && canUseCmsUpload(scope) ? <p className={styles.notice}>目前正在更新：{current.profile.displayName}。系統仍會用精確身分識別核對，不依姓名合併。</p> : null}
-    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停；請保留原檔，可先手動建檔。</p></div> : null}
+    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停：原檔封存尚未設定。請保留原檔，可先手動建檔。</p></div> : null}
     <CmsUploadControl context={context} mode="routine-intake" clientId={current?.clientId ?? null} enabled={!commitBusy && !writePending && !demo && canImport && archiveConfigured}
       onPreview={readPreview} onDirty={setUploadDirty} onBusy={setUploadBusy} onSelectionChanged={selectionChanged} />
     <div className={styles.inline}><button type="button" onClick={onManual} disabled={busy || uploadDirty || writePending}>沒有 CMS 檔？手動建檔</button></div>
@@ -141,7 +141,7 @@ function CmsIntakeEditor({ context, current, canImport, canApprove, demo, onSave
     {showSource && preview && !preview.imported && !committed ? <fieldset disabled={busy || writePending}>
       <h3>逐欄核對後，才會寫入個案資料</h3>
       {preview.sourceIsOlder ? <p role="alert" className={styles.error}>這份來源的官方日期（{preview.sourceOfficialDate}）早於現有版本（{preview.currentSourceOfficialDate}），不能用舊資料覆蓋。</p> : null}
-      <p>已辨識 {preview.sections.length} 個區段。尚未對應的資料會保留於匯入來源，不會被丟棄。</p>
+      <p>共 {[...groups.keys()].length} 個建檔欄位，請逐欄選擇採用或保留。</p>
       <label>機構個案編號（必填）<input value={clientCode} disabled={Boolean(current) || busy} maxLength={64} onChange={(e) => { setClientCode(e.target.value); setConfirmed(false); }} /></label>
       {[...groups].map(([target, fields]) => {
         const choice = choices[target]; const candidate = fields.find((f) => f.id === choice?.fieldId) ?? fields[0]!;
@@ -150,23 +150,24 @@ function CmsIntakeEditor({ context, current, canImport, canApprove, demo, onSave
           <p>目前資料：{oldValue(preview.current, target)}</p>
           {fields.length > 1 ? <label>此欄有多個來源，請選擇要核對的一筆<select value={candidate.id} disabled={busy} onChange={(e) => { setChoices((v) => ({ ...v, [target]: { fieldId: e.target.value, choice: "" } })); setConfirmed(false); }}>
             {fields.map((f) => <option key={f.id} value={f.id}>{f.source.label}：{display(f.normalizedValue).slice(0, 120)}</option>)}</select></label> : null}
-          <p>CMS 來源：{display(candidate.normalizedValue)}</p><small>{candidate.source.sectionTitle} → {candidate.source.label}</small>
+          <p>CMS 來源：{display(candidate.normalizedValue)}</p>
           {candidate.intakeValue !== undefined ? <p>建檔值：{display(candidate.intakeValue)}</p> : null}
           {candidate.intakeWarning || candidate.warnings.length ? <p className={styles.error}>這筆來源尚有格式或內容疑義，請先核對；必要欄位不完整時不能建案。</p> : null}
           <label>這一欄如何處理<select disabled={busy} value={choice?.choice ?? ""} onChange={(e) => { setChoices((v) => ({ ...v, [target]: { fieldId: candidate.id, choice: e.target.value as Decision["choice"] } })); setConfirmed(false); }}>
             <option value="">請選擇，不自動覆蓋</option><option value="use_source" disabled={Boolean(candidate.intakeWarning) || candidate.warnings.length > 0}>採用這筆 CMS 資料</option><option value="keep_current" disabled={!preview.current && ["displayName", "identityNumber"].includes(target)}>{preview.current ? "保留目前資料" : "暫不帶入，留待補件"}</option>
           </select></label>
+          <details className={styles.sourceDetails}><summary>查看欄位來源</summary><p>{candidate.source.sectionTitle} → {candidate.source.label}</p></details>
         </article>;
       })}
       {!groups.has("displayName") || !groups.has("identityNumber") ? <p role="alert" className={styles.error}>缺少可辨識的姓名或身分識別，不能直接從此檔建案。請確認下載檔案或使用手動建檔。</p> : null}
-      <details><summary>其他來源與待對應內容（{preview.fields.filter((f) => !f.intakeTarget).length} 欄）</summary><p>以下先保留來源，不會直接改成評估或用藥指示。</p>{preview.fields.filter((f) => !f.intakeTarget).slice(0, unknownLimit).map((f) => <p key={f.id}><strong>{f.source.sectionTitle}／{f.source.label}</strong>：{f.normalizedValue}</p>)}{preview.fields.filter((f) => !f.intakeTarget).length > unknownLimit ? <button type="button" onClick={() => setUnknownLimit((value) => value + 50)}>再顯示 50 欄來源</button> : null}{preview.warnings.map((w, i) => <p key={i}>{w.message}</p>)}</details>
+      <details><summary>其他來源與待對應內容（{preview.fields.filter((f) => !f.intakeTarget).length} 欄）</summary><p>已辨識 {preview.sections.length} 個區段。尚未對應的資料保留於匯入來源，不直接改成評估或用藥指示。</p>{preview.fields.filter((f) => !f.intakeTarget).slice(0, unknownLimit).map((f) => <p key={f.id}><strong>{f.source.sectionTitle}／{f.source.label}</strong>：{f.normalizedValue}</p>)}{preview.fields.filter((f) => !f.intakeTarget).length > unknownLimit ? <button type="button" onClick={() => setUnknownLimit((value) => value + 50)}>再顯示 50 欄來源</button> : null}{preview.warnings.map((w, i) => <p key={i}>{w.message}</p>)}</details>
       <label className={styles.confirm}><input type="checkbox" disabled={busy} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />我已確認來源、身分及逐欄選擇。這次不會自動核准收案、簽署評估或建立給藥紀錄。</label>
       {preview.current ? <label>更新依據與來源日期核對（至少 10 字）<textarea className="resize-none" value={sourceReviewReason} disabled={busy} rows={3} maxLength={1000} onChange={(e) => { setSourceReviewReason(e.target.value); setConfirmed(false); }} /><small>請說明此次中央資料為何可更新現有版本。上傳時間不代表官方資料比較新；明確較舊的來源仍會被阻擋。</small></label> : null}
       {profileHasDraft ? <p className={styles.notice}>基本資料還有未儲存的修改，請先保存，再重新核對 CMS 預覽，避免覆蓋您剛填的資料。</p> : null}
-      <button className="button button--primary" type="button" disabled={!ready || busy || writePending || !canApprove || demo || profileHasDraft} onClick={commit}>{busy ? "確認與建檔中…" : current ? "確認更新個案資料" : "確認建立待收案個案"}</button>
+      <button className={`button button--primary ${styles.primary}`} type="button" disabled={!ready || busy || writePending || !canApprove || demo || profileHasDraft} onClick={commit}>{busy ? "確認與建檔中…" : current ? "確認更新個案資料" : "確認建立待收案個案"}</button>
     </fieldset> : null}
     {pending && canUseCmsUpload(scope) ? <div role="status"><p>{pending.phase === "saved" ? "建檔已有保存回條，請重讀資料核對原版本，不會再次送出。" : "原次建檔仍待確認，核對內容已固定；只能明確重試同一次操作。"}</p>
-      <button className="button button--primary" type="button" disabled={busy || pending.phase === "sending" || !canRecover} onClick={recover}>{busy ? "核對中…" : pending.phase === "saved" ? "重讀已建檔資料（不重送）" : "重試原次建檔"}</button>
+      <button className={`button button--primary ${styles.primary}`} type="button" disabled={busy || pending.phase === "sending" || !canRecover} onClick={recover}>{busy ? "核對中…" : pending.phase === "saved" ? "重讀已建檔資料（不重送）" : "重試原次建檔"}</button>
       <p>完整重新載入會失去此分頁的原操作，請先完成核對。</p>{writeState.navigationBlocked ? <p>請先核對原操作，再切換個案或離開。</p> : null}</div> : null}
     {writePending && (!pending || !isIntakeWriteAuthorityCurrent(context)) ? <p role="status">原收案操作仍待核對，內容已隔離。若登入或權限已變更，請安全登出後重新登入。</p> : null}
     {showSource && committed && !writePending ? <p role="status">個案資料已正式存入並核對讀回；仍須完成收案審核。</p> : null}

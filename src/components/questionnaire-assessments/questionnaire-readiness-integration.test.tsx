@@ -331,7 +331,7 @@ describe("questionnaire readiness with the real workspace and authority shell", 
     await waitFor(() => expect(screen.getByRole("button", { name: "查看 v1" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "查看 v1" })); await check();
     expect(within(panel()).getByText(/已有較新版本/u)).toBeInTheDocument();
-    expect(screen.getByText("查看 v1", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("查看草稿 v1", { selector: "span" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "修訂此草稿" }));
     expect(screen.getByText("修訂草稿 v2")).toBeInTheDocument();
     expect(within(panel()).getByText(`已保存 v2・${fixture.draft.assessedOn}`)).toBeInTheDocument();

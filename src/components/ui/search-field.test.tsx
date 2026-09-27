@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { SearchField } from "./search-field";
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function mount(value = "") {
@@ -43,5 +44,59 @@ describe("shared explicit search", () => {
     const clear = screen.getByRole("button", { name: "清除搜尋公告" }); expect(clear).toBeDisabled();
     fireEvent.click(clear); expect(input).toHaveValue("交班"); expect(submit).not.toHaveBeenCalled();
     fireEvent.compositionEnd(input); expect(clear).toBeEnabled();
+  });
+  it("supports the existing case-center code-unit query capacity without changing the GET default", () => {
+    render(<form noValidate method="get"><SearchField defaultValue={"😀".repeat(60)} lengthUnit="code-units" label="搜尋個案" placeholder="找姓名" /></form>);
+    const input = screen.getByRole("searchbox");
+    const form = input.closest("form")!;
+    expect(input).toHaveAttribute("maxlength", "120");
+    expect(fireEvent.submit(form)).toBe(true);
+    fireEvent.change(input, { target: { value: "😀".repeat(61) } });
+    expect(fireEvent.submit(form)).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent("請縮短後再試");
+    expect(input).toHaveValue("😀".repeat(61));
+  });
+});
+
+describe("shared local work-list search", () => {
+  function LocalSearch({ initialValue = "", onValueChange }: { initialValue?: string; onValueChange: (value: string) => void }) {
+    const [value, setValue] = useState(initialValue);
+    return <form noValidate><SearchField mode="local" value={value} onValueChange={(next) => { setValue(next); onValueChange(next); }}
+      label="搜尋今日個案" placeholder="找姓名或代碼" /></form>;
+  }
+  it("updates and clears immediately without submitting a surrounding form", () => {
+    const change = vi.fn();
+    const submit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => {});
+    render(<LocalSearch onValueChange={change} />);
+    const input = screen.getByRole("searchbox", { name: "搜尋今日個案" });
+    fireEvent.change(input, { target: { value: "TEST-001" } });
+    expect(change).toHaveBeenLastCalledWith("TEST-001");
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋今日個案" }));
+    expect(change).toHaveBeenLastCalledWith("");
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("maxlength", "120");
+    expect(submit).not.toHaveBeenCalled();
+  });
+  it("preserves composition input and does not clear until composition finishes", () => {
+    const change = vi.fn();
+    render(<LocalSearch initialValue="測試" onValueChange={change} />);
+    const input = screen.getByRole("searchbox");
+    fireEvent.compositionStart(input);
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋今日個案" }));
+    expect(change).not.toHaveBeenCalled();
+    expect(input).toHaveValue("測試");
+    fireEvent.compositionEnd(input);
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋今日個案" }));
+    expect(change).toHaveBeenCalledExactlyOnceWith("");
+  });
+  it("reflects parent resets rather than retaining an old clear button", () => {
+    const change = vi.fn();
+    const { rerender } = render(<SearchField mode="local" value="測試" onValueChange={change} label="搜尋個案" placeholder="找姓名" />);
+    expect(screen.getByRole("button", { name: "清除搜尋個案" })).toBeEnabled();
+    rerender(<SearchField mode="local" value="" onValueChange={change} label="搜尋個案" placeholder="找姓名" />);
+    expect(screen.queryByRole("button", { name: "清除搜尋個案" })).not.toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveValue("");
   });
 });
