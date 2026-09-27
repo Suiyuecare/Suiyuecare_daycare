@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ demo: true, getTenantContext: vi.fn(), hasRecentAal2: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/env", () => ({ isDemoMode: () => state.demo, hasSupabaseConfiguration: () => true }));
+vi.mock("@/lib/env", () => ({ isDemoMode: () => state.demo, hasSupabaseConfiguration: () => true,
+  env: { NODE_ENV: "production", NEXT_PUBLIC_APP_ORIGIN: "https://daycare.example.test" } }));
 vi.mock("@/lib/auth/context", () => ({ getTenantContext: state.getTenantContext, hasRecentAal2: state.hasRecentAal2 }));
 
 import { POST as upload } from "./html/route";
@@ -22,11 +23,11 @@ function uploadRequest(key = "upload") {
   const body = new FormData();
   body.set("file", new File([html], "synthetic.html", { type: "text/html" }));
   body.set("idempotency_key", key);
-  return new Request("http://localhost/api/imports/html", { method: "POST", headers: { "idempotency-key": key }, body });
+  return new Request("https://daycare.example.test/api/imports/html", { method: "POST", headers: { "idempotency-key": key, origin: "https://daycare.example.test" }, body });
 }
 function jsonRequest(id: string, action: string, key: string, extra = {}) {
-  return new Request("http://localhost/api/imports/" + id + "/" + action, {
-    method: "POST", headers: { "content-type": "application/json", "idempotency-key": key },
+  return new Request("https://daycare.example.test/api/imports/" + id + "/" + action, {
+    method: "POST", headers: { "content-type": "application/json", "idempotency-key": key, origin: "https://daycare.example.test" },
     body: JSON.stringify({ idempotency_key: key, ...extra }),
   });
 }
@@ -83,10 +84,9 @@ describe("central HTML route integration with synthetic in-memory records", () =
     state.getTenantContext.mockResolvedValue(actor);
     state.hasRecentAal2.mockResolvedValue(recent);
     const request = uploadRequest();
-    const readBody = vi.spyOn(request, "formData");
     const response = await upload(request);
     expect(response.status).toBe(status);
-    expect(readBody).not.toHaveBeenCalled();
+    expect(request.bodyUsed).toBe(false);
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
 

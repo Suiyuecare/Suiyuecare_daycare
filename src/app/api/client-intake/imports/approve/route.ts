@@ -4,14 +4,15 @@ import { cmsCommitSchema, intakeReceiptSchema } from "@/lib/client-intake/model"
 import { intakeDatabaseError, intakeRpc } from "@/lib/client-intake/server";
 import { authorizeRoutineIntake } from "@/lib/auth/routine-intake";
 import { IntegrationError } from "@/lib/integrations/errors";
-import { handleIntegrationRoute, readJsonObject } from "@/lib/integrations/http";
+import { handleIntegrationRoute } from "@/lib/integrations/http";
+import { readImportJsonObject, requireImportWrite } from "@/lib/imports/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
-    if (!/^application\/json(?:;|$)/iu.test(request.headers.get("content-type") ?? "")) throw new IntegrationError("JSON_REQUIRED", "請從匯入核對表單確認。", 415);
-    const parsed = cmsCommitSchema.safeParse(await readJsonObject(request, 64 * 1024));
+    requireImportWrite(request, "json");
+    const parsed = cmsCommitSchema.safeParse(await readImportJsonObject(request));
     if (!parsed.success) throw new IntegrationError("INVALID_IMPORT_DECISION", "請逐欄核對來源與更新選擇後再建檔。", 400);
     const input = parsed.data;
     const actor = await authorizeRoutineIntake("cms.commit", input.clientId);

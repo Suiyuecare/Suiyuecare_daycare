@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyIntakeProfile } from "./model";
 import { IntegrationError } from "@/lib/integrations/errors";
-const mocks = vi.hoisted(() => ({ actor: vi.fn(), authorize: vi.fn(), recent: vi.fn(), client: vi.fn(), rpc: vi.fn(), admin: vi.fn(), stage: vi.fn(), env: { AWS_REGION: "ap-northeast-1", HTML_ARCHIVE_BUCKET: "", AWS_KMS_KEY_ID: "" } }));
+const mocks = vi.hoisted(() => ({ actor: vi.fn(), authorize: vi.fn(), recent: vi.fn(), client: vi.fn(), rpc: vi.fn(), admin: vi.fn(), stage: vi.fn(), env: { NODE_ENV: "test", NEXT_PUBLIC_APP_ORIGIN: "https://example.invalid", AWS_REGION: "ap-northeast-1", HTML_ARCHIVE_BUCKET: "", AWS_KMS_KEY_ID: "" } }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/context", () => ({ getTenantContext: mocks.actor, hasRecentAal2: vi.fn() }));
 vi.mock("@/lib/auth/routine-intake", () => ({ authorizeRoutineIntake: mocks.authorize }));
@@ -19,7 +19,12 @@ const actor = { organizationId: "a1600000-0000-4000-8000-000000000001", branchId
 const profile = { ...emptyIntakeProfile, displayName: "合成測試個案", clientCode: "TEST-001" };
 const body = { action: "create", idempotency_key: operation, profile };
 const receipt = { clientId: id, operationId: operation, profileVersion: 1, clientRowVersion: 1, pending: true, replayed: false };
-const request = (value: unknown) => new Request("https://example.invalid", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
+const request = (value: unknown) => new Request("https://example.invalid", { method: "POST", headers: { origin: "https://example.invalid", "sec-fetch-site": "same-origin", "content-type": "application/json" }, body: JSON.stringify(value) });
+const uploadRequest = () => {
+  const form = new FormData();
+  form.set("file", new File(["<!doctype html><html><body><h5>需要服務者基本資料</h5><table><tr><td>姓名</td><td>合成個案</td></tr></table></body></html>"], "synthetic.html", { type: "text/html" }));
+  return new Request("https://example.invalid", { method: "POST", headers: { origin: "https://example.invalid", "sec-fetch-site": "same-origin", "idempotency-key": operation }, body: form });
+};
 beforeEach(() => { vi.resetAllMocks(); mocks.env.HTML_ARCHIVE_BUCKET = ""; mocks.env.AWS_KMS_KEY_ID = ""; mocks.actor.mockResolvedValue(actor); mocks.authorize.mockResolvedValue(actor); mocks.recent.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ rpc: mocks.rpc }); mocks.rpc.mockResolvedValue({ error: null, data: receipt }); });
 describe("real intake API boundaries", () => {
   it("denies anonymous and absent branch reads, without querying a database", async () => {
@@ -48,7 +53,7 @@ describe("real intake API boundaries", () => {
     mocks.rpc.mockResolvedValue({ error: null, data: { clientId: operation, profileVersion: 1, clientRowVersion: 1, pending: true, profile, fieldAuthority: {}, sourceBatchId: null } }); expect((await GET(new Request(`https://example.invalid?client=${id}`))).status).toBe(503);
   });
   it("stops HTML before reading bytes when immutable archive is unavailable", async () => {
-    const result = await upload(request({ arbitrary: true })); expect(result.status).toBe(503); expect((await result.json()).errors[0].code).toBe("ARCHIVE_NOT_READY"); expect(mocks.stage).not.toHaveBeenCalled();
+    const result = await upload(uploadRequest()); expect(result.status).toBe(503); expect((await result.json()).errors[0].code).toBe("ARCHIVE_NOT_READY"); expect(mocks.stage).not.toHaveBeenCalled();
   });
   it("preview is scoped and denies identifiers or missing imports permission", async () => {
     expect((await preview(new Request("https://example.invalid?batch=bad"))).status).toBe(400);
@@ -68,8 +73,7 @@ describe("real intake API boundaries", () => {
   it("recovers an identical completed upload after a new selection without archiving or creating again", async () => {
     mocks.env.HTML_ARCHIVE_BUCKET = "synthetic-archive"; mocks.env.AWS_KMS_KEY_ID = "synthetic-key"; mocks.admin.mockReturnValue({});
     mocks.rpc.mockResolvedValue({ error: null, data: { status: "completed", reservationId: id, payloadSha256: "a".repeat(64), clientId: null } });
-    const form = new FormData(); form.set("file", new File(["<!doctype html><html><body><h5>需要服務者基本資料</h5><table><tr><td>姓名</td><td>合成個案</td></tr></table></body></html>"], "synthetic.html", { type: "text/html" }));
-    const result = await upload(new Request("https://example.invalid", { method: "POST", headers: { "idempotency-key": operation }, body: form }));
+    const result = await upload(uploadRequest());
     expect(result.status).toBe(200); expect((await result.json()).data).toMatchObject({ reservation_id: id, status: "completed", recovered: true }); expect(mocks.stage).not.toHaveBeenCalled();
     expect(mocks.rpc).toHaveBeenCalledWith("find_cms_intake_source", expect.objectContaining({ p_org: actor.organizationId, p_branch: actor.branchId, p_file_sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) }));
   });

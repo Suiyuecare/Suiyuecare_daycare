@@ -6,12 +6,14 @@ import {
 } from "@/lib/imports/http";
 import { getImportPreview } from "@/lib/imports/service";
 import { getImportRepository } from "@/lib/imports/storage";
+import { requireImportRead } from "@/lib/imports/request-security";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   return handleImportRoute(async (requestId) => {
+    requireImportRead(request, []);
     const { id } = await params;
     assertImportId(id);
     const actor = await authorizeImportRequest(request, "preview");

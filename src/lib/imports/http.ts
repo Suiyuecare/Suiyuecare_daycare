@@ -5,9 +5,11 @@ import { randomUUID } from "node:crypto";
 import { fail } from "@/lib/api/response";
 import { getTenantContext, hasRecentAal2 } from "@/lib/auth/context";
 import { hasSupabaseConfiguration, isDemoMode } from "@/lib/env";
+import { isIntegrationError } from "@/lib/integrations/errors";
 
 import { ImportError, isImportError } from "./errors";
 import type { ImportActor } from "./types";
+import { readImportJsonObject } from "./request-security";
 
 export type ImportPermission = "upload" | "preview" | "reparse" | "approve";
 
@@ -106,7 +108,7 @@ export async function authorizeImportRequest(
 }
 
 export function assertImportId(value: string) {
-  if (!/^[0-9a-f-]{36}$/iu.test(value)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)) {
     throw new ImportError(
       "INVALID_IMPORT_ID",
       "匯入批次識別碼格式錯誤。",
@@ -117,27 +119,7 @@ export function assertImportId(value: string) {
 }
 
 export async function readSmallJsonBody(request: Request) {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 64 * 1024) {
-    throw new ImportError(
-      "REQUEST_TOO_LARGE",
-      "操作內容超過允許大小。",
-      413,
-    );
-  }
-  try {
-    const value: unknown = await request.json();
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("not an object");
-    }
-    return value as Record<string, unknown>;
-  } catch {
-    throw new ImportError(
-      "INVALID_JSON",
-      "請提供有效的 JSON 物件。",
-      400,
-    );
-  }
+  return readImportJsonObject(request);
 }
 
 export async function handleImportRoute(
@@ -147,7 +129,7 @@ export async function handleImportRoute(
   try {
     return await operation(requestId);
   } catch (error) {
-    if (isImportError(error)) {
+    if (isImportError(error) || isIntegrationError(error)) {
       return fail(
         error.httpStatus,
         {
@@ -173,10 +155,15 @@ export function readIdempotencyKey(
   request: Request,
   bodyValue?: unknown,
 ) {
+  const header = request.headers.get("idempotency-key");
+  if (header !== null && bodyValue !== undefined && bodyValue !== null &&
+      (typeof bodyValue !== "string" || header !== bodyValue)) {
+    throw new ImportError("IDEMPOTENCY_KEY_REUSED", "操作識別碼不一致，請保留原操作並重新核對。", 409, "idempotency_key");
+  }
   const key =
     request.headers.get("idempotency-key") ??
     (typeof bodyValue === "string" ? bodyValue : "");
-  if (!key || key.length > 200) {
+  if (!key.trim() || key.length > 200 || /[\u0000-\u001f\u007f]/u.test(key)) {
     throw new ImportError(
       "IDEMPOTENCY_KEY_REQUIRED",
       "請提供長度不超過 200 字元的冪等鍵。",

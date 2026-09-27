@@ -8,11 +8,13 @@ import { uploadHtmlImport } from "@/lib/imports/service";
 import { getImportRepository } from "@/lib/imports/storage";
 import { MAX_HTML_IMPORT_BYTES } from "@/lib/imports/types";
 import { ImportError } from "@/lib/imports/errors";
+import { readBoundedImportBody, requireImportWrite } from "@/lib/imports/request-security";
 
 const MAX_MULTIPART_OVERHEAD_BYTES = 512 * 1024;
 
 export async function POST(request: Request) {
   return handleImportRoute(async (requestId) => {
+    requireImportWrite(request, "multipart");
     const actor = await authorizeImportRequest(request, "upload");
     const repository = getImportRepository();
     const contentLength = Number(request.headers.get("content-length") ?? "0");
@@ -28,15 +30,20 @@ export async function POST(request: Request) {
       );
     }
 
+    const bytes = await readBoundedImportBody(request, MAX_HTML_IMPORT_BYTES + MAX_MULTIPART_OVERHEAD_BYTES);
     let form: FormData;
     try {
-      form = await request.formData();
+      form = await new Response(Buffer.from(bytes), { headers: { "content-type": request.headers.get("content-type")! } }).formData();
     } catch {
       throw new ImportError(
         "INVALID_MULTIPART_BODY",
         "請使用 multipart/form-data 上傳 HTML。",
         400,
       );
+    }
+    if ([...form.keys()].some(key => !["file", "idempotency_key"].includes(key)) ||
+      form.getAll("file").length !== 1 || form.getAll("idempotency_key").length > 1) {
+      throw new ImportError("INVALID_MULTIPART_BODY", "請選擇一份 HTML，並使用原操作識別碼送出。", 400);
     }
     const uploaded = form.get("file");
     if (!(uploaded instanceof File)) {

@@ -13,15 +13,16 @@ import { MAX_INTAKE_WEB_UPLOAD_BYTES, cmsPreviewSchema } from "@/lib/client-inta
 import { readIntakeMultipart } from "@/lib/client-intake/multipart";
 import { validateHtmlImportFile } from "@/lib/imports/validation";
 import { authorizeIntake, intakeRpc } from "@/lib/client-intake/server";
+import { requireImportRead, requireImportWrite } from "@/lib/imports/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
+    const params = requireImportRead(request, ["batch", "client"]);
     const actor = await authorizeIntake();
     if (actor.demo || !actor.scopes.includes("imports.manage")) throw new IntegrationError("IMPORT_NOT_AUTHORIZED", "此帳號無法讀取正式匯入來源，請由收案負責人操作。", 403);
-    const params = new URL(request.url).searchParams;
     const batch = z.uuid().safeParse(params.get("batch"));
     const client = z.uuid().nullable().safeParse(params.get("client"));
     if (!batch.success || !client.success) throw new IntegrationError("IMPORT_INVALID", "請重新選擇匯入批次與個案。", 400);
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
+    requireImportWrite(request, "multipart");
     const actor = await authorizeRoutineIntake("cms.stage");
     if (!actor.scopes.includes("imports.manage")) throw new IntegrationError("IMPORT_NOT_AUTHORIZED", "此帳號尚未獲准匯入 CMS 資料。", 403);
     if (env.AWS_REGION !== "ap-northeast-1" || !env.HTML_ARCHIVE_BUCKET || !env.AWS_KMS_KEY_ID) throw new IntegrationError("ARCHIVE_NOT_READY", "原始檔安全封存尚未啟用，暫不能接收 CMS 檔案。可先手動建檔；請管理員完成封存設定。", 503);
