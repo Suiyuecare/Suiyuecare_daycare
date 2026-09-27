@@ -23,7 +23,10 @@ function configuredOrigin(): string | null {
 const jsonContentType = /^application\/json[\t ]*(?:;[\t ]*[!#$%&'*+.^_`|~0-9a-z-]+[\t ]*=[\t ]*(?:[!#$%&'*+.^_`|~0-9a-z-]+|"(?:[\t\x20-\x21\x23-\x5b\x5d-\x7e]|\\[\t\x20-\x7e])*")[\t ]*)*$/iu;
 
 /** Validate a cookie-authenticated JSON POST before reading its body. */
-export function requireSameOriginJsonWrite(request: Request): void {
+export function requireSameOriginWrite(
+  request: Request,
+  options: { method: "POST" | "PATCH"; format: "json" | "multipart" },
+): void {
   const trustedOrigin = configuredOrigin();
   if (!trustedOrigin) {
     throw new IntegrationError("SERVICE_NOT_CONFIGURED", "系統來源尚未完成設定。", 503);
@@ -37,14 +40,21 @@ export function requireSameOriginJsonWrite(request: Request): void {
     // Invalid request metadata is denied without reflecting supplied values.
   }
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (request.method !== "POST" || requestOrigin !== trustedOrigin ||
+  if (request.method !== options.method || requestOrigin !== trustedOrigin ||
       request.headers.get("origin") !== trustedOrigin ||
       (fetchSite !== null && fetchSite !== "same-origin")) {
     throw new IntegrationError("ORIGIN_NOT_ALLOWED", "請從本系統頁面送出操作。", 403);
   }
 
   const contentType = request.headers.get("content-type");
-  if (!contentType || !jsonContentType.test(contentType)) {
-    throw new IntegrationError("JSON_CONTENT_TYPE_REQUIRED", "請使用 JSON 格式送出操作。", 415);
+  const multipartContentType = /^multipart\/form-data;[\t ]*boundary=(?:[!#$%&'*+.^_`|~0-9a-z-]{1,70}|"[0-9a-z'()+_,.\/:=? -]{1,70}")[\t ]*$/iu;
+  if (!contentType || !(options.format === "json" ? jsonContentType : multipartContentType).test(contentType)) {
+    throw new IntegrationError(options.format === "json" ? "JSON_CONTENT_TYPE_REQUIRED" : "MULTIPART_CONTENT_TYPE_REQUIRED",
+      options.format === "json" ? "請使用 JSON 格式送出操作。" : "請從附件上傳入口送出檔案。", 415);
   }
+}
+
+/** Existing JSON POST consumers retain their exact method and MIME boundary. */
+export function requireSameOriginJsonWrite(request: Request): void {
+  requireSameOriginWrite(request, { method: "POST", format: "json" });
 }

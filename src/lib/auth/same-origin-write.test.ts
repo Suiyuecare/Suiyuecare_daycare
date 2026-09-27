@@ -8,7 +8,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/env", () => ({ env: configuration }));
 
 import { IntegrationError } from "@/lib/integrations/errors";
-import { requireSameOriginJsonWrite } from "./same-origin-write";
+import { requireSameOriginJsonWrite, requireSameOriginWrite } from "./same-origin-write";
 
 const trusted = "https://daycare.example.test";
 function request(overrides: { url?: string; method?: string; headers?: Record<string, string | null> } = {}) {
@@ -32,6 +32,30 @@ function rejects(input: Request, status: number, code: string) {
 beforeEach(() => {
   configuration.NEXT_PUBLIC_APP_ORIGIN = trusted;
   configuration.NODE_ENV = "production";
+});
+
+describe("explicit private attachment origin/MIME additions preserve existing JSON POST policy", () => {
+  it("admits explicit multipart POST and JSON PATCH without consuming the body", () => {
+    const multipart = request({ headers: { "content-type": "multipart/form-data; boundary=synthetic-boundary" } });
+    const patch = request({ method: "PATCH" });
+    expect(requireSameOriginWrite(multipart, { method: "POST", format: "multipart" })).toBeUndefined();
+    expect(requireSameOriginWrite(patch, { method: "PATCH", format: "json" })).toBeUndefined();
+    expect(multipart.bodyUsed).toBe(false); expect(patch.bodyUsed).toBe(false);
+    rejects(multipart, 415, "JSON_CONTENT_TYPE_REQUIRED"); rejects(patch, 403, "ORIGIN_NOT_ALLOWED");
+  });
+  it.each(["multipart/form-data", "multipart/form-data; boundary=", "multipart/form-data; boundary=test; extra=value",
+    "multipart/form-data; boundary=\"unterminated", `multipart/form-data; boundary=${"x".repeat(71)}`, "application/json"])("rejects malformed multipart boundary %s", contentType => {
+    const input = request({ headers: { "content-type": contentType } });
+    expect(() => requireSameOriginWrite(input, { method: "POST", format: "multipart" })).toThrowError(expect.objectContaining({ httpStatus: 415, code: "MULTIPART_CONTENT_TYPE_REQUIRED" }));
+    expect(input.bodyUsed).toBe(false);
+  });
+  it.each([null, "null", "https://finance.example.test"])("rejects Origin %s for both newly allowed formats without consuming bytes", origin => {
+    for (const options of [{ method: "POST", format: "multipart" }, { method: "PATCH", format: "json" }] as const) {
+      const input = request({ method: options.method, headers: { origin, "content-type": options.format === "json" ? "application/json" : "multipart/form-data; boundary=synthetic" } });
+      expect(() => requireSameOriginWrite(input, options)).toThrowError(expect.objectContaining({ httpStatus: 403, code: "ORIGIN_NOT_ALLOWED" }));
+      expect(input.bodyUsed).toBe(false);
+    }
+  });
 });
 
 describe("configured-origin JSON write defense (no external network)", () => {

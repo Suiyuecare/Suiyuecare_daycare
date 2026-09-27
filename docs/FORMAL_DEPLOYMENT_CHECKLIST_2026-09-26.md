@@ -21,6 +21,7 @@
 - 頁51後續補本人原操作唯讀receipt GET；四種action、完整原body、目前授權及歷史不可變hash核對，查不到保留unknown；查到只確認保存，不冒稱清單更新。過期原簽署證據可依法定讀取範圍回查，但不授予新簽或重播；本機候選尚未套用正式環境。
 - 九份題目式工具新增私有結構／組合候選與已保存版本只讀查核API；後續本機已接前台「完成檢查」，不借用舊計分採用或啟用正式簽署。完整範圍、MNA-SF非完整MNA及證照核驗缺口見[已保存評估查核](QUESTIONNAIRE_READINESS_2026-09-27.md)，前台與來源／權限保護見[本輪驗證](QUESTIONNAIRE_READINESS_UI_2026-09-27.md)。
 - 九份題目式工具新增本人原操作精確receipt GET；原actor／key／request／版本／時間核對及稽核等待後撤權測試已通過，後續已接前台分頁journal、「確認保存結果」與共享未保存確認。查無仍保留unknown，薄回條後另查確切原歷史版本；不自動重播、不啟用簽署。完整重載及新context復原仍待製作。後端見[原操作查證驗證](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)，前台見[原操作復原驗證](QUESTIONNAIRE_OPERATION_RECOVERY_UI_2026-09-27.md)。
+- 員工證照附件補上私有原件儲存、回讀雜湊、掃描完成、獨立人工覆核、本人歷史及短效下載後端；非CEO已核准員工採窄範圍實際權限及真正MFA，不放寬其他模組。尚未接前台、開啟正式掃毒、產生可信provided證照版本或核簽資格；逾期未完成附件仍待正式對帳恢復流程。詳見[附件後端候選](STAFF_CERTIFICATE_EVIDENCE_READINESS_2026-09-27.md)。
 
 ## 還要製作／驗收的功能
 
@@ -48,7 +49,7 @@
 [Supabase公告](https://supabase.com/changelog/postgres-15-19-17-11-breaking-changes)安排2026-09-28提供既有專案17.11升級；正式切換前另需備份、相容性及升級後驗證，不自動升級或支付新費用。同次catalog只讀檢測ltree、float GiST及非內建custom estimator operator皆0；程式未見legacy PGP cipher呼叫，但未掃描實際加密資料，不宣稱所有升級前置已完成。
 
 1. **商用部署與費用：** 本機既有Vercel登入可讀指定project且為OWNER，main／網域／保護設定已核對；工具OAuth403不再是唯一通道阻擋。但現有唯一團隊為Hobby，與公司正式營運不相符，商用方案／費用尚待核准。不必提供密碼或Token，也不擅自升級。保護預覽、真正員工hosted登入、部署及回滾實作仍須在所有門檻通過後驗證。
-2. **資料區域與費用：** 最新雲端為上述首爾與130份migration；本機新增原操作查證後為147份候選、相差17份，均未套用。原核准規劃是東京；保留首爾須重新核准資料治理及正式門檻，或先評估東京遷移／商用備份成本。未決定前不新增費用、不擅自搬資料；正式資料庫安全小版本升級也須先排演與備份。
+2. **資料區域與費用：** 最近一次雲端唯讀結果為上述首爾與130份migration；本輪未重新讀取雲端。本機新增證照附件後為148份候選，與該次雲端結果相差18份，均未套用。原核准規劃是東京；保留首爾須重新核准資料治理及正式門檻，或先評估東京遷移／商用備份成本。未決定前不新增費用、不擅自搬資料；正式資料庫安全小版本升級也須先排演與備份。
 3. **業務依據：** 確認Finance實體只含萬華一館，提供適用年度的官方申報樣檔，指派實際專業規則覆核人員，以及資料／法遵與上線驗收負責人。題目授權已確認，無須重新提出。
 
 ## 發布順序
@@ -66,3 +67,5 @@
 後續原操作查證後端候選（2026-09-27）：147份migration；完整程式544檔／8,706項、portable136套／6,425斷言、原生17／17套、lint／型別／production build及相依套件audit通過。新增API52項、SQL62項、九表create／revise三時區與8組真backend探測通過，未接前台unknown journal／確認窗。Vercel既有CLI唯讀通道已找回，商用方案及其餘正式門檻不變；詳見[新後端證據](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)。
 
 再後續原操作前台候選（2026-09-27）：九份工具的分頁journal、本人手動receipt GET、確切歷史防重送及共享確認已接入；修正同個案新SSR清稿、矛盾成功envelope及手機CSS200%條件欄位溢位。全程式547檔／8,953項通過，1項opt-in另以真正Finance候選handler合成loopback通過；Chrome36項／12截圖、production HTTP拒絕15項、兩份strict audit與lint／型別／build／audit通過。本輪未修改或重跑SQL，前輪原生／portable證據不可冒稱本輪新結果。正式分數／簽署、整頁重載及新context复原與其餘營運门檻不變；詳見[前台原操作復原](QUESTIONNAIRE_OPERATION_RECOVERY_UI_2026-09-27.md)。仍無GitHub推送、Vercel發布或正式Supabase變更。
+
+再後續證照附件後端候選（2026-09-27）：148份migration；全程式551檔／9,227項、Finance候選真正handler合成loopback1項、portable137套／6,477斷言、原生PG17.11全18套及lint／型別／build／依賴audit通過。新證照SQL52項、5組實際backend競態及本機production產物HTTP拒絕／登入轉向12項通過，完整回歸發現的6個外鍵索引缺漏已補正。舊頁72的非CEO來源清單、前台附件操作與逾期原操作恢復仍未補；新的API不代表員工頁已可用。附件不自動形成provided資格，也未開啟正式量表簽署。詳見[附件後端與未完成驗收](STAFF_CERTIFICATE_EVIDENCE_READINESS_2026-09-27.md)。本輪未變更UI，不沿用前輪Chrome結果作本輪新證據；亦無GitHub推送、Vercel發布或正式Supabase變更。
