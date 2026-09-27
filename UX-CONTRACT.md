@@ -151,6 +151,16 @@ POST201只是薄保存證據，不能單靠它核對完整actor／tenant／answe
 
 ## Migration and verification
 
+### 員工證照附件唯讀來源（頁72）
+
+頁72的`view=documents`為同頁具名唯讀variant，來源為`staff-certificate-documents/workspace-source.ts`、`snapshot.ts`、第149份來源RPC及第148份附件snapshot RPC；2026-09-27核對。既有CEO證照snapshot成功時保持原workspace，失敗時可獨立進入新授權來源，絕不將新`canManageDocuments`映射成舊writer或例外核准權限。示範資料不讀真附件；無read未取資料、AAL1提供手動身分確認入口，不自動取得MFA。
+
+此切片只查閱：native select沿既有具名平台popup例外，`.field`／`.button`／`.panel`、global scrollbar及AppShell為canonical owner；臺北时间、16px輸入、44px操作、10px內容卡。版本與50筆分頁由GET／URL保存，未選版本不讀附件，不自動展開第一位員工。版號必須在本次授權來源頁內；非法、重複、空值及不支援的舊type／status／q不默默改成全部。選頁會清除已選版本，保留員工；不預取員工資料，不存browser storage，不新增client refresh／toast／overlay。
+
+掃描、獨立人工核驗、版本及資格分開呈現。reserved只表示原預留，不表示原件上傳或安全檢查完成；uploadedAt以「原預留時間」呈現。來源沒有證號／登錄／核验欄位時不補假值；選取版不冒稱永遠最新。資料只代表本次查閱快照，需明確重新載入取得新的授權與狀態。來源及附件RPC以實際使用者入場、目前scope和精確actor／機構／分支／membership／user／key／version／hash綁定；單次SSR來源及選附件查閱共有20秒期限，取消／晚結果不回顯，錯誤不顯示局部或示範fallback。
+
+本切片沒有上傳、核驗、下載、過期終止、原操作journal、provided新版本或服務簽署按鈕；不把唯讀畫面當完整證照工作流程。舊證照管理表單的未保存、驗證、完整重載復原與真正hosted工作仍須獨立改善驗收；不沿用此切片的GET或合成Chrome證據作其通過證據。
+
 ### 人工護理評估（頁51）
 
 權威來源為`nursing-assessments/parser.ts`、`pending.ts`、`api/nursing-assessments/route.ts`及既有護理RPC；2026-09-26核對。保持manual-nursing-v1非標準化文字紀錄、缺值／不適用理由與人工複評安排；不是正式官方量表，計分、附件、匯出、通知與離線服務仍未配置。新增incremental員工開通修正僅對齊已核准且固定機構的員工登入，不放寬護理職務、個案指派、讀寫scope、AAL2或近期簽署要求。

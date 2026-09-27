@@ -87,6 +87,7 @@ import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/que
 import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { StaffTrainingWorkspace } from "@/components/staff-training/staff-training-workspace";
 import { StaffCertificatesWorkspace } from "@/components/staff-certificates/staff-certificates-workspace";
+import { StaffCertificateDocumentsWorkspace } from "@/components/staff-certificates/staff-certificate-documents-workspace";
 import { StaffVaccinationsWorkspace } from "@/components/staff-vaccinations/staff-vaccinations-workspace";
 import { StaffToccWorkspace } from "@/components/staff-tocc/staff-tocc-workspace";
 import { StaffLabReportsWorkspace } from "@/components/staff-lab-reports/staff-lab-reports-workspace";
@@ -3058,6 +3059,10 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 72) {
+    // New read-only document sources are independent of the executive record
+    // writer. Unknown view values enter its strict query boundary, not fallback.
+    if (Object.hasOwn(query, "view")) return <StaffCertificateDocumentsWorkspace
+      context={context} query={query} page={page} />;
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
     const requestedStaff = typeof query.staff === "string" ? query.staff : "all";
     const staffMembershipId = uuidPattern.test(requestedStaff)
@@ -3093,6 +3098,8 @@ export default async function StaffCatalogPage({
       if (!(error instanceof StaffCertificateSnapshotError)) throw error;
       loadError = true;
     }
+    if (loadError && !context.demo) return <StaffCertificateDocumentsWorkspace
+      context={context} query={query} page={page} />;
     return <StaffCertificatesWorkspace canExceptions={canExceptions}
       canManage={canManage} filters={filters} hasRecentAal2={recentAal2}
       loadError={loadError} page={page} snapshot={snapshot} />;

@@ -6,6 +6,8 @@
 
 既有附件後端見[附件候選驗收](STAFF_CERTIFICATE_EVIDENCE_READINESS_2026-09-27.md)。本輪新增第149份增量migration，保留原148份的內容與既有證照writer權限。不是為消除前台錯誤而全域放寬CEO、角色或RLS限制。
 
+**後續前台更新（2026-09-27）：** 授權來源與選定版本附件狀態已接入本機頁72，見[唯讀前台驗收](STAFF_CERTIFICATE_SOURCE_UI_READINESS_2026-09-27.md)。本文件的「尚未接前台」描述保留為後端凍結當時狀態；目前仍未提供上傳、核驗、下載、原操作journal、可信provided與正式雲端發布，不將唯讀入口當完整證照流程。
+
 ## 新增功能與驗收契約
 
 | 入口 | 可以做什麼 | 明確限制 |
@@ -56,7 +58,7 @@
 
 ## 前台下一步及正式門檻
 
-1. 接入頁72的非CEO授權來源、單一workspace、選員工／證照、掃描狀態、第二人核驗及原操作查證。維持Finance frame與既有共用確認／未保存owner，不以新來源擴大舊證照writer。
+1. 非CEO授權來源、選證照版本與附件／第二人核驗狀態已接本機頁72唯讀workspace；後續仍需核驗動作及原操作查證。維持Finance frame與既有共用確認／未保存owner，不以新來源擴大舊證照writer。
 2. 首次上傳前在分頁記憶體凍結原File、內容雜湊、格式、大小、來源及操作鍵；雜湊只用於查證關聯，伺服器仍獨立檢查真實格式與原件。核驗同樣凍結原理由與鍵。未知、重新掛載、換分支、撤權及晚回覆不得重建新操作；不把檔案或理由存browser storage。
 3. 製作由可信原件及獨立核驗形成`provided`新證照版本的正式交易，再完成逐表／逐服務核簽資格政策。注意：既有 `private.insulin_qualification_version` 會採用有效、登錄且核驗的`provided`版本；不能因附件API回覆`serviceEligibility: not_evaluated`、`signable: false`就宣稱新版本不影響資格。本輪沒有產生provided，後續必須新增明確啟用授權、真實證號／日期／登錄人工核對、已發布資格taxonomy及真實下游轉換回歸，不讓掃毒或一般附件理由代替專業资格確認；九份量表的正式來源、雙人採用、簽署政策及正式交易阻擋仍須分別完成。
 4. 完成正式掃毒、Storage原件、區域與保留／退出審查、真人員工Google及MFA、權限撤銷、備份還原與受保護预覽驗收。普通Supabase Storage不等於CMS七年WORM封存。
