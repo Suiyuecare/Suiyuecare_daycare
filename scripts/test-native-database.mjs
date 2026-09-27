@@ -26,6 +26,7 @@ const suites = [
   "test-referral-admission-native.mjs",
   "test-social-work-admission-native.mjs",
   "test-staff-certificate-documents-native.mjs",
+  "test-staff-certificate-document-recovery-native.mjs",
 ];
 for (const suite of suites) {
   console.log(`Native gate: ${suite}`);

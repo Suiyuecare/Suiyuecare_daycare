@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ok } from "@/lib/api/response";
-import { getTenantContext } from "@/lib/auth/context";
 import { requireSameOriginWrite } from "@/lib/auth/same-origin-write";
 import type { TenantContext } from "@/lib/domain/types";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { databaseFailure, handleIntegrationRoute } from "@/lib/integrations/http";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { configuredStaffCertificateDocumentScanner, processStaffCertificateDocumentUpload } from "@/lib/staff-certificate-documents/pipeline";
 import { documentDeadline, readBoundedDocumentBody, readBoundedDocumentJson } from "@/lib/staff-certificate-documents/request";
+import { staffDocumentActorContext as actorContext, requireRecentStaffDocumentEvidence as recentEvidence,
+  staffDocumentFailure as failure, staffDocumentNoQuery as noQuery } from "@/lib/staff-certificate-documents/access";
 import { STAFF_CERTIFICATE_DOCUMENT_BUCKET, MAX_STAFF_CERTIFICATE_DOCUMENT_BYTES, uploadFormInputSchema,
   documentsSnapshotSchema, downloadInputSchema, downloadReceiptSchema, reviewInputSchema, reviewReceiptSchema } from "@/lib/staff-certificate-documents/schema";
 
@@ -18,35 +18,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const uuid = z.uuid().transform(value => value.toLowerCase());
 const querySchema = z.object({ certificateKey: uuid, recordVersionId: uuid }).strict();
-const evidenceSchema = z.object({ organizationId: uuid, branchId: uuid, actorUserId: uuid,
-  verifiedAt: z.iso.datetime({ offset: true }) }).strict();
-
-function failure(code?: string) {
-  return databaseFailure(code === "42501" ? "STAFF_DOCUMENT_FORBIDDEN" : "STAFF_DOCUMENT_RESULT_UNCERTAIN",
-    code === "42501" ? "目前沒有這位員工附件的操作授權，或身分確認已過期。"
-      : "附件或證照版本尚未確認，請保留原檔與相同操作識別碼。", code === "42501" ? 403 : 409);
-}
-async function actorContext(manage: boolean) {
-  const actor = await getTenantContext("staff");
-  if (!actor) throw new IntegrationError("AUTH_REQUIRED", "請先以已核准帳號登入。", 401);
-  if (actor.demo) throw new IntegrationError("DEMO_READ_ONLY", "展示模式不會讀取或修改員工證明附件。", 403);
-  if (!actor.branchId || actor.assuranceLevel !== "aal2" || !actor.scopes.includes("staff_certificates.read") ||
-    (manage && !actor.scopes.includes("staff_certificates.manage"))) throw failure("42501");
-  const server = await createServerSupabaseClient();
-  if (!server) throw databaseFailure("STAFF_DOCUMENT_UNAVAILABLE", "員工附件資料服務尚未完成設定。", 503);
-  return { actor, server };
-}
-async function recentEvidence(actor: TenantContext, server: NonNullable<Awaited<ReturnType<typeof createServerSupabaseClient>>>) {
-  const { data, error } = await documentDeadline(Promise.resolve(server.rpc("staff_certificate_document_recent_aal2_evidence", {
-    p_org: actor.organizationId, p_branch: actor.branchId,
-  })));
-  const evidence = evidenceSchema.safeParse(data);
-  const now = Date.now();
-  if (error || !evidence.success || evidence.data.organizationId !== actor.organizationId || evidence.data.branchId !== actor.branchId ||
-    evidence.data.actorUserId !== actor.userId || Date.parse(evidence.data.verifiedAt) < now - 900000 || Date.parse(evidence.data.verifiedAt) > now + 1000) {
-    throw failure("42501");
-  }
-}
 function matchesActor(value: { organizationId: string; branchId: string }, actor: TenantContext) {
   return value.organizationId === actor.organizationId && value.branchId === actor.branchId;
 }
@@ -59,10 +30,6 @@ function checkedSignedUrl(raw: string, path: string) {
     return url.href;
   } catch { throw databaseFailure("STAFF_DOCUMENT_DOWNLOAD_UNCERTAIN", "附件下載連結未通過核對。", 502); }
 }
-function noQuery(request: Request) {
-  if (new URL(request.url).search) throw new IntegrationError("INVALID_STAFF_DOCUMENT_QUERY", "請從員工證照附件入口操作。", 400);
-}
-
 export async function GET(request: Request) {
   return handleIntegrationRoute(async requestId => {
     const parameters = new URL(request.url).searchParams;
