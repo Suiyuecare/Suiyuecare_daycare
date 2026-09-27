@@ -1,61 +1,77 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { NavigationLink } from "@/components/app/navigation-link";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
+import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { DAILY_WORKFLOW_STEPS, dailyWorkflowHref, type DailyWorkflowPage, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
 import type { DailyCareSnapshot, DailyClientSummary } from "@/lib/core-care/types";
+import { useLegacyCoreDraftGuard } from "./legacy-core-draft-guard";
 
-const discardMessage = "還有尚未確認儲存的內容。確定要離開並放棄這次填寫嗎？";
+type CoreDraftGuardOptions = {
+  /** Only the visible workflow scope supplied by the caller, not inferred auth. */
+  scopeKey?: string;
+  revisionKey?: string;
+  canPrompt?: boolean;
+  /** A submitted/unknown attempt is not an unsent draft that can be discarded. */
+  isBlocked?: () => boolean;
+  onDiscard?: () => void;
+};
 
-/** Protect modal cancellation, link/GET navigation and full-document unloads. */
-export function useCoreDraftGuard() {
+/** Daily forms use the canonical navigation owner, including safe logout and
+ * validated GET replay. Synchronous getters retain the old immediate busy fence
+ * before React has committed the state update; no write lease is invented here. */
+export function useCoreDraftGuard(options?: CoreDraftGuardOptions) {
+  const ownerId = useId();
   const dirty = useRef(false);
   const busy = useRef(false);
-  useEffect(() => {
-    function mayLeave() {
-      if (busy.current) return false;
-      if (dirty.current && !window.confirm(discardMessage)) return false;
-      dirty.current = false;
-      return true;
-    }
-    function unload(event: BeforeUnloadEvent) {
-      if (!dirty.current && !busy.current) return;
-      event.preventDefault();
-      event.returnValue = "";
-    }
-    function click(event: MouseEvent) {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
-      if (new URL(link.href, window.location.href).href === window.location.href) return;
-      if (!mayLeave()) { event.preventDefault(); event.stopPropagation(); }
-    }
-    function submit(event: SubmitEvent) {
-      const form = event.target;
-      if (!(form instanceof HTMLFormElement) || form.hasAttribute("data-core-care-draft") || form.method.toLowerCase() !== "get") return;
-      if (!mayLeave()) { event.preventDefault(); event.stopPropagation(); }
-    }
-    window.addEventListener("beforeunload", unload);
-    document.addEventListener("click", click, true);
-    document.addEventListener("submit", submit, true);
-    return () => {
-      window.removeEventListener("beforeunload", unload);
-      document.removeEventListener("click", click, true);
-      document.removeEventListener("submit", submit, true);
-    };
-  }, []);
-  return {
-    changed() { dirty.current = true; },
-    begin() { if (busy.current) return false; busy.current = true; dirty.current = true; return true; },
-    finish() { busy.current = false; },
-    saved() { dirty.current = false; },
-    discard() {
-      if (busy.current || (dirty.current && !window.confirm(discardMessage))) return false;
-      dirty.current = false;
-      return true;
+  const currentOptions = useRef(options ?? {});
+  const [, update] = useState(0);
+  useLayoutEffect(() => { currentOptions.current = options ?? {}; });
+  const legacyDiscard = useLegacyCoreDraftGuard(options === undefined, dirty, busy);
+  const unsaved = useUnsavedChanges({
+    get dirty() { return options !== undefined && (dirty.current || busy.current || !!currentOptions.current.isBlocked?.()); },
+    get canPrompt() { return !busy.current && !currentOptions.current.isBlocked?.() && currentOptions.current.canPrompt !== false; },
+    scopeKey: options?.scopeKey ?? ownerId,
+    revisionKey: options?.revisionKey ?? "",
+    permittedFormAttribute: "data-core-care-draft",
+    onDiscard() {
+      dirty.current = false; busy.current = false;
+      currentOptions.current.onDiscard?.();
+      update((value) => value + 1);
     },
+  });
+  return {
+    ...unsaved,
+    requestDiscard: unsaved.requestExit,
+    // Existing no-options consumers keep their synchronous contract. Canonical
+    // callers must use requestExit and never a native-confirm fallback.
+    discard: legacyDiscard,
+    changed() { if (!dirty.current) { dirty.current = true; update((value) => value + 1); } },
+    begin() {
+      if (busy.current || unsaved.open) return false;
+      busy.current = true; dirty.current = true; update((value) => value + 1); return true;
+    },
+    finish() { busy.current = false; update((value) => value + 1); },
+    saved() { dirty.current = false; update((value) => value + 1); },
   };
+}
+
+export function CoreDraftConfirmation({ draft }: { draft: ReturnType<typeof useCoreDraftGuard> }) {
+  return <>
+    {draft.notice ? <p className="core-composer__notice" role="status">{draft.notice}</p> : null}
+    <GovernanceDialog open={draft.open} title="尚有未保存內容" cancelLabel="繼續填寫"
+      onRequestClose={draft.cancel} returnFocusRef={draft.returnFocusRef}>
+      <div onCompositionStart={draft.compositionStart} onCompositionEnd={draft.compositionEnd}>
+        <p>要保留這次填寫，或捨棄後繼續？</p>
+        <p className="muted">不影響裝置草稿或已送出紀錄。</p>
+        <footer className="drawer__footer">
+          <button className="button button--danger" onClick={draft.confirmDiscard} type="button">捨棄填寫並繼續</button>
+        </footer>
+      </div>
+    </GovernanceDialog>
+  </>;
 }
 
 function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?: DailyWorkflowShift) {

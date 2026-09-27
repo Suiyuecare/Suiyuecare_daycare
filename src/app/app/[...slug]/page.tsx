@@ -1514,7 +1514,9 @@ export default async function StaffCatalogPage({
         clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
           ? <CareReminderCard clientId={selectedClientId} context={context} /> : undefined}
         diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
-          ? <CareDiaryLifecycle clientId={selectedClientId} readEnabled={canReadDiary} enabled={canWriteRoutine}
+          ? <CareDiaryLifecycle clientId={selectedClientId}
+            clientName={snapshot.clients.find((client) => client.clientId === selectedClientId)?.displayName}
+            sourceRevision={snapshot.generatedAt} readEnabled={canReadDiary} enabled={canWriteRoutine}
             canRevise={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.write")}
             canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}

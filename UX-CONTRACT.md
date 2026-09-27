@@ -249,7 +249,7 @@ AppShell 只從伺服器過濾後 navigation 建常用捷徑，全部既有授�
 
 ### 2026-09-28：連續操作、期限與表單回饋
 
-出勤／量測／日誌的首次送出由同一 `daily-form-validation` owner 關閉原生氣泡，保留required／單位／範圍／精度、血壓成對及本次觀察條件。錯誤與label／control關聯，移到首錯但不清內容；中文composition與229 Enter不送出。送出中fieldset唯讀，unknown沿用原body／key重試，不能讓新驗證改寫原筆。server schema與授權仍最後決定；離線草稿不因此視為正式保存。useCoreDraftGuard的native未保存confirm尚未遷移，不聲稱全三表單皆採canonical捨棄dialog。
+出勤／量測／日誌的首次送出由同一 `daily-form-validation` owner 關閉原生氣泡，保留required／單位／範圍／精度、血壓成對及本次觀察條件。錯誤與label／control關聯，移到首錯但不清內容；中文composition與229 Enter不送出。送出中fieldset唯讀，unknown沿用原body／key重試，不能讓新驗證改寫原筆。server schema與授權仍最後決定；離線草稿不因此視為正式保存。該前一切片尚未遷移useCoreDraftGuard的native未保存confirm；後續每日確認切片另行驗收，不以先前證據冒稱通過。
 
 ModuleLoading的150ms只控制視覺揭露，status/inert/登出與操作lease即時生效；完成後立即消失，無最低等待。預計名冊refresh先同步取得共享view lease，blocked write／view、demo／forbidden／offline／hidden均不另讀；確切自身transition完成或卸載只釋放自身view lease，未知write不釋放。
 
@@ -268,3 +268,19 @@ Proxy只是可選session更新，不做授權；自身20秒及request signal内�
 分支GET／POST精確承接上述503；分支lookup另有client與query共同20秒預算，只有成功完整名單中缺requestedID才403。失敗／缺名單503，不發switch cookie；原AAL2與成功Cookieflags、demo及DELETE不變。這是分階段限制，非整端點或整頁20秒。首頁core／roster／expected在已授權context後同時開始且expected只讀一次；頁3／6／46的原authority preflight與原core讀取同時開始，不把未完成或false權限當true。首頁仍先等core／roster才呈現主內容，並非完整獨立streaming或hosted速度達標。
 
 共用route error只陳述無法載入，原reset只重試呈現，不承諾資料未送出或展示不存在的請求編號；未知寫入須先核對原筆。沿用原empty-card與button，route-error按鈕用既有深橘白字具名AA對比例外，不改Finance frame。實際Chrome合成畫面不替代真實Google登入、provider refresh、正式RLS、全部89頁或人工輔具驗收。
+
+### 2026-09-28：每日記錄的未保存確認與日誌操作
+
+權威來源仍為core-care schema、既有API／RPC、CareWriteAttempt、原snapshot及每次伺服器授權。此切片不更改資料庫、出勤判定、量測精度、日誌狀態機、簽署角色或近期驗證。CoreDraftConfirmation／GovernanceDialog擁有三張每日表單與日誌的確認；useUnsavedChanges擁有已驗證GET導覽與安全登出清稿。僅明確確認捨棄未送出輸入後才繼續原操作，取消／Escape保留原值；busy及unknown不是未送出草稿。送出時即刻ref fence不得等下一次React commit才生效。
+
+三張每日表單編輯模態與捨棄確認不能同時在top layer；欄位保持掛載但視窗先關閉，再開確認。取消復原原編輯器及焦點；明確捨棄先關閉編輯器，然後由共同owner檢查scope、revision、允許操作及原GET目標，清理後才接續。安全登出不能被未保存或unknown阻擋。未納入本轮的其他表單維持具名相容邊界，不宣稱全部工作區均已遷移。
+
+日誌送審、簽署、更正、退回修改需對原紀錄ID／版本／狀態及目前可見權限再次核對；確認前與取消後皆零POST。同個案的可見操作權限撤銷／還原與卸載取消舊寫入來源，晚到結果不更新新畫面；props沒有完整tenant／actor／來源generation時不宣稱完整authority ABA或跨掛載原操作journal。草稿編輯的未保存輸入由共享guard保護，更正／退回理由仍維持原欄位owner，不宣稱全部輸入已全域遷移。原attempt未知時body／key固定，新的拒絕不能證明前次未保存。noValidate、inline錯誤／first-error focus、IME組字及原生日期平台例外延用每日表單契約。
+
+withCareRequestDeadline涵蓋fetch、結構化拒絕clone解碼與JSON讀取的同一20秒預算，傳入owner取消訊號，每段await後仍須檢查signal／generation才可有副作用。GET timeout只能稱未取得新資料，寫入timeout維持原筆unknown；無自動POST重試、換鍵、敏感瀏覽器儲存或新增共享write lease。取消transport不是SQL rollback證據。既有離線佇列、原裝置草稿及未遷移刪除確認不變。
+
+三張新增表單的useCareRequestOwner只觀察實際傳入的date／client／shift／demo／enabled／名單及出勤可做動作；變更與ABA取消舊request，原unknown留在既有mounted attempt，切回原可見範圍後才可明確重試，不依新日期重新解釋原body。這不是完整tenant／actor／assignment證據，整頁重載／跨掛載不保證原筆定位。離線capture／saved／retain的既有儲存不是fetch deadline範圍，不把20秒擴稱全保存SLA。
+
+日誌GET明確401／403隱藏舊紀錄、歷程、編輯器及尚未送出確認；原unknown只保留在既有記憶體attempt，禁止POST直到使用者手動GET取得合法來源。純網路／5xx失敗保留未送出欄位唯讀，不清掉輸入，也不將舊資料當成最新；同一工作區提供手動GET恢復入口。最新來源可以恢復已授權操作，不能由GET成功推論原unknown已提交或自動POST。
+
+必要證據為單元／元件回歸、actual changed-source premium audit、桌機與390px真Chrome取消／Escape／捨棄／焦點、日期／個案／班別接續、結果未知原筆重試。完整整頁重載、跨分頁、hosted RLS／簽署、50人HTTP、Safari／輔具與正式效能仍是獨立門檻。

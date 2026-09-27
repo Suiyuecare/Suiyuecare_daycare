@@ -1,16 +1,19 @@
 "use client";
 
 import { FormEvent, MouseEvent, useRef, useState } from "react";
-import { FilePlus2, ShieldCheck, X } from "lucide-react";
+import { FilePlus2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
-import { useCoreDraftGuard } from "./client-continuation";
+import { withCareRequestDeadline } from "@/lib/core-care/request-deadline";
+import { CoreDraftConfirmation, useCoreDraftGuard } from "./client-continuation";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { CoreCareReceiptError, parseDiaryWriteReceipt } from "@/lib/core-care/write-receipts";
 import { observationsFromForm } from "@/lib/care-diary/schema";
 import { DiaryObservationsFields } from "./diary-observations";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
+import { useCareRequestOwner } from "./use-care-request-owner";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
 import type { CareDiaryFields } from "@/lib/care-diary/schema";
 import { isDailyWorkflowShift, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
@@ -60,18 +63,37 @@ export function CareDiaryComposer({
   selectedShift?: DailyWorkflowShift;
 }) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
   const validation = useDailyFormValidation();
-  const draft = useCoreDraftGuard();
+  const [editorOpen, setEditorOpen] = useState(false);
   const attempt = useCareWriteAttempt<DiaryRequest>();
+  const attemptScope = useRef<string | null>(null);
+  const privacyScope = JSON.stringify(["care-note", demo, serviceDate, selectedClientId ?? null, selectedShift ?? "full_day"]);
+  const capabilities = JSON.stringify([enabled, clients.map((client) => client.id).sort()]);
+  const draft = useCoreDraftGuard({
+    scopeKey: privacyScope,
+    revisionKey: capabilities,
+    canPrompt: enabled,
+    isBlocked: () => !!attempt.current(),
+    onDiscard() {
+      setEditorOpen(false);
+      if (!attempt.current()) {
+        formRef.current?.reset(); validation.reset(); setError(null); setRestoredObservations(undefined);
+        setDraftSession((value) => value + 1); idempotencyKey.current = crypto.randomUUID();
+      }
+    },
+  });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
   const invalidShift = selectedShift !== undefined && !isDailyWorkflowShift(selectedShift);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const requestOwner = useCareRequestOwner(JSON.stringify([privacyScope, capabilities]), () => {
+    if (attempt.current()) attempt.failed();
+    setPending(false); setEditorOpen(false); setError(null); setNotice(null); draft.finish();
+  });
   const [draftSession, setDraftSession] = useState(0);
   const [restoredObservations, setRestoredObservations] = useState<Record<string, string>>();
   const offline = useOfflineCareForm({ kind: "care-note", serviceDate, enabled, demo, allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
@@ -79,7 +101,7 @@ export function CareDiaryComposer({
   function open(event: MouseEvent<HTMLButtonElement>) {
     if (!enabled || unavailableSelection || invalidShift) return;
     trigger.current = event.currentTarget;
-    if (attempt.current()) { dialog.current?.showModal(); return; }
+    if (attempt.current()) { setEditorOpen(true); return; }
     formRef.current?.reset();
     setDraftSession((value) => value + 1);
     setRestoredObservations(undefined);
@@ -87,14 +109,13 @@ export function CareDiaryComposer({
     setError(null);
     setNotice(null);
     validation.reset();
-    dialog.current?.showModal();
+    setEditorOpen(true);
   }
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆日誌結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
-    if (!draft.discard()) return;
-    dialog.current?.close();
+    if (attempt.current()) { setEditorOpen(false); setNotice("上一筆日誌結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    draft.requestExit(() => setEditorOpen(false));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -102,6 +123,10 @@ export function CareDiaryComposer({
     if (validation.composing.current || pending) return;
     const form = event.currentTarget;
     const prior = attempt.current();
+    if (prior && attemptScope.current !== privacyScope) {
+      setError("上一筆日誌尚未確認，請回到原個案、日期與班別處理；未建立新的一筆。");
+      return;
+    }
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
     if (!enabled || unavailableSelection || invalidShift || !clients.some((client) => client.id === clientId)) {
@@ -113,6 +138,7 @@ export function CareDiaryComposer({
     if (!draft.begin()) return;
     setPending(true);
     setError(null);
+    const request = requestOwner.begin();
     try {
       const body = prior?.body ?? {
           client_id: clientId,
@@ -130,24 +156,40 @@ export function CareDiaryComposer({
           },
         };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
-        draft.saved(); dialog.current?.close();
+        request.throwIfStale();
+        draft.saved(); setEditorOpen(false);
         setNotice("已保存在裝置等待送出；尚未確認儲存到系統。");
         return;
       }
+      request.throwIfStale();
+      if (!prior) attemptScope.current = privacyScope;
       const frozen = attempt.prepare(body, idempotencyKey.current);
-      const response = await fetchWithTimeout("/api/records", {
-        method: "POST", cache: "no-store",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": frozen.key },
-        body: frozen.serialized,
-      });
-      if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
-      const raw: unknown = await response.json().catch(() => null);
+      const { response, raw, definite } = await withCareRequestDeadline(async (signal) => {
+        const response = await fetchWithTimeout("/api/records", {
+          method: "POST", cache: "no-store", signal,
+          headers: { "Content-Type": "application/json", "Idempotency-Key": frozen.key },
+          body: frozen.serialized,
+        });
+        signal.throwIfAborted();
+        if (!response.ok) {
+          const definite = await isDefiniteCareRejection(response);
+          signal.throwIfAborted();
+          return { response, raw: null, definite };
+        }
+        const raw: unknown = await response.json().catch(() => null);
+        signal.throwIfAborted();
+        return { response, raw, definite: false };
+      }, { signal: request.signal });
+      request.throwIfStale();
+      if (!response.ok) { if (definite) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
       parseDiaryWriteReceipt(raw, response.status, demo);
       await offline.saved();
+      request.throwIfStale();
       attempt.confirmed();
+      attemptScope.current = null;
       form.reset();
       draft.saved();
-      dialog.current?.close();
+      setEditorOpen(false);
       setNotice(
         demo
           ? "展示草稿已通過欄位與重送檢查；展示資料不會永久保存。"
@@ -156,14 +198,16 @@ export function CareDiaryComposer({
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
+      if (!request.isCurrent()) return;
       const uncertain = attempt.failed();
       if (uncertain) await offline.retainUnconfirmed(uncertain.body);
+      if (!request.isCurrent()) return;
       setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message
         : "草稿尚未確認儲存。請保留內容直接重試，系統會辨識同一次送出。");
     } finally {
-      draft.finish();
-      setPending(false);
+      request.finish();
+      if (request.isCurrent()) { draft.finish(); setPending(false); }
     }
   }
 
@@ -181,22 +225,13 @@ export function CareDiaryComposer({
       {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
       {invalidShift ? <p role="alert">指定班別無效，請返回今日工作重新選擇；不會自動改成全日。</p> : null}
       {notice ? <p className="core-composer__notice" role="status">{notice}</p> : null}
-      <dialog
-        aria-labelledby="care-diary-dialog-title"
-        className="core-dialog"
-        onCancel={(event) => { event.preventDefault(); close(); }}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) close();
-        }}
-        onClose={() => trigger.current?.focus()}
-        ref={dialog}
-      >
-        <form className="core-dialog__surface" data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`}
+      <GovernanceDialog open={editorOpen && !draft.open} title="新增照顧日誌" busy={pending}
+        cancelLabel={attempt.locked && !pending ? "稍後處理" : "取消"} onRequestClose={close} returnFocusRef={trigger}>
+        <form data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`}
           onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
           onChange={(event) => { if (attempt.current()) return; validation.clearChanged(event.target); draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
-          <header className="drawer__header"><div><p className="eyebrow">第 3 步・日誌草稿</p><h2 id="care-diary-dialog-title">新增照顧日誌</h2><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p></div><button aria-label="關閉" className="icon-button" disabled={pending} onClick={close} type="button"><X aria-hidden="true" /></button></header>
+          <p className="eyebrow">第 3 步・日誌草稿</p><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
-          <div className="drawer__body core-dialog__body">
           <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => { draft.changed(); setRestoredObservations(values); setDraftSession((value) => value + 1); }} />
@@ -211,10 +246,10 @@ export function CareDiaryComposer({
             <label className="check-field"><input name="abnormal" type="checkbox" /><span>標記為需留意，送入後續人工確認</span></label>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
           </fieldset>
-          </div>
-          <footer className="drawer__footer"><button className="button button--secondary" disabled={pending} onClick={close} type="button">{attempt.locked && !pending ? "稍後處理" : "取消"}</button><button className="button button--primary" disabled={pending} type="submit">{pending ? "儲存中…" : attempt.locked ? "重試原草稿" : "儲存草稿"}</button></footer>
+          <footer className="drawer__footer"><button className="button button--primary" disabled={pending} type="submit">{pending ? "儲存中…" : attempt.locked ? "重試原草稿" : "儲存草稿"}</button></footer>
         </form>
-      </dialog>
+      </GovernanceDialog>
+      <CoreDraftConfirmation draft={draft} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AttendanceComposer } from "./attendance-composer";
 import { CareDiaryComposer } from "./care-diary-composer";
@@ -64,8 +64,8 @@ describe.each(specs)("$kind app-owned validation", (spec) => {
     fireEvent.compositionEnd(field);
     expect(fireEvent.keyDown(field, { key: "Enter", keyCode: 229 })).toBe(false);
     fireEvent.submit(form);
-    expect(fetch).toHaveBeenCalledOnce();
     expect(form).toHaveAttribute("aria-busy", "true");
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     await within(dialog).findByRole("alert");
     expect(form).toHaveAttribute("aria-busy", "false");
   });

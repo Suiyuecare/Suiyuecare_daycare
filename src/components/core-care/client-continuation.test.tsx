@@ -1,18 +1,24 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type Link from "next/link";
 import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
-import { ClientContinuation, useCoreDraftGuard } from "./client-continuation";
+import { ClientContinuation, CoreDraftConfirmation, useCoreDraftGuard } from "./client-continuation";
 import { NavigationLink } from "@/components/app/navigation-link";
+import { clearUnsavedChangesOnLogout, requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
+import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
 
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: ComponentProps<typeof Link>) => <a href={String(href)} aria-current={props["aria-current"]} onClick={props.onClick}>{children}</a>,
   useLinkStatus: () => ({ pending: false }),
 }));
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); } });
+});
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const snapshot = buildDemoDailySnapshot("2026-09-10");
 const second = snapshot.clients[1]!;
 function continuation(overrides: Partial<ComponentProps<typeof ClientContinuation>> = {}) {
@@ -77,46 +83,139 @@ describe("select once and continue the authorized daily workflow", () => {
   });
 });
 
-function GuardHarness() {
-  const draft = useCoreDraftGuard();
+function GuardHarness({ scope = "daily", revision = "1", blocked = false, onDiscard = () => {}, proceed = () => {}, submit = () => {} }: {
+  scope?: string; revision?: string; blocked?: boolean; onDiscard?: () => void; proceed?: () => void; submit?: () => void;
+}) {
+  const draft = useCoreDraftGuard({ scopeKey: scope, revisionKey: revision, isBlocked: () => blocked, onDiscard });
   return <><button onClick={draft.changed}>編輯</button><button onClick={draft.begin}>開始儲存</button>
     <button onClick={() => { draft.finish(); draft.saved(); }}>確認儲存</button>
+    <button onClick={() => draft.requestExit(proceed)}>離開填寫</button>
     <NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={(event) => event.preventDefault()}>前往工作台</NavigationLink>
-    <form method="get" onSubmit={(event) => event.preventDefault()}><button>套用日期</button></form></>;
+    <form noValidate method="get" action="/app/dashboard" onSubmit={(event) => { event.preventDefault(); submit(); }}><input name="date" defaultValue="2026-09-10" /><button>套用日期</button></form>
+    <form noValidate method="post" onSubmit={(event) => { event.preventDefault(); submit(); }}><button>其他寫入</button></form>
+    <CoreDraftConfirmation draft={draft} /></>;
 }
 describe("unsent draft navigation guard", () => {
   it("cancels link navigation and document unload while preserving the draft", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirm = vi.spyOn(window, "confirm");
     render(<GuardHarness />);
     fireEvent.click(screen.getByRole("button", { name: "編輯" }));
     fireEvent.click(screen.getByRole("link"));
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog", { name: "尚有未保存內容" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(confirm).not.toHaveBeenCalled();
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
   it("blocks pending navigation without discard and stops blocking after confirmed success", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<GuardHarness />);
     fireEvent.click(screen.getByRole("button", { name: "開始儲存" }));
     fireEvent.click(screen.getByRole("link"));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("請先完成其他作業");
     fireEvent.click(screen.getByRole("button", { name: "確認儲存" }));
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
   });
-  it("keeps a draft when date navigation is cancelled, and confirms discard only once when accepted", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(<GuardHarness />);
+  it("replays only the original GET once, after explicit discard and modal cleanup", () => {
+    const submit = vi.fn(() => expect(document.querySelector("dialog[open]")).toBeNull());
+    const discard = vi.fn();
+    render(<GuardHarness submit={submit} onDiscard={discard} />);
     fireEvent.click(screen.getByRole("button", { name: "編輯" }));
     fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
-    expect(confirm).toHaveBeenCalledOnce();
-    confirm.mockReturnValue(true);
-    fireEvent.click(screen.getByRole("link"));
-    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(discard).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    fireEvent.click(screen.getByRole("button", { name: "捨棄填寫並繼續" }));
+    expect(discard).toHaveBeenCalledOnce(); expect(submit).toHaveBeenCalledOnce();
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
+  });
+  it("reads changed and begin synchronously before a React state commit", () => {
+    const proceed = vi.fn();
+    const { result } = renderHook(() => useCoreDraftGuard({}));
+    act(() => {
+      result.current.changed();
+      expect(requestUnsavedExit(proceed)).toBe(true);
+      expect(proceed).not.toHaveBeenCalled();
+    });
+    expect(result.current.open).toBe(true);
+    act(() => result.current.cancel());
+    act(() => {
+      expect(result.current.begin()).toBe(true);
+      expect(result.current.begin()).toBe(false);
+      expect(requestUnsavedExit(proceed)).toBe(true);
+      const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+    });
+    expect(result.current.open).toBe(false); expect(result.current.notice).not.toBe("");
+  });
+  it("blocks an unknown attempt even when no input change was reported", () => {
+    const discard = vi.fn(); const proceed = vi.fn();
+    render(<GuardHarness blocked onDiscard={discard} proceed={proceed} />);
+    fireEvent.click(screen.getByRole("button", { name: "離開填寫" }));
+    expect(screen.queryByRole("dialog")).toBeNull(); expect(discard).not.toHaveBeenCalled(); expect(proceed).not.toHaveBeenCalled();
+    const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+  });
+  it.each(["pending", "view"])("retains the dirty draft while another %s owner is locked", (kind) => {
+    render(<GuardHarness />); fireEvent.click(screen.getByRole("button", { name: "編輯" }));
+    const release = kind === "pending" ? tryAcquirePendingOperation()! : tryAcquireViewTransition()!;
+    try { fireEvent.click(screen.getByRole("button", { name: "離開填寫" })); expect(screen.queryByRole("dialog")).toBeNull(); }
+    finally { release(); }
+    fireEvent.click(screen.getByRole("button", { name: "離開填寫" })); expect(screen.getByRole("dialog")).toBeVisible();
+  });
+  it("never turns another POST into a replayable exit", () => {
+    const submit = vi.fn(); render(<GuardHarness submit={submit} />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" })); fireEvent.click(screen.getByRole("button", { name: "其他寫入" }));
+    expect(submit).not.toHaveBeenCalled(); expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("invalidates changed GET data without discarding the draft", () => {
+    const discard = vi.fn(); const submit = vi.fn(); render(<GuardHarness submit={submit} onDiscard={discard} />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" })); fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    fireEvent.change(document.querySelector("input[name=date]")!, { target: { value: "2026-09-11" } });
+    fireEvent.click(screen.getByRole("button", { name: "捨棄填寫並繼續" }));
+    expect(discard).not.toHaveBeenCalled(); expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("原操作已變更");
+  });
+  it("source revision changes cancel the old proposal but keep the draft", () => {
+    const discard = vi.fn(); const proceed = vi.fn(); const ui = render(<GuardHarness revision="1" onDiscard={discard} proceed={proceed} />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" })); fireEvent.click(screen.getByRole("button", { name: "離開填寫" }));
+    const oldConfirm = screen.getByRole("button", { name: "捨棄填寫並繼續" });
+    ui.rerender(<GuardHarness revision="2" onDiscard={discard} proceed={proceed} />);
+    ui.rerender(<GuardHarness revision="1" onDiscard={discard} proceed={proceed} />);
+    fireEvent.click(oldConfirm); expect(discard).not.toHaveBeenCalled(); expect(proceed).not.toHaveBeenCalled();
+    const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload); expect(unload.defaultPrevented).toBe(true);
+  });
+  it("visible scope ABA and logout invalidate old continuations without asking", () => {
+    const discard = vi.fn(); const proceed = vi.fn(); const ui = render(<GuardHarness scope="a" onDiscard={discard} proceed={proceed} />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" })); fireEvent.click(screen.getByRole("button", { name: "離開填寫" }));
+    const oldConfirm = screen.getByRole("button", { name: "捨棄填寫並繼續" });
+    ui.rerender(<GuardHarness scope="b" onDiscard={discard} proceed={proceed} />);
+    ui.rerender(<GuardHarness scope="a" onDiscard={discard} proceed={proceed} />);
+    fireEvent.click(oldConfirm); expect(proceed).not.toHaveBeenCalled(); expect(discard).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" })); fireEvent.click(screen.getByRole("button", { name: "離開填寫" }));
+    act(() => clearUnsavedChangesOnLogout());
+    expect(screen.queryByRole("dialog")).toBeNull(); expect(discard).toHaveBeenCalledTimes(3); expect(proceed).not.toHaveBeenCalled();
+    expect(requestUnsavedExit(proceed)).toBe(false);
+  });
+  it("does not accept a discard during IME composition", () => {
+    const discard = vi.fn(); render(<GuardHarness onDiscard={discard} />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" })); fireEvent.click(screen.getByRole("button", { name: "離開填寫" }));
+    const button = screen.getByRole("button", { name: "捨棄填寫並繼續" });
+    fireEvent.compositionStart(button); fireEvent.click(button); expect(discard).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(button); fireEvent.click(button); expect(discard).toHaveBeenCalledOnce();
+  });
+  it("preserves the legacy no-options API outside this migration", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { result } = renderHook(() => useCoreDraftGuard());
+    act(() => result.current.changed());
+    expect(result.current.discard()).toBe(false); expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockReturnValue(true); expect(result.current.discard()).toBe(true);
+    expect(result.current.open).toBe(false);
   });
 });

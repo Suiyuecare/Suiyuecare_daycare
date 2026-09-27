@@ -146,7 +146,7 @@ CMS上傳主按鈕採具名無障礙例外：只在`cms-upload-control.module.cs
 
 `ModuleLoading` 是原導覽回饋的唯一owner：transition 的視覺顯示延後150ms，快速完成便不出現大畫面，inert、寫入保護及可安全登出立即生效。初始fallback即時顯示；不加最低等待、不新增JavaScript導覽計時器。Reduced-motion 保留原靜態bar，不加入新進場位移。
 
-預計名冊的重新讀取沿用既有 inline status、busy 及 tab-local view/write lease；不得在原筆保存未知時重載。查詢期限是伺服器資料owner，不用動畫假裝資料已更新。實際本機Chrome的桌機／390px、before/after及權限／錯誤測試見 `docs/SMOOTH_CONTINUOUS_WORK_READINESS_2026-09-28.md`；native未保存確認、hosted流程、Safari／輔具及全站效能仍須後續驗收。
+預計名冊的重新讀取沿用既有 inline status、busy 及 tab-local view/write lease；不得在原筆保存未知時重載。查詢期限是伺服器資料owner，不用動畫假裝資料已更新。實際本機Chrome的桌機／390px、before/after及權限／錯誤測試見 `docs/SMOOTH_CONTINUOUS_WORK_READINESS_2026-09-28.md`；該切片尚未遷移native未保存確認，後續每日確認切片另行驗收。hosted流程、Safari／輔具及全站效能仍須獨立驗收。
 
 - 送審成功不是正式評估已完成；已採用也不等於臨床簽署能力已開放。
 - 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
@@ -158,3 +158,11 @@ CMS上傳主按鈕採具名無障礙例外：只在`cms-upload-control.module.cs
 首頁的今日照顧、排班、應到名冊在同一已授權context後並行讀取，名冊仍沿用原Suspense／inline狀態；不增加另一個loader或改Finance frame。共用route error沿用既有centered-page／empty-card／button幾何，短標題「目前無法載入」，保留原reset重試，不宣稱寫入未送出；已送出者須核對原筆，不新增第二笔。只有`.route-error .button--primary`採現有`--brand-strong`配白字的具名AA對比例外，沒有新色碼／字型／radius，也不改header/sidebar。
 
 此輪Auth、分支及Proxy期限屬伺服器read owner，不能用視覺變化冒充身分授權成功、保存完成或正式p95。即時傳輸／5xx與逾時不以「未登入」回條處理；真正缺少／無效session、AAL及資料範圍政策保持原邏輯。測試與發布邊界見`docs/SMOOTH_AUTH_READINESS_2026-09-28.md`。
+
+### 2026-09-28：每日記錄確認切片
+
+出勤、生命徵象、照顧日誌的編輯與未保存離開確認沿用同一GovernanceDialog；欄位保持掛載，捨棄確認出現時先關閉編輯模態，取消則帶原內容回到編輯器。CoreDraftConfirmation只提供「繼續填寫」與明確捨棄；不新增toast、frame、巢狀模態或原生confirm。取消／Escape／背景關閉不是保存也不是捨棄。原有離線裝置草稿刪除與其他尚未遷移工作區不在此切片範圍。
+
+日誌送審、簽署、更正及退回修改各自呈現原個案、紀錄版本及操作後果，確認前不送出。未保存輸入由同一guard擁有，送出中或結果未知不能当成可捨棄草稿；原筆回查與明確重試仍分開。沿用16px欄位、44px操作、noValidate／同行錯誤／首錯焦點、中文組字保護、不可拖曳textarea及原生日期／選單平台例外。不改Finance header／sidebar字型、幾何或runtime tokens。
+
+讀取與內容解碼共同期限是請求owner的安全邊界，不是loading動畫或正式效能承諾。逾時與取消不能表示資料庫未寫入；晚回覆不能清空新畫面或解除原unknown。工作區未提供完整登入／機構／分支來源generation時不假稱全context防護；本機測試與合成Chrome證據不代替hosted保存、真人簽署、完整重載復原、全89頁或人工WCAG驗收。

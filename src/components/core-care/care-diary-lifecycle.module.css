@@ -1,0 +1,28 @@
+.workspace input,
+.workspace select,
+.workspace textarea {
+  font-size: 16px;
+  min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workspace :global(.resize-none) {
+  resize: none;
+}
+
+.workspace :global(.button) {
+  min-height: 44px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.actions > button {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 180px;
+}

@@ -36,7 +36,8 @@ let AppShell: typeof import("./app-shell").AppShell;
 let uploadJournal: typeof import("@/lib/imports/upload-pending");
 let intakeJournal: typeof import("@/lib/client-intake/write-pending");
 let medicationJournal: typeof import("@/lib/medications/pending");
-import { useCoreDraftGuard } from "@/components/core-care/client-continuation";
+let useCoreDraftGuard: typeof import("@/components/core-care/client-continuation").useCoreDraftGuard;
+let CoreDraftConfirmation: typeof import("@/components/core-care/client-continuation").CoreDraftConfirmation;
 let registerUnsavedChangesOwner: typeof import("@/lib/navigation/unsaved-changes").registerUnsavedChangesOwner;
 const unregisterOwners: (() => void)[] = [];
 const actor: TenantContext = { organizationId: "10000000-0000-4000-8000-000000000001", branchId: "20000000-0000-4000-8000-000000000001",
@@ -53,6 +54,7 @@ beforeEach(async () => {
   medicationJournal = await import("@/lib/medications/pending");
   registerUnsavedChangesOwner = (await import("@/lib/navigation/unsaved-changes")).registerUnsavedChangesOwner;
   AppShell = (await import("./app-shell")).AppShell;
+  ({ useCoreDraftGuard, CoreDraftConfirmation } = await import("@/components/core-care/client-continuation"));
 });
 afterEach(() => { cleanup(); uploadJournal.clearCmsUploadOnLogout(); intakeJournal.clearIntakeWritesOnLogout(); medicationJournal.clearMedicationPendingOnLogout(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("staff shell logout privacy", () => {
@@ -160,16 +162,24 @@ describe("staff shell logout privacy", () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
-  it("lets the existing draft guard block a portal departure", () => {
-    function DirtyDraft() { const guard = useCoreDraftGuard(); return <button onClick={guard.changed}>合成未儲存草稿</button>; }
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("lets the canonical daily draft owner block a portal departure but never block safe logout", () => {
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); } });
+    const discard = vi.fn();
+    function DirtyDraft() { const guard = useCoreDraftGuard({ onDiscard: discard }); return <><button onClick={guard.changed}>合成未儲存草稿</button><CoreDraftConfirmation draft={guard} /></>; }
+    const confirm = vi.spyOn(window, "confirm");
     render(<AppShell context={actor} navigation={[]}><DirtyDraft /></AppShell>);
     fireEvent.click(screen.getByRole("button", { name: "合成未儲存草稿" }));
     const departure = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
-    screen.getAllByRole("link", { name: "回模組頁" })[0].dispatchEvent(departure);
+    act(() => screen.getAllByRole("link", { name: "回模組頁" })[0].dispatchEvent(departure));
     expect(departure.defaultPrevented).toBe(true);
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog", { name: "尚有未保存內容" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(discard).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(discard).toHaveBeenCalledOnce(); expect(screen.queryByText("合成未儲存草稿")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull(); expect(confirm).not.toHaveBeenCalled();
   });
   it("marks only intake current in the sidebar, not a fallback care page", () => {
     mocks.pathname = "/app/client-intake";
