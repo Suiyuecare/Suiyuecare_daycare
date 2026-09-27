@@ -8,7 +8,6 @@ const stubs = vi.hoisted(() => ({ fetch: vi.fn(), release: vi.fn(), acquire: vi.
 vi.mock("@/lib/api/client-fetch", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/api/client-fetch")>(), fetchWithTimeout: stubs.fetch,
 }));
-vi.mock("@/lib/navigation/pending-operation-lock", () => ({ tryAcquirePendingOperation: stubs.acquire, useViewTransitionPending: () => false }));
 vi.mock("@/components/clients/client-selection-card", () => ({
   ClientSelectionCard: ({ disabled }: { disabled?: boolean }) => <select aria-label="個案" disabled={disabled}><option>合成個案</option></select>,
 }));
@@ -16,11 +15,19 @@ vi.mock("@/components/clients/client-selection-card", () => ({
 import { QUESTIONNAIRE_FORMS } from "@/lib/questionnaire-assessments/forms";
 import type { QuestionnaireAnswers, QuestionnaireAssessment, QuestionnaireDraft, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
+import type { TenantContext } from "@/lib/domain/types";
+import { hasPendingOperations } from "@/lib/navigation/pending-operation-lock";
+import { clearQuestionnairePendingOnLogout, observeQuestionnairePendingAuthority } from "@/lib/questionnaire-assessments/pending";
+import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState, observeQuestionnaireViewAuthority, questionnaireViewAuthority } from "@/lib/questionnaire-assessments/readiness-view";
 
 const clientId = "10000000-0000-4000-8000-000000000001";
 const key = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const versionId = (n: number) => `30000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const stamp = "2026-09-25T01:00:00Z";
+let stamp = "2026-09-25T01:00:00Z";
+let sequence = 0;
+const context: TenantContext = { organizationId: clientId, branchId: key(99), userId: versionId(99), organizationName: "合成機構",
+  branchName: "合成分支", displayName: "目前登入人員", roles: ["nurse"], assuranceLevel: "aal1", recentAal2At: null, demo: false,
+  scopes: ["clients.read", ...["cognition", "adl", "emotion", "fall", "nutrition", "swallowing"].flatMap(group => [`questionnaire_${group}.read`, `questionnaire_${group}.manage`])] };
 const form = QUESTIONNAIRE_FORMS.spmsq;
 const answers = Object.fromEntries(form.questions.map(({ id }) => [id, { state: "answered", value: "correct" }])) as QuestionnaireAnswers;
 const draft = (chain = 1, version = 1): QuestionnaireDraft & { recordState: "draft" } => ({ assessmentKey: key(chain), versionId: versionId(chain * 100 + version),
@@ -29,7 +36,7 @@ const draft = (chain = 1, version = 1): QuestionnaireDraft & { recordState: "dra
 const assessment = (chain = 1, version = 1): QuestionnaireAssessment => ({ ...draft(chain, version), assessmentCreatedAt: stamp });
 const defaultSnapshot = (): QuestionnaireSnapshot => ({ formKey: "spmsq", generatedAt: stamp, matchingTotal: 1,
   clients: [{ clientId, displayName: "合成個案", serviceStatus: "active", latest: draft(), assessments: [assessment(), assessment(2)], assessmentTotal: 2, nextAssessmentCursor: null }] });
-const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data, errors: [] }), { status });
+const response = (data: unknown, status = 200) => new Response(JSON.stringify({ requestId: key(999), status: status < 400 ? "ok" : "error", data, errors: [] }), { status: status === 200 && data && typeof data === "object" && "action" in data ? 201 : status });
 const history = (chain = 1, versions = [1], nextBeforeVersion: number | null = null, total = versions.length) => ({
   formKey: "spmsq", clientId, assessmentKey: key(chain), versions: versions.map((v) => draft(chain, v)), total, nextBeforeVersion,
 });
@@ -37,7 +44,7 @@ const page = (assessments = [assessment(), assessment(2)], total = assessments.l
 const receipt = (action: "create" | "revise", chain = 1, version = 1, assessedOn = "2026-09-25") => ({ action, clientId, formKey: "spmsq", assessmentKey: key(chain),
   versionId: versionId(chain * 100 + version), version, recordState: "draft", assessedOn, contentHash: "a".repeat(64), committedAt: stamp, replayed: false });
 const workspace = (snapshot = defaultSnapshot(), canManage = true, selectedForm = form) => render(<QuestionnaireAssessmentsWorkspace assessorName="目前登入人員" canManage={canManage}
-  form={selectedForm} loadError={false} pageTitle={selectedForm.title} selectedClientId={clientId} snapshot={snapshot} />);
+  context={context} form={selectedForm} loadError={false} pageTitle={selectedForm.title} selectedClientId={clientId} snapshot={snapshot} />);
 const button = (name: string) => screen.getByRole("button", { name });
 const posts = () => stubs.fetch.mock.calls.filter(([, init]) => init?.method === "POST");
 const functionalForms = [QUESTIONNAIRE_FORMS.barthel_adl, QUESTIONNAIRE_FORMS.lawton_iadl];
@@ -52,8 +59,16 @@ const functionalSnapshot = (selectedForm = functionalForms[0]!, reason = "合成
 const questionCard = (number: number) => within(screen.getByRole("radiogroup", { name: `第 ${number} 題` }).closest("section")!);
 
 describe("questionnaire independent drafts and version browsing", () => {
-  beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", stubs.fetch); stubs.acquire.mockReturnValue(stubs.release); vi.spyOn(window, "confirm").mockReturnValue(false); });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  beforeEach(() => {
+    vi.clearAllMocks(); vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-09-25T01:00:00Z") + ++sequence * 120_000); stamp = new Date().toISOString();
+    vi.stubGlobal("fetch", stubs.fetch); vi.spyOn(window, "confirm").mockReturnValue(false);
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
+    const authority = questionnaireViewAuthority(context); observeQuestionnaireViewAuthority(authority);
+    observeQuestionnairePendingAuthority(authority, getQuestionnaireViewState().epoch);
+  });
+  afterEach(() => { cleanup(); clearQuestionnairePendingOnLogout(); clearQuestionnaireViewOnLogout(); Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal"); Reflect.deleteProperty(HTMLDialogElement.prototype, "close"); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it.each(Object.values(QUESTIONNAIRE_FORMS))("directly renders every question of $key after client selection", (selectedForm) => {
     const snapshot: QuestionnaireSnapshot = { ...defaultSnapshot(), formKey: selectedForm.key,
@@ -121,7 +136,7 @@ describe("questionnaire independent drafts and version browsing", () => {
     const selectedForm = functionalForms[0]!;
     workspace(functionalSnapshot(selectedForm), true, selectedForm);
     fireEvent.click(button("清除第 2 題答案")); fireEvent.click(button("新增一次評估"));
-    expect(screen.getByRole("region", { name: "尚未保存的內容" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeVisible();
     fireEvent.click(button("繼續填寫")); expect(questionCard(2).getByText("未填")).toBeVisible();
   });
 
@@ -221,14 +236,14 @@ describe("questionnaire independent drafts and version browsing", () => {
     expect(screen.getAllByRole("radio").every((element) => !(element as HTMLInputElement).checked)).toBe(true);
     fireEvent.change(screen.getByLabelText("評估日期"), { target: { value: "2026-09-25" } });
     stubs.fetch.mockResolvedValueOnce(response(receipt("create", 3)))
-      .mockResolvedValueOnce(response(history(3))).mockResolvedValueOnce(response(page([assessment(), assessment(2), assessment(3)])));
+      .mockResolvedValueOnce(response({ ...history(3), versions: [{ ...draft(3), answers: Object.fromEntries(form.questions.map(({ id }) => [id, { state: "missing" }])), context: {} }] })).mockResolvedValueOnce(response(page([assessment(), assessment(2), assessment(3)])));
     fireEvent.click(button("保存本次評估"));
     await waitFor(() => expect(posts()).toHaveLength(1));
     const payload = JSON.parse(posts()[0]![1].body as string);
     expect(payload).toMatchObject({ action: "create", clientId, formKey: "spmsq" });
     expect(payload).not.toHaveProperty("assessmentKey"); expect(payload.answers.spmsq_01).toEqual({ state: "missing" });
     await waitFor(() => expect(screen.getByText("已保存 3 次評估；每次評估與修訂版本分開保留。")).toBeTruthy());
-    expect(stubs.release).toHaveBeenCalledTimes(2);
+    expect(hasPendingOperations()).toBe(false);
   });
 
   it("revises the explicitly chosen latest draft and keeps old versions read-only", async () => {
@@ -271,14 +286,14 @@ describe("questionnaire independent drafts and version browsing", () => {
     fireEvent.click(button("保存修訂版本"));
     await waitFor(() => expect(button("以相同內容重試")).toBeTruthy());
     expect(screen.getByLabelText("評估日期")).toBeDisabled(); expect(button("新增一次評估")).toBeDisabled();
-    expect(screen.getByLabelText("個案")).toBeDisabled(); expect(stubs.release).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("個案")).toBeDisabled(); expect(hasPendingOperations()).toBe(true);
     stubs.fetch.mockResolvedValueOnce(response(receipt("revise", 1, 2))).mockResolvedValueOnce(response(history(1, [2, 1]))).mockResolvedValueOnce(response(page()));
     fireEvent.click(button("以相同內容重試"));
     await waitFor(() => expect(screen.getByText("草稿已保存並讀回；尚未簽署。")).toBeTruthy());
     const calls = posts(); expect(calls).toHaveLength(2);
     expect(calls[0]![1].body).toBe(calls[1]![1].body);
     expect(calls[0]![1].headers["idempotency-key"]).toBe(calls[1]![1].headers["idempotency-key"]);
-    expect(stubs.release).toHaveBeenCalledTimes(1);
+    expect(hasPendingOperations()).toBe(false);
   });
 
   it("never posts again when the commit succeeded but readback failed", async () => {
@@ -295,7 +310,7 @@ describe("questionnaire independent drafts and version browsing", () => {
   it("asks before discarding edits and preserves them when the user continues", () => {
     workspace(); fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
     fireEvent.click(button("新增一次評估"));
-    expect(screen.getByRole("region", { name: "尚未保存的內容" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeTruthy();
     fireEvent.click(button("繼續填寫"));
     expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
     fireEvent.click(button("新增一次評估")); fireEvent.click(button("放棄修改並切換"));
@@ -332,15 +347,16 @@ describe("questionnaire independent drafts and version browsing", () => {
     fireEvent.click(button("保存本次評估")); expect(stubs.fetch).not.toHaveBeenCalled();
   });
 
-  it("requires explicit discard before a sidebar, brand, or notification Link can unmount a dirty draft", () => {
-    const view = workspace(); const navigate = vi.fn(() => view.unmount());
+  it("requires shared explicit discard before a Link can unmount a dirty draft, without native confirm", async () => {
+    const view = workspace(); const navigate = vi.fn();
     render(<Link href="/app/staff/other" onClick={(event) => { event.preventDefault(); navigate(); }}>側欄切頁</Link>);
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
     fireEvent.click(screen.getByRole("link", { name: "側欄切頁" }));
-    expect(window.confirm).toHaveBeenCalledTimes(1); expect(navigate).not.toHaveBeenCalled();
+    expect(window.confirm).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled();
     expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
-    vi.mocked(window.confirm).mockReturnValue(true);
-    fireEvent.click(screen.getByRole("link", { name: "側欄切頁" })); expect(navigate).toHaveBeenCalledTimes(1);
+    fireEvent.click(button("放棄修改並切換"));
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    view.unmount();
   });
 
   it("does not block new-tab source links or same-page hashes that keep the draft mounted", () => {
@@ -363,8 +379,9 @@ describe("questionnaire independent drafts and version browsing", () => {
     const restore = vi.spyOn(window.history, "pushState");
     try {
       fireEvent(window, new PopStateEvent("popstate", { state: { __NA: true, destination: "other" } }));
-      expect(nextRouterPopstate).not.toHaveBeenCalled(); expect(restore).toHaveBeenCalledTimes(1);
-      expect(JSON.stringify(restore.mock.calls[0]![0])).not.toContain("answers"); expect(JSON.stringify(restore.mock.calls[0]![0])).not.toContain("idempotencyKey");
+      // Unsupported, noncancelable traversal cannot be universally blocked;
+      // shared guards never rewrite Next's opaque history or store values.
+      expect(nextRouterPopstate).toHaveBeenCalled(); expect(restore).not.toHaveBeenCalled();
       stubs.fetch.mockResolvedValueOnce(response(receipt("revise", 1, 2))).mockResolvedValueOnce(response(history(1, [2, 1]))).mockResolvedValueOnce(response(page()));
       fireEvent.click(button("以相同內容重試"));
       await waitFor(() => expect(screen.getByText("草稿已保存並讀回；尚未簽署。")).toBeTruthy());
@@ -374,7 +391,7 @@ describe("questionnaire independent drafts and version browsing", () => {
     } finally { window.removeEventListener("popstate", nextRouterPopstate); }
   });
 
-  it("captures dirty browser Back before the Next router and preserves its opaque history state", () => {
+  it("uses a beforeunload warning for unsupported history without rewriting opaque Next state", () => {
     const state = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: { opaque: "test-router-state" } };
     window.history.replaceState(state, "", window.location.href); workspace();
     const nextRouter = vi.fn(); window.addEventListener("popstate", nextRouter);
@@ -382,9 +399,9 @@ describe("questionnaire independent drafts and version browsing", () => {
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
     try {
       fireEvent(window, new PopStateEvent("popstate", { state: { __NA: true } }));
-      expect(nextRouter).not.toHaveBeenCalled(); expect(restore).toHaveBeenCalledWith(state, "", window.location.href);
-      vi.mocked(window.confirm).mockReturnValue(true);
-      fireEvent(window, new PopStateEvent("popstate", { state: { __NA: true } })); expect(nextRouter).toHaveBeenCalledTimes(1);
+      expect(nextRouter).toHaveBeenCalledTimes(1); expect(restore).not.toHaveBeenCalled();
+      expect(fireEvent(window, new Event("beforeunload", { cancelable: true }))).toBe(false);
+      expect(window.history.state).toEqual(state); expect(window.confirm).not.toHaveBeenCalled();
     } finally { window.removeEventListener("popstate", nextRouter); }
   });
 

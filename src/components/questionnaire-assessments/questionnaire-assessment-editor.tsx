@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
-import { ClientJsonReadError, fetchJsonWithTimeout, fetchWithTimeout } from "@/lib/api/client-fetch";
+import { ClientJsonReadError, fetchJsonWithTimeout } from "@/lib/api/client-fetch";
 import { questionnairePreview } from "@/lib/questionnaire-assessments/preview";
-import { parseQuestionnaireAssessmentPage, parseQuestionnaireHistoryPage, questionnaireReceiptSchema } from "@/lib/questionnaire-assessments/contract";
-import { tryAcquirePendingOperation, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { parseQuestionnaireAssessmentPage, parseQuestionnaireHistoryPage } from "@/lib/questionnaire-assessments/contract";
+import { useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
+import { QuestionnaireOperationClientError, readQuestionnaireOperationReceipt, writeQuestionnaireDraft } from "@/lib/questionnaire-assessments/operation-client";
+import { beginQuestionnairePending, cancelQuestionnaireRecoveryRead, getQuestionnairePending, getQuestionnaireRecoveryReadLease, isQuestionnairePendingOwnerAdmitted, isQuestionnairePendingSourceAdmitted, isQuestionnaireRecoveryReadCurrent, markQuestionnairePendingCommitted, markQuestionnairePendingDenied, markQuestionnairePendingUnknown, observeQuestionnairePendingSource, reconcileQuestionnairePendingExactHistory, retryQuestionnairePending, settleQuestionnaireRecoveryRead, useQuestionnairePending, type QuestionnairePendingScope } from "@/lib/questionnaire-assessments/pending";
 import type {
   QuestionnaireAnswers,
   QuestionnaireAssessment,
@@ -22,6 +26,14 @@ import { admitQuestionnaireViewSource, canAdmitQuestionnaireViewSource, canReadQ
 import { QuestionnaireReadinessPanel } from "./questionnaire-readiness-panel";
 
 import styles from "./questionnaire-assessments.module.css";
+
+// HTTP 200 and an otherwise valid row are not successful read evidence when
+// the API's own envelope reports an error. Never settle a saved-history guard
+// from contradictory or malformed top-level metadata.
+const historyEnvelopeSchema = z.object({
+  requestId: z.string().uuid().refine(value => value === value.toLowerCase()),
+  status: z.literal("ok"), data: z.unknown(), errors: z.tuple([]),
+}).strict();
 
 function taipeiToday() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -44,13 +56,9 @@ function initialContext(form: QuestionnaireFormDefinition, item: QuestionnaireCl
   ].map((key) => [key, item?.context[key] ?? ""]));
 }
 
-function errorText(payload: unknown) {
-  if (!payload || typeof payload !== "object") return "保存失敗，請保留內容後重試。";
-  const errors = (payload as { errors?: unknown }).errors;
-  if (!Array.isArray(errors)) return "保存失敗，請保留內容後重試。";
-  const first = errors[0] as { message?: unknown } | undefined;
-  return typeof first?.message === "string" ? first.message : "保存失敗，請保留內容後重試。";
-}
+type EditorRequest = { action: "create" | "revise"; clientId: string; formKey: QuestionnaireFormDefinition["key"];
+  formVersion: string; assessedOn: string; answers: QuestionnaireAnswers; context: Record<string, string>;
+  assessmentKey?: string; previousVersionId?: string; expectedVersion?: number };
 
 function QuestionnaireEditor({
   assessorName,
@@ -60,6 +68,8 @@ function QuestionnaireEditor({
   baseline,
   readOnly = false,
   reading = false,
+  scope,
+  sourceAt,
   onSaved,
   onDirtyChange,
   onLockChange,
@@ -71,97 +81,42 @@ function QuestionnaireEditor({
   baseline: QuestionnaireDraft | null;
   readOnly?: boolean;
   reading?: boolean;
+  scope: QuestionnairePendingScope | null;
+  sourceAt: string;
   onSaved: (assessmentKey: string) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
   onLockChange: (locked: boolean) => void;
 }) {
   const latest = baseline;
-  const [answers, setAnswers] = useState(() => initialAnswers(form, latest));
-  const [context, setContext] = useState(() => initialContext(form, latest));
-  const [assessedOn, setAssessedOn] = useState(latest?.assessedOn ?? taipeiToday());
+  const journal = useQuestionnairePending(scope);
+  const recovered = (journal.operation?.input.request ?? journal.confirmed[0]?.operation.input.request) as EditorRequest | undefined;
+  const [answers, setAnswers] = useState(() => recovered?.answers ?? initialAnswers(form, latest));
+  const [context, setContext] = useState(() => recovered?.context ?? initialContext(form, latest));
+  const [assessedOn, setAssessedOn] = useState(recovered?.assessedOn ?? latest?.assessedOn ?? taipeiToday());
   const [dateError, setDateError] = useState("");
   const dateField = useRef<HTMLInputElement | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [reasonErrors, setReasonErrors] = useState<Record<string, string>>({});
   const reasonFields = useRef<Record<string, HTMLTextAreaElement | null>>({});
-  const operationKey = useRef<string | null>(null);
-  const uncertain = useRef(false);
-  const releaseOperation = useRef<(() => void) | null>(null);
-  const [retryPending, setRetryPending] = useState(false);
-  const [committed, setCommitted] = useState(false);
-  const frozenBody = useRef<string | null>(null);
-  const dirty = useRef(false);
+  const retryPending = journal.operation?.phase === "unknown";
+  const committed = journal.confirmed.length > 0;
+  const [checking, setChecking] = useState(false);
+  const composing = useRef(false);
+  const mounted = useRef(false);
+  const controller = useRef<AbortController | null>(null);
+  const activeAttempt = useRef<ReturnType<typeof beginQuestionnairePending>>(null);
   const viewTransitionPending = useViewTransitionPending();
-  const releaseDirty = useRef<(() => void) | null>(null);
-  useEffect(() => () => {
-    // A known unsubmitted draft may be discarded by an explicit navigation.
-    // An unresolved write is never released merely because of unmount.
-    if (!operationKey.current) { releaseDirty.current?.(); releaseDirty.current = null; }
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false; controller.current?.abort();
+      if (activeAttempt.current) markQuestionnairePendingUnknown(activeAttempt.current);
+    };
   }, []);
   useEffect(() => {
-    onLockChange(pending || retryPending || committed);
-  }, [pending, retryPending, committed, onLockChange]);
-  useEffect(() => {
-    // This page owns its navigation protection. Capture runs before Next Link
-    // handlers, including sidebar, brand, notification and mobile navigation.
-    const pageUrl = window.location.href;
-    const pageHistoryState = window.history.state;
-    function canLeave() {
-      if (operationKey.current) {
-        setMessage("保存結果尚未確認，請留在本表單並以相同內容重試，確認後再離開。");
-        return false;
-      }
-      if (!dirty.current) return true;
-      if (!window.confirm("本次修改尚未保存。確定放棄修改並離開這份評估嗎？")) return false;
-      dirty.current = false;
-      releaseDirty.current?.(); releaseDirty.current = null;
-      onDirtyChange(false);
-      return true;
-    }
-    function guard(event: BeforeUnloadEvent) {
-      if (dirty.current || operationKey.current) { event.preventDefault(); }
-    }
-    function guardLink(event: MouseEvent) {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const logoutButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('.app-shell button[aria-label="登出"], .topbar__actions button') : null;
-      if ((logoutButton?.getAttribute("aria-label") === "登出" || logoutButton?.textContent?.trim() === "登出") && operationKey.current) {
-        // Explicit security exit is the only exception to the unresolved
-        // navigation lock. The user acknowledges that replay is abandoned and
-        // must read the ledger after login. No shared logout policy is changed.
-        if (!window.confirm("保存結果尚未確認。登出會停止本頁重試；重新登入後，請先回查此個案的評估紀錄，確認是否已保存，再新增或修訂。確定安全登出嗎？")) {
-          event.preventDefault(); event.stopImmediatePropagation(); return;
-        }
-        dirty.current = false;
-        operationKey.current = null; frozenBody.current = null;
-        releaseOperation.current?.(); releaseOperation.current = null;
-        releaseDirty.current?.(); releaseDirty.current = null;
-        onDirtyChange(false);
-        return;
-      }
-      const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-      if (!anchor || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
-      const destination = new URL(anchor.href, window.location.href);
-      if (destination.origin === window.location.origin && destination.pathname === window.location.pathname && destination.search === window.location.search) return;
-      if (!canLeave()) { event.preventDefault(); event.stopImmediatePropagation(); }
-    }
-    function guardHistory(event: PopStateEvent) {
-      if (canLeave()) return;
-      event.stopImmediatePropagation();
-      // Restore this entry before Next's non-capture popstate listener can
-      // unmount the editor. Preserve Next's opaque history state in full.
-      // No request bodies, keys or answers are stored in browser history.
-      window.history.pushState(pageHistoryState, "", pageUrl);
-    }
-    window.addEventListener("beforeunload", guard);
-    document.addEventListener("click", guardLink, true);
-    window.addEventListener("popstate", guardHistory, true);
-    return () => {
-      window.removeEventListener("beforeunload", guard);
-      document.removeEventListener("click", guardLink, true);
-      window.removeEventListener("popstate", guardHistory, true);
-    };
-  }, [onDirtyChange]);
+    onLockChange(pending || Boolean(journal.operation) || committed || checking);
+  }, [pending, journal.operation, committed, checking, onLockChange]);
   const responses = form.questions.map(({ id }) => answers[id] ?? { state: "missing" as const });
   const answeredCount = responses.filter((answer) => answer.state === "answered").length;
   const notApplicableCount = responses.filter((answer) => answer.state === "not_applicable").length;
@@ -190,19 +145,11 @@ function QuestionnaireEditor({
   }
 
   function markDirty() {
-    // Coordinate with header refresh and BranchSwitcher without storing data.
-    releaseDirty.current ??= tryAcquirePendingOperation();
-    dirty.current = true;
     onDirtyChange(true);
   }
 
   async function save() {
-    if (!releaseOperation.current) {
-      releaseOperation.current = tryAcquirePendingOperation();
-      if (!releaseOperation.current) throw new Error("目前正在切換工作畫面，請稍後再保存。");
-    }
-    const idempotencyKey = operationKey.current ?? crypto.randomUUID();
-    operationKey.current = idempotencyKey;
+    if (!scope) throw new Error("請重新登入並載入授權個案後再保存。");
     const action = latest ? "revise" : "create";
     const body = {
       action,
@@ -218,54 +165,77 @@ function QuestionnaireEditor({
         expectedVersion: latest.version,
       } : {}),
     };
-    frozenBody.current ??= JSON.stringify(body);
-    const response = await fetchWithTimeout(
-      `/api/questionnaire-assessments?form_key=${form.key}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": idempotencyKey,
-        },
-        body: frozenBody.current,
-      },
-    );
-    let payload: unknown;
-    try { payload = await response.json(); }
-    catch { throw new Error("回應內容無法確認，請保留表單並稍後重試。"); }
-    if (!response.ok) {
-      if (!uncertain.current && response.status < 500) {
-        operationKey.current = null;
-        frozenBody.current = null;
-        releaseOperation.current?.(); releaseOperation.current = null;
+    const existing = getQuestionnairePending(scope).operation;
+    const operation = existing ? retryQuestionnairePending(existing.token, scope) :
+      beginQuestionnairePending(scope, { request: body, idempotencyKey: crypto.randomUUID() }, sourceAt);
+    if (!operation) throw new Error("請先確認原筆保存結果，或等待其他作業完成。");
+    activeAttempt.current = operation;
+    controller.current?.abort(); controller.current = new AbortController();
+    try {
+      const receipt = await writeQuestionnaireDraft(operation.body, operation.input.idempotencyKey, form.key, controller.current.signal);
+      if (!mounted.current) return;
+      if (!markQuestionnairePendingCommitted(operation, receipt)) {
+        markQuestionnairePendingUnknown(operation);
+        setMessage("保存結果尚未確認；請先確認原筆結果，不要重複新增。"); return;
       }
-      throw new Error(errorText(payload));
+      activeAttempt.current = null;
+      onDirtyChange(false);
+      setMessage("草稿已保存，正在讀回紀錄。");
+      await onSaved(receipt.assessmentKey);
+    } catch (error) {
+      if (!mounted.current) return;
+      if (error instanceof QuestionnaireOperationClientError && error.code === "REJECTED") markQuestionnairePendingDenied(operation);
+      else markQuestionnairePendingUnknown(operation);
+      if (error instanceof QuestionnaireOperationClientError && (error.status === 401 || error.status === 403 || error.code === "INVALID_RESPONSE")) {
+        quarantineQuestionnaireView(scope.authority); return;
+      }
+      throw error;
     }
-    const parsed = questionnaireReceiptSchema.safeParse((payload as { data?: unknown }).data);
-    if (!parsed.success || parsed.data.action !== action || parsed.data.clientId !== client.clientId || parsed.data.formKey !== form.key ||
-      parsed.data.assessedOn !== assessedOn || parsed.data.version !== (latest?.version ?? 0) + 1 ||
-      (latest && parsed.data.assessmentKey !== latest.assessmentKey)) throw new Error("無法確認草稿保存狀態，請保留內容並以相同操作重試。");
-    operationKey.current = null;
-    uncertain.current = false;
-    frozenBody.current = null;
-    releaseOperation.current?.(); releaseOperation.current = null;
-    dirty.current = false;
-    releaseDirty.current?.(); releaseDirty.current = null;
-    onDirtyChange(false);
-    setRetryPending(false);
-    setCommitted(true);
-    setMessage("草稿已保存，正在讀回紀錄。");
-    await onSaved(parsed.data.assessmentKey);
+  }
+
+  async function checkResult() {
+    if (!scope || checking || pending || reading) return;
+    const check = getQuestionnaireRecoveryReadLease(scope);
+    if (!check) { setMessage("請等待其他作業完成，再確認保存結果。"); return; }
+    controller.current?.abort(); controller.current = new AbortController();
+    setChecking(true); setMessage("");
+    try {
+      const operation = check.operation;
+      const proof = await readQuestionnaireOperationReceipt({ organizationId: scope.organizationId, branchId: scope.branchId,
+        actorUserId: scope.actorUserId, clientId: scope.clientId, formKey: scope.formKey,
+        action: (operation.input.request as EditorRequest).action, idempotencyKey: operation.input.idempotencyKey,
+        nonce: check.nonce, request: operation.input.request }, controller.current.signal);
+      if (!mounted.current || !isQuestionnaireRecoveryReadCurrent(check)) return;
+      const result = settleQuestionnaireRecoveryRead(check, proof);
+      if (result === "confirmed" && proof.status === "committed") {
+        onDirtyChange(false); setMessage("本次草稿已保存；正在讀回紀錄。");
+        await onSaved(proof.receipt.assessmentKey);
+      } else if (result === "not_found") setMessage("尚未查到這次保存；原內容已保留。請稍後再確認，或以相同內容重試。");
+      else setMessage("保存結果尚未確認，請保留原內容後再試。");
+    } catch (error) {
+      if (!mounted.current || !isQuestionnaireRecoveryReadCurrent(check)) return;
+      if (error instanceof QuestionnaireOperationClientError && (error.status === 401 || error.status === 403 || error.code === "INVALID_RESPONSE")) {
+        quarantineQuestionnaireView(scope.authority); return;
+      }
+      setMessage("暫時無法確認保存結果；原內容已保留，請稍後再試。");
+    } finally {
+      cancelQuestionnaireRecoveryRead(check);
+      if (mounted.current) setChecking(false);
+    }
   }
 
   return <form
+    data-questionnaire-write
     className={styles.formPanel}
     noValidate
+    onCompositionStart={() => { composing.current = true; }}
+    onCompositionEnd={() => { composing.current = false; }}
+    onKeyDown={(event) => { if (event.key === "Enter" && (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault(); }}
     aria-busy={pending}
     onChange={markDirty}
     onSubmit={async (event) => {
       event.preventDefault();
-      if (!canManage || readOnly || pending || committed || reading || viewTransitionPending) return;
+      if (!canManage || !scope || readOnly || pending || checking || committed || reading || viewTransitionPending || composing.current) return;
       if (!z.iso.date().safeParse(assessedOn).success || assessedOn < "2000-01-01" || assessedOn > taipeiToday()) {
         setDateError("請填寫有效評估日期（YYYY-MM-DD），且不得晚於今天。");
         setMessage("請修正評估日期後再保存；答案已保留。");
@@ -297,15 +267,13 @@ function QuestionnaireEditor({
       try {
         await save();
       } catch (error) {
-        uncertain.current = operationKey.current !== null;
-        setRetryPending(uncertain.current);
         setMessage(error instanceof Error ? error.message : "保存失敗，請保留內容後重試。");
       } finally {
         setPending(false);
       }
     }}
   >
-    <fieldset className={styles.editorFields} disabled={pending || retryPending || committed || readOnly || reading || viewTransitionPending}>
+    <fieldset className={styles.editorFields} disabled={pending || retryPending || checking || committed || readOnly || reading || viewTransitionPending}>
     <div className={styles.formHeader}>
       <div>
         <h2>{form.title}</h2>
@@ -484,7 +452,8 @@ function QuestionnaireEditor({
     </fieldset>
     <div className={styles.actions}>
       <span>已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</span>
-      {!readOnly ? <button className="button button--primary" disabled={!canManage || pending || committed || reading || viewTransitionPending} type="submit">
+      {retryPending ? <button className="button button--secondary" disabled={checking || pending || reading || viewTransitionPending} onClick={() => void checkResult()} type="button">{checking ? "確認中…" : "確認保存結果"}</button> : null}
+      {!readOnly ? <button className="button button--primary" disabled={!canManage || !scope || pending || checking || committed || reading || viewTransitionPending} type="submit">
         {pending ? "保存中…" : retryPending ? "以相同內容重試" : latest ? "保存修訂版本" : "保存本次評估"}
       </button> : <span>{latest ? "歷史版本僅供查看；修訂請選擇該次評估的最新草稿。" : "此量表僅供檢視，尚無已保存紀錄。"}</span>}
       {!canManage ? <span>目前帳號只有檢視權限</span> : null}
@@ -498,11 +467,22 @@ function QuestionnaireEditor({
   </form>;
 }
 
-function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigationBlockChange, context, sourceKey }: {
+function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigationBlockChange, context, sourceKey, sourceAt }: {
   assessorName: string; canManage: boolean; client: QuestionnaireClient; form: QuestionnaireFormDefinition;
   onNavigationBlockChange: (blocked: boolean) => void;
-  context?: TenantContext; sourceKey: string;
+  context?: TenantContext; sourceKey: string; sourceAt: string;
 }) {
+  const view = useQuestionnaireViewState();
+  const authority = context ? questionnaireViewAuthority(context) : null;
+  const scope: QuestionnairePendingScope | null = useMemo(() => context && !context.demo ? { authority: authority!, epoch: view.epoch,
+    organizationId: context.organizationId, branchId: context.branchId, actorUserId: context.userId, clientId: client.clientId, formKey: form.key } : null,
+  [context, authority, view.epoch, client.clientId, form.key]);
+  const journal = useQuestionnairePending(scope);
+  // The parent already synchronously gates a newer same-owner SSR source.
+  // Keep its admitted editor mounted while layout admits that exact source;
+  // otherwise a legitimate refresh would discard unsent answers. This does
+  // not admit a new owner or bypass the exact source check before writing.
+  const sourceReady = !scope || isQuestionnairePendingSourceAdmitted(scope, sourceAt) || isQuestionnairePendingOwnerAdmitted(scope);
   const [assessments, setAssessments] = useState<readonly QuestionnaireAssessment[]>(client.assessments ?? []);
   const [total, setTotal] = useState(client.assessmentTotal ?? (client.latest ? 1 : 0));
   const [cursor, setCursor] = useState<QuestionnaireAssessmentCursor | null>(client.nextAssessmentCursor ?? null);
@@ -518,31 +498,37 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
   const [reloadKey, setReloadKey] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [locked, setLocked] = useState(false);
-  const [switchIntent, setSwitchIntent] = useState<(() => void) | null>(null);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const requestSequence = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const retryRead = useRef<(() => void) | null>(null);
   const mounted = useRef(false);
-  const authority = context ? questionnaireViewAuthority(context) : null;
   const ownerEpoch = getQuestionnaireViewState().epoch;
   const originalSourceKey = useRef(sourceKey);
+  const recordHeading = useRef<HTMLHeadingElement>(null);
   const ownerCurrent = () => mounted.current && (!authority ||
     getQuestionnaireViewState().signature === authority && getQuestionnaireViewState().epoch === ownerEpoch);
+  useLayoutEffect(() => { if (scope) observeQuestionnairePendingSource(scope, sourceAt); }, [scope, sourceAt]);
   useLayoutEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; controller.current?.abort(); };
   }, []);
   useLayoutEffect(() => {
-    onNavigationBlockChange(dirty || locked);
-  }, [dirty, locked, onNavigationBlockChange]);
+    onNavigationBlockChange(dirty || locked || journal.navigationBlocked || journal.confirmed.length > 0);
+  }, [dirty, locked, journal, onNavigationBlockChange]);
   useEffect(() => () => { controller.current?.abort(); }, []);
+  const exit = useUnsavedChanges({ dirty: dirty || Boolean(journal.operation), scopeKey: `${authority}-${ownerEpoch}`,
+    revisionKey: sourceKey, canPrompt: !locked && !reading && !journal.operation,
+    permittedFormAttribute: "data-questionnaire-write", onDiscard: () => {
+      setDirty(false); setEditorEpoch((current) => current + 1);
+    } });
 
   function requestSwitch(operation: () => void) {
-    if (!ownerCurrent() || locked || reading) return;
-    if (dirty) { setSwitchIntent(() => operation); return; }
-    setEditorEpoch((current) => current + 1);
-    operation();
+    if (!ownerCurrent() || locked || reading || journal.operation || journal.confirmed.length) return;
+    exit.requestExit(() => {
+      if (!ownerCurrent()) return;
+      setEditorEpoch((current) => current + 1); operation();
+    });
   }
   function startNew() {
     controller.current?.abort(); requestSequence.current++;
@@ -565,7 +551,7 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
     try {
       const { payload } = await fetchJsonWithTimeout(`/api/questionnaire-assessments?${query}`, { signal: controller.current.signal });
       if (sequence !== requestSequence.current || !ownerCurrent()) return;
-      const data = (payload as { data?: unknown } | null)?.data;
+      const data = historyEnvelopeSchema.parse(payload).data;
       if (mode === "versions") {
         const page = parseQuestionnaireHistoryPage(data, form.key, client.clientId, key!);
         if (older && page.versions.some((version) => version.version >= beforeVersion!)) throw new Error("版本順序未確認，請重新載入歷程。");
@@ -594,13 +580,30 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
     controller.current?.abort(); controller.current = new AbortController();
     const sequence = ++requestSequence.current;
     setReloadKey(key);
+    const originalFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setReading(true);
     setFeedback("本次草稿已保存。正在讀回最新紀錄。");
     try {
       const query = new URLSearchParams({ form_key: form.key, client_id: client.clientId, mode: "versions", assessment_key: key });
       const { payload } = await fetchJsonWithTimeout(`/api/questionnaire-assessments?${query}`, { signal: controller.current.signal });
       if (sequence !== requestSequence.current || !ownerCurrent()) return;
-      const page = parseQuestionnaireHistoryPage((payload as { data?: unknown } | null)?.data, form.key, client.clientId, key);
+      const page = parseQuestionnaireHistoryPage(historyEnvelopeSchema.parse(payload).data, form.key, client.clientId, key);
+      const expected = scope ? getQuestionnairePending(scope).confirmed.find(item => item.receipt.assessmentKey === key) : null;
+      let reconciled = !scope || reconcileQuestionnairePendingExactHistory(scope, page.versions, sourceAt);
+      // Superseded does not mean absent. Fetch the exact original version's
+      // bounded history window without substituting a newer latest receipt.
+      if (!reconciled && expected && expected.receipt.version < 1_000_000) {
+        const originalQuery = new URLSearchParams(query);
+        originalQuery.set("before_version", String(expected.receipt.version + 1));
+        const exact = await fetchJsonWithTimeout(`/api/questionnaire-assessments?${originalQuery}`, { signal: controller.current.signal });
+        if (sequence !== requestSequence.current || !ownerCurrent()) return;
+        const originalPage = parseQuestionnaireHistoryPage(historyEnvelopeSchema.parse(exact.payload).data, form.key, client.clientId, key);
+        reconciled = reconcileQuestionnairePendingExactHistory(scope!, originalPage.versions, sourceAt);
+      }
+      if (!reconciled) {
+        setFeedback("本次草稿已保存，但這份歷程尚未包含原保存版本；請繼續回查，勿重複新增。");
+        return;
+      }
       const latest = page.versions[0];
       if (!latest) throw new Error("保存已確認，最新版本暫時無法讀回。");
       setBaseline(latest); setSelectedKey(key); setReadOnly(!canManage); setVersions(page.versions);
@@ -608,6 +611,8 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
       setVersionTotal(page.total); setBeforeVersion(page.nextBeforeVersion); setReloadKey(null); setLocked(false); setDirty(false);
       setFeedback("草稿已保存並讀回；尚未簽署。");
       await read("assessments");
+      if (ownerCurrent() && originalFocus && (document.activeElement === originalFocus ||
+        document.activeElement === document.body && !originalFocus.isConnected)) recordHeading.current?.focus();
     } catch (error) {
       if (sequence !== requestSequence.current || !ownerCurrent()) return;
       if (authority && (!(error instanceof ClientJsonReadError) || error.status === 401 || error.status === 403 || error.code === "INVALID_RESPONSE")) { quarantineQuestionnaireView(authority); return; }
@@ -617,10 +622,11 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
   }
   const currentLatest = assessments.find((item) => item.assessmentKey === selectedKey) ??
     (versions[0]?.assessmentKey === selectedKey ? versions[0] : client.latest?.assessmentKey === selectedKey ? client.latest : null);
-  const disabled = locked || reading;
+  const disabled = locked || reading || Boolean(journal.operation) || journal.confirmed.length > 0;
+  const confirmedKey = journal.confirmed[0]?.receipt.assessmentKey ?? null;
   return <>
     <section className={styles.records} aria-label="已保存的評估">
-      <div className={styles.recordsHeading}><h2>評估紀錄</h2>
+      <div className={styles.recordsHeading}><h2 ref={recordHeading} tabIndex={-1} data-governance-focus-anchor>評估紀錄</h2>
         {canManage ? <button className="button button--secondary" disabled={disabled} onClick={() => requestSwitch(startNew)} type="button">新增一次評估</button> : null}
       </div>
       <p>已保存 {total} 次評估；每次評估與修訂版本分開保留。</p>
@@ -648,15 +654,17 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
           {cursor ? <button className="button button--secondary" disabled={disabled} onClick={() => void read("assessments", undefined, true)} type="button">載入較早評估</button> : null}
         </div>
       </> : <p>{canManage ? "尚無評估紀錄，請填寫下方量表保存本次評估。" : "尚無已保存評估；目前帳號僅能檢視量表。"}</p>}
-      {switchIntent ? <div className={styles.switchNotice} role="region" aria-label="尚未保存的內容">
-        <p>本次修改尚未保存。切換後，這些修改將不會保留。</p>
-        <button className="button button--secondary" disabled={disabled} onClick={() => setSwitchIntent(null)} type="button">繼續填寫</button>
-        <button className="button button--quiet" disabled={disabled} onClick={() => { if (disabled) return; const next = switchIntent; setSwitchIntent(null); setDirty(false); setEditorEpoch((current) => current + 1); next(); }} type="button">放棄修改並切換</button>
-      </div> : null}
+      <GovernanceDialog open={exit.open} title="放棄尚未保存的修改？" cancelLabel="繼續填寫"
+        busy={locked || reading || Boolean(journal.operation)} onRequestClose={exit.cancel} returnFocusRef={exit.returnFocusRef} fallbackFocusRef={recordHeading}>
+        <p>切換後，本次尚未保存的修改不會保留。</p>
+        <button className="button button--danger" disabled={locked || reading || Boolean(journal.operation)} onClick={exit.confirmDiscard}
+          onCompositionStart={exit.compositionStart} onCompositionEnd={exit.compositionEnd} type="button">放棄修改並切換</button>
+      </GovernanceDialog>
+      {exit.notice ? <p role="status">{exit.notice}</p> : null}
       {reading ? <p role="status">正在讀取評估紀錄…</p> : null}
       {readError ? <p role="alert">{readError} <button className="button button--quiet" disabled={disabled} onClick={() => retryRead.current?.()} type="button">重新讀取歷程</button></p> : null}
       {feedback ? <p role="status">{feedback}</p> : null}
-      {reloadKey ? <button className="button button--secondary" disabled={reading} onClick={() => { void saved(reloadKey).catch(() => {}); }} type="button">重新讀取已保存紀錄</button> : null}
+      {reloadKey || confirmedKey ? <button className="button button--secondary" disabled={reading} onClick={() => { void saved(reloadKey ?? confirmedKey!).catch(() => {}); }} type="button">重新讀取已保存紀錄</button> : null}
       {versions.length ? <details className={styles.versionHistory} open>
         <summary>版本歷程（顯示 {versions.length}／共 {versionTotal} 版）</summary>
         <ol>{versions.map((version) => <li key={version.versionId}>
@@ -669,13 +677,14 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
       </details> : null}
     </section>
     {context && !context.demo ? <QuestionnaireReadinessPanel context={context} form={form} clientId={client.clientId}
-      draft={baseline} sourceKey={sourceKey} blockedReason={locked ? "保存結果仍待確認，請先完成原筆回查。" :
-        reading ? "請等待評估紀錄讀取完成。" : dirty || switchIntent ? "內容已修改；請先保存，再檢查新版本。" : ""} /> : null}
-    <QuestionnaireEditor
+      draft={baseline} sourceKey={sourceKey} blockedReason={locked || journal.operation || journal.confirmed.length ? "保存結果仍待確認，請先完成原筆回查。" :
+        reading ? "請等待評估紀錄讀取完成。" : dirty || exit.open ? "內容已修改；請先保存，再檢查新版本。" : ""} /> : null}
+    {sourceReady ? <QuestionnaireEditor
       assessorName={assessorName} baseline={baseline} canManage={canManage} client={client} form={form}
       key={`${baseline?.versionId ?? "new"}-${readOnly ? "view" : "edit"}-${editorEpoch}`}
       onDirtyChange={setDirty} onLockChange={setLocked} onSaved={saved} readOnly={readOnly} reading={reading}
-    />
+      scope={scope} sourceAt={sourceAt}
+    /> : <p role="status">正在確認個案查閱範圍；原筆保存內容不會自動重送。</p>}
   </>;
 }
 
@@ -739,8 +748,8 @@ export function QuestionnaireAssessmentsWorkspace({
     (!activeClientId || snapshot.clients.some(client => client.clientId === activeClientId));
   if (context && !admitted) return <section className="empty-card core-care-state" role="alert">
     <h1>評估資料需要重新確認</h1>
-    <p>登入或個案查閱範圍已變更，舊內容已隱藏。請重新載入授權資料。</p>
-    <a className="button button--secondary" href="">重新載入</a>
+    <p>登入或個案查閱範圍已變更，舊內容已隱藏。請使用上方「登出」，重新登入後回查原個案紀錄，再繼續作業。</p>
+    <p>登出或完整重新載入會清除本分頁的待確認內容；請先由主管協助核對已保存紀錄，不要重複新增。</p>
   </section>;
   if (loadError || !snapshot) return <section className="empty-card core-care-state" role="alert">
     <h1>{pageTitle}暫時無法載入</h1>
@@ -812,6 +821,7 @@ export function QuestionnaireAssessmentsWorkspace({
       form={form}
       context={context}
       sourceKey={`${authority ?? "legacy"}-${view.epoch}-${admission?.revision ?? 0}`}
+      sourceAt={snapshot.generatedAt}
       key={`${form.key}-${chosenClient.clientId}-${authority ?? "legacy"}-${view.epoch}`}
       onNavigationBlockChange={setNavigationBlocked}
     /> : <div className={styles.empty}>

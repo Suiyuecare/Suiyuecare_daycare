@@ -125,7 +125,7 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 不適用原因必填，按伺服器契約以去除頭尾空白後的 Unicode 字元數驗證1–500字，拒絕控制字元。錯誤保留其他內容，aria-invalid／help／inline alert 關聯並聚焦第一個問題；不呼叫 POST。歷史檢視、無管理權限與未知結果均不可編輯；不改原內容／操作鍵重試規則。草稿 UI 不啟用規則、不補正式分數，不代替真人核准。編輯欄位由既有 module CSS 統一16px，保留 compact labels及原卡片幾何。
 
-此工作區的既有兩處 native confirm 與歷程 guard 尚未遷入新的 shared unsaved owner，為明示的後續工作；不能把人工觀察的 scoped 確認驗收套用到全部量表。
+後續此九份題目式工具工作區已移除兩處 native confirm 與自造歷程 guard，改用共享 unsaved owner／GovernanceDialog；未知写入由原操作journal的navigation guard處理。這是限定工作區的遷移，不把人工觀察或題目式工具的驗收套用到全部89頁。
 
 ### 已保存量表完成檢查（九份題目式工具）
 
@@ -133,7 +133,21 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 查核持有自己的短期read fence，不解開任何write unknown。包含JSON解碼20秒獨立期限、可取消及晚callback owner檢查；報告60秒到期，不自動重查。dirty或未知操作不查、不POST、不取得MFA、不確認風險、不簽署。純browser core核對候選結構與分數；九份原canonical bytes／27個hash及server-only核對保持不變。結果永遠formalScore=null、signable=false，四個正式門檻收於details，安全警示不可收掉。
 
-10px內容卡及控制項、16px輸入、44px主要操作；typedDate沿用具名平台例外，inline真實日期錯誤與焦點，單一main、手機與放大後內層不橫向溢位。隔離Chrome23項、strict scope零finding、完整541檔／8,440項與本機原生全16套通過，不代表原native confirm／component-local未知journal完成遷移、正式計分採用、真人hosted或89頁上線；完整證據與剩餘門檻見QUESTIONNAIRE_READINESS_UI_2026-09-27.md。
+10px內容卡及控制項、16px輸入、44px主要操作；typedDate沿用具名平台例外，inline真實日期錯誤與焦點，單一main、手機與放大後內層不橫向溢位。前一階段隔離Chrome23項、strict scope零finding、完整541檔／8,440項與本機原生全16套通過；該階段尚未遷移native confirm／component-local未知journal，不代表正式計分採用、真人hosted或89頁上線。後續原操作遷移見下節，前階段證據見QUESTIONNAIRE_READINESS_UI_2026-09-27.md。
+
+### 九份題目式工具原操作與共享確認
+
+`pending.ts`為單一分頁記憶體journal，`operation-client.ts`為原筆transport，`questionnaire-assessment-editor.tsx`為工作區owner；AppShell在其他頁仍觀察canonical authority／view epoch，登出先同步清除journal且不得由旧context重新入場。首次写入固定actor、機構、分支、個案、表單、原JSON body／key及來源；重新掛載恢复同一未知原筆但不自動POST或GET。raw body不放browser storage、history、離線佇列；完整重載失去分頁journal，durable定位仍未製作。
+
+初始／重新授權來源須實際60秒內且通過scope與privacy floor。已入場的相同owner／來源可完成超過一分鐘的填寫及原筆回查，不改寫來源時間、不稱作新授權。真正epoch或scope改變、來源撤銷及同generation ABA隔離舊內容；單調floor不因登出而清零。250項不相關scope可被結構容納，但不增授任一表單權限。每次API／RPC仍以真實登入重新授權，不新增MFA捷徑、簽署能力或假職務。
+
+「確認保存結果」只在本人目前未知原操作持有private write lease時取得單一read fence；bodyless／queryless GET以headers傳遞原範圍與原筆定位，所有回條嚴格核對原request、actor／tenant、key、form、版本及微秒時間。not_found仍unknown；首次嚴格未提交拒絕才釋放lease，未知後拒絕不能證明前筆未保存。讀取含JSON解碼獨立20秒期限，mount／attempt／epoch／privacy及晚回覆皆核對。不自動retry、不換body／key、不用router.refresh當成功。
+
+POST201只是薄保存證據，不能單靠它核對完整actor／tenant／answers；正向confirmed guard需歷史中同一原版本、hash、原完整答案／情境與時間才能解除。原版已被後續版取代時以有界before_version窗口取原版，不把最新版代原筆；缺列及截斷不是完成證據。32個confirmed guard及128個private source floor有界且不靜默淘汰；容量耗盡保留安全阻擋。
+
+未送出修改用原共享useUnsavedChanges／GovernanceDialog，取消、Escape及模態外點擊保留輸入；只有明確捨棄按鈕才继续，使用button--danger。未知／讀取／写入中不能藉捨棄繞過。IME不誤送出，typed日期、inline驗證及first-error focus維持；成功讀回若原入口停用或移除，聚焦具名「評估紀錄」，不得搶走使用者已移往其他控制的焦點。單一main、既有16px輸入／44px控制及Finance frame不變。可取消Navigation API沿用共享機制；不支援或不可取消的歷程僅承諾beforeunload警告，不宣稱所有瀏覽器皆攔截。
+
+目前歷史GET不是fresh context／nonce授權復原來源；撤權或不可信回覆隔離後需安全登出／重新登入及核對紀錄，不用舊SSR偽造解鎖。九份工具仍只有草稿及候選完成檢查，formalScore=null、signable=false；正式來源採用、資格證明、真實簽署更正、完整工具與hosted真人驗收不在此切片內。完整證據見QUESTIONNAIRE_OPERATION_RECOVERY_UI_2026-09-27.md。
 
 ## Migration and verification
 

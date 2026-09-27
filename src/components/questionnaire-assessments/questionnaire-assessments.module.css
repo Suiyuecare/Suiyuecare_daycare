@@ -99,7 +99,8 @@
 
 .measurements {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  min-width: 0;
   gap: .75rem;
   margin: 0 0 1rem;
   border: 1px solid var(--border, #eadbc9);
@@ -116,6 +117,7 @@
 
 .measurements label {
   display: grid;
+  min-width: 0;
   gap: .4rem;
   color: var(--text-muted, #74685d);
   font-size: .9rem;
@@ -406,7 +408,7 @@
   .actions button { min-width: 0; max-width: 100%; }
   .selection,
   .meta {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .formHeader {
@@ -414,6 +416,6 @@
   }
 
   .choiceGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }

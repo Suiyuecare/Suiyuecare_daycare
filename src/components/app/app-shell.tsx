@@ -37,7 +37,8 @@ import { clearStaffAnnouncementPendingOnLogout, observeStaffAnnouncementAuthorit
 import { clearReferralPendingOnLogout, observeReferralAuthority, referralAuthoritySignature } from "@/lib/referral-management/pending";
 import { clearSocialWorkPendingOnLogout, observeSocialWorkAuthority, socialWorkAuthoritySignature } from "@/lib/social-work-records/pending";
 import { clearPsychosocialAssessmentPendingOnLogout, observePsychosocialAssessmentAuthority, psychosocialAssessmentAuthoritySignature } from "@/lib/psychosocial-assessments/pending";
-import { clearQuestionnaireViewOnLogout, observeQuestionnaireViewAuthority, questionnaireViewAuthority } from "@/lib/questionnaire-assessments/readiness-view";
+import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState, observeQuestionnaireViewAuthority, questionnaireViewAuthority, useQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
+import { clearQuestionnairePendingOnLogout, observeQuestionnairePendingAuthority } from "@/lib/questionnaire-assessments/pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -112,6 +113,7 @@ export function AppShell({
   const socialWorkAuthority = socialWorkAuthoritySignature(context);
   const psychosocialAuthority = psychosocialAssessmentAuthoritySignature(context);
   const questionnaireAuthority = questionnaireViewAuthority(context);
+  const questionnaireView = useQuestionnaireViewState();
 
   // Track authority outside the announcement route too: an unmounted editor
   // must not accept an old reply after permissions change and later return.
@@ -131,8 +133,10 @@ export function AppShell({
     observePsychosocialAssessmentAuthority(psychosocialAuthority);
   }, [psychosocialAuthority]);
   useLayoutEffect(() => {
+    if (logoutRunning.current || logoutState !== "idle") return;
     observeQuestionnaireViewAuthority(questionnaireAuthority);
-  }, [questionnaireAuthority]);
+    observeQuestionnairePendingAuthority(questionnaireAuthority, getQuestionnaireViewState().epoch);
+  }, [questionnaireAuthority, questionnaireView.epoch, logoutState]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -228,6 +232,7 @@ export function AppShell({
 
   async function logout() {
     if (logoutRunning.current) return;
+    logoutRunning.current = true;
     // Privacy cleanup is unconditional; an unsent editor must never prevent
     // logout or run an old navigation callback after a different actor signs in.
     clearUnsavedChangesOnLogout();
@@ -238,13 +243,13 @@ export function AppShell({
     clearReferralPendingOnLogout();
     clearSocialWorkPendingOnLogout();
     clearPsychosocialAssessmentPendingOnLogout();
+    clearQuestionnairePendingOnLogout();
     clearQuestionnaireViewOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();
       return;
     }
-    logoutRunning.current = true;
     // Remove the entire patient/employee shell immediately, before network or
     // IndexedDB work. A failed cleanup never restores the old sensitive view.
     setMenuOpen(false); setLogoutState("working"); setLogoutResult(null);

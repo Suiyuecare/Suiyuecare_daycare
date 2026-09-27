@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const stubs = vi.hoisted(() => ({ fetch: vi.fn(), refresh: vi.fn(), replace: vi.fn(), reload: vi.fn(), signOut: vi.fn(), releases: [] as (() => void)[] }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/app/staff/assessments/spmsq", useRouter: () => ({ refresh: stubs.refresh, replace: stubs.replace }) }));
-vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: stubs.fetch, isClientFetchTimeoutError: () => false }));
+vi.mock("@/lib/api/client-fetch", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api/client-fetch")>(), fetchWithTimeout: stubs.fetch, isClientFetchTimeoutError: () => false }));
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: async () => {} }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: stubs.signOut } }) }));
 vi.mock("@/components/app/branch-navigation", () => ({ reloadCurrentStaffRoute: stubs.reload }));
@@ -22,42 +22,57 @@ import type { TenantContext } from "@/lib/domain/types";
 import { QUESTIONNAIRE_FORMS } from "@/lib/questionnaire-assessments/forms";
 import type { QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
+import { clearQuestionnairePendingOnLogout } from "@/lib/questionnaire-assessments/pending";
+import { clearQuestionnaireViewOnLogout } from "@/lib/questionnaire-assessments/readiness-view";
 
 const org = "10000000-0000-4000-8000-000000000001";
 const branch = "20000000-0000-4000-8000-000000000001";
 const clientId = "30000000-0000-4000-8000-000000000001";
 const context: TenantContext = { organizationId: org, organizationName: "測試機構", branchId: branch, branchName: "甲分支", userId: org, displayName: "測試護理人員",
-  roles: ["nurse"], scopes: ["clients.read"], assuranceLevel: "aal1", recentAal2At: null, demo: false };
+  roles: ["nurse"], scopes: ["clients.read", "questionnaire_cognition.read", "questionnaire_cognition.manage"], assuranceLevel: "aal1", recentAal2At: null, demo: false };
 const snapshot: QuestionnaireSnapshot = { formKey: "spmsq", generatedAt: "2026-09-25T01:00:00Z", matchingTotal: 1,
   clients: [{ clientId, displayName: "合成個案", serviceStatus: "active", latest: null, assessments: [], assessmentTotal: 0 }] };
-const show = () => render(<AppShell context={context} navigation={[]}><QuestionnaireAssessmentsWorkspace assessorName="測試護理人員" canManage form={QUESTIONNAIRE_FORMS.spmsq}
-  loadError={false} pageTitle="SPMSQ" selectedClientId={clientId} snapshot={snapshot} /></AppShell>);
+const show = () => render(<AppShell context={context} navigation={[]}><QuestionnaireAssessmentsWorkspace context={context} assessorName="測試護理人員" canManage form={QUESTIONNAIRE_FORMS.spmsq}
+  loadError={false} pageTitle="SPMSQ" selectedClientId={clientId} snapshot={{ ...snapshot, generatedAt: new Date().toISOString() }} /></AppShell>);
 const markDirty = () => fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
 const refresh = () => screen.getByRole("button", { name: "重新整理" });
 const branches = () => screen.getAllByRole("button", { name: "測試機構，目前分支：甲分支" });
 const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
+let sequence = 0;
 
 describe("questionnaire draft leases with the actual application shell", () => {
   beforeEach(() => {
     vi.clearAllMocks(); vi.stubEnv("NEXT_PUBLIC_SYNTHETIC_PREVIEW", "false");
+    stubs.fetch.mockReset();
+    stubs.fetch.mockResolvedValue(new Response(JSON.stringify({ requestId: org, status: "ok", errors: [], data: { branches: [{ id: branch, name: "甲分支" }], currentBranchId: branch } }), { status: 200 }));
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(Date.parse("2026-09-27T00:00:00Z") + ++sequence * 120_000);
+    vi.stubGlobal("fetch", stubs.fetch);
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
     stubs.signOut.mockResolvedValue({ error: null });
   });
   afterEach(() => {
     cleanup(); for (const release of stubs.releases.splice(0)) release();
+    clearQuestionnairePendingOnLogout(); clearQuestionnaireViewOnLogout(); vi.useRealTimers();
     vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks();
     if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
     else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+    if (originalClose) Object.defineProperty(HTMLDialogElement.prototype, "close", originalClose);
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
   });
 
-  it("blocks actual header refresh and desktop/mobile branch pickers immediately after a draft input", () => {
+  it("requires shared discard before header refresh or branch selection, without treating dirty input as a sent write", () => {
     show(); expect(refresh()).not.toBeDisabled(); expect(branches().every((button) => !(button as HTMLButtonElement).disabled)).toBe(true);
-    markDirty(); expect(hasPendingOperations()).toBe(true); expect(refresh()).toBeDisabled();
-    expect(branches().every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    markDirty(); expect(hasPendingOperations()).toBe(false); expect(refresh()).not.toBeDisabled();
+    expect(branches().every((button) => !(button as HTMLButtonElement).disabled)).toBe(true);
     fireEvent.click(refresh()); for (const button of branches()) fireEvent.click(button);
-    expect(stubs.refresh).not.toHaveBeenCalled(); expect(stubs.fetch).not.toHaveBeenCalled(); expect(stubs.reload).not.toHaveBeenCalled();
+    expect(stubs.refresh).not.toHaveBeenCalled(); expect(stubs.reload).not.toHaveBeenCalled();
+    // Opening the authorized branch list is a read, not a branch switch.
+    expect(stubs.fetch.mock.calls.every(([path, init]) => path === "/api/context/branch" && init?.method !== "POST")).toBe(true);
+    expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeVisible(); expect(window.confirm).not.toHaveBeenCalled();
   });
 
   it("releases only a known unsubmitted draft after explicit discard, allowing refresh and branch reads again", async () => {
@@ -81,7 +96,7 @@ describe("questionnaire draft leases with the actual application shell", () => {
   });
 
   it("releases a known unsubmitted draft on permitted unmount without leaving the tab locked", () => {
-    const view = show(); markDirty(); expect(hasPendingOperations()).toBe(true);
+    const view = show(); markDirty(); expect(hasPendingOperations()).toBe(false);
     view.unmount(); expect(hasPendingOperations()).toBe(false);
   });
 
@@ -98,19 +113,16 @@ describe("questionnaire draft leases with the actual application shell", () => {
     expect(screen.getByLabelText("評估日期")).not.toBeDisabled();
   });
 
-  it.each(["header", "sidebar"])("allows real %s safe logout after explicit unknown-result acknowledgement without orphaning the tab lease", async (placement) => {
+  it.each(["header", "sidebar"])("allows unconditional %s safe logout and clears unknown intent without a native confirmation", async (placement) => {
     show(); stubs.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ data: null, errors: [] }), { status: 503 }));
     fireEvent.click(screen.getByRole("button", { name: "保存本次評估" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "以相同內容重試" })).toBeTruthy());
     const logout = screen.getAllByRole("button", { name: "登出" }).find((button) => placement === "header" ? button.textContent?.trim() === "登出" : button.getAttribute("aria-label") === "登出")!;
-    vi.mocked(window.confirm).mockReturnValue(false); fireEvent.click(logout);
-    expect(stubs.signOut).not.toHaveBeenCalled(); expect(hasPendingOperations()).toBe(true);
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("重新登入後，請先回查此個案的評估紀錄"));
-    vi.mocked(window.confirm).mockReturnValue(true);
     stubs.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", data: { cleared: true } }), { status: 200 }));
     fireEvent.click(logout);
     await waitFor(() => expect(stubs.replace).toHaveBeenCalledWith("/login"));
     expect(stubs.signOut).toHaveBeenCalledWith({ scope: "local" }); expect(hasPendingOperations()).toBe(false);
     expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(window.confirm).not.toHaveBeenCalled();
   });
 });

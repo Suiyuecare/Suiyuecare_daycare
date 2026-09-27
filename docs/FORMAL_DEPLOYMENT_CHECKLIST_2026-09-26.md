@@ -20,7 +20,7 @@
 - 頁51補上原unknown鎖旁獨立手動授權GET；不重送、不換內容或鍵、不取得MFA。嚴格來源入場、指派撤銷／props替換及晚GET隔離已有本機回歸，不能把原操作仍待確認稱作已保存；本輪證據追加於[護理候選驗證](NURSING_WRITE_READINESS_2026-09-26.md)。
 - 頁51後續補本人原操作唯讀receipt GET；四種action、完整原body、目前授權及歷史不可變hash核對，查不到保留unknown；查到只確認保存，不冒稱清單更新。過期原簽署證據可依法定讀取範圍回查，但不授予新簽或重播；本機候選尚未套用正式環境。
 - 九份題目式工具新增私有結構／組合候選與已保存版本只讀查核API；後續本機已接前台「完成檢查」，不借用舊計分採用或啟用正式簽署。完整範圍、MNA-SF非完整MNA及證照核驗缺口見[已保存評估查核](QUESTIONNAIRE_READINESS_2026-09-27.md)，前台與來源／權限保護見[本輪驗證](QUESTIONNAIRE_READINESS_UI_2026-09-27.md)。
-- 九份題目式工具新增本人原操作精確receipt GET；原actor／key／request／版本／時間核對及稽核等待後撤權測試已通過。查無仍保留unknown、不重播、不啟用簽署；目前後端候選尚未接前台journal或復原按鈕。見[原操作查證驗證](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)。
+- 九份題目式工具新增本人原操作精確receipt GET；原actor／key／request／版本／時間核對及稽核等待後撤權測試已通過，後續已接前台分頁journal、「確認保存結果」與共享未保存確認。查無仍保留unknown，薄回條後另查確切原歷史版本；不自動重播、不啟用簽署。完整重載及新context復原仍待製作。後端見[原操作查證驗證](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)，前台見[原操作復原驗證](QUESTIONNAIRE_OPERATION_RECOVERY_UI_2026-09-27.md)。
 
 ## 還要製作／驗收的功能
 
@@ -64,3 +64,5 @@
 最新前台候選（2026-09-27）：九份題目式工具已接「完成檢查」，完整程式541檔／8,440項、portable135套／6,363斷言、原生全16套、lint／型別／production build通過；隔離Chrome23項、兩份strict audit零finding及實際本機建置HTTP拒絕通過。四項正式阻擋仍保留，非全部89頁或真人hosted驗收。詳見[前台驗證表](QUESTIONNAIRE_READINESS_UI_2026-09-27.md)。這些通過只縮減本機工程風險，沒有解除上表的業務與正式門檻；未執行GitHub推送、Vercel發布或正式資料庫升級。
 
 後續原操作查證後端候選（2026-09-27）：147份migration；完整程式544檔／8,706項、portable136套／6,425斷言、原生17／17套、lint／型別／production build及相依套件audit通過。新增API52項、SQL62項、九表create／revise三時區與8組真backend探測通過，未接前台unknown journal／確認窗。Vercel既有CLI唯讀通道已找回，商用方案及其餘正式門檻不變；詳見[新後端證據](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)。
+
+再後續原操作前台候選（2026-09-27）：九份工具的分頁journal、本人手動receipt GET、確切歷史防重送及共享確認已接入；修正同個案新SSR清稿、矛盾成功envelope及手機CSS200%條件欄位溢位。全程式547檔／8,953項通過，1項opt-in另以真正Finance候選handler合成loopback通過；Chrome36項／12截圖、production HTTP拒絕15項、兩份strict audit與lint／型別／build／audit通過。本輪未修改或重跑SQL，前輪原生／portable證據不可冒稱本輪新結果。正式分數／簽署、整頁重載及新context复原與其餘營運门檻不變；詳見[前台原操作復原](QUESTIONNAIRE_OPERATION_RECOVERY_UI_2026-09-27.md)。仍無GitHub推送、Vercel發布或正式Supabase變更。

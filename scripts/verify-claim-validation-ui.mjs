@@ -9,11 +9,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argumentsToParse = process.argv.slice(2);
-if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--questionnaire-readiness", "--questionnaire-readiness-before", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before", "--announcements-receipt-before", "--social-work", "--social-work-before", "--psychosocial", "--psychosocial-before"].includes(argumentsToParse[0])) {
+if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--questionnaire-operation-ui", "--questionnaire-readiness", "--questionnaire-readiness-before", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before", "--announcements-receipt-before", "--social-work", "--social-work-before", "--psychosocial", "--psychosocial-before"].includes(argumentsToParse[0])) {
   throw new Error("Only a named synthetic fixture is accepted.");
 }
 const bodyFixture = argumentsToParse[0] === "--body";
 const questionnaireFixture = argumentsToParse[0] === "--questionnaire";
+const questionnaireOperation = argumentsToParse[0] === "--questionnaire-operation-ui";
 const readinessFixture = argumentsToParse[0]?.startsWith("--questionnaire-readiness");
 const readinessBaseline = argumentsToParse[0] === "--questionnaire-readiness-before";
 const announcementFixture = argumentsToParse[0]?.startsWith("--announcements");
@@ -24,7 +25,7 @@ const baselineWrite = argumentsToParse[0] === "--announcements-write-before";
 const socialFixture = argumentsToParse[0]?.startsWith("--social-work");
 const psychosocialFixture = argumentsToParse[0]?.startsWith("--psychosocial");
 const socialBaseline = (socialFixture || psychosocialFixture) && argumentsToParse[0]?.endsWith("-before");
-const route = socialFixture ? "/app/staff/social-work/records" : psychosocialFixture ? "/app/staff/social-work/psychosocial-assessment" : bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture || readinessFixture ? "/app/staff/assessments/barthel-adl" : announcementFixture ? "/app/staff/operations/announcements" : "/app/staff/service-management/claims";
+const route = questionnaireOperation ? "/app/staff/assessments/spmsq" : socialFixture ? "/app/staff/social-work/records" : psychosocialFixture ? "/app/staff/social-work/psychosocial-assessment" : bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture || readinessFixture ? "/app/staff/assessments/barthel-adl" : announcementFixture ? "/app/staff/operations/announcements" : "/app/staff/service-management/claims";
 const require = createRequire(import.meta.url);
 const vitePath = require.resolve("vite", { paths: [dirname(require.resolve("vitest/package.json"))] });
 const tailwindPath = require.resolve("@tailwindcss/postcss");
@@ -55,7 +56,7 @@ const stubs = {
 await build({ root: repo, configFile: false, envFile: false, logLevel: "error", plugins: [stubs],
   resolve: { alias: { "@": resolve(repo, "src") } },
   define: { "process.env": "{}", "process.env.NODE_ENV": JSON.stringify("production") }, build: { outDir: runtime, emptyOutDir: false, minify: false,
-    target: "es2022", lib: { entry: resolve(repo, readinessFixture ? "scripts/fixtures/questionnaire-readiness-ui.tsx" : socialFixture || psychosocialFixture ? "scripts/fixtures/social-work-operation-ui.tsx" : bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : announcementWrite ? "scripts/fixtures/announcement-operation-ui.tsx" : announcementFixture ? "scripts/fixtures/announcement-page-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
+    target: "es2022", lib: { entry: resolve(repo, questionnaireOperation ? "scripts/fixtures/questionnaire-operation-ui.tsx" : readinessFixture ? "scripts/fixtures/questionnaire-readiness-ui.tsx" : socialFixture || psychosocialFixture ? "scripts/fixtures/social-work-operation-ui.tsx" : bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : announcementWrite ? "scripts/fixtures/announcement-operation-ui.tsx" : announcementFixture ? "scripts/fixtures/announcement-page-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
       name: "SyntheticClaims", formats: ["iife"], fileName: () => "fixture.js" } } });
 const css = await postcss([tailwind({ base: repo })]).process(await readFile(resolve(repo, "src/app/globals.css"), "utf8"),
   { from: resolve(repo, "src/app/globals.css") });
@@ -73,14 +74,14 @@ const server = createServer(async (request, response) => {
   const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
   response.setHeader("Cache-Control", "private, no-store"); response.setHeader("X-Content-Type-Options", "nosniff");
   if (request.method !== "GET") { response.writeHead(405); response.end(); return; }
-  if (path === "/" || (announcementFixture || readinessFixture) && path === route) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(html); return; }
+  if (path === "/" || (announcementFixture || readinessFixture || questionnaireOperation) && path === route) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(html); return; }
   const asset = files[path];
   if (asset) { try { response.setHeader("Content-Type", asset[1]); response.end(await readFile(asset[0])); return; } catch { /* missing local asset */ } }
   response.writeHead(404); response.end("Synthetic fixture route not found");
 });
 await new Promise((done, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", done); });
 console.log(JSON.stringify({ syntheticOnly: true, url: `http://127.0.0.1:${server.address().port}/`, runtime,
-  scope: readinessFixture ? "Actual AppShell/questionnaire workspace and saved-version read-only panel/CSS; baseline editor from 757a568. Synthetic local API, not hosted Auth/RLS/database/signature proof." : socialFixture || psychosocialFixture ? "Actual AppShell/social-work or psychosocial workspace/controller/shared dialogs/CSS; loopback synthetic API only, not hosted Auth/RLS/database/routing proof." : announcementWrite ? "Actual AppShell/announcement actions/shared confirmation/CSS; bounded in-memory fake requests, not Auth/RLS/production DB proof." : announcementFixture ? "Actual AppShell/announcement workspace/CSS; synthetic fixed paging dataset, not real Auth/DB/write evidence." : questionnaireFixture
+  scope: questionnaireOperation ? "Actual AppShell/questionnaire original-operation journal/transport/shared dialog/CSS; synthetic loopback only, not hosted Auth/RLS/database/signature proof." : readinessFixture ? "Actual AppShell/questionnaire workspace and saved-version read-only panel/CSS; baseline editor from 757a568. Synthetic local API, not hosted Auth/RLS/database/signature proof." : socialFixture || psychosocialFixture ? "Actual AppShell/social-work or psychosocial workspace/controller/shared dialogs/CSS; loopback synthetic API only, not hosted Auth/RLS/database/routing proof." : announcementWrite ? "Actual AppShell/announcement actions/shared confirmation/CSS; bounded in-memory fake requests, not Auth/RLS/production DB proof." : announcementFixture ? "Actual AppShell/announcement workspace/CSS; synthetic fixed paging dataset, not real Auth/DB/write evidence." : questionnaireFixture
     ? "Actual AppShell/questionnaire editor/CSS, fixed synthetic N/A draft and fetch/router; not real Auth, persistence, scoring activation or SQL evidence."
     : "Actual AppShell/composer/shared modal/CSS, synthetic fetch/router; not real Auth, routing or SQL evidence." }));
 function stop() { server.close(); server.closeAllConnections(); process.exitCode = 0; }

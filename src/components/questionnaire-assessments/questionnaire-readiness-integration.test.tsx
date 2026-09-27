@@ -25,6 +25,7 @@ vi.mock("@/lib/navigation/pending-operation-lock", async importOriginal => {
 import { AppShell } from "@/components/app/app-shell";
 import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
 import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
+import { clearQuestionnairePendingOnLogout } from "@/lib/questionnaire-assessments/pending";
 import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
 import { context, deferred, formKeys, ids, readinessEnvelope, savedFixture } from "./questionnaire-readiness-test-fixtures";
 
@@ -43,7 +44,7 @@ afterEach(() => {
   cleanup(); for (const release of leases.splice(0)) release();
   // Test isolation only: keep actual opaque write leases held throughout each
   // assertion, including a withdrawn owner whose result remains uncertain.
-  for (const release of shell.writeReleases.splice(0)) release(); clearQuestionnaireViewOnLogout();
+  for (const release of shell.writeReleases.splice(0)) release(); clearQuestionnairePendingOnLogout(); clearQuestionnaireViewOnLogout();
   vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks();
 });
 function tree(fixture = savedFixture(), actor: TenantContext = context, canManage = true, selectedClientId = ids.clientId) {
@@ -76,7 +77,7 @@ function changeOriginalAnswers() {
 function preservedAnswers() {
   expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
   expect(screen.getByDisplayValue("SYNTHETIC_UNSAVED_KEEP")).toBeInTheDocument();
-  expect(inspect()).toBeDisabled(); expect(hasPendingOperations()).toBe(true);
+    expect(inspect()).toBeDisabled();
 }
 function newerFixture() {
   vi.setSystemTime(Date.now() + 1);
@@ -175,7 +176,7 @@ describe("questionnaire readiness with the real workspace and authority shell", 
     expect(within(panel()).queryByText(/候選試算/u)).not.toBeInTheDocument();
   });
   it("accepts a valid historical leap day and keeps it exact in the submitted draft", async () => {
-    network.mockResolvedValue(Response.json({ errors: [] }, { status: 400 })); render(tree()); changeOriginalAnswers();
+    network.mockResolvedValue(Response.json({ errors: [] }, { status: 503 })); render(tree()); changeOriginalAnswers();
     fireEvent.change(screen.getByLabelText("評估日期"), { target: { value: "2024-02-29" } });
     fireEvent.click(screen.getByRole("button", { name: "保存修訂版本" }));
     await waitFor(() => expect(network).toHaveBeenCalledOnce());
@@ -198,7 +199,7 @@ describe("questionnaire readiness with the real workspace and authority shell", 
     expect(inspect()).toBeDisabled(); expect(within(panel()).queryByText("題目已填齊")).not.toBeInTheDocument();
     expect(within(panel()).queryByText(/候選試算/u)).not.toBeInTheDocument();
     expect(within(panel()).getByRole("status")).toHaveTextContent("內容已修改");
-    fireEvent.click(inspect()); expect(network).toHaveBeenCalledOnce(); expect(hasPendingOperations()).toBe(true);
+    fireEvent.click(inspect()); expect(network).toHaveBeenCalledOnce(); expect(hasPendingOperations()).toBe(false);
   });
   it.each([401, 403, "malformed", "forged score"] as const)("hides the whole clinical view after %s and rejects old SSR on remount", async failure => {
     const fixture = savedFixture();
@@ -320,7 +321,7 @@ describe("questionnaire readiness with the real workspace and authority shell", 
     const old = savedFixture().draft, fixture = savedFixture("spmsq", { version: 2, versionId: ids.otherId, contentHash: "b".repeat(64) });
     network.mockImplementation(async input => {
       if (String(input).includes("/readiness?")) return Response.json(readinessEnvelope(String(input), old, context, true));
-      return Response.json({ status: "ok", data: { formKey: "spmsq", clientId: ids.clientId, assessmentKey: ids.assessmentKey,
+      return Response.json({ requestId: ids.requestId, status: "ok", data: { formKey: "spmsq", clientId: ids.clientId, assessmentKey: ids.assessmentKey,
         versions: [{ ...fixture.draft, recordState: "draft" }, { ...old, recordState: "draft" }].map(item => {
           const { assessmentCreatedAt, ...draft } = item; void assessmentCreatedAt; return draft;
         }),
