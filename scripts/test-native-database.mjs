@@ -29,6 +29,7 @@ const suites = [
   "test-staff-certificate-document-recovery-native.mjs",
   "test-general-import-repository-native.mjs",
   "test-import-upload-recovery-native.mjs",
+  "test-import-upload-authority-fences-native.mjs",
 ];
 for (const suite of suites) {
   console.log(`Native gate: ${suite}`);

@@ -27,6 +27,7 @@
     "test:database:native:staff-document-recovery": "node scripts/test-staff-certificate-document-recovery-native.mjs",
     "test:database:native:general-imports": "node scripts/test-general-import-repository-native.mjs",
     "test:database:native:import-recovery": "node scripts/test-import-upload-recovery-native.mjs",
+    "test:database:native:import-fences": "node scripts/test-import-upload-authority-fences-native.mjs",
     "test:routes": "node scripts/test-page-routes.mjs",
     "test:coverage": "vitest run --coverage",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:database && pnpm build"

@@ -104,8 +104,8 @@ try {
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;
     grant all on storage.objects to anon,authenticated,service_role;`);
   const migrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 151, "This evidence requires the exact current 151-migration baseline");
-  assert.equal(migrations.at(-1), "20260927160222_import_upload_recovery.sql");
+  assert.equal(migrations.length, 152, "This evidence requires the exact current 152-migration baseline");
+  assert.equal(migrations.at(-1), "20260927163540_import_upload_authority_fences.sql");
   for (const name of migrations) {
     const source = await readFile(join(root, "supabase/migrations", name), "utf8");
     assert.ok(source.trim(), `Exact migration ${name} must not be an empty in-progress source`);
