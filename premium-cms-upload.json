@@ -1,0 +1,16 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "sourceRoots": ["src/components/imports"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/imports src/lib/imports src/components/client-intake/intake.test.tsx src/lib/client-intake/route.test.ts src/components/app/app-shell-logout.test.tsx",
+    "build": "DAYCARE_DISABLE_FILESYSTEM_CACHE=true pnpm build"
+  },
+  "evidence": {
+    "failurePaths": "src/components/imports/cms-upload-control.test.tsx"
+  }
+}

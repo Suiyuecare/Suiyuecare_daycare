@@ -3928,7 +3928,7 @@ export default async function StaffCatalogPage({
 
   if (page.number === 80) {
     if (isSyntheticPreviewMode()) return <SyntheticImportPreview />;
-    return <ImportWorkspace />;
+    return <ImportWorkspace context={context} />;
   }
 
   if (page.number === 81) {

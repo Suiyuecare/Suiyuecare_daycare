@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import type { TenantContext } from "@/lib/domain/types";
 import { getNavigationGroups } from "@/lib/catalog";
 const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), pendingSocialWork: vi.fn(), observeSocialWork: vi.fn(), pendingPsychosocial: vi.fn(), observePsychosocial: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
@@ -32,19 +32,49 @@ vi.mock("@/lib/psychosocial-assessments/pending", () => ({ clearPsychosocialAsse
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));
 vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
-import { AppShell } from "./app-shell";
+let AppShell: typeof import("./app-shell").AppShell;
+let uploadJournal: typeof import("@/lib/imports/upload-pending");
 import { useCoreDraftGuard } from "@/components/core-care/client-continuation";
-import { registerUnsavedChangesOwner } from "@/lib/navigation/unsaved-changes";
+let registerUnsavedChangesOwner: typeof import("@/lib/navigation/unsaved-changes").registerUnsavedChangesOwner;
 const unregisterOwners: (() => void)[] = [];
-const actor: TenantContext = { organizationId: "synthetic", branchId: "synthetic", userId: "synthetic", organizationName: "synthetic", branchName: "synthetic", displayName: "合成員工姓名", roles: ["care_worker"], scopes: [], assuranceLevel: "aal2", recentAal2At: null, demo: false };
-beforeEach(() => {
+const actor: TenantContext = { organizationId: "10000000-0000-4000-8000-000000000001", branchId: "20000000-0000-4000-8000-000000000001",
+  userId: "30000000-0000-4000-8000-000000000001", organizationName: "synthetic", branchName: "synthetic", displayName: "合成員工姓名", roles: ["care_worker"],
+  scopes: ["imports.manage", "clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"], assuranceLevel: "aal2", recentAal2At: null, demo: false };
+beforeEach(async () => {
+  vi.resetModules();
   mocks.pathname = "/app/staff/workspace/dashboard";
   vi.clearAllMocks(); mocks.clear.mockResolvedValue(undefined); mocks.signOut.mockResolvedValue({ error: null });
   mocks.fetch.mockResolvedValue(Response.json({ status: "ok", data: { cleared: true } }));
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  uploadJournal = await import("@/lib/imports/upload-pending");
+  registerUnsavedChangesOwner = (await import("@/lib/navigation/unsaved-changes")).registerUnsavedChangesOwner;
+  AppShell = (await import("./app-shell")).AppShell;
 });
-afterEach(() => { cleanup(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); uploadJournal.clearCmsUploadOnLogout(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("staff shell logout privacy", () => {
+  it("clears real CMS upload owner immediately and prevents old props or observer ABA resurrection", async () => {
+    let finish!: () => void; mocks.clear.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const clearUpload = vi.spyOn(uploadJournal, "clearCmsUploadOnLogout");
+    const shell = render(<AppShell context={actor} navigation={[]}><p>待核对上傳的合成個案</p></AppShell>);
+    const scope = uploadJournal.cmsUploadScope(actor, "routine-intake", null);
+    expect(uploadJournal.canUseCmsUpload(scope)).toBe(true);
+    const pending = uploadJournal.beginCmsUpload(scope, { name: "synthetic.html", size: 10, mime: "text/html", sha256: "a".repeat(64) },
+      "40000000-0000-4000-8000-000000000001", "50000000-0000-4000-8000-000000000001")!;
+    uploadJournal.markCmsUploadUnknown(pending, scope); const read = uploadJournal.beginCmsUploadRead(scope, pending.token)!;
+    expect(uploadJournal.hasCmsUploadOperation()).toBe(true); fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(clearUpload).toHaveBeenCalledOnce(); expect(uploadJournal.hasCmsUploadOperation()).toBe(false);
+    expect(read.signal.aborted).toBe(true); expect(read.current()).toBe(false);
+    expect(screen.queryByText("待核对上傳的合成個案")).not.toBeInTheDocument();
+    const changed = { ...actor, branchId: "20000000-0000-4000-8000-000000000002" };
+    act(() => { uploadJournal.observeCmsUploadAuthority(uploadJournal.cmsUploadAuthority(changed));
+      uploadJournal.observeCmsUploadAuthority(uploadJournal.cmsUploadAuthority(actor)); });
+    shell.rerender(<AppShell context={changed} navigation={[]}><p>不能恢復的分支資料</p></AppShell>);
+    shell.rerender(<AppShell context={actor} navigation={[]}><p>不能恢復的原帳號資料</p></AppShell>);
+    expect(uploadJournal.canUseCmsUpload(scope)).toBe(false); expect(uploadJournal.getCmsUploadOperation(scope)).toBeNull();
+    expect(screen.queryByText("不能恢復的原帳號資料")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledOnce());
+    await act(async () => finish()); await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login")); read.close();
+  });
   it("waits for explicit editor discard before header refresh", async () => {
     let dirty = true; let proceed: (() => void) | null = null;
     unregisterOwners.push(registerUnsavedChangesOwner({ isDirty: () => dirty,

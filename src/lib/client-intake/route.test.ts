@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyIntakeProfile } from "./model";
 import { IntegrationError } from "@/lib/integrations/errors";
+import { createHash } from "node:crypto";
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), authorize: vi.fn(), recent: vi.fn(), client: vi.fn(), rpc: vi.fn(), admin: vi.fn(), stage: vi.fn(), env: { NODE_ENV: "test", NEXT_PUBLIC_APP_ORIGIN: "https://example.invalid", AWS_REGION: "ap-northeast-1", HTML_ARCHIVE_BUCKET: "", AWS_KMS_KEY_ID: "" } }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/context", () => ({ getTenantContext: mocks.actor, hasRecentAal2: vi.fn() }));
@@ -15,14 +16,15 @@ import { POST as upload, GET as preview } from "@/app/api/client-intake/imports/
 import { POST as approve } from "@/app/api/client-intake/imports/approve/route";
 const id = "c1600000-0000-4000-8000-000000000001";
 const operation = "c1800000-0000-4000-8000-000000000001";
-const actor = { organizationId: "a1600000-0000-4000-8000-000000000001", branchId: "b1600000-0000-4000-8000-000000000001", userId: "d1600000-0000-4000-8000-000000000001", scopes: ["clients.read", "clients.manage", "clients.demographics.read", "clients.view_all", "imports.manage", "imports.approve"], demo: false };
+const actor = { organizationId: "a1600000-0000-4000-8000-000000000001", branchId: "b1600000-0000-4000-8000-000000000001", userId: "d1600000-0000-4000-8000-000000000001", scopes: ["clients.read", "clients.manage", "clients.demographics.read", "clients.view_all", "imports.manage", "imports.approve"], assuranceLevel: "aal1", recentAal2At: null, demo: false };
 const profile = { ...emptyIntakeProfile, displayName: "合成測試個案", clientCode: "TEST-001" };
 const body = { action: "create", idempotency_key: operation, profile };
 const receipt = { clientId: id, operationId: operation, profileVersion: 1, clientRowVersion: 1, pending: true, replayed: false };
 const request = (value: unknown) => new Request("https://example.invalid", { method: "POST", headers: { origin: "https://example.invalid", "sec-fetch-site": "same-origin", "content-type": "application/json" }, body: JSON.stringify(value) });
+const sourceHtml = "<!doctype html><html><body><h5>需要服務者基本資料</h5><table><tr><td>姓名</td><td>合成個案</td></tr></table></body></html>";
 const uploadRequest = () => {
   const form = new FormData();
-  form.set("file", new File(["<!doctype html><html><body><h5>需要服務者基本資料</h5><table><tr><td>姓名</td><td>合成個案</td></tr></table></body></html>"], "synthetic.html", { type: "text/html" }));
+  form.set("file", new File([sourceHtml], "synthetic.html", { type: "text/html" }));
   return new Request("https://example.invalid", { method: "POST", headers: { origin: "https://example.invalid", "sec-fetch-site": "same-origin", "idempotency-key": operation }, body: form });
 };
 beforeEach(() => { vi.resetAllMocks(); mocks.env.HTML_ARCHIVE_BUCKET = ""; mocks.env.AWS_KMS_KEY_ID = ""; mocks.actor.mockResolvedValue(actor); mocks.authorize.mockResolvedValue(actor); mocks.recent.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ rpc: mocks.rpc }); mocks.rpc.mockResolvedValue({ error: null, data: receipt }); });
@@ -74,8 +76,33 @@ describe("real intake API boundaries", () => {
     mocks.env.HTML_ARCHIVE_BUCKET = "synthetic-archive"; mocks.env.AWS_KMS_KEY_ID = "synthetic-key"; mocks.admin.mockReturnValue({});
     mocks.rpc.mockResolvedValue({ error: null, data: { status: "completed", reservationId: id, payloadSha256: "a".repeat(64), clientId: null } });
     const result = await upload(uploadRequest());
-    expect(result.status).toBe(200); expect((await result.json()).data).toMatchObject({ reservation_id: id, status: "completed", recovered: true }); expect(mocks.stage).not.toHaveBeenCalled();
+    expect(result.status).toBe(200); const envelope = await result.json();
+    expect(envelope).toEqual({ requestId: expect.stringMatching(/^[0-9a-f-]{36}$/u), status: "ok", errors: [], data: {
+      reservation_id: id, status: "completed", recovered: true, file_sha256: createHash("sha256").update(sourceHtml).digest("hex"),
+      payload_sha256: "a".repeat(64), mapping_version: "central-care-plan-html@1" } }); expect(mocks.stage).not.toHaveBeenCalled();
     expect(mocks.rpc).toHaveBeenCalledWith("find_cms_intake_source", expect.objectContaining({ p_org: actor.organizationId, p_branch: actor.branchId, p_file_sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) }));
+    expect(mocks.authorize.mock.calls.map(call => call[0])).toEqual(["cms.stage", "cms.preview"]);
+    expect(mocks.recent).not.toHaveBeenCalled();
+  });
+  it("completed duplicate ACK is refused if current preview authorization is revoked", async () => {
+    mocks.env.HTML_ARCHIVE_BUCKET = "synthetic-archive"; mocks.env.AWS_KMS_KEY_ID = "synthetic-key"; mocks.admin.mockReturnValue({});
+    mocks.rpc.mockResolvedValue({ error: null, data: { status: "completed", reservationId: id, payloadSha256: "a".repeat(64), clientId: null } });
+    mocks.authorize.mockResolvedValueOnce(actor).mockRejectedValueOnce(new IntegrationError("INTAKE_NOT_AUTHORIZED", "目前無法授權查證原上傳。", 403));
+    const response = await upload(uploadRequest()); expect(response.status).toBe(403); expect((await response.json()).data).toBeNull();
+    expect(mocks.stage).not.toHaveBeenCalled(); expect(mocks.authorize).toHaveBeenLastCalledWith("cms.preview");
+  });
+  it.each(["organizationId", "branchId", "userId", "scopes"] as const)("completed duplicate ACK binds the current %s", async field => {
+    mocks.env.HTML_ARCHIVE_BUCKET = "synthetic-archive"; mocks.env.AWS_KMS_KEY_ID = "synthetic-key"; mocks.admin.mockReturnValue({});
+    mocks.rpc.mockResolvedValue({ error: null, data: { status: "completed", reservationId: id, payloadSha256: "a".repeat(64), clientId: null } });
+    mocks.authorize.mockResolvedValueOnce(actor).mockResolvedValueOnce({ ...actor, [field]: field === "scopes" ? [] : operation });
+    const response = await upload(uploadRequest()); expect(response.status).toBe(403); expect((await response.json()).data).toBeNull(); expect(mocks.stage).not.toHaveBeenCalled();
+  });
+  it("preview rejects an otherwise valid other-case source before disclosure", async () => {
+    mocks.rpc.mockResolvedValue({ error: null, data: { batchId: id, payloadSha256: "a".repeat(64), mappingVersion: "central-care-plan-html@1",
+      fields: [], sections: [], warnings: [], conflicts: [], imported: false, importReceipt: null,
+      current: { clientId: operation, profileVersion: 1, clientRowVersion: 1, pending: true, profile, fieldAuthority: {}, sourceBatchId: null } } });
+    const response = await preview(new Request(`https://example.invalid?batch=${id}&client=${id}`)); expect(response.status).toBe(502);
+    expect((await response.json()).data).toBeNull();
   });
   it("denies simple browser form posts for sensitive JSON mutations", async () => {
     expect((await POST(new Request("https://example.invalid", { method: "POST", body: JSON.stringify(body) }))).status).toBe(415);

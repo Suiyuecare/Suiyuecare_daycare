@@ -95,7 +95,8 @@ try{
  alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;
  grant all on storage.objects to anon,authenticated,service_role;`);
  const names=(await readdir(join(root,"supabase/migrations"))).filter(n=>n.endsWith(".sql")).sort();
- assert.equal(names.length,152);assert.equal(names.at(-1),"20260927163540_import_upload_authority_fences.sql");
+ assert.equal(names.length,153);assert.equal(names.at(-1),"20260927171515_import_upload_operation_locator.sql");
+ assert.equal(names[151],"20260927163540_import_upload_authority_fences.sql");
  // Deliberately compile only151 first: no mocks or recreated admission guards.
  for(const name of names.slice(0,151)){
   const source=await readFile(join(root,"supabase/migrations",name),"utf8");assert.ok(source.trim());
@@ -227,12 +228,12 @@ try{
  evidence.baseline={migrations:151,redReproductions:15,alreadyGreenControls:4,independentBackendLocksObserved:true,authorizationReplacements:0};
  await writeFile(join(runtime,"baseline-151.json"),JSON.stringify(evidence,null,2));
  console.log(`151 baseline evidence: ${join(runtime,"baseline-151.json")}`);
- const catalogs=()=>JSON.parse(sql(`select jsonb_build_object('relations',(select jsonb_agg(jsonb_build_object('oid',c.oid,'acl',c.relacl,'rls',c.relrowsecurity,'force',c.relforcerowsecurity)order by c.oid)from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in('private','public')),
+ const catalogs=(includeAuthorityBodies=false)=>JSON.parse(sql(`select jsonb_build_object('relations',(select jsonb_agg(jsonb_build_object('oid',c.oid,'acl',c.relacl,'rls',c.relrowsecurity,'force',c.relforcerowsecurity)order by c.oid)from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in('private','public')),
   'policies',(select jsonb_agg(to_jsonb(p)order by p.oid)from pg_policy p),
   'functions',(select jsonb_object_agg(p.oid::text,jsonb_build_object('security',p.prosecdef,'owner',p.proowner,'config',p.proconfig,'acl',p.proacl,'definition',
-   case when n.nspname='private'and p.proname in('reserve_import_upload','reserve_intake_import_upload','complete_import_upload')then null else pg_get_functiondef(p.oid)end))
+   case when ${!includeAuthorityBodies} and n.nspname='private'and p.proname in('reserve_import_upload','reserve_intake_import_upload','complete_import_upload')then null else pg_get_functiondef(p.oid)end))
    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in('private','public')and p.prokind='f'))`).trim());
- const priorCatalog=catalogs(),businessBefore=moduleCounts(),patchName=names.at(-1),patchSource=await readFile(join(root,"supabase/migrations",patchName),"utf8");
+ const priorCatalog=catalogs(),businessBefore=moduleCounts(),patchName=names[151],patchSource=await readFile(join(root,"supabase/migrations",patchName),"utf8");
  assert.ok(patchSource.trim(),"152 must be frozen before upgrade");sql(patchSource);evidence.migrations.push({name:patchName,sha256:digest(patchSource)});
  const afterCatalog=catalogs();assert.deepEqual(afterCatalog.relations,priorCatalog.relations);assert.deepEqual(afterCatalog.policies,priorCatalog.policies);
  for(const[oid,value]of Object.entries(priorCatalog.functions))assert.deepEqual(afterCatalog.functions[oid],value,`Existing function ${oid} ACL/security/global body changed`);
@@ -248,13 +249,25 @@ try{
  const expected=Number(testSource.match(/select\s+plan\((\d+)\)/iu)?.[1]),passed=tap.split("\n").filter(l=>/^ok \d+\b/u.test(l)).length;
  assert.equal(passed,expected,tap);assert.doesNotMatch(tap,/^not ok \d+\b|^# Looks like/mu);evidence.pgTapAssertions=passed;
  for(const probe of scenarios)await runProbe(probe,true);
+ // Keep the actual151→152 race comparison intact; then compile153 and prove
+ // it leaves every existing function body, ACL/RLS/policy and business row intact.
+ const locatorPriorCatalog=catalogs(true),locatorBusinessBefore=moduleCounts(),locatorName=names[152];
+ const locatorSource=await readFile(join(root,"supabase/migrations",locatorName),"utf8");
+ assert.ok(locatorSource.trim(),"153 must be frozen before upgrade");sql(locatorSource);
+ evidence.migrations.push({name:locatorName,sha256:digest(locatorSource)});
+ const locatorAfterCatalog=catalogs(true);
+ assert.deepEqual(locatorAfterCatalog.relations,locatorPriorCatalog.relations);
+ assert.deepEqual(locatorAfterCatalog.policies,locatorPriorCatalog.policies);
+ for(const[oid,value]of Object.entries(locatorPriorCatalog.functions))assert.deepEqual(locatorAfterCatalog.functions[oid],value,`153 changed existing function ${oid}`);
+ assert.deepEqual(moduleCounts(),locatorBusinessBefore);
+ evidence.locatorUpgrade={from:152,to:153,allExistingBodiesAndAclUnchanged:true,relationsAclRlsUnchanged:true,policiesUnchanged:true,businessUnchanged:true};
  for(const source of evidence.migrations)assert.equal(digest(await readFile(join(root,"supabase/migrations",source.name))),source.sha256,"Migration changed during verification");
  assert.equal(digest(await readFile(testPath)),evidence.testSha256);assert.equal(digest(await readFile(import.meta.filename)),evidence.runnerSha256);
  evidence.sourceHashCount=evidence.migrations.length+2;
  evidence.limitations=["Synthetic native Auth/session/AMR and archive reference only; no hosted provider/WORM/HTTP/UI proof",
   "Observed actual clock and independent backend blocking for listed gates, not universal all-transaction revocation serialization",
   "152 does not promote CMS data to formal clients, alter official forms, or activate a hosted service"];
- console.log(`${engine}; 151 RED15+controls4 ->152 GREEN19; ${passed}/${expected}pgTAP; ${join(runtime,"evidence.json")}`);
+ console.log(`${engine}; exact153migrations; 151 RED15+controls4 ->152 GREEN19; ${passed}/${expected}pgTAP; ${join(runtime,"evidence.json")}`);
 }catch(error){testFailure=error;throw error;}
 finally{
  const cleanupErrors=[];

@@ -39,6 +39,7 @@ import { clearSocialWorkPendingOnLogout, observeSocialWorkAuthority, socialWorkA
 import { clearPsychosocialAssessmentPendingOnLogout, observePsychosocialAssessmentAuthority, psychosocialAssessmentAuthoritySignature } from "@/lib/psychosocial-assessments/pending";
 import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState, observeQuestionnaireViewAuthority, questionnaireViewAuthority, useQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
 import { clearQuestionnairePendingOnLogout, observeQuestionnairePendingAuthority } from "@/lib/questionnaire-assessments/pending";
+import { clearCmsUploadOnLogout, cmsUploadAuthority, observeCmsUploadAuthority } from "@/lib/imports/upload-pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -113,6 +114,7 @@ export function AppShell({
   const socialWorkAuthority = socialWorkAuthoritySignature(context);
   const psychosocialAuthority = psychosocialAssessmentAuthoritySignature(context);
   const questionnaireAuthority = questionnaireViewAuthority(context);
+  const uploadAuthority = cmsUploadAuthority(context);
   const questionnaireView = useQuestionnaireViewState();
 
   // Track authority outside the announcement route too: an unmounted editor
@@ -137,6 +139,9 @@ export function AppShell({
     observeQuestionnaireViewAuthority(questionnaireAuthority);
     observeQuestionnairePendingAuthority(questionnaireAuthority, getQuestionnaireViewState().epoch);
   }, [questionnaireAuthority, questionnaireView.epoch, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeCmsUploadAuthority(uploadAuthority);
+  }, [uploadAuthority, logoutState]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -245,6 +250,7 @@ export function AppShell({
     clearPsychosocialAssessmentPendingOnLogout();
     clearQuestionnairePendingOnLogout();
     clearQuestionnaireViewOnLogout();
+    clearCmsUploadOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();

@@ -1,0 +1,2 @@
+/* Scoped AA contrast correction: canonical brand token, no Finance frame change. */
+.primary { background: var(--brand-strong); color: var(--surface); }

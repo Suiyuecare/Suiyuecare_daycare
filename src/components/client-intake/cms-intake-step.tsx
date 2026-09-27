@@ -1,8 +1,13 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { cmsPreviewSchema, intakeTargetLabels, MAX_INTAKE_WEB_UPLOAD_BYTES, type CmsIntakePreview, type IntakeSnapshot } from "@/lib/client-intake/model";
+import { cmsPreviewSchema, intakeTargetLabels, type CmsIntakePreview, type IntakeSnapshot } from "@/lib/client-intake/model";
 import { intakeErrorMessage, intakeRequest } from "@/lib/client-intake/client";
+import type { TenantContext } from "@/lib/domain/types";
+import { fetchJsonWithTimeout } from "@/lib/api/client-fetch";
+import { CmsUploadControl } from "@/components/imports/cms-upload-control";
+import { canUseCmsUpload, cmsUploadScope, getCmsUploadState, useCmsUploadState } from "@/lib/imports/upload-pending";
+import type { CmsUploadResult } from "@/lib/imports/upload-client";
 import styles from "./intake.module.css";
 
 type Decision = { fieldId: string; choice: "" | "use_source" | "keep_current" };
@@ -17,64 +22,77 @@ function oldValue(snapshot: IntakeSnapshot | null, key: string) {
   return display(snapshot.profile[key as keyof typeof snapshot.profile]);
 }
 
-export function CmsIntakeStep({ current, canImport, canApprove, demo, onSaved, onManual, onDirty, onBusy, profileHasDraft = false, archiveConfigured = false }: {
-  current: IntakeSnapshot | null; canImport: boolean; canApprove: boolean; demo: boolean;
+export function CmsIntakeStep({ context, current, canImport, canApprove, demo, onSaved, onManual, onDirty, onBusy, profileHasDraft = false, archiveConfigured = false }: {
+  context: TenantContext; current: IntakeSnapshot | null; canImport: boolean; canApprove: boolean; demo: boolean;
   onSaved: (id: string) => Promise<void>; onManual: () => void; onDirty: (dirty: boolean) => void;
   onBusy?: (busy: boolean) => void; profileHasDraft?: boolean; archiveConfigured?: boolean;
 }) {
-  const [file, setFile] = useState<File | null>(null);
+  const uploadState = useCmsUploadState();
+  const scope = cmsUploadScope(context, "routine-intake", current?.clientId ?? null);
+  const scopeKey = JSON.stringify(scope), currentScope = useRef(scopeKey);
+  useLayoutEffect(() => { currentScope.current = scopeKey; }, [scopeKey]);
+  const [previewScope, setPreviewScope] = useState("");
+  const [previewEpoch, setPreviewEpoch] = useState(-1);
   const [preview, setPreview] = useState<CmsIntakePreview | null>(null);
   const [choices, setChoices] = useState<Record<string, Decision>>({});
   const [clientCode, setClientCode] = useState(current?.profile.clientCode ?? "");
-  const [busy, setBusy] = useState(false);
+  const [commitBusy, setBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false), [uploadDirty, setUploadDirty] = useState(false);
+  const busy = commitBusy || uploadBusy;
   const [error, setError] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [sourceReviewReason, setSourceReviewReason] = useState("");
   const [unknownLimit, setUnknownLimit] = useState(50);
   const [committed, setCommitted] = useState<string | null>(null);
-  const uploadKey = useRef("");
   const operation = useRef<{ payload: string; key: string } | null>(null);
   const inFlight = useRef(false);
+  const selectionChanged = useCallback(() => {
+    setPreview(null); setPreviewScope(""); setPreviewEpoch(-1); setChoices({}); setConfirmed(false);
+    setCommitted(null); setError("");
+  }, []);
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
+  useEffect(() => { onDirty(uploadDirty || Boolean(preview && !committed)); }, [uploadDirty, preview, committed, onDirty]);
   const groups = new Map<string, CmsIntakePreview["fields"]>();
   for (const field of preview?.fields ?? []) if (field.intakeTarget) groups.set(field.intakeTarget, [...(groups.get(field.intakeTarget) ?? []), field]);
   const ready = preview && !preview.sourceIsOlder && [...groups.keys()].every((target) => Boolean(choices[target]?.choice)) && groups.has("displayName") && groups.has("identityNumber") && confirmed && clientCode.trim() && (!preview.current || sourceReviewReason.trim().length >= 10);
-  async function upload() {
-    if (!file || busy || inFlight.current || demo || !canImport || !archiveConfigured) return;
-    setBusy(true); inFlight.current = true; setError("");
-    try {
-      const form = new FormData(); form.set("file", file);
-      const receipt = z.object({ reservation_id: z.uuid(), status: z.literal("completed") }).parse(await intakeRequest("/api/client-intake/imports", { method: "POST", headers: { "idempotency-key": uploadKey.current }, body: form }));
-      const result = cmsPreviewSchema.parse(await intakeRequest(`/api/client-intake/imports?batch=${receipt.reservation_id}${current ? `&client=${current.clientId}` : ""}`));
-      if (result.batchId !== receipt.reservation_id || (result.current?.clientId ?? null) !== (current?.clientId ?? null)) throw new Error("來源批次或個案與本次上傳不一致，請重新核對。 ");
-      setPreview(result); setUnknownLimit(50); if (result.current) setClientCode(result.current.profile.clientCode); setChoices({}); setConfirmed(false); onDirty(true);
-    } catch (e) { setError(intakeErrorMessage(e)); } finally { setBusy(false); inFlight.current = false; }
+  async function readPreview(receipt: CmsUploadResult, signal: AbortSignal, stillCurrent: () => boolean) {
+    const { payload } = await fetchJsonWithTimeout(`/api/client-intake/imports?batch=${receipt.batchId}${current ? `&client=${current.clientId}` : ""}`, { signal });
+    const envelope = z.object({ requestId: z.uuid(), status: z.literal("ok"), data: cmsPreviewSchema, errors: z.array(z.never()).length(0) }).strict().parse(payload);
+    const result = envelope.data;
+    if (result.batchId !== receipt.batchId || (result.current?.clientId ?? null) !== (current?.clientId ?? null) ||
+        result.payloadSha256 !== receipt.payloadSha256 || result.mappingVersion !== receipt.mappingVersion ||
+        receipt.sectionCount !== null && result.sections.length !== receipt.sectionCount ||
+        receipt.fieldCount !== null && result.fields.length !== receipt.fieldCount) throw new Error("來源批次或個案與本次上傳不一致。");
+    if (!stillCurrent()) return;
+    setPreviewScope(scopeKey); setPreviewEpoch(getCmsUploadState().epoch); setPreview(result); setUnknownLimit(50); if (result.current) setClientCode(result.current.profile.clientCode);
+    setChoices({}); setConfirmed(false); setError(""); setCommitted(null);
   }
   async function commit() {
-    if (!preview || !ready || busy || inFlight.current || !canApprove || demo || profileHasDraft) return;
+    if (!preview || previewScope !== scopeKey || previewEpoch !== getCmsUploadState().epoch || !canUseCmsUpload(scope) || !ready || busy || uploadDirty || inFlight.current || !canApprove || demo || profileHasDraft) return;
+    const epoch = getCmsUploadState().epoch;
     const payload = JSON.stringify({ batchId: preview.batchId, payloadSha256: preview.payloadSha256, clientId: preview.current?.clientId ?? null, expectedVersion: preview.current?.profileVersion ?? 0, expectedClientVersion: preview.current?.clientRowVersion ?? 0, clientCode, sourceReviewReason: sourceReviewReason.trim() || null, decisions: [...groups.keys()].map((target) => ({ target, ...choices[target] })) });
     if (operation.current?.payload !== payload) operation.current = { payload, key: crypto.randomUUID() };
     setBusy(true); inFlight.current = true; setError("");
     try {
       const receipt = z.object({ clientId: z.uuid(), persisted: z.literal(true), formallyImported: z.literal(true) }).parse(await intakeRequest("/api/client-intake/imports/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...JSON.parse(payload), idempotency_key: operation.current.key }) }));
+      if (currentScope.current !== scopeKey || epoch !== getCmsUploadState().epoch || !canUseCmsUpload(scope)) return;
       if (preview.current && receipt.clientId !== preview.current.clientId) throw new Error("匯入回條與目前個案不一致，已停止開啟。請保留來源並重新核對。");
       setCommitted(receipt.clientId); onDirty(false); await onSaved(receipt.clientId);
-    } catch (e) { setError(intakeErrorMessage(e)); } finally { setBusy(false); inFlight.current = false; }
+    } catch (e) {
+      if (currentScope.current === scopeKey && epoch === getCmsUploadState().epoch && canUseCmsUpload(scope)) setError(intakeErrorMessage(e));
+    } finally { setBusy(false); inFlight.current = false; }
   }
+  const showSource = !demo && !uploadDirty && canUseCmsUpload(scope) && previewScope === scopeKey && previewEpoch === uploadState.epoch;
   return <section className={styles.form}>
     <div><h2>匯入 CMS 資料</h2><p>選擇中央系統下載的 HTML，核對後建立個案。</p></div>
-    {current ? <p className={styles.notice}>目前正在更新：{current.profile.displayName}。系統仍會用精確身分識別核對，不依姓名合併。</p> : null}
+    {current && canUseCmsUpload(scope) ? <p className={styles.notice}>目前正在更新：{current.profile.displayName}。系統仍會用精確身分識別核對，不依姓名合併。</p> : null}
     {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停；請保留原檔，可先手動建檔。</p></div> : null}
-    <label>CMS HTML（4 MB 以下）<input type="file" accept=".html,.htm,text/html,application/xhtml+xml" disabled={busy || demo || !canImport || !archiveConfigured} onChange={(e) => {
-      const selected = e.target.files?.[0] ?? null;
-      setPreview(null); setChoices({}); setConfirmed(false); setCommitted(null); setError(""); uploadKey.current = crypto.randomUUID(); onDirty(false);
-      if (selected && (selected.size > MAX_INTAKE_WEB_UPLOAD_BYTES || !/\.html?$/iu.test(selected.name))) { setFile(null); setError("請選擇 4 MB 以下的 HTML 檔。較大檔案請交由管理員安排安全匯入，不要刪除來源資料。 "); return; }
-      setFile(selected); onDirty(Boolean(selected));
-    }} /></label>
-    <div className={styles.inline}><button className="button button--primary" type="button" disabled={!file || busy || demo || !canImport || !archiveConfigured} onClick={upload}>{busy ? "處理中，請稍候…" : "上傳並核對資料"}</button><button type="button" onClick={onManual} disabled={busy}>沒有 CMS 檔？手動建檔</button></div>
+    <CmsUploadControl context={context} mode="routine-intake" clientId={current?.clientId ?? null} enabled={!commitBusy && !demo && canImport && archiveConfigured}
+      onPreview={readPreview} onDirty={setUploadDirty} onBusy={setUploadBusy} onSelectionChanged={selectionChanged} />
+    <div className={styles.inline}><button type="button" onClick={onManual} disabled={busy || uploadDirty}>沒有 CMS 檔？手動建檔</button></div>
     {demo ? <p className={styles.notice}>合成資料試看：不接收真實 HTML，也不連線至中央系統。</p> : !canImport ? <p className={styles.notice}>您尚未取得匯入權限，可請收案負責人協助。</p> : null}
-    {preview?.imported && preview.importReceipt ? <div className={styles.notice}><p>這份檔案已完成建檔，沒有再建立第二位個案。</p><button type="button" disabled={busy} onClick={() => onSaved(preview.importReceipt!.clientId)}>開啟已建立個案</button></div> : null}
-    {preview && !preview.imported && !committed ? <>
+    {showSource && preview?.imported && preview.importReceipt ? <div className={styles.notice}><p>這份檔案已完成建檔，沒有再建立第二位個案。</p><button type="button" disabled={busy} onClick={() => onSaved(preview.importReceipt!.clientId)}>開啟已建立個案</button></div> : null}
+    {showSource && preview && !preview.imported && !committed ? <>
       <h3>逐欄核對後，才會寫入個案資料</h3>
       {preview.sourceIsOlder ? <p role="alert" className={styles.error}>這份來源的官方日期（{preview.sourceOfficialDate}）早於現有版本（{preview.currentSourceOfficialDate}），不能用舊資料覆蓋。</p> : null}
       <p>已辨識 {preview.sections.length} 個區段。尚未對應的資料會保留於匯入來源，不會被丟棄。</p>
@@ -101,7 +119,7 @@ export function CmsIntakeStep({ current, canImport, canApprove, demo, onSaved, o
       {profileHasDraft ? <p className={styles.notice}>基本資料還有未儲存的修改，請先保存，再重新核對 CMS 預覽，避免覆蓋您剛填的資料。</p> : null}
       <button className="button button--primary" type="button" disabled={!ready || busy || !canApprove || demo || profileHasDraft} onClick={commit}>{busy ? "確認與建檔中…" : current ? "確認更新個案資料" : "確認建立待收案個案"}</button>
     </> : null}
-    {committed ? <div role="status"><p>個案資料已正式存入，若下一步沒有載入，可重新開啟。</p><button type="button" onClick={() => onSaved(committed)}>開啟已建立個案</button></div> : null}
+    {showSource && committed ? <div role="status"><p>個案資料已正式存入，若下一步沒有載入，可重新開啟。</p><button type="button" onClick={() => onSaved(committed)}>開啟已建立個案</button></div> : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
   </section>;
 }

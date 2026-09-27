@@ -96,6 +96,10 @@ pending 按鈕保持原尺寸並標示忙碌；成功只在完整回執確認後
 
 ## Do's and Don'ts
 
+CMS原檔上傳由同一`imports/cms-upload-control.tsx`擁有選檔、原操作查證及續做入口；收案及通用匯入只提供各自原預覽讀取器，不另造frame／file picker／toast。原生HTML檔案選擇器是平台具名例外，不開啟或執行HTML；沿用`.field`、`.button`、16px輸入、44px控制與持續inline status／alert。未知結果顯示短下一步，原键、雜湊及來源證據不在現場提示內。原操作仍未確認時禁止另選不同檔案而建新操作；新檔嘗試（含驗證失敗）必須清除先前可核准預覽。只在逐欄核對資料讀回後解除上傳鎖，不顯示正式收案完成。Finance header/sidebar token及幾何不改，AppShell只接權限epoch與登出清除。完整重載的原操作定位及一般重新解析的跨掛載復原仍是未完成門檻；本機Chrome不替代hosted封存、真人收案或全部89頁驗收。
+
+CMS上傳主按鈕採具名無障礙例外：只在`cms-upload-control.module.css`使用既有`--brand-strong`與白字。Chrome／axe實測原橘色與小型白字僅2.59:1；內容區改用既有深橘色，不更改Finance header／sidebar或全域token。
+
 九份題目式工具新增同頁「完成檢查」：只查已保存版，短狀態、缺答與安全提醒在主畫面，四項正式設定預設收起，但「尚不可正式簽署」持續可見。內容卡與控制採10px、輸入16px及44px行動；個案選擇卡保留18px例外。日期沿用治理的typed YYYY-MM-DD及日期schema。正文grid採minmax(0,1fr)與有界控制，390px／CSS200%不把overflow藏進內層main。Header／sidebar及token不變。合法同scope SSR更新不清稿，撤權隔離全部內容。後續原操作journal與共享確認已接入這九份工具；完整整頁重載定位、撤權後真正新context復原及正式簽署仍未完成，不因read panel宣稱合規。
 
 頁68公告讀取沿用同一 AppShell、metric／panel／filter-bar／table／mobile-records，未變更 Finance frame token或幾何。搜尋採共用 `ui/search-field.tsx` 的明確套用與44px X清除；手機整行搜尋，下方狀態／筆數自然排列。頁尾只有起訖／頁碼與前後頁，不新增裝飾圖表或第二套分頁器。一般畫面縮短工程解釋；全量統計與篩選筆數、目前發布版／草稿及安全／展示限制保持清楚。

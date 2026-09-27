@@ -17,6 +17,7 @@
 | 店務摘要 | `store-overview/snapshot.ts`、`store-overview/access.ts` | 伺服器授權與來源驗證 | 2026-09-26 |
 | 人工身體觀察 | `body-assessments/parser.ts`、`api/body-assessments/route.ts` | 固定範圍／版本／簽署回執與 API 授權 | 2026-09-26 |
 | 九份量表已保存版完成檢查 | `questionnaire-assessments/readiness-source.ts`、`readiness-client.ts`、`readiness-view.ts`、原只讀API／RPC | 嚴格來源、純共用候選、正式阻擋契約 | 2026-09-27 |
+| CMS原上傳查證與續做 | `imports/operation-locator.ts`、`upload-client.ts`、`upload-pending.ts`、SQL153與既有151續做RPC | 本人精確唯讀查證／不可變來源與分頁記憶體操作 | 2026-09-28 |
 
 業務政策引用來源，不在 UI 中另定臨床角色、費用、資料保留期限或法律認定。本次不處理付款、刪除紀錄或真人規則核准。
 
@@ -30,6 +31,16 @@
 | Scrollbar | `src/app/globals.css` | DESIGN.md | 穩定 gutter | computed style＋forced-colors |
 | Toast | 共用 dialog 的持續 inline status／alert | 本契約 | success／error | live region test |
 | CRUD | `questionnaire-rule-workspace.tsx` | Domain contract | stay-inline／cursor load-more | state／full-flow tests |
+
+### CMS原上傳（收案與頁80）
+
+選檔／查證／續做唯一owner是`imports/cms-upload-control.tsx`；button／field／scrollbar依既有globals，成功、錯誤及unknown均用持續inline訊息，不新增modal或toast。原生file picker接受作業系統選單；格式／大小／SHA與錯誤由同一client及實際server檢查。新檔嘗試先清除舊預覽和核對選擇，非法檔不保留先前可核准資料；pending原操作只能重新選相同名稱／MIME／size／SHA，不可換檔或重鍵。取消未開始的新選擇不是取消已提交操作。
+
+每分頁單一記憶體journal保留原actor／機構／分支／模式／目標個案、UUID原鍵與原來源ID、檔案必要metadata；不保留HTML／File bytes，不進storage/history/offline。AppShell觀察authority epoch，登出同步清除本journal與本lease；scope／權限ABA與晚callback無效。實際查證queryless GET只在header帶原鍵，SQL153只讀目前本人原來源及原receipt並稽核。null不是rollback，completed只是source staging；通用模式須151明確續做attach同一batch，不能假造預覽或正式入檔。新session讀取歷史不等於取得新寫入或近期MFA。例行單案核對保持已核准Google AAL1，通用高風險仍要求真AAL2。
+
+client讀取／JSON與每個選檔或上傳stage均有20秒deadline，可取消；原鍵／原檔不因timeout而替換。預覽嚴格綁來源回條與同一scope/epoch；單案有payloadSHA，通用現有preview契約無payloadSHA，只比較實際提供的batch/fileSHA/mapping/fingerprint/count及metadata，不假算JSONB hash。只有可信同源預覽才完成上傳guard，尚需人工逐欄核准與正式交易。preview失敗可只重讀，不重POST。查證拒絕／不可信內容隔離舊資料；沒有真正新context入口時需安全登出／重新登入，不能以舊props復活。
+
+導覽共用pending lock防止切換個案／分支／refresh，自己的手動查證借read fence但不釋放原write lease；安全登出可用。成功入口移除且焦點無可用控制時回本owner anchor，不搶其他控制的焦點。完整重載會失去journal；歷史非UUID鍵的首尾空白／逗號不保證header可傳；一般reparse仍component-local原意圖，跨掛載復原未完成。舊收案approve／profile等native confirm及整體HTTP時限未在此切片遷移。Scoped自動audit及合成桌機／390px不宣稱全站WCAG、封存／掃毒、hosted Auth、正式收案或上線通過。
 
 原規則治理無 bulk selection、search 或硬刪除。公告頁的搜尋沿用下述共享 owner，不新增硬刪除。
 

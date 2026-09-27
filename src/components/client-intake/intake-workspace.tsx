@@ -7,6 +7,7 @@ import { intakeErrorMessage, intakeRequest } from "@/lib/client-intake/client";
 import type { TenantContext } from "@/lib/domain/types";
 import { profileToTaipeiPrefill } from "@/lib/taipei-abcd/prefill";
 import { ClientSelectionCard } from "@/components/clients/client-selection-card";
+import { hasCmsUploadOperation, useCmsUploadState } from "@/lib/imports/upload-pending";
 import { CmsIntakeStep } from "./cms-intake-step";
 import { IntakeProfileForm } from "./intake-profile-form";
 import { AdmissionHandoff } from "./admission-handoff";
@@ -21,6 +22,8 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   context: TenantContext; clients: ClientChoice[]; initialSnapshot: IntakeSnapshot | null; loadError: boolean; today: string; initialStep?: number; archiveConfigured?: boolean;
 }) {
   const [clients, setClients] = useState(initialClients);
+  useCmsUploadState();
+  const uploadPending = hasCmsUploadOperation();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [selectedId, setSelectedId] = useState(initialSnapshot?.clientId ?? "");
   const [step, setStep] = useState(initialSnapshot ? initialStep : 0);
@@ -58,7 +61,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     document.addEventListener("click", intercept, true);
     return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", intercept, true); };
   }, [dirty]);
-  function goTo(value: number) { setStep(value); setVisited((v) => new Set([...v, value])); }
+  function goTo(value: number) { if (hasCmsUploadOperation()) return; setStep(value); setVisited((v) => new Set([...v, value])); }
   async function readClient(clientId: string, fromWrite = false) {
     const sequence = ++loadSequence.current;
     setLoading(true); setError(""); setSelectedId(clientId);
@@ -77,7 +80,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     } finally { if (sequence === loadSequence.current) setLoading(false); }
   }
   async function choose(id: string) {
-    if (saving || loading) return;
+    if (saving || loading || hasCmsUploadOperation()) return;
     if (dirty && !window.confirm("尚有未儲存的資料。確定放棄並切換個案嗎？")) return;
     if (!id) { ++loadSequence.current; setSelectedId(""); setSnapshot(null); setManual(false); setVisited(new Set([0])); setStep(0); setError(""); setDirtySteps({}); window.history.replaceState(null, "", "/app/client-intake"); return; }
     if (context.demo) {
@@ -94,7 +97,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
       label="個案"
       placeholder="＋建立新個案"
       value={selectedId}
-      disabled={loading || saving}
+      disabled={loading || saving || uploadPending}
       onValueChange={choose}
       options={clients.map((client) => ({ value: client.id, label: `${client.displayName} · ${client.clientCode}` }))}
       supplement={<>
@@ -103,11 +106,11 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
       </>}
     />
     {context.demo ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
-    {snapshot ? <AdmissionHandoff snapshot={snapshot} canRead={scope("clients.read")} blocked={dirty || saving || loading || Boolean(error)} /> : null}
-    <nav aria-label="收案流程"><ol className={styles.steps}>{INTAKE_STEPS.map((title, index) => <li key={title}><button type="button" aria-current={step === index ? "step" : undefined} disabled={loading || saving || index > 0 && !snapshot && !(index === 1 && manual)} onClick={() => goTo(index)}><b>{index + 1}</b><span>{title}</span></button></li>)}</ol></nav>
+    {snapshot ? <AdmissionHandoff snapshot={snapshot} canRead={scope("clients.read")} blocked={dirty || saving || loading || uploadPending || Boolean(error)} /> : null}
+    <nav aria-label="收案流程"><ol className={styles.steps}>{INTAKE_STEPS.map((title, index) => <li key={title}><button type="button" aria-current={step === index ? "step" : undefined} disabled={loading || saving || uploadPending || index > 0 && !snapshot && !(index === 1 && manual)} onClick={() => goTo(index)}><b>{index + 1}</b><span>{title}</span></button></li>)}</ol></nav>
     {error ? <div className={styles.error} role="alert"><p>{error}</p>{selectedId ? <button type="button" disabled={loading} onClick={() => readClient(selectedId)}>重試讀取此個案</button> : <button type="button" onClick={() => window.location.reload()}>重新載入個案清單</button>}</div> : null}
     {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={snapshot?.clientId ?? "new"}>
-      <div hidden={step !== 0}>{visited.has(0) ? <CmsIntakeStep current={snapshot} canImport={scope("imports.manage") && canCreate} canApprove={scope("imports.approve") && (snapshot ? canManage : canCreate)} demo={context.demo} archiveConfigured={archiveConfigured} onSaved={saved} onDirty={importDirty} onBusy={importBusy} profileHasDraft={Boolean(dirtySteps[1])} onManual={() => { setManual(true); goTo(1); }} /> : null}</div>
+      <div hidden={step !== 0}>{visited.has(0) ? <CmsIntakeStep context={context} current={snapshot} canImport={scope("imports.manage") && canCreate} canApprove={scope("imports.approve") && (snapshot ? canManage : canCreate)} demo={context.demo} archiveConfigured={archiveConfigured} onSaved={saved} onDirty={importDirty} onBusy={importBusy} profileHasDraft={Boolean(dirtySteps[1])} onManual={() => { setManual(true); goTo(1); }} /> : null}</div>
       <div hidden={step !== 1}>{visited.has(1) ? <IntakeProfileForm key={snapshot?.profileVersion ?? 0} initial={snapshot} canManage={snapshot ? canManage : canCreate} demo={context.demo} today={today} onSaved={saved} onDirty={profileDirty} onBusy={profileBusy} /> : null}</div>
       <div hidden={step !== 2}>{visited.has(2) && snapshot ? <ClientWeeklyWorkspace clientId={snapshot.clientId} canManage={!error && scope("staff_scheduling.manage")} demo={context.demo} today={today} onDirty={weeklyDirty} onBusy={weeklyBusy} /> : null}</div>
       <div hidden={step !== 3}>{visited.has(3) && snapshot ? <TaipeiAbcdIntakeStep clientId={snapshot.clientId} organizationId={context.organizationId} branchId={context.branchId!} usageYear={115} readOnly={Boolean(error) || context.demo || !scope("abcd_assessments.manage")} demo={context.demo} onDirty={abcdDirty} onBusy={abcdBusy} today={today} prefill={profileToTaipeiPrefill(snapshot.profile)} /> : null}</div>

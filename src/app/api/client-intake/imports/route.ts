@@ -55,7 +55,15 @@ export async function POST(request: Request) {
       if (existing.data !== null) {
         const recovered = z.object({ status: z.enum(["queued", "completed"]), reservationId: z.uuid(), payloadSha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(), clientId: z.uuid().nullable() }).safeParse(existing.data);
         if (!recovered.success) throw new IntegrationError("IMPORT_LOOKUP_FAILED", "匯入批次回覆尚未通過核對，請重試。", 503);
-        if (recovered.data.status === "completed" && recovered.data.payloadSha256) return ok({ reservation_id: recovered.data.reservationId, status: "completed", recovered: true }, 200, requestId);
+        if (recovered.data.status === "completed" && recovered.data.payloadSha256) {
+          const current = await authorizeRoutineIntake("cms.preview");
+          if (current.userId !== actor.userId || current.organizationId !== actor.organizationId ||
+              current.branchId !== actor.branchId || !current.scopes.includes("imports.manage"))
+            throw new IntegrationError("IMPORT_NOT_AUTHORIZED", "目前登入或分支已變更，請重新核對原操作。", 403);
+          return ok({ reservation_id: recovered.data.reservationId, status: "completed", recovered: true,
+            file_sha256: validated.sha256, payload_sha256: recovered.data.payloadSha256,
+            mapping_version: "central-care-plan-html@1" }, 200, requestId);
+        }
         // A queued reservation may belong to this exact retry key. The trusted
         // reserve RPC decides whether it can resume; a different key cannot take it over.
       }
