@@ -125,6 +125,7 @@ import {
 } from "@/lib/core-care/snapshot";
 import { isCoreDailyPage } from "@/lib/core-care/types";
 import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
+import { loadDailyExpectedClients } from "@/lib/client-weekly/daily-projection-loader";
 import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
 import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
 import { env, isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
@@ -723,11 +724,16 @@ export default async function StaffCatalogPage({
     const serviceDate = parseServiceDate(
       typeof query.date === "string" ? query.date : undefined,
     );
+    const snapshotPromise = loadDailyCareSnapshot(context, serviceDate);
     const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
+    const expectedStatePromise = loadDailyExpectedClients(context, serviceDate);
+    // Observe an early rejection while the dashboard loads; the original
+    // promise still reaches its existing streamed component error boundary.
+    void expectedStatePromise.catch(() => {});
     let snapshot = null;
     let loadError = false;
     try {
-      snapshot = await loadDailyCareSnapshot(context, serviceDate);
+      snapshot = await snapshotPromise;
     } catch (error) {
       if (!(error instanceof CoreCareSnapshotError)) throw error;
       loadError = true;
@@ -741,7 +747,7 @@ export default async function StaffCatalogPage({
         snapshot={snapshot}
         roster={await rosterPromise}
       />
-      <Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={serviceDate} /></Suspense></>
+      <Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={serviceDate} statePromise={expectedStatePromise} /></Suspense></>
     );
   }
 
@@ -1482,6 +1488,15 @@ export default async function StaffCatalogPage({
       <p>連結中的個案、日期或班別格式不正確，系統沒有替您選擇其他個案或班別。</p>
       <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
     </section>;
+    const writePermission = page.number === 3 ? "health.write" : page.number === 6
+      ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
+    const authorityPromise = Promise.all([
+      writePermission ? canUseRoutineCare(context, writePermission) : Promise.resolve(false),
+      page.number === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
+    ]);
+    // Keep programmer failures observable when consumed, even if the read is
+    // still pending or independently fails before this preflight completes.
+    void authorityPromise.catch(() => {});
     let snapshot = null;
     let loadError = false;
     try {
@@ -1493,12 +1508,7 @@ export default async function StaffCatalogPage({
     if (snapshot && selectedClientId) {
       snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
     }
-    const writePermission = page.number === 3 ? "health.write" : page.number === 6
-      ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
-    const [canWriteRoutine, canReadDiary] = await Promise.all([
-      writePermission ? canUseRoutineCare(context, writePermission) : Promise.resolve(false),
-      page.number === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
-    ]);
+    const [canWriteRoutine, canReadDiary] = await authorityPromise;
     return (
       <CoreDailyWorkspace
         clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)

@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { isAuditSourcePath } from "./audit-source-path.mjs";
 
 const repo = process.cwd();
 const audit = process.argv[2];
@@ -13,7 +14,7 @@ const changed = [...new Set([
   ...execFileSync("git", ["diff", "--name-only", "-z", "HEAD", "--", "src"], { cwd: repo, encoding: "utf8" }).split("\0"),
   ...execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z", "--", "src"], { cwd: repo, encoding: "utf8" }).split("\0"),
 ].filter(Boolean))];
-if (!changed.length || changed.some((file) => !file.startsWith("src/") || file.includes(".."))) throw new Error("No valid changed source scope.");
+if (!changed.length || changed.some((file) => !isAuditSourcePath(file))) throw new Error("No valid changed source scope.");
 const snapshot = await mkdtemp(resolve(tmpdir(), "daycare-task-first-audit."));
 for (const file of [...changed, "DESIGN.md", "UX-CONTRACT.md", "package.json"]) {
   const target = resolve(snapshot, file);
@@ -25,7 +26,7 @@ const manifest = JSON.parse(await readFile(resolve(repo, "premium-task-first.jso
 // scope. Tests still run independently in the full repository, not this snapshot.
 if (manifest.evidence?.failurePaths) {
   const failurePath = manifest.evidence.failurePaths;
-  if (typeof failurePath !== "string" || !failurePath.startsWith("src/") || failurePath.includes("..")) throw new Error("Invalid failure-path evidence.");
+  if (!isAuditSourcePath(failurePath)) throw new Error("Invalid failure-path evidence.");
   await mkdir(resolve(snapshot, "evidence"), { recursive: true });
   await copyFile(resolve(repo, failurePath), resolve(snapshot, "evidence/failure-path.test.tsx"));
   manifest.evidence.failurePaths = "evidence/failure-path.test.tsx";

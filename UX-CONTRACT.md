@@ -255,4 +255,16 @@ ModuleLoading的150ms只控制視覺揭露，status/inert/登出與操作lease�
 
 `api/server-read-deadline.ts`只擁有read-only的單次20秒期限，core-care／case-center／care-roster／daily-projection各自涵蓋client初始化、其RPC／query及相依名字查詢。必要signal傳至原PostgREST transport，在每個followup前及await後核對；晚到初始化、分頁、profile及結果不得入場。原client_factory、本人cookie、機構／分支、purpose／interaction、assignment與parser均不變；不cache個資、不用service role、不自动retry、不把逾時變成empty/zero。共用timer在settle清除，abort僅是transport取消，不能宣稱已終止資料庫SQL。
 
-期限不是整個authenticated route的SLA：Auth前置仍有無界連續讀取；首頁的daily projection仍在core／roster之後，可能累加等待。其他89頁、正式RLS、hosted登入／寫入、50並行及備份恢復不由本次測試代替。選案補充內容自然換行；不可用ellipsis藏掉已保存待核對，但也不能把自然高度說成所有內容固定同高。
+該前一切片的期限不是整個authenticated route的SLA；後續Auth與首頁瀑布改善見下節。其他89頁、正式RLS、hosted登入／寫入、50並行及備份恢復不由本次測試代替。選案補充內容自然換行；不可用ellipsis藏掉已保存待核對，但也不能把自然高度說成所有內容固定同高。
+
+### 2026-09-28：登入來源與並行讀取
+
+權威來源仍為server驗證的getUser、database-owned admission、active_memberships、目前機構／分支、原scope、AAL及護理同session證據；沒有getSession／editable metadata授權、跨request個資快取、service role或新增角色。`getTenantContext`涵蓋client／cookie初始化到相依資料及護理證據的單次20秒owner；getUser與admission先完成，才並行讀assurance／membership，之後並行branch／organization。原branch fallback只能在有效同機構查詢已完成且原條件允許時發生。近期通用AAL檢查也有含context的自身總預算；不造近期時間。
+
+所有owned server fetch合併owner、Request及init訊號，no-store並保留原method／headers／body；取消後不開始下一個fetch、不收晚回條、不寫late Cookie值或移除值。SDK可能自帶重試，不新增自動重試層；owner結束拒絕其後續transport。取消不證明SQL或provider token refresh未提交。快速retryable／5xx auth失敗及deadline expiry回AUTH_CONTEXT_UNAVAILABLE503，不重新導向登入；已知無／無效session仍null，既有admission／membership error拒絕政策不在此輪變更。
+
+Proxy只是可選session更新，不做授權；自身20秒及request signal内完成才套用staged cookies與SDK的cache headers。SDK透過request-local shadow讀到自己已stage的新增分段及移除值，確保刷新後真正session_not_found可清完所有新分段；原request在整階段完成前不變。不可用時保留原request继续原Server Component／API／RLS檢查，不清Cookie或偽造登入，讓登出與簽章webhook仍可到達。下游仍须自已驗證，不以Proxy放行當已授權。
+
+分支GET／POST精確承接上述503；分支lookup另有client與query共同20秒預算，只有成功完整名單中缺requestedID才403。失敗／缺名單503，不發switch cookie；原AAL2與成功Cookieflags、demo及DELETE不變。這是分階段限制，非整端點或整頁20秒。首頁core／roster／expected在已授權context後同時開始且expected只讀一次；頁3／6／46的原authority preflight與原core讀取同時開始，不把未完成或false權限當true。首頁仍先等core／roster才呈現主內容，並非完整獨立streaming或hosted速度達標。
+
+共用route error只陳述無法載入，原reset只重試呈現，不承諾資料未送出或展示不存在的請求編號；未知寫入須先核對原筆。沿用原empty-card與button，route-error按鈕用既有深橘白字具名AA對比例外，不改Finance frame。實際Chrome合成畫面不替代真實Google登入、provider refresh、正式RLS、全部89頁或人工輔具驗收。

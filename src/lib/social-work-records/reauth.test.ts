@@ -79,6 +79,6 @@ describe("social-work-only current-session evidence", () => {
       expect(section).not.toContain("hasRecentAal2()"); expect(section).not.toContain("recentAal2At =");
     }
     const context = readFileSync(new URL("../auth/context.ts", import.meta.url), "utf8");
-    expect(context).not.toContain("getSocialWorkRecentAal2At"); expect(context).toContain("getNursingRecentAal2At(context, db)");
+    expect(context).not.toContain("getSocialWorkRecentAal2At"); expect(context).toContain("getNursingRecentAal2At(context, db, signal)");
   });
 });

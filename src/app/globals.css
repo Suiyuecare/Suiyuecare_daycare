@@ -492,6 +492,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 .empty-card__icon { display: grid; width: 52px; height: 52px; margin: 0 auto 18px; place-items: center; border-radius: 17px; background: var(--surface-mint); color: var(--brand); }
 .empty-card__icon--warning { background: var(--warning-soft); color: var(--warning); }
 .empty-card__icon svg { width: 26px; height: 26px; }
+.route-error .button--primary { background: var(--brand-strong); color: white; }
 .loading-card { display: flex; align-items: center; gap: 16px; text-align: left; }
 .loading-card strong { display: block; }
 .loading-card p { margin: 4px 0 0; color: var(--ink-muted); font-size: .82rem; }

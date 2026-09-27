@@ -68,6 +68,6 @@ describe("referral-only current session evidence", () => {
     expect(referral).toContain("getReferralRecentAal2At(context)"); expect(referral).not.toContain("hasRecentAal2()");
     expect(referral).not.toContain("recentAal2At =");
     const context = readFileSync(new URL("../auth/context.ts", import.meta.url), "utf8");
-    expect(context).not.toContain("getReferralRecentAal2At"); expect(context).toContain("getNursingRecentAal2At(context, db)");
+    expect(context).not.toContain("getReferralRecentAal2At"); expect(context).toContain("getNursingRecentAal2At(context, db, signal)");
   });
 });

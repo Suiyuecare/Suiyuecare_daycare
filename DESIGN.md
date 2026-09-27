@@ -152,3 +152,9 @@ CMS上傳主按鈕採具名無障礙例外：只在`cms-upload-control.module.cs
 - 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
 - 不把別的分支、展示資料或資料庫服務密鑰拿來補載入失敗。
 - 既有畫面存在 native confirm／validation bubbles 等差異，列為後續 migration，未以文件替它們宣稱合規；本次新區段不用這些模式。
+
+### 2026-09-28：登入與載入復原切片
+
+首頁的今日照顧、排班、應到名冊在同一已授權context後並行讀取，名冊仍沿用原Suspense／inline狀態；不增加另一個loader或改Finance frame。共用route error沿用既有centered-page／empty-card／button幾何，短標題「目前無法載入」，保留原reset重試，不宣稱寫入未送出；已送出者須核對原筆，不新增第二笔。只有`.route-error .button--primary`採現有`--brand-strong`配白字的具名AA對比例外，沒有新色碼／字型／radius，也不改header/sidebar。
+
+此輪Auth、分支及Proxy期限屬伺服器read owner，不能用視覺變化冒充身分授權成功、保存完成或正式p95。即時傳輸／5xx與逾時不以「未登入」回條處理；真正缺少／無效session、AAL及資料範圍政策保持原邏輯。測試與發布邊界見`docs/SMOOTH_AUTH_READINESS_2026-09-28.md`。

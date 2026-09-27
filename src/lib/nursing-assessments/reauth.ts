@@ -14,15 +14,17 @@ const evidenceSchema = z.object({
 // This is a nursing-only admission/evidence check, not an exception to the
 // generic high-risk guard. The database verifies actual session, AMR, challenge
 // and current pinned employee scope; browser timestamps are never evidence.
-export async function getNursingRecentAal2At(actor: TenantContext, suppliedClient?: EvidenceClient): Promise<string | null> {
+export async function getNursingRecentAal2At(actor: TenantContext, suppliedClient?: EvidenceClient, signal?: AbortSignal): Promise<string | null> {
   if (actor.demo || actor.assuranceLevel !== "aal2" || !actor.roles.includes("nurse") ||
     !["clients.read", "nursing_assessments.read", "nursing_assessments.sign"].every((scope) => actor.scopes.includes(scope))) return null;
   try {
-    const client = suppliedClient ?? await createServerSupabaseClient();
-    if (!client) return null;
+    if (signal?.aborted) return null;
+    const client = suppliedClient ?? await createServerSupabaseClient(signal ? { signal } : undefined);
+    if (!client || signal?.aborted) return null;
     const { data, error } = await client.rpc("nursing_recent_aal2_evidence", {
       p_expected_organization_id: actor.organizationId, p_expected_branch_id: actor.branchId,
     });
+    if (signal?.aborted) return null;
     const parsed = evidenceSchema.safeParse(data);
     if (error || !parsed.success) return null;
     const value = parsed.data;
