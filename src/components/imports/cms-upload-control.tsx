@@ -56,6 +56,7 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
   async function preview(staged: CmsUploadOperation, result: CmsUploadResult, signal: AbortSignal, generation: number) {
     const current = () => generation === mount.current.generation && liveScope.current === scopeKey && !signal.aborted && isCurrentCmsUpload(staged, scope);
     if (!current()) return;
+    setStatus("原檔已保存，正在讀取核對資料；尚未完成收案。");
     await onPreview(result, signal, current);
     if (current() && finishCmsUpload(staged, scope)) {
       setFile(null); setChecked(null); setStatus("已取得核對資料。請逐欄確認後建檔；尚未完成收案。");
@@ -67,7 +68,7 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
   async function upload() {
     if (running.current || !allowed || foreignPending || operation && !operation.result && checked !== operation.token) return;
     if (!operation?.result && !file) { setError("請重新選取同一份 HTML 原檔，再繼續原操作。"); input.current?.focus(); return; }
-    running.current = true; setBusy(true); setError(""); setStatus("正在核對並上傳原檔…");
+    running.current = true; setBusy(true); setError(""); setStatus("正在核對原檔，尚未送出…");
     const abort = new AbortController(); controller.current = abort;
     const generation = mount.current.generation;
     let pending: CmsUploadOperation | null = null;
@@ -81,7 +82,10 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
         pending = beginCmsUpload(scope, description, key, originalId);
       }
       if (!pending) throw new CmsUploadClientError();
-      const result = pending.result ?? await sendCmsUpload(pending, scope, file!, pending.reservationId !== null, abort.signal);
+      const result = pending.result ?? await sendCmsUpload(pending, scope, file!, pending.reservationId !== null, abort.signal, stage => {
+        if (generation !== mount.current.generation || liveScope.current !== scopeKey || abort.signal.aborted || !pending || !isCurrentCmsUpload(pending, scope)) return;
+        setStatus(stage === "verifying" ? "正在核對同一份原檔，尚未送出…" : "正在傳送與解析原檔；請勿重複上傳…");
+      });
       if (!isCurrentCmsUpload(pending, scope) || generation !== mount.current.generation || liveScope.current !== scopeKey) return;
       const staged = markCmsUploadStaged(pending, scope, result); if (!staged) return;
       pending = staged; await preview(staged, result, abort.signal, generation);
@@ -126,7 +130,7 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
     // A new file attempt invalidates the previous approval preview even when
     // the selected file is invalid. Unknown operations retain their owner.
     if (!operation) onSelectionChanged?.();
-    running.current = true; setBusy(true); setError("");
+    running.current = true; setBusy(true); setError(""); setStatus("正在檢查檔案格式與內容，尚未上傳…");
     const generation = mount.current.generation, abort = new AbortController(); controller.current = abort;
     try {
       const described = await describeCmsUploadFile(selected, mode, abort.signal);
@@ -150,7 +154,7 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
     <p id={`${id}-help`}>{operation ? "保留原操作；續做時請重新選取同一份原檔。" : "原檔不會在畫面執行，也不會自動建立個案。"}</p>
     {foreignPending ? <p role="status">另一項 CMS 上傳仍待確認。請回原分支與原個案處理，或安全登出後重新核對。</p> : null}
     {!allowed && !context.demo ? <p role="status">目前無法上傳；請先確認分支、權限與封存服務。</p> : null}
-    {operation ? <div className="callout"><span>上傳仍待確認。請先查詢原結果，不要另建個案。</span></div> : null}
+    {operation ? <div className="callout"><span>{operation.result ? "原檔已保存，核對資料仍待讀回。" : operation.phase === "sending" ? "正在處理原檔，請勿重複上傳。" : "上傳仍待確認。請先查詢原結果，不要另建個案。"}</span></div> : null}
     {state.navigationBlocked && operation ? <p role="status">請先處理這次上傳，再切換個案或離開。完整重載無法保留此分頁的原操作。</p> : null}
     <div className="import-actions">
       {operation ? <button type="button" className="button button--secondary" disabled={busy || !allowed} onClick={check}>確認上傳結果</button> : null}

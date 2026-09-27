@@ -1,0 +1,5 @@
+.action :is(input, select, textarea) { font-size: 16px; }
+.action :is(button, input, select) { min-height: 44px; }
+.action textarea { min-height: 112px; resize: none; }
+.action form { min-width: 0; }
+.action p { overflow-wrap: anywhere; }

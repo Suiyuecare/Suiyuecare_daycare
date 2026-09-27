@@ -40,6 +40,8 @@ import { clearPsychosocialAssessmentPendingOnLogout, observePsychosocialAssessme
 import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState, observeQuestionnaireViewAuthority, questionnaireViewAuthority, useQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
 import { clearQuestionnairePendingOnLogout, observeQuestionnairePendingAuthority } from "@/lib/questionnaire-assessments/pending";
 import { clearCmsUploadOnLogout, cmsUploadAuthority, observeCmsUploadAuthority } from "@/lib/imports/upload-pending";
+import { clearMedicationPendingOnLogout, medicationAuthoritySignature, observeMedicationAuthority } from "@/lib/medications/pending";
+import { clearIntakeWritesOnLogout, intakeWriteAuthority, observeIntakeWriteAuthority } from "@/lib/client-intake/write-pending";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -115,6 +117,8 @@ export function AppShell({
   const psychosocialAuthority = psychosocialAssessmentAuthoritySignature(context);
   const questionnaireAuthority = questionnaireViewAuthority(context);
   const uploadAuthority = cmsUploadAuthority(context);
+  const medicationAuthority = medicationAuthoritySignature(context);
+  const intakeAuthority = intakeWriteAuthority(context);
   const questionnaireView = useQuestionnaireViewState();
 
   // Track authority outside the announcement route too: an unmounted editor
@@ -142,6 +146,12 @@ export function AppShell({
   useLayoutEffect(() => {
     if (!logoutRunning.current && logoutState === "idle") observeCmsUploadAuthority(uploadAuthority);
   }, [uploadAuthority, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeMedicationAuthority(medicationAuthority);
+  }, [medicationAuthority, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeIntakeWriteAuthority(intakeAuthority);
+  }, [intakeAuthority, logoutState]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -251,6 +261,8 @@ export function AppShell({
     clearQuestionnairePendingOnLogout();
     clearQuestionnaireViewOnLogout();
     clearCmsUploadOnLogout();
+    clearMedicationPendingOnLogout();
+    clearIntakeWritesOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();

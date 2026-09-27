@@ -34,6 +34,8 @@ vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({
 vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
 let AppShell: typeof import("./app-shell").AppShell;
 let uploadJournal: typeof import("@/lib/imports/upload-pending");
+let intakeJournal: typeof import("@/lib/client-intake/write-pending");
+let medicationJournal: typeof import("@/lib/medications/pending");
 import { useCoreDraftGuard } from "@/components/core-care/client-continuation";
 let registerUnsavedChangesOwner: typeof import("@/lib/navigation/unsaved-changes").registerUnsavedChangesOwner;
 const unregisterOwners: (() => void)[] = [];
@@ -47,11 +49,53 @@ beforeEach(async () => {
   mocks.fetch.mockResolvedValue(Response.json({ status: "ok", data: { cleared: true } }));
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   uploadJournal = await import("@/lib/imports/upload-pending");
+  intakeJournal = await import("@/lib/client-intake/write-pending");
+  medicationJournal = await import("@/lib/medications/pending");
   registerUnsavedChangesOwner = (await import("@/lib/navigation/unsaved-changes")).registerUnsavedChangesOwner;
   AppShell = (await import("./app-shell")).AppShell;
 });
-afterEach(() => { cleanup(); uploadJournal.clearCmsUploadOnLogout(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); uploadJournal.clearCmsUploadOnLogout(); intakeJournal.clearIntakeWritesOnLogout(); medicationJournal.clearMedicationPendingOnLogout(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("staff shell logout privacy", () => {
+  it("clears original intake intent before asynchronous logout and cannot revive it via authority ABA", async () => {
+    let finish!: () => void; mocks.clear.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const { emptyIntakeProfile } = await import("@/lib/client-intake/model");
+    const clearIntake = vi.spyOn(intakeJournal, "clearIntakeWritesOnLogout");
+    render(<AppShell context={actor} navigation={[]}><p>合成建檔資料</p></AppShell>);
+    const operation = intakeJournal.beginIntakeWrite(actor, "profile", null, { action: "create",
+      idempotency_key: "40000000-0000-4000-8000-000000000001", profile: { ...emptyIntakeProfile, displayName: "Synthetic", clientCode: "SYNTHETIC" } })!;
+    expect(operation).not.toBeNull(); act(() => { intakeJournal.markIntakeWriteUnknown(operation); });
+    expect(intakeJournal.hasIntakeWriteOperation()).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(clearIntake).toHaveBeenCalledOnce(); expect(intakeJournal.hasIntakeWriteOperation()).toBe(false);
+    expect(intakeJournal.isCurrentIntakeWrite(operation)).toBe(false);
+    act(() => { intakeJournal.observeIntakeWriteAuthority(intakeJournal.intakeWriteAuthority({ ...actor, scopes: [] }));
+      intakeJournal.observeIntakeWriteAuthority(intakeJournal.intakeWriteAuthority(actor)); });
+    expect(intakeJournal.isIntakeWriteAuthorityCurrent(actor)).toBe(false);
+    expect(screen.queryByText("合成建檔資料")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledOnce());
+    await act(async () => finish()); await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+  });
+  it("clears original medication intent before asynchronous logout and cannot revive it via old props", async () => {
+    let finish!: () => void; mocks.clear.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const nurse = { ...actor, roles: ["nurse" as const], scopes: [...actor.scopes, "medications.administer"] };
+    const clearMedication = vi.spyOn(medicationJournal, "clearMedicationPendingOnLogout");
+    render(<AppShell context={nurse} navigation={[]}><p>合成用藥資料</p></AppShell>);
+    const scope = { organizationId: actor.organizationId, branchId: actor.branchId, userId: actor.userId };
+    const draft = { status: "administered" as const, occurredAt: "2026-09-28T09:00:00+08:00", reason: "Synthetic" };
+    const operation = medicationJournal.beginMedicationOperation(scope, JSON.stringify(draft), { kind: "record",
+      medicationAdministrationId: "40000000-0000-4000-8000-000000000001", status: draft.status, occurredAt: draft.occurredAt,
+      mustRequireSecondVerification: false }, draft, "synthetic-source")!;
+    expect(operation).not.toBeNull(); act(() => { medicationJournal.markMedicationUnknown(operation); });
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(clearMedication).toHaveBeenCalledOnce(); expect(medicationJournal.getMedicationPending().operation).toBeNull();
+    expect(medicationJournal.isMedicationOperationCurrent(operation)).toBe(false);
+    act(() => { medicationJournal.observeMedicationAuthority(medicationJournal.medicationAuthoritySignature({ ...nurse, scopes: [] }));
+      medicationJournal.observeMedicationAuthority(medicationJournal.medicationAuthoritySignature(nurse)); });
+    expect(medicationJournal.medicationAuthorityMatches(scope)).toBe(false);
+    expect(screen.queryByText("合成用藥資料")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledOnce());
+    await act(async () => finish()); await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+  });
   it("clears real CMS upload owner immediately and prevents old props or observer ABA resurrection", async () => {
     let finish!: () => void; mocks.clear.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
     const clearUpload = vi.spyOn(uploadJournal, "clearCmsUploadOnLogout");
@@ -253,7 +297,7 @@ describe("staff shell logout privacy", () => {
     const observe = module === "social work" ? mocks.observeSocialWork : mocks.observePsychosocial;
     const shell = render(<AppShell context={actor} navigation={[]}><p>合成其他工作頁</p></AppShell>);
     const first = observe.mock.calls[0][0];
-    shell.rerender(<AppShell context={{ ...actor, userId: "other-synthetic", roles: ["case_manager_social_worker"], scopes: ["clients.read", "social_work_records.read"] }} navigation={[]}><p>合成其他工作頁</p></AppShell>);
+    shell.rerender(<AppShell context={{ ...actor, userId: "30000000-0000-4000-8000-000000000002", roles: ["case_manager_social_worker"], scopes: ["clients.read", "social_work_records.read"] }} navigation={[]}><p>合成其他工作頁</p></AppShell>);
     expect(observe).toHaveBeenCalledTimes(2);
     expect(observe.mock.calls[1][0]).not.toBe(first);
     shell.rerender(<AppShell context={actor} navigation={[]}><p>合成其他工作頁</p></AppShell>);

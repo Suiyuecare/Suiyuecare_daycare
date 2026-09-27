@@ -67,15 +67,20 @@ export async function locateCmsUploadResult(operation: CmsUploadOperation, scope
     throw new CmsUploadClientError();
   return source;
 }
-export async function sendCmsUpload(operation: CmsUploadOperation, scope: CmsUploadScope, file: File, recover: boolean, signal: AbortSignal): Promise<CmsUploadResult> {
+export type CmsUploadStage = "verifying" | "sending";
+export async function sendCmsUpload(operation: CmsUploadOperation, scope: CmsUploadScope, file: File, recover: boolean, signal: AbortSignal,
+  onStage?: (stage: CmsUploadStage) => void): Promise<CmsUploadResult> {
   return bounded(async requestSignal => {
+    onStage?.("verifying");
     const selected = await describeCmsUploadFile(file, scope.mode, requestSignal);
+    if (requestSignal.aborted) throw new CmsUploadClientError();
     if (!sameCmsUploadFile(selected, operation.file)) throw new Error("檔案與原上傳不同。請重新選取同一份原檔；不會另建操作。");
     const form = new FormData(); form.set("file", file);
     const key = recover ? operation.recoveryKey : operation.key;
     if (!key || recover && !operation.reservationId) throw new CmsUploadClientError();
     if (scope.mode === "general" || recover) form.set("idempotency_key", key);
     if (recover) { form.set("reservation_id", operation.reservationId!); form.set("original_operation_key", operation.key); }
+    onStage?.("sending");
     const response = await fetch(recover ? `${baseUrl(scope)}/recovery` : scope.mode === "general" ? `${baseUrl(scope)}/html` : baseUrl(scope),
       { method: "POST", headers: { "idempotency-key": key }, body: form, credentials: "same-origin", redirect: "error", signal: requestSignal });
     if (!response.ok || response.redirected) throw new CmsUploadClientError(response.status);

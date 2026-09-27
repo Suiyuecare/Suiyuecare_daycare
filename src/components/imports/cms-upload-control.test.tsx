@@ -93,6 +93,21 @@ describe("shared CMS upload recovery control", () => {
       payloadSha256: "c".repeat(64), mappingVersion: "central-care-plan-html@1", contentFingerprint: "b".repeat(64), sectionCount: 1, fieldCount: 2 });
     expect(journal.hasCmsUploadOperation()).toBe(false);
   });
+  it("saved-original preview loading is distinguished from unknown upload and completed intake", async () => {
+    const test = await seed(); let finish!: () => void;
+    const preview = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const fetcher = vi.fn().mockResolvedValue(Response.json(envelope({ found: true, operation: source(test.operation, true) })));
+    vi.stubGlobal("fetch", fetcher);
+    render(<Control context={test.context} mode="routine-intake" enabled onPreview={preview} />);
+    fireEvent.click(check());
+    await screen.findByText("原檔已保存，正在讀取核對資料；尚未完成收案。");
+    expect(screen.queryByText("上傳仍待確認。請先查詢原結果，不要另建個案。")).toBeNull();
+    expect(journal.hasCmsUploadOperation()).toBe(true);
+    await act(async () => { finish(); });
+    await screen.findByText(/已取得核對資料/u);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(journal.hasCmsUploadOperation()).toBe(false);
+  });
   it("failed correlated source preview retains guard and allows preview-only retry", async () => {
     const test = await seed(), preview = vi.fn().mockRejectedValue(new Error("PRIVATE_PREVIEW"));
     const fetcher = vi.fn().mockResolvedValue(Response.json(envelope({ found: true, operation: source(test.operation, true) }))); vi.stubGlobal("fetch", fetcher);

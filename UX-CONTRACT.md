@@ -223,3 +223,14 @@ GovernanceDialog／useUnsavedChanges維持同一模態與捨棄owner；只有未
 成功receipt只證明保存，不代表清單更新；只有同範圍、有效且包含確切原版本／事件、序號、狀態及時間的positive history proof才移除該鏈防重送標記。缺列、截斷、refresh完成不是證據。近期驗證只查本人／機構／分支／同session的真實已consumed事件，嚴格四欄證據、15分鐘及非未來；兩頁SSR只取得boolean，API簽署／更正含replay再次查證，不將模組證據假填全域context時間。
 
 邊界：32個待清單確認標記、有界讀取、完整重載無durable intent；未知鎖下獨立GET已補，真正MFA與scope變更後context復原仍未製作，不以釋放unknown或舊props代替。合成Chrome／mock transport、portable與本機native測試均不是hosted真人登入、正式營運或全站WCAG證明。
+
+### 2026-09-28：用藥、收案與附件的操作復原
+
+權威來源：用藥 `action-response.ts`、原 record／verify API；收案 `client-intake/model.ts`、profile／CMS API 與既有 RPC；附件 `client-documents/schema.ts`、lifecycle 與原 API。此切片沒有變更臨床公式、醫囑、簽署授權、掃毒、封存規則或資料庫 migration。
+
+- 用藥同一分頁只有一個原操作 owner，桌機／手機共用。原 body、操作鍵、來源 row／snapshot generation 與本人機構分支固定；送出中不能編輯。未知結果可返回清單但不等於取消，保留原 lease；重新開啟只重試同筆。新來源在未送出前取消舊確認，需再次核對。成功回條與清單更新分開，32 個尚待正向讀回標記達上限時明示停用新筆及安全重新登入指引，不讓第 33 筆按鈕無聲失效。
+- 收案基本資料／CMS 核准共用原操作 journal。已保存但讀回失敗只重新 GET；原版本、內容與 source batch 不符時保持原個案 scope／原步驟，不先改選案、切頁或更換 key。重新掛載不自動 POST，未知後的拒絕不能證明前次未保存。未送出輸入沿用共用捨棄確認；未知／已保存待核對操作不可捨棄後另建。
+- AppShell 在其他頁面仍觀察用藥及收案 authority。登出先同步清除 journal／內容與 lease，舊 props／authority ABA 不能復活；lease 取得會同步通知其他 owner，因此 CMS、收案、用藥均須取得後再次核對原 state／authority。完整 fetch 與 JSON 有期限，卸載、來源／範圍變動及晚回覆不得更新舊畫面。
+- 附件此次是 `ClientDocumentsWorkspace`／`DocumentHistoryPanel` 的具名限縮變體：上傳固定原 FormData／key，已有有效回條後只核對清單，不重送原檔。GET 20 秒、寫入 25 秒均包含 JSON，傳入取消訊號與 generation fence。清單更新失敗收起舊摘要；下載回條驗證設定的 storage origin、個案、文件與版次，55 秒保守到期後需重新取得，未通過掃毒仍禁止下載。
+
+邊界：完整頁面重載、跨分頁或重新登入沒有 durable 原操作復原；附件尚無跨卸載 journal／完整 authority context，類別覆核仍沿用原流程。用藥尚無原 receipt 唯讀查證／可正向解除保存標記的資料來源。沒有新的 Auth session nonce，不以舊 props 代替新登入。真實掃毒、七年封存、正式量表採用、hosted schema／Auth／收支、真人簽署及 50 人並行仍須另行驗收。此切片的本機合成 Chrome 與單元測試不能作正式上線證明。

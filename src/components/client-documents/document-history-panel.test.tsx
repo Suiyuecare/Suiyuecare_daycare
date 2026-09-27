@@ -49,7 +49,7 @@ function saved(input: Record<string, unknown>, changes: Record<string, unknown> 
   return ok({ receipt: { clientId: input.clientId, documentId: input.documentId, category: input.category,
     reviewRevision: Number(input.expectedReviewRevision) + 1, disposition: input.disposition, persisted: true, replayed: false, ...changes } });
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 
 describe("per-document history and lifecycle UI", () => {
   it("is lazy and never contacts document services in demo", async () => {
@@ -133,7 +133,8 @@ describe("per-document history and lifecycle UI", () => {
     expect(screen.queryByText(/這份文件的處置已儲存/)).not.toBeInTheDocument(); expect(mutationCalls(fetch)).toHaveLength(1);
   });
   it("downloads clean inactive evidence with exact document identity and explicit historical labeling", async () => {
-    const signedUrl = "https://synthetic.supabase.co/storage/v1/object/sign/client-intake-documents/synthetic";
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://synthetic.supabase.co");
+    const signedUrl = `https://synthetic.supabase.co/storage/v1/object/sign/client-intake-documents/${page().organizationId}/${clientId}/${uuid(1)}?token=synthetic`;
     const fetch = queued(ok({ snapshot: page([row(1, { disposition: "inactive", historicalOnly: true })]) }),
       ok({ url: signedUrl, documentId: uuid(1), version: 1, expiresSeconds: 60, disposition: "inactive", historicalOnly: true }));
     render(<DocumentHistoryPanel {...props()} />); await open();

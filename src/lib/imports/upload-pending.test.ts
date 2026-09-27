@@ -8,10 +8,26 @@ const context: TenantContext = { organizationId: uuid(1), organizationName: "Syn
   scopes: ["imports.manage", "clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"], assuranceLevel: "aal1", recentAal2At: null, demo: false };
 const file = { name: "synthetic.html", size: 10, mime: "text/html", sha256: "a".repeat(64) };
 beforeEach(async () => { vi.resetModules(); journal = await import("./upload-pending"); journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(context)); });
-afterEach(() => journal.clearCmsUploadOnLogout());
+afterEach(() => { journal.clearCmsUploadOnLogout(); vi.restoreAllMocks(); });
 const scope = () => journal.cmsUploadScope(context, "routine-intake", uuid(4));
 const begin = () => journal.beginCmsUpload(scope(), file, uuid(5), uuid(6))!;
 describe("tab-local original CMS upload journal", () => {
+  it.each(["logout", "revoke", "ABA"])("cannot reinstall an upload after synchronous %s during lease acquisition", async change => {
+    const lock = await import("@/lib/navigation/pending-operation-lock");
+    const acquire = lock.tryAcquirePendingOperation;
+    vi.spyOn(lock, "tryAcquirePendingOperation").mockImplementation(() => {
+      const held = acquire();
+      if (change === "logout") journal.clearCmsUploadOnLogout();
+      else {
+        journal.observeCmsUploadAuthority(journal.cmsUploadAuthority({ ...context, scopes: [] }));
+        if (change === "ABA") journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(context));
+      }
+      return held;
+    });
+    expect(begin()).toBeNull();
+    expect(journal.hasCmsUploadOperation()).toBe(false);
+    expect(lock.hasPendingOperations()).toBe(false);
+  });
   it("freezes original key and metadata only, excluding File bytes or browser storage", () => {
     const local = vi.spyOn(Storage.prototype, "setItem"); const operation = begin();
     expect(Object.isFrozen(operation)).toBe(true); expect(Object.isFrozen(operation.file)).toBe(true);

@@ -77,14 +77,21 @@ export function beginCmsUpload(scope: CmsUploadScope, file: CmsUploadFile, key: 
       !Number.isSafeInteger(file.size) || file.size < 1 || file.size > (scope.mode === "general" ? 25 : 4) * 1024 * 1024 ||
       !/\.html?$/iu.test(file.name) || file.name.length > 255 || /[\\/\u0000-\u001f\u007f]/u.test(file.name) ||
       !["text/html", "application/xhtml+xml"].includes(file.mime)) return null;
+  const checkpoint = state;
   const held = tryAcquirePendingOperation(); if (!held) return null;
+  // Acquiring the shared lease synchronously notifies other owners. They may
+  // log out or revoke this authority before acquire returns; never reinstall
+  // an original upload after that privacy boundary.
+  if (state !== checkpoint || !canUseCmsUpload(scope)) { held(); return null; }
   const operation: CmsUploadOperation = Object.freeze({ token: Symbol(), attempt: Symbol(), epoch: state.epoch,
     scope: Object.freeze({ ...scope }), file: Object.freeze({ ...file }), key, originalId, phase: "sending",
     reservationId: null, batchId: null, recoveryKey: null, result: null });
   lease = held; state = Object.freeze({ ...state, operation, navigationBlocked: false });
-  guard = installPendingNavigationGuard({ hasPendingOperation: hasCmsUploadOperation, permittedFormAttribute: "data-cms-upload",
-    onBlocked: () => { state = Object.freeze({ ...state, navigationBlocked: true }); emit(); } });
-  emit(); return operation;
+  try {
+    guard = installPendingNavigationGuard({ hasPendingOperation: hasCmsUploadOperation, permittedFormAttribute: "data-cms-upload",
+      onBlocked: () => { state = Object.freeze({ ...state, navigationBlocked: true }); emit(); } });
+  } catch (error) { state = Object.freeze({ ...state, operation: null }); unlock(); throw error; }
+  emit(); return isCurrentCmsUpload(operation, scope) ? operation : null;
 }
 /** A new attempt retains the original key/bytes, including across remounts and
  * fresh authorization. The server's explicit recovery path decides authority. */

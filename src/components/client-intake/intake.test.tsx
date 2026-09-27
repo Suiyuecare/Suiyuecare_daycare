@@ -9,12 +9,19 @@ let IntakeProfileForm: typeof import("./intake-profile-form").IntakeProfileForm;
 let CmsIntakeStep: typeof import("./cms-intake-step").CmsIntakeStep;
 let IntakeWorkspace: typeof import("./intake-workspace").IntakeWorkspace;
 let journal: typeof import("@/lib/imports/upload-pending"), uploadClient: typeof import("@/lib/imports/upload-client");
+let writes: typeof import("@/lib/client-intake/write-pending");
 const id = "c1600000-0000-4000-8000-000000000001";
 const other = "c1600000-0000-4000-8000-000000000002";
 const context: TenantContext = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id,
   displayName: "合成收案人員", roles: ["nurse"], scopes: ["clients.read", "clients.manage", "clients.demographics.read", "clients.view_all", "imports.manage", "imports.approve"],
   assuranceLevel: "aal1", recentAal2At: null, demo: false };
 const success = (data: unknown) => ({ requestId: other, status: "ok", data, errors: [] });
+function writeReceipt(body: string, clientId = id) {
+  const input = JSON.parse(body);
+  return { clientId, persisted: true, operationId: input.idempotency_key, profileVersion: (input.expectedVersion ?? 0) + 1,
+    clientRowVersion: (input.expectedClientVersion ?? 0) + 1, pending: true, replayed: false,
+    ...(input.batchId ? { batchId: input.batchId, formallyImported: true } : {}) };
+}
 const originalFile = () => new File(["<h5>合成資料</h5>"], "synthetic.html", { type: "text/html" });
 const previewFixture = (current: IntakeSnapshot | null = null): CmsIntakePreview => ({ batchId: id, payloadSha256: "a".repeat(64),
   mappingVersion: "central-care-plan-html@1", fields: [["displayName", "姓名", "合成新個案"], ["identityNumber", "身分識別", "X123456789"]]
@@ -57,12 +64,15 @@ beforeEach(async () => {
       reader.onerror = () => reject(reader.error); reader.readAsArrayBuffer(this); });
   } });
   journal = await import("@/lib/imports/upload-pending"); uploadClient = await import("@/lib/imports/upload-client");
+  writes = await import("@/lib/client-intake/write-pending"); writes.observeIntakeWriteAuthority(writes.intakeWriteAuthority(context));
   journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(context));
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
   IntakeProfileForm = (await import("./intake-profile-form")).IntakeProfileForm;
   CmsIntakeStep = (await import("./cms-intake-step")).CmsIntakeStep;
   IntakeWorkspace = (await import("./intake-workspace")).IntakeWorkspace;
 });
-afterEach(() => { cleanup(); journal.clearCmsUploadOnLogout(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); journal.clearCmsUploadOnLogout(); writes.clearIntakeWritesOnLogout(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("intake usability and truthful writes", () => {
   it("does not offer unknown-case CMS staging to assigned-only staff", () => {
     const context = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.manage", "clients.demographics.read", "imports.manage", "imports.approve"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
@@ -90,38 +100,187 @@ describe("intake usability and truthful writes", () => {
     expect(onManual).toHaveBeenCalledOnce(); expect(fetch).not.toHaveBeenCalled();
   });
   it("labels missing information as missing, not complete", () => {
-    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
     expect(screen.getByText(/目前仍待核對/)).toHaveTextContent("可聯繫的關係人"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
     fireEvent.click(screen.getByRole("button", { name: "＋新增聯絡人" })); expect(screen.getByLabelText("聯絡人姓名")).toBeVisible();
   });
   it("retains fields and idempotency key when an uncertain request is retried", async () => {
     const fetch = vi.fn().mockRejectedValueOnce(new Error("連線中斷"))
-      .mockResolvedValueOnce(Response.json({ status: "ok", data: { clientId: id, persisted: true } }));
+      .mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))));
     vi.stubGlobal("fetch", fetch); const onSaved = vi.fn().mockResolvedValue(undefined);
-    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={vi.fn()} />);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成測試個案" } }); fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
-    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); expect(await screen.findByRole("alert")).toHaveTextContent("連線中斷");
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); expect(await screen.findByRole("alert")).toHaveTextContent("結果尚未確認");
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成測試個案");
-    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await waitFor(() => expect(onSaved).toHaveBeenCalledWith(id));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "重試原次保存" })); await waitFor(() => expect(onSaved).toHaveBeenCalledWith(id));
     expect(JSON.parse(fetch.mock.calls[0][1].body).idempotency_key).toBe(JSON.parse(fetch.mock.calls[1][1].body).idempotency_key);
   });
+  it("same-tab profile remount restores the immutable original input without automatic resend", async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error("NETWORK_UNKNOWN"))
+      .mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))));
+    vi.stubGlobal("fetch", fetcher); const onSaved = vi.fn().mockResolvedValue(undefined);
+    const props = { context, initial: null, canManage: true, demo: false, today: "2026-09-14", onSaved, onDirty: vi.fn() };
+    const first = render(<IntakeProfileForm {...props} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "原次合成個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "ORIGINAL-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await screen.findByRole("alert");
+    const body = fetcher.mock.calls[0][1].body; first.unmount();
+    render(<IntakeProfileForm {...props} />);
+    expect(fetcher).toHaveBeenCalledOnce(); expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("原次合成個案");
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "不可改寫" } });
+    fireEvent.click(screen.getByRole("button", { name: "重試原次保存" })); await waitFor(() => expect(onSaved).toHaveBeenCalledWith(id));
+    expect(fetcher.mock.calls[1][1].body).toBe(body);
+  });
+  it("a complete first rejection unlocks input, but a later rejection after unknown cannot claim rollback", async () => {
+    const reject = () => Response.json({ requestId: other, status: "error", data: null,
+      errors: [{ code: "INTAKE_INVALID", message: "PRIVATE_PROVIDER_MESSAGE" }] }, { status: 400 });
+    const fetcher = vi.fn().mockResolvedValueOnce(reject()).mockRejectedValueOnce(new Error("NETWORK_UNKNOWN")).mockResolvedValueOnce(reject());
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "ORIGINAL-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await screen.findByText(/本次操作未保存/u);
+    expect(writes.hasIntakeWriteOperation()).toBe(false); expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await screen.findByText(/未收到完整回覆/u);
+    const originalBody = fetcher.mock.calls[1][1].body;
+    fireEvent.click(screen.getByRole("button", { name: "重試原次保存" })); await screen.findByText(/本次拒絕不能證明前次未保存/u);
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled(); expect(writes.hasIntakeWriteOperation()).toBe(true);
+    expect(fetcher.mock.calls[2][1].body).toBe(originalBody); expect(screen.queryByText(/PRIVATE_PROVIDER_MESSAGE/u)).not.toBeInTheDocument();
+  });
+  it("saved profile with failed readback only re-reads and never sends another mutation", async () => {
+    const fetcher = vi.fn().mockImplementation((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))));
+    vi.stubGlobal("fetch", fetcher);
+    const profile = { ...emptyIntakeProfile, displayName: "合成個案", clientCode: "ORIGINAL-01" };
+    const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile, fieldAuthority: {}, sourceBatchId: null };
+    const onSaved = vi.fn().mockRejectedValueOnce(new Error("READ_FAILED")).mockResolvedValueOnce(snapshot);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: profile.displayName } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: profile.clientCode } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await screen.findByText(/基本資料已保存，但資料讀取失敗/u);
+    expect(writes.getIntakeWriteState().operation?.phase).toBe("saved");
+    fireEvent.click(screen.getByRole("button", { name: "重讀已保存資料（不重送）" }));
+    await waitFor(() => expect(writes.hasIntakeWriteOperation()).toBe(false)); expect(fetcher).toHaveBeenCalledOnce(); expect(onSaved).toHaveBeenCalledTimes(2);
+  });
+  it("CREATE readback mismatch preserves the original null-client owner and its read-only recovery", async () => {
+    const profile = { ...emptyIntakeProfile, displayName: "原次合成個案", clientCode: "ORIGINAL-01" };
+    const snapshot: IntakeSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile, fieldAuthority: {}, sourceBatchId: null };
+    const fetcher = vi.fn().mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))))
+      .mockResolvedValueOnce(Response.json(success({ ...snapshot, profileVersion: 2 })))
+      .mockResolvedValueOnce(Response.json(success(snapshot)));
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+    fireEvent.click(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" }));
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: profile.displayName } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: profile.clientCode } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    const recover = await screen.findByRole("button", { name: "重讀已保存資料（不重送）" });
+    await waitFor(() => expect(recover).toBeEnabled());
+    expect(screen.getByLabelText("個案")).toHaveValue(""); expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue(profile.displayName);
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled(); expect(screen.getByRole("button", { name: "重新載入個案清單" })).toBeDisabled();
+    expect(writes.getIntakeWriteState().operation?.clientId).toBeNull(); expect(writes.getIntakeWriteState().operation?.phase).toBe("saved");
+    expect(screen.getByRole("button", { name: /2\s*基本資料/u })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(recover); await waitFor(() => expect(writes.hasIntakeWriteOperation()).toBe(false));
+    expect(screen.getByLabelText("個案")).toHaveValue(id); expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1);
+  });
+  it("pending saved readback explains the original-operation lock before the ordinary read-only permission notice", () => {
+    const profile = { ...emptyIntakeProfile, displayName: "原次合成個案", clientCode: "ORIGINAL-01" };
+    const operation = writes.beginIntakeWrite(context, "profile", null, { action: "create", profile, idempotency_key: other })!;
+    const saved = writes.saveIntakeWriteReceipt(operation, writeReceipt(operation.body))!;
+    const props = { context, initial: null, canManage: false, demo: false, today: "2026-09-14", onSaved: vi.fn(), onDirty: vi.fn() };
+    const view = render(<IntakeProfileForm {...props} />);
+    expect(screen.getByText("請先核對原次保存；在結果確認前，暫時不能修改資料。")).toBeVisible();
+    expect(screen.queryByText("目前僅可查看，請由有權限的收案人員修改。")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled(); expect(screen.getByRole("button", { name: "重讀已保存資料（不重送）" })).toBeEnabled();
+    act(() => { writes.confirmIntakeWriteReadback(saved, { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile, fieldAuthority: {}, sourceBatchId: null }); });
+    view.rerender(<IntakeProfileForm {...props} />);
+    expect(screen.getByText("目前僅可查看，請由有權限的收案人員修改。")).toBeVisible();
+    expect(screen.queryByText("請先核對原次保存；在結果確認前，暫時不能修改資料。")).not.toBeInTheDocument();
+  });
+  it("CMS UPDATE readback mismatch keeps the original CMS step recovery visible until its batch is confirmed", async () => {
+    const current: IntakeSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true,
+      profile: { ...emptyIntakeProfile, displayName: "原合成個案", clientCode: "ORIGINAL-01" }, fieldAuthority: {}, sourceBatchId: null };
+    const saved: IntakeSnapshot = { ...current, profileVersion: 2, clientRowVersion: 2, sourceBatchId: id,
+      profile: { ...current.profile, displayName: "合成新個案", identityNumber: "X123456789" } };
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json(success(await stagingFixture())))
+      .mockResolvedValueOnce(Response.json(success(previewFixture(current))))
+      .mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))))
+      .mockResolvedValueOnce(Response.json(success({ ...saved, sourceBatchId: other })))
+      .mockResolvedValueOnce(Response.json(success(saved)));
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntakeWorkspace context={context} clients={[{ id, displayName: current.profile.displayName, clientCode: current.profile.clientCode }]} initialSnapshot={current} initialStep={0} loadError={false} today="2026-09-14" archiveConfigured />);
+    await selectAndUpload(); await screen.findByRole("heading", { name: "逐欄核對後，才會寫入個案資料" });
+    await waitFor(() => expect(screen.getByLabelText(/更新依據與來源日期核對/u)).toBeEnabled());
+    for (const label of ["姓名", "身分識別"]) fireEvent.change(within(screen.getByRole("heading", { name: label }).closest("article")!).getByLabelText("這一欄如何處理"), { target: { value: "use_source" } });
+    fireEvent.change(screen.getByLabelText(/更新依據與來源日期核對/u), { target: { value: "已核對官方來源日期與更新依據" } });
+    fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(screen.getByRole("button", { name: "確認更新個案資料" }));
+    const recover = await screen.findByRole("button", { name: "重讀已建檔資料（不重送）" });
+    await waitFor(() => expect(recover).toBeEnabled()); expect(recover).toBeVisible();
+    expect(screen.getByRole("button", { name: /1\s*匯入與建檔/u })).toHaveAttribute("aria-current", "step");
+    expect(screen.getByRole("button", { name: "重試讀取此個案" })).toBeDisabled(); expect(screen.getByLabelText("個案")).toHaveValue(id);
+    expect(writes.getIntakeWriteState().operation?.kind).toBe("cms"); expect(writes.getIntakeWriteState().operation?.phase).toBe("saved");
+    fireEvent.click(recover); await waitFor(() => expect(writes.hasIntakeWriteOperation()).toBe(false));
+    expect(screen.getByRole("button", { name: /2\s*基本資料/u })).toHaveAttribute("aria-current", "step"); expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher.mock.calls.filter(call => call[0] === "/api/client-intake/imports/approve")).toHaveLength(1);
+  });
+  it("a profile write unmounted before ACK retains unknown and ignores the late callback", async () => {
+    let reply!: (response: Response) => void;
+    const fetcher = vi.fn().mockImplementation(() => new Promise<Response>(resolve => { reply = resolve; })); vi.stubGlobal("fetch", fetcher);
+    const onSaved = vi.fn(), props = { context, initial: null, canManage: true, demo: false, today: "2026-09-14", onSaved, onDirty: vi.fn() };
+    const view = render(<IntakeProfileForm {...props} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "ORIGINAL-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); const body = fetcher.mock.calls[0][1].body;
+    view.unmount(); render(<IntakeProfileForm {...props} />);
+    await act(async () => reply(Response.json(success(writeReceipt(body)))));
+    expect(onSaved).not.toHaveBeenCalled(); expect(writes.getIntakeWriteState().operation?.phase).toBe("unknown");
+    expect(screen.getByRole("button", { name: "重試原次保存" })).toBeEnabled(); expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it("profile authority ABA hides the original input and forbids recovery through old props", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("UNKNOWN")));
+    const props = { context, initial: null, canManage: true, demo: false, today: "2026-09-14", onSaved: vi.fn(), onDirty: vi.fn() };
+    const view = render(<IntakeProfileForm {...props} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "原次私有合成內容" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "ORIGINAL-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await screen.findByRole("alert");
+    act(() => writes.observeIntakeWriteAuthority(writes.intakeWriteAuthority({ ...context, userId: other })));
+    view.rerender(<IntakeProfileForm {...props} context={{ ...context, userId: other }} />);
+    act(() => writes.observeIntakeWriteAuthority(writes.intakeWriteAuthority(context))); view.rerender(<IntakeProfileForm {...props} />);
+    expect(screen.queryByDisplayValue("原次私有合成內容")).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "重試原次保存" })).not.toBeInTheDocument();
+    expect(writes.hasIntakeWriteOperation()).toBe(true);
+  });
+  it("CMS unknown approval remount offers only exact original approval, without reupload or preview", async () => {
+    const test = await showPreview(); chooseDecisions(); test.fetcher.mockRejectedValueOnce(new Error("UNKNOWN_APPROVAL"));
+    fireEvent.click(screen.getByRole("button", { name: "確認建立待收案個案" })); await screen.findByRole("alert");
+    const body = test.fetcher.mock.calls[2][1].body;
+    expect(screen.getByLabelText("機構個案編號（必填）")).toBeDisabled(); test.unmount();
+    test.fetcher.mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))));
+    render(<CmsIntakeStep {...test.props} />);
+    expect(test.fetcher).toHaveBeenCalledTimes(3); expect(screen.queryByRole("heading", { name: "姓名" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/CMS HTML/u)).toBeDisabled(); expect(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "重試原次建檔" })); await waitFor(() => expect(test.onSaved).toHaveBeenCalledWith(id));
+    expect(test.fetcher.mock.calls[3][0]).toBe("/api/client-intake/imports/approve"); expect(test.fetcher.mock.calls[3][1].body).toBe(body);
+    expect(writes.getIntakeWriteState().operation?.phase).toBe("saved");
+  });
   it("central identity stays locked while local contact fields remain editable", () => {
-    render(<IntakeProfileForm initial={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成中央個案", clientCode: "TEST-001" }, fieldAuthority: { displayName: "central" }, sourceBatchId: id }} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    render(<IntakeProfileForm context={context} initial={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成中央個案", clientCode: "TEST-001" }, fieldAuthority: { displayName: "central" }, sourceBatchId: id }} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
     expect(screen.getByLabelText(/姓名／顯示稱呼/)).toBeDisabled(); expect(screen.getByLabelText("個案電話")).toBeEnabled();
   });
   it("does not open another case from a mismatched update receipt", async () => {
     const other = "c1600000-0000-4000-8000-000000000002";
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: { clientId: other, persisted: true } })));
+    vi.stubGlobal("fetch", vi.fn().mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body, other))))));
     const onSaved = vi.fn(); const onDirty = vi.fn();
-    render(<IntakeProfileForm initial={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成個案甲", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null }} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={onDirty} />);
+    render(<IntakeProfileForm context={context} initial={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成個案甲", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null }} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={onDirty} />);
     fireEvent.change(screen.getByLabelText("個案電話"), { target: { value: "合成電話備註" } });
     fireEvent.click(screen.getByRole("button", { name: "儲存基本資料" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("儲存回條與目前個案不一致");
+    expect(await screen.findByRole("alert")).toHaveTextContent("操作結果尚未確認");
     expect(onSaved).not.toHaveBeenCalled(); expect(onDirty).toHaveBeenLastCalledWith(true);
   });
   it("locates nested contact and consent errors while preserving Traditional Chinese input", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
-    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成繁體中文個案" } });
     fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "測試-甲" } });
     fireEvent.click(screen.getByRole("button", { name: "＋新增聯絡人" }));
@@ -139,10 +298,10 @@ describe("intake usability and truthful writes", () => {
   it("rejects a valid-shaped snapshot belonging to another selected client", async () => {
     const other = "c1600000-0000-4000-8000-000000000002";
     const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "其他個案禁止顯示", clientCode: "SYNTHETIC-01" }, fieldAuthority: {}, sourceBatchId: null };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: "ok", data: snapshot })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(success(snapshot))));
     render(<IntakeWorkspace context={{ organizationId: id, organizationName: "合成機構", branchId: other, branchName: "合成分支", userId: id, displayName: "合成管理員", roles: ["nurse"], scopes: [], assuranceLevel: "aal2", recentAal2At: null, demo: false }} clients={[{ id: other, clientCode: "TEST-02", displayName: "選取的合成個案" }]} initialSnapshot={null} loadError={false} today="2026-09-14" />);
     fireEvent.change(screen.getByLabelText("個案"), { target: { value: other } });
-    expect(await screen.findByRole("alert")).toHaveTextContent("讀回資料與所選個案不一致");
+    expect(await screen.findByRole("alert")).toHaveTextContent("操作結果尚未確認");
     expect(screen.queryByDisplayValue("其他個案禁止顯示")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /2\s*基本資料/ })).toBeDisabled();
   });
@@ -150,7 +309,7 @@ describe("intake usability and truthful writes", () => {
     const preview = previewFixture(), receipt = await stagingFixture();
     const fetch = vi.fn().mockResolvedValueOnce(Response.json(success(receipt)))
       .mockResolvedValueOnce(Response.json(success(preview)))
-      .mockResolvedValueOnce(Response.json(success({ clientId: id, persisted: true, formallyImported: true })));
+      .mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))));
     vi.stubGlobal("fetch", fetch); const onSaved = vi.fn().mockResolvedValue(undefined);
     render(<CmsIntakeStep context={context} current={null} canImport canApprove archiveConfigured demo={false} onSaved={onSaved} onManual={vi.fn()} onDirty={vi.fn()} />);
     await selectAndUpload();
@@ -288,7 +447,8 @@ describe("intake usability and truthful writes", () => {
     fireEvent.click(screen.getByRole("button", { name: /2\s*基本資料/ }));
     expect(screen.getByRole("heading", { name: "核對個案基本資料" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("個案"), { target: { value: other } });
-    expect(confirm).toHaveBeenCalled(); expect(screen.getByLabelText("個案")).toHaveValue(id);
+    expect(confirm).not.toHaveBeenCalled(); expect(await screen.findByRole("dialog")).toHaveAccessibleName("捨棄未保存的收案資料");
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" })); expect(screen.getByLabelText("個案")).toHaveValue(id);
     fireEvent.click(screen.getByRole("button", { name: /3\s*每週到站與接送/ })); expect(screen.getByLabelText("週一到站")).toBeChecked();
   });
 });

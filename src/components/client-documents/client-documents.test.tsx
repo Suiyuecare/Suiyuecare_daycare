@@ -7,7 +7,7 @@ import { DOCUMENT_CATEGORIES } from "@/lib/client-documents/schema";
 const props = { clientId: "c1600000-0000-4000-8000-000000000001", today: "2026-09-14", canManage: true };
 function expandForms() { for (const element of document.querySelectorAll("details")) element.open = true; }
 function liveRead() { return { status: "ok", data: { uploadConfigured: true, snapshot: { clientId: props.clientId, generatedAt: "2026-09-14T00:00:00Z", rows: DOCUMENT_CATEGORIES.map((category) => ({ category, accessible: true, canManage: true, documentId: null, documentVersion: 0, reviewVersion: 0, status: "missing", scanStatus: null, canDownload: false, mimeType: null, fileSizeBytes: null, reservedAt: null, reviewReason: null })), history: [], historyTruncated: false } } }; }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("private document intake UI", () => {
   it("shows six independent categories, no synthetic persistence or fake downloads", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
@@ -26,6 +26,89 @@ describe("private document intake UI", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("不能判定是否缺件");
     expect(screen.queryAllByText("待補件")).toHaveLength(0);
     expect(screen.getByRole("button", { name: "重新載入附件清單" })).toBeEnabled();
+  });
+  it("finishes loading after a stalled initial JSON body and allows an explicit read retry", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockResolvedValueOnce({ status: 200, redirected: false, json: () => new Promise(() => {}) }).mockResolvedValueOnce(Response.json(liveRead()));
+    vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(screen.getByRole("alert")).toHaveTextContent("不能判定是否缺件");
+    expect(screen.getByRole("button", { name: "重新載入附件清單" })).toBeEnabled();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "重新載入附件清單" })); });
+    expect(screen.getAllByRole("article")).toHaveLength(6);
+    expect(fetch.mock.calls.every((call) => !call[1]?.method || call[1].method === "GET")).toBe(true);
+  });
+  it("hides old summary after an explicit reload failure and only GETs on retry", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockRejectedValueOnce(new Error("synthetic offline")).mockResolvedValueOnce(Response.json(liveRead()));
+    vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
+    await screen.findByRole("article", { name: "身分證正面" });
+    fireEvent.click(screen.getByRole("button", { name: "重新載入附件清單" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("已收起未更新的摘要");
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "重新載入附件清單" }));
+    await screen.findByRole("article", { name: "身分證正面" });
+    expect(fetch.mock.calls.every((call) => !call[1]?.method || call[1].method === "GET")).toBe(true);
+  });
+  it("discards case A's late initial read after switching to case B", async () => {
+    let resolve: (response: Response) => void = () => {};
+    const nextId = "c1600000-0000-4000-8000-000000000002", next = liveRead(); next.data.snapshot.clientId = nextId;
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; })).mockResolvedValueOnce(Response.json(next));
+    vi.stubGlobal("fetch", fetch); const { rerender } = render(<ClientDocumentsWorkspace {...props} />);
+    rerender(<ClientDocumentsWorkspace {...props} clientId={nextId} />);
+    await screen.findByRole("article", { name: "身分證正面" });
+    const previous = liveRead(); previous.data.uploadConfigured = false;
+    await act(async () => { resolve(Response.json(previous)); });
+    expect(screen.queryByText(/安全檢查服務尚未完成設定/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("身分證正面檔案（上限 4MB）")).toBeEnabled();
+  });
+  it("keeps an invalid success uncertain and explicitly replays only the original form and key", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockResolvedValue(Response.json({ status: "ok", data: { receipt: { persisted: true } } }));
+    vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
+    await screen.findByRole("article", { name: "身分證正面" }); expandForms();
+    fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })] } });
+    fireEvent.click(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "上傳附件" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("上傳回條尚未確認");
+    expect(screen.getByLabelText("體檢資料院所／開立單位")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重新載入附件清單" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "重試原次上傳" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    expect(fetch.mock.calls[2][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect((fetch.mock.calls[2][1].body as FormData).get("expectedDocumentVersion")).toBe("0");
+    expect(screen.queryByText(/附件已儲存、通過安全檢查/)).not.toBeInTheDocument();
+  });
+  it("allows correcting a first known pre-upload rejection but never clears an earlier unknown", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockResolvedValueOnce(Response.json({ status: "error", errors: [{ code: "INVALID_DOCUMENT_FORM", message: "合成欄位錯誤" }] }, { status: 400 }))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: { receipt: {} } })).mockResolvedValueOnce(Response.json({ status: "error", errors: [{ code: "INVALID_DOCUMENT_FORM", message: "合成欄位錯誤" }] }, { status: 400 }));
+    vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
+    await screen.findByRole("article", { name: "身分證正面" }); expandForms();
+    fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })] } });
+    const upload = () => fireEvent.click(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "上傳附件" }));
+    upload(); expect(await screen.findByRole("alert")).toHaveTextContent("合成欄位錯誤");
+    expect(screen.queryByRole("button", { name: "重試原次上傳" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("身分證正面院所／開立單位")).toBeEnabled();
+    upload(); await screen.findByRole("button", { name: "重試原次上傳" });
+    fireEvent.click(screen.getByRole("button", { name: "重試原次上傳" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
+    expect(screen.getByLabelText("身分證正面院所／開立單位")).toBeDisabled();
+    expect(fetch.mock.calls[3][1].body).toBe(fetch.mock.calls[2][1].body);
+  });
+  it("removes an expired download link and renews it without uploading the file", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://synthetic.supabase.co");
+    const documentId = "d1600000-0000-4000-8000-000000000001", initial = liveRead();
+    Object.assign(initial.data.snapshot.rows[0], { documentId, documentVersion: 1, status: "needs_review", scanStatus: "clean", canDownload: true });
+    const download = { status: "ok", data: { documentId, version: 1, expiresSeconds: 60, url: `https://synthetic.supabase.co/storage/v1/object/sign/client-intake-documents/a1600000-0000-4000-8000-000000000001/${props.clientId}/${documentId}?token=synthetic` } };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(initial)).mockImplementation(async () => Response.json(download));
+    vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
+    await screen.findByRole("article", { name: "身分證正面" }); vi.useFakeTimers();
+    await act(async () => { fireEvent.click(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "取得安全下載連結" })); });
+    expect(screen.getByRole("link", { name: /下載 身分證正面/ })).toHaveAttribute("referrerpolicy", "no-referrer");
+    await act(async () => { await vi.advanceTimersByTimeAsync(55_000); });
+    expect(screen.queryByRole("link", { name: /下載 身分證正面/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/下載連結已到期/)).toBeVisible();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "更新安全下載連結" })); });
+    expect(screen.getByRole("link", { name: /下載 身分證正面/ })).toBeVisible();
+    expect(fetch.mock.calls.filter((call) => call[1]?.headers?.["x-client-document-action"] === "upload")).toHaveLength(0);
+    expect(fetch.mock.calls.filter((call) => call[1]?.headers?.["x-client-document-action"] === "download")).toHaveLength(2);
   });
   it("notifies parent immediately about metadata draft and pending upload; failure preserves the draft", async () => {
     const onDirty = vi.fn(); const onBusy = vi.fn();
@@ -61,14 +144,13 @@ describe("private document intake UI", () => {
     await act(async () => { resolve(Response.json({ status: "error" }, { status: 503 })); });
     expect(onBusy.mock.calls).toHaveLength(callsAfterUnmount);
   });
-  it("retries an unverified upload with its original version and key without clearing another category draft", async () => {
+  it("reads an already confirmed upload without another POST or clearing another category draft", async () => {
     const documentId = "c1600000-0000-4000-8000-000000000007";
     const receipt = { id: documentId, clientId: props.clientId, category: "identity_front", version: 1, scanStatus: "clean", persisted: true };
     const readWithVersion = (version: number) => { const result = liveRead(); return { ...result, data: { ...result.data, snapshot: { ...result.data.snapshot, rows: result.data.snapshot.rows.map((row) => row.category === "identity_front" ? { ...row, documentId, documentVersion: version, status: "needs_review", scanStatus: "clean", canDownload: true } : row) } } }; };
     const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead()))
       .mockResolvedValueOnce(Response.json({ status: "ok", data: { receipt } }))
       .mockResolvedValueOnce(Response.json(readWithVersion(2)))
-      .mockResolvedValueOnce(Response.json({ status: "ok", data: { receipt } }))
       .mockResolvedValueOnce(Response.json(readWithVersion(1)));
     vi.stubGlobal("fetch", fetch); const onDirty = vi.fn();
     render(<ClientDocumentsWorkspace {...props} onDirty={onDirty} />);
@@ -79,15 +161,13 @@ describe("private document intake UI", () => {
     fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic-id"], "synthetic-id.png", { type: "image/png" })] } });
     const identity = within(screen.getByRole("article", { name: "身分證正面" }));
     fireEvent.click(identity.getByRole("button", { name: "上傳附件" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("讀回狀態有差異");
-    expect(identity.getByText("文件第 0 版／覆核第 0 版")).toBeVisible();
+    expect(await screen.findByRole("alert")).toHaveTextContent("已取得上傳回條");
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
     expect(screen.queryByText(/附件已儲存、通過安全檢查並重新讀回/)).not.toBeInTheDocument();
-    fireEvent.click(identity.getByRole("button", { name: "上傳附件" }));
+    fireEvent.click(screen.getByRole("button", { name: "核對已上傳附件（不重送）" }));
     await screen.findByText(/附件已儲存、通過安全檢查並重新讀回/);
-    const first = fetch.mock.calls[1][1].body as FormData;
-    const retry = fetch.mock.calls[3][1].body as FormData;
-    expect(retry.get("idempotency_key")).toBe(first.get("idempotency_key"));
-    expect(retry.get("expectedDocumentVersion")).toBe("0");
+    expect(fetch.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
+    expect(fetch.mock.calls[3][0]).toContain("?client=");
     expect(screen.getByLabelText("體檢資料院所／開立單位")).toHaveValue("合成醫院留待補件");
     expect(within(screen.getByRole("article", { name: "體檢資料" })).getByRole("button", { name: "上傳附件" })).toBeEnabled();
     expect(onDirty).toHaveBeenLastCalledWith(true);

@@ -31,8 +31,39 @@ describe("CMS upload browser transport", () => {
     expect(changed.size).toBe(file().size); const described = await client.describeCmsUploadFile(changed, scope.mode);
     expect(client.sameCmsUploadFile(operation.file, described)).toBe(false);
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
-    await expect(client.sendCmsUpload(operation, scope, changed, false, new AbortController().signal)).rejects.toThrow(/檔案與原上傳不同/u);
+    const stages = vi.fn();
+    await expect(client.sendCmsUpload(operation, scope, changed, false, new AbortController().signal, stages)).rejects.toThrow(/檔案與原上傳不同/u);
     expect(fetcher).not.toHaveBeenCalled();
+    expect(stages.mock.calls).toEqual([["verifying"]]);
+  });
+  it("announces verification before network transfer without claiming completion", async () => {
+    const stages: string[] = [];
+    const fetcher = vi.fn(async () => {
+      expect(stages).toEqual(["verifying", "sending"]);
+      return Response.json(success({ reservation_id: uuid(6), status: "completed", recovered: true,
+        file_sha256: operation.file.sha256, payload_sha256: "c".repeat(64), mapping_version: "central-care-plan-html@1" }));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    await client.sendCmsUpload(operation, scope, file(), false, new AbortController().signal, stage => stages.push(stage));
+    expect(stages).toEqual(["verifying", "sending"]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("cancelled non-cooperative file read cannot later start an upload", async () => {
+    const selected = file();
+    const bytes = await selected.arrayBuffer();
+    let finishRead!: (bytes: ArrayBuffer) => void;
+    const read = vi.fn(() => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }));
+    Object.defineProperty(selected, "arrayBuffer", { value: read });
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    const stages = vi.fn(); const controller = new AbortController();
+    const result = client.sendCmsUpload(operation, scope, selected, false, controller.signal, stages).catch(error => error);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    controller.abort();
+    expect(await result).toBeInstanceOf(Error);
+    finishRead(bytes);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(stages.mock.calls).toEqual([["verifying"]]);
   });
   it("locator is one queryless GET with original header, never replay or file body", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json(success({ found: false, operation: null }))); vi.stubGlobal("fetch", fetcher);

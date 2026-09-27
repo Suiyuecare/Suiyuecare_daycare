@@ -70,6 +70,10 @@ components:
 
 ## Components
 
+2026-09-28 操作復原切片沿用 Finance frame、全域 token 與既有控制幾何，不重新設計品牌。用藥、收案的確認／未保存離開共用 `GovernanceDialog`／`useUnsavedChanges`；等待與讀回結果用同頁具名 status／error，不新增另一套 toast。用藥保留 native select／datetime-local，收案與附件保留 native select／date 的平台例外，popup 幾何及語系由瀏覽器／作業系統擁有，日期仍依正式 schema 驗證。textarea 改成不可拖曳，輸入 16px、觸控至少 44px，內容自然高度。
+
+CMS／附件的回饋使用實際階段文字：檢查原檔、傳送／安全檢查、回條核對、讀回清單；沒有可測量的 byte progress 時不顯示百分比。保存原檔、保存業務資料、正式完成收案是不同狀態。附件下載仍依既有 CSP 採安全短效下載，不以新增 iframe 或直接渲染原檔突破政策；到期連結收起並提供更新入口。這是具名受限下載變體，不宣稱已有內嵌預覽。
+
 | 角色 | 唯一 runtime owner | 本次 consumers |
 |---|---|---|
 | 文字／色彩／邊框／圓角 | `src/app/globals.css` | 全部新規則管理元件 |

@@ -4,6 +4,7 @@ import { DOCUMENT_CATEGORIES, DOCUMENT_LABELS, type DocumentCategory } from "@/l
 import { documentHistoryPageSchema, documentLifecycleInputSchema, validateDocumentLifecycleReceipt,
   type DocumentHistoryPage, type DocumentLifecycleHistoryRow, type DocumentLifecycleInput } from "@/lib/client-documents/lifecycle";
 import styles from "./client-documents.module.css";
+import { documentRequest, safeDocumentLink } from "./document-request";
 
 type Props = { clientId: string; canManage: boolean; demo: boolean; disabled: boolean; today: string;
   onDirty: (value: boolean) => void; onBusy: (value: boolean) => void; onChanged: () => Promise<unknown> };
@@ -12,13 +13,11 @@ class HistoryError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
 }
 async function request(url: string, options?: RequestInit) {
-  const response = await fetch(url, { ...options, cache: "no-store", signal: AbortSignal.timeout(20_000) });
-  const body = await response.json();
-  if (!response.ok || body.status !== "ok") throw new HistoryError(response.status, body.errors?.[0]?.code ?? "UNCONFIRMED");
-  return body.data;
+  try { return await documentRequest(url, options) as Record<string, unknown>; }
+  catch (failure) { if (failure instanceof Error && "status" in failure && typeof failure.status === "number") throw new HistoryError(failure.status, "UNCONFIRMED"); throw failure; }
 }
 
-export function DocumentHistoryPanel(props: Props) { return <HistoryEditor key={props.clientId} {...props} />; }
+export function DocumentHistoryPanel(props: Props) { return <HistoryEditor key={`${props.clientId}:${props.canManage}:${props.demo}`} {...props} />; }
 function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, onBusy, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<DocumentCategory | "">("medication_bag");
@@ -34,12 +33,15 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
   const [pending, setPending] = useState<DocumentLifecycleInput | null>(null);
   const [conflict, setConflict] = useState(false);
   const [recovery, setRecovery] = useState<DocumentLifecycleInput | null>(null);
-  const [download, setDownload] = useState<{ id: string; url: string } | null>(null);
+  const [download, setDownload] = useState<{ id: string; url: string; expiresAt: number } | null>(null);
+  const [expiredDownload, setExpiredDownload] = useState<string | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const generation = useRef(0);
   const locked = useRef(false); const uncertain = useRef(false); const mounted = useRef(true);
   const callbacks = useRef({ onDirty, onBusy, onChanged });
   useEffect(() => { callbacks.current = { onDirty, onBusy, onChanged }; }, [onDirty, onBusy, onChanged]);
   useEffect(() => { callbacks.current.onDirty(Boolean(selected || pending)); }, [selected, pending]);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; callbacks.current.onDirty(false); callbacks.current.onBusy(false); }; }, []);
+  useEffect(() => { const lifecycle = generation; mounted.current = true; ++lifecycle.current; return () => { mounted.current = false; ++lifecycle.current; controller.current?.abort(); callbacks.current.onDirty(false); callbacks.current.onBusy(false); }; }, []);
   const page = pages[index];
   useEffect(() => {
     if (!page) return;
@@ -48,13 +50,13 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
     if (remaining <= 0) { expire(); return; }
     const timer = setTimeout(expire, remaining); return () => clearTimeout(timer);
   }, [page]);
-  useEffect(() => { if (!download) return; const timer = setTimeout(() => setDownload(null), 55_000); return () => clearTimeout(timer); }, [download]);
-  function begin() { if (locked.current || disabled || demo) return false; locked.current = true; setBusy(true); callbacks.current.onBusy(true); setError(""); setDownload(null); return true; }
-  function end() { locked.current = false; if (mounted.current) { setBusy(false); callbacks.current.onBusy(false); } }
+  useEffect(() => { if (!download) return; const timer = setTimeout(() => { setDownload(null); setExpiredDownload(download.id); }, Math.max(0, download.expiresAt - Date.now())); return () => clearTimeout(timer); }, [download]);
+  function begin() { if (locked.current || disabled || demo) return false; controller.current = new AbortController(); locked.current = true; setBusy(true); callbacks.current.onBusy(true); setError(""); setDownload(null); return true; }
+  function end(owner: number) { if (mounted.current && owner === generation.current) { locked.current = false; setBusy(false); callbacks.current.onBusy(false); } }
   async function fetchPage(filter: DocumentCategory | "", cursor?: string) {
     const query = new URLSearchParams({ client: clientId, limit: "50" });
     if (filter) query.set("category", filter); if (cursor) query.set("cursor", cursor);
-    const data = await request(`/api/client-documents/history?${query}`);
+    const data = await request(`/api/client-documents/history?${query}`, { signal: controller.current?.signal });
     const result = documentHistoryPageSchema.parse(data.snapshot);
     if (result.clientId !== clientId || result.category !== (filter || null) || result.pageSize !== 50 ||
       Date.parse(result.expiresAt) <= Date.now()) throw new HistoryError(503, "INVALID_HISTORY");
@@ -62,9 +64,10 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
   }
   async function load(first = true) {
     if (selected || pending || !begin()) return;
+    const owner = generation.current;
     try {
       const next = await fetchPage(category, first ? undefined : page?.nextCursor ?? undefined);
-      if (!mounted.current) return;
+      if (!mounted.current || owner !== generation.current) return;
       if (!first && (!page || next.snapshotId !== page.snapshotId || next.generatedAt !== page.generatedAt ||
         next.expiresAt !== page.expiresAt || next.organizationId !== page.organizationId || next.branchId !== page.branchId ||
         pages.length >= 100 || next.rows.some((row) => pages.some((old) => old.rows.some((item) => item.id === row.id))))) {
@@ -72,10 +75,10 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
       }
       setPages(first ? [next] : [...pages, next]); setIndex(first ? 0 : pages.length); setStale(false);
     } catch (failure) {
-      if (!mounted.current) return;
+      if (!mounted.current || owner !== generation.current) return;
       setPages([]); setIndex(0);
       setError(failure instanceof HistoryError && failure.status === 409 ? "本次查詢已過期或範圍有變動，請從最新資料重新查詢。" : "逐份文件清單暫時無法確認，請重試；沒有將未知資料算作已完成。");
-    } finally { end(); }
+    } finally { end(owner); }
   }
   function choose(row: DocumentLifecycleHistoryRow) {
     if (busy || disabled || pending || stale || demo || !canManage || !row.canManage) return;
@@ -86,6 +89,7 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
   }
   async function save() {
     if (conflict || (!pending && (!selected || stale || !confirmed)) || !begin()) return;
+    const owner = generation.current;
     let input = pending;
     try {
       if (!input && selected) {
@@ -94,9 +98,9 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
         setPending(input); uncertain.current = false;
       }
       if (!input) return;
-      const data = await request("/api/client-documents/lifecycle", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+      const data = await request("/api/client-documents/lifecycle", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal: controller.current?.signal });
       if (!validateDocumentLifecycleReceipt(data.receipt, input)) throw new HistoryError(503, "INVALID_RECEIPT");
-      if (!mounted.current) return;
+      if (!mounted.current || owner !== generation.current) return;
       setPending(null); setSelected(null); setRecovery(null); setReason(""); setConfirmed(false); uncertain.current = false;
       callbacks.current.onDirty(false); setPages([]); setIndex(0);
       setMessage("這份文件的處置已儲存。原檔仍保留；不會變更醫囑或產生給藥紀錄。");
@@ -104,30 +108,32 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
       // to submit another mutation or show an old snapshot as the new result.
       try {
         await callbacks.current.onChanged();
+        if (!mounted.current || owner !== generation.current) return;
         const next = await fetchPage(category);
-        if (mounted.current) { setPages([next]); setStale(false); }
-      } catch { if (mounted.current) setError("處置已有成功回條，但清單更新失敗，請重新查詢確認。不要再次新增相同處置。"); }
+        if (mounted.current && owner === generation.current) { setPages([next]); setStale(false); }
+      } catch { if (mounted.current && owner === generation.current) setError("處置已有成功回條，但清單更新失敗，請重新查詢確認。不要再次新增相同處置。"); }
     } catch (failure) {
-      if (!mounted.current) return;
+      if (!mounted.current || owner !== generation.current) return;
       if (input && failure instanceof HistoryError && failure.status === 409 && !uncertain.current) {
         setConflict(true); setError("文件版本已變更，這次處置未套用。請保留理由，重新查詢並選取文件比對後再確認。");
       } else if (input) {
         uncertain.current = true;
         setError("原次儲存尚未確認。內容與操作已保留，請用下方按鈕重試確認，不要重新建立處置；若權限已變更請聯絡主管。");
       } else { setError("請填寫至少三字、最多三百字的處置理由，並確認文件與處置。"); }
-    } finally { end(); }
+    } finally { end(owner); }
   }
   async function getDownload(row: DocumentLifecycleHistoryRow) {
     if (pending || selected || stale || !row.canDownload || !begin()) return;
+    const owner = generation.current;
+    const requestedAt = Date.now();
     try {
       const data = await request("/api/client-documents", { method: "POST", headers: { "content-type": "application/json", "x-client-document-action": "download" },
-        body: JSON.stringify({ clientId, documentId: row.id, idempotency_key: crypto.randomUUID() }) });
-      const url = new URL(data.url);
-      if (url.protocol !== "https:" || !url.hostname.endsWith(".supabase.co") || !url.pathname.startsWith("/storage/v1/object/sign/client-intake-documents/") ||
-        data.documentId !== row.id || data.version !== row.version || data.expiresSeconds !== 60) throw new Error("Invalid download receipt");
-      if (mounted.current) setDownload({ id: row.id, url: url.href });
-    } catch { if (mounted.current) setError("無法取得這份文件的安全下載連結，請確認權限及安全檢查狀態後重試。"); }
-    finally { end(); }
+        body: JSON.stringify({ clientId, documentId: row.id, idempotency_key: crypto.randomUUID() }), signal: controller.current?.signal });
+      if (!mounted.current || owner !== generation.current) return;
+      const link = safeDocumentLink(data, clientId, row.id, row.version, requestedAt);
+      setDownload({ id: row.id, ...link }); setExpiredDownload(null);
+    } catch { if (mounted.current && owner === generation.current) setError("無法取得這份文件的安全下載連結，請確認權限及安全檢查狀態後重試。"); }
+    finally { end(owner); }
   }
   const readLocked = busy || disabled || Boolean(selected || pending);
   return <section className={styles.historyPanel} aria-label="逐份文件與歷史">
@@ -159,8 +165,9 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
           {row.historicalOnly ? <span>僅供歷史查考，不作目前使用依據。</span> : null}
           <div className={styles.historyActions}>
             <button type="button" disabled={readLocked || demo || !canManage || !row.canManage} onClick={() => choose(row)}>處理第 {row.version} 份{DOCUMENT_LABELS[row.category]}</button>
-            <button type="button" disabled={readLocked || demo || !row.canDownload} onClick={() => void getDownload(row)}>{row.historicalOnly ? "下載歷史文件" : "取得此文件下載連結"}</button>
-            {download?.id === row.id ? <a href={download.url} rel="noreferrer" download>下載此文件（一分鐘內有效，請勿轉傳）</a> : null}
+            <button type="button" disabled={readLocked || demo || !row.canDownload} onClick={() => void getDownload(row)}>{expiredDownload === row.id || download?.id === row.id ? "更新此文件下載連結" : row.historicalOnly ? "下載歷史文件" : "取得此文件下載連結"}</button>
+            {download?.id === row.id ? <a href={download.url} rel="noreferrer" referrerPolicy="no-referrer" download onClick={(event) => { if (Date.now() >= download.expiresAt) { event.preventDefault(); setDownload(null); setExpiredDownload(row.id); } }}>下載此文件（短效連結，請立即下載，勿轉傳）</a> : null}
+            {expiredDownload === row.id ? <p role="status">此文件下載連結已到期，請更新連結。</p> : null}
           </div>
         </li>)}</ul>
         <nav className={styles.historyActions} aria-label="文件歷史分頁">
@@ -168,14 +175,14 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
           <button type="button" disabled={readLocked || (!pages[index + 1] && !page.nextCursor)} onClick={() => { if (pages[index + 1]) { setIndex(index + 1); setDownload(null); } else void load(false); }}>下一頁</button>
         </nav>
       </> : null}
-      {selected ? <form className={styles.dispositionForm} onSubmit={(event) => { event.preventDefault(); void save(); }} aria-label="這份文件的處置">
+      {selected ? <form noValidate className={styles.dispositionForm} onSubmit={(event) => { event.preventDefault(); void save(); }} aria-label="這份文件的處置">
         <h4>處理：{selected.documentLabel ?? DOCUMENT_LABELS[selected.category]}（第 {selected.version} 份／版）</h4>
         <p>目前是「{dispositions[selected.disposition]}」、逐份覆核第 {selected.reviewRevision} 版；只處理這一份，不影響其他藥袋。</p>
         <label>這份文件的新處置<select value={disposition} disabled={busy || Boolean(pending) || stale} onChange={(event) => { setDisposition(event.target.value as DocumentLifecycleInput["disposition"]); setConfirmed(false); }}>
           <option value="reviewed" disabled={selected.scanStatus !== "clean"}>{selected.disposition === "inactive" ? "重新覆核並採用此文件" : "這份文件已核對"}</option>
           <option value="needs_replacement">這份文件需要補正</option><option value="inactive">停用這份文件（保留原檔）</option>
         </select></label>
-        <label>逐份處置理由<textarea required minLength={3} maxLength={300} value={reason} disabled={busy || Boolean(pending) || stale} onChange={(event) => { setReason(event.target.value); setConfirmed(false); }} /></label>
+        <label>逐份處置理由<textarea className="resize-none" required minLength={3} maxLength={300} value={reason} disabled={busy || Boolean(pending) || stale} onChange={(event) => { setReason(event.target.value); setConfirmed(false); }} /></label>
         <label className={styles.confirmation}><input type="checkbox" checked={confirmed} disabled={busy || Boolean(pending) || stale} onChange={(event) => setConfirmed(event.target.checked)} />我已確認文件、目前版本與處置；此操作不會變更醫囑。</label>
         {!pending ? <div className={styles.historyActions}><button type="submit" disabled={busy || disabled || stale || !confirmed}>確認儲存這份處置</button><button type="button" disabled={busy} onClick={() => { setSelected(null); setReason(""); setConfirmed(false); }}>取消此次編輯</button></div> : null}
       </form> : null}

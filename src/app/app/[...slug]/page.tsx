@@ -918,6 +918,7 @@ export default async function StaffCatalogPage({
     return (
       <MedicationRecordsWorkspace
         allClients={allClients}
+        context={context}
         canRecord={canRecord}
         canVerify={canVerify}
         currentUserId={context.userId}

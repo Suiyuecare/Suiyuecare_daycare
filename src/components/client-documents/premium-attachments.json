@@ -1,0 +1,14 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "sourceRoots": ["src/components/client-documents"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/client-documents",
+    "build": "DAYCARE_DISABLE_FILESYSTEM_CACHE=true pnpm build"
+  },
+  "evidence": { "failurePaths": "src/components/client-documents/client-documents.test.tsx" }
+}

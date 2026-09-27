@@ -1,0 +1,14 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "sourceRoots": ["src/components/imports", "src/components/client-intake", "src/components/client-documents", "src/components/medications"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/imports src/components/client-intake src/components/client-documents src/components/medications src/lib/imports/upload-client.test.ts src/lib/imports/upload-pending.test.ts src/lib/client-intake src/lib/medications src/components/app/app-shell-logout.test.tsx",
+    "build": "DAYCARE_DISABLE_FILESYSTEM_CACHE=true pnpm build"
+  },
+  "evidence": { "failurePaths": "src/components/app/app-shell-logout.test.tsx" }
+}
