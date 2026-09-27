@@ -3,13 +3,14 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { fail } from "@/lib/api/response";
-import { getTenantContext, hasRecentAal2 } from "@/lib/auth/context";
+import { getTenantContext } from "@/lib/auth/context";
 import { hasSupabaseConfiguration, isDemoMode } from "@/lib/env";
 import { isIntegrationError } from "@/lib/integrations/errors";
 
 import { ImportError, isImportError } from "./errors";
 import type { ImportActor } from "./types";
 import { readImportJsonObject } from "./request-security";
+import { getGeneralImportRecentAal2At } from "./reauth";
 
 export type ImportPermission = "upload" | "preview" | "reparse" | "approve";
 
@@ -50,7 +51,7 @@ async function authorizeWithTenantContext(permission: ImportPermission) {
   if (context.assuranceLevel !== "aal2") {
     throw new ImportError(
       "AAL2_REQUIRED",
-      "所有員工作業都必須先完成雙因素驗證。",
+      "通用匯入包含大量敏感資料，請先完成安全驗證。",
       403,
     );
   }
@@ -59,8 +60,8 @@ async function authorizeWithTenantContext(permission: ImportPermission) {
     throw new ImportError("IMPORT_PERMISSION_DENIED", "您沒有執行此匯入操作的權限。", 403);
   }
 
-  const recentAal2 = await hasRecentAal2();
-  if (["upload", "reparse", "approve"].includes(permission) && !recentAal2) {
+  const recentAal2At = permission === "preview" ? null : await getGeneralImportRecentAal2At(context);
+  if (["upload", "reparse", "approve"].includes(permission) && !recentAal2At) {
     throw new ImportError(
       "RECENT_AAL2_REQUIRED",
       "這項匯入操作需要在最近 15 分鐘內重新完成雙因素驗證。",
@@ -73,7 +74,7 @@ async function authorizeWithTenantContext(permission: ImportPermission) {
     branchId: context.branchId,
     userId: context.userId,
     assuranceLevel: context.assuranceLevel,
-    recentAal2At: recentAal2 ? new Date().toISOString() : null,
+    recentAal2At,
   } satisfies ImportActor;
 }
 

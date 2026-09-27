@@ -33,7 +33,7 @@ export async function POST(
       typeof body.mapping_version === "string"
         ? body.mapping_version
         : CURRENT_MAPPING_VERSION;
-    const result = await reparseHtmlImport(getImportRepository(), actor, id, {
+    const result = await reparseHtmlImport(await getImportRepository(actor, "reparse"), actor, id, {
       mappingVersion: mappingVersion as SupportedMappingVersion,
       idempotencyKey: readIdempotencyKey(request, body.idempotency_key),
     });

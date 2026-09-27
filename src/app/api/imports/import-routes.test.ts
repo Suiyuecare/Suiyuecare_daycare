@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ demo: true, getTenantContext: vi.fn(), hasRecentAal2: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/env", () => ({ isDemoMode: () => state.demo, hasSupabaseConfiguration: () => true,
+vi.mock("@/lib/env", () => ({ isDemoMode: () => state.demo, hasSupabaseConfiguration: () => true, hasSupabaseAdminConfiguration: () => false,
   env: { NODE_ENV: "production", NEXT_PUBLIC_APP_ORIGIN: "https://daycare.example.test" } }));
 vi.mock("@/lib/auth/context", () => ({ getTenantContext: state.getTenantContext, hasRecentAal2: state.hasRecentAal2 }));
+vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: async () => ({ rpc: async () => ({
+  data: await state.hasRecentAal2() ? { organizationId: "00000000-0000-4000-8000-000000000001",
+    branchId: "00000000-0000-4000-8000-000000000002", actorUserId: "00000000-0000-4000-8000-000000000003", verifiedAt: new Date().toISOString() } : null,
+  error: null,
+}) }) }));
 
 import { POST as upload } from "./html/route";
 import { GET as preview } from "./[id]/preview/route";
@@ -90,7 +95,7 @@ describe("central HTML route integration with synthetic in-memory records", () =
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
-  it("keeps production fail-closed without a registered durable repository", async () => {
+  it("keeps production fail-closed without configured archive and worker credentials", async () => {
     state.demo = false;
     // This test must never register a repository, even if server configuration exists.
     expect(registerProductionImportStorage).toBeTypeOf("function");

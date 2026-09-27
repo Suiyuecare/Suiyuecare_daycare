@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   return handleImportRoute(async (requestId) => {
     requireImportWrite(request, "multipart");
     const actor = await authorizeImportRequest(request, "upload");
-    const repository = getImportRepository();
+    const repository = await getImportRepository(actor, "upload");
     const contentLength = Number(request.headers.get("content-length") ?? "0");
     if (
       Number.isFinite(contentLength) &&

@@ -56,7 +56,7 @@ export async function POST(
     if (Object.keys(body).some(key => !["idempotency_key", "conflict_resolutions"].includes(key))) {
       throw new ImportError("INVALID_IMPORT_BODY", "請使用本次來源核對表單確認暫存。", 400);
     }
-    const result = await approveHtmlImport(getImportRepository(), actor, id, {
+    const result = await approveHtmlImport(await getImportRepository(actor, "approve"), actor, id, {
       idempotencyKey: readIdempotencyKey(request, body.idempotency_key),
       conflictResolutions: conflictResolutions(body.conflict_resolutions),
     });

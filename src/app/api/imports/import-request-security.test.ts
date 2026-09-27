@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ demo: true, context: vi.fn(), recent: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/env", () => ({ isDemoMode: () => state.demo, hasSupabaseConfiguration: () => true,
+vi.mock("@/lib/env", () => ({ isDemoMode: () => state.demo, hasSupabaseConfiguration: () => true, hasSupabaseAdminConfiguration: () => false,
   env: { NODE_ENV: "production", NEXT_PUBLIC_APP_ORIGIN: "https://daycare.example.test" } }));
 vi.mock("@/lib/auth/context", () => ({ getTenantContext: state.context, hasRecentAal2: state.recent }));
+vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: async () => ({ rpc: async () => ({
+  data: await state.recent() ? { organizationId: "00000000-0000-4000-8000-000000000001",
+    branchId: "00000000-0000-4000-8000-000000000002", actorUserId: "00000000-0000-4000-8000-000000000003", verifiedAt: new Date().toISOString() } : null,
+  error: null,
+}) }) }));
 
 // Actual route handlers, request admission, static parser, services and memory
 // repository are retained. Only external configuration/auth providers are mocked.

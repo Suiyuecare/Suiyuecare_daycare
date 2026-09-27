@@ -97,8 +97,8 @@ try {
     create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null references storage.buckets(id),name text not null);
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;grant all on storage.objects to anon,authenticated,service_role;`);
   const migrations = (await readdir(join(root, "supabase/migrations"))).filter((name) => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 149, "This receipt regression requires the current 149-migration evidence baseline");
-  assert.equal(migrations.at(-1), "20260927132511_staff_certificate_document_recovery.sql");
+  assert.equal(migrations.length, 150, "This receipt regression requires the current 150-migration evidence baseline");
+  assert.equal(migrations.at(-1), "20260927151109_general_import_repository.sql");
   assert.ok(migrations.includes(requiredMigration), "The original nursing receipt migration must remain in the exact baseline");
   evidence.migrations = [];
   for (const name of migrations) {

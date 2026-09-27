@@ -17,7 +17,7 @@ export async function GET(
     const { id } = await params;
     assertImportId(id);
     const actor = await authorizeImportRequest(request, "preview");
-    const preview = await getImportPreview(getImportRepository(), actor, id);
+    const preview = await getImportPreview(await getImportRepository(actor, "preview"), actor, id);
     return ok(preview, 200, requestId);
   });
 }
