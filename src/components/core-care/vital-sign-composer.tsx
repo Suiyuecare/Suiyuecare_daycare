@@ -10,6 +10,8 @@ import { CoreCareReceiptError, parseVitalWriteReceipt } from "@/lib/core-care/wr
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
+import styles from "./daily-composer.module.css";
 
 type ClientOption = { id: string; name: string; code: string };
 type VitalRequest = { client_id: string; measured_at: string; values: Record<string, number> };
@@ -64,6 +66,7 @@ export function VitalSignComposer({
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
+  const validation = useDailyFormValidation();
   const draft = useCoreDraftGuard();
   const attempt = useCareWriteAttempt<VitalRequest>();
   const offline = useOfflineCareForm({ kind: "vital-sign", serviceDate, enabled, demo,
@@ -81,6 +84,7 @@ export function VitalSignComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    validation.reset();
     dialog.current?.showModal();
   }
 
@@ -93,13 +97,22 @@ export function VitalSignComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current || pending) return;
     const form = event.currentTarget;
     const prior = attempt.current();
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
     if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
-      setError("請重新選擇目前授權的個案；尚未送出量測。");
+      if (!prior) { setError(null); validation.validate(form, { client_id: "請重新選擇目前授權的個案；尚未送出量測。" }); }
+      else setError("請重新選擇目前授權的個案；尚未送出量測。");
       return;
+    }
+    if (!prior) {
+      const extra: Record<string, string> = {};
+      const filled = (name: string) => String(data.get(name) ?? "").trim() !== "";
+      if (!["systolic", "diastolic", "pulse", "temperature", "oxygen_saturation"].some(filled)) extra.systolic = "請至少填寫一項量測值；血壓須成對填寫。";
+      else if (filled("systolic") !== filled("diastolic")) extra[filled("systolic") ? "diastolic" : "systolic"] = "請一起填寫收縮壓與舒張壓。";
+      if (!validation.validate(form, extra)) { setError(null); return; }
     }
     if (!draft.begin()) return;
     setPending(true);
@@ -160,7 +173,7 @@ export function VitalSignComposer({
   }
 
   return (
-    <div className="core-composer">
+    <div className={`core-composer ${styles.composer}`}>
       <button
         className="button button--primary"
         disabled={!enabled || clients.length === 0 || unavailableSelection}
@@ -196,10 +209,16 @@ export function VitalSignComposer({
         <form
           className="core-dialog__surface"
           data-core-care-draft
+          noValidate
+          aria-busy={pending}
+          onCompositionStart={validation.onCompositionStart}
+          onCompositionEnd={validation.onCompositionEnd}
+          onKeyDown={validation.onKeyDown}
           ref={formRef}
           key={`${serviceDate}:${selectedClientId ?? "none"}`}
-          onChange={() => {
+          onChange={(event) => {
             if (attempt.current()) return;
+            validation.clearChanged(event.target);
             draft.changed();
             if (error) {
               idempotencyKey.current = crypto.randomUUID();
@@ -227,6 +246,7 @@ export function VitalSignComposer({
           </header>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
           <div className="drawer__body core-dialog__body">
+          <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={() => draft.changed()} />
             <div className="callout core-care-callout">
@@ -236,8 +256,8 @@ export function VitalSignComposer({
               </span>
             </div>
             <label className="field">
-              <span>個案 *</span>
-              <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required>
+              <span id={validation.labelId("client_id")}>個案 *</span>
+              <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required {...validation.field("client_id")}>
                 <option value="">請選擇個案</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
@@ -245,37 +265,45 @@ export function VitalSignComposer({
                   </option>
                 ))}
               </select>
+              <DailyFieldError validation={validation} name="client_id" />
             </label>
             <label className="field">
-              <span>量測日期與時間 *</span>
+              <span id={validation.labelId("measured_at")}>量測日期與時間 *</span>
               <input
                 defaultValue={defaultTaipeiLocal(serviceDate)}
                 name="measured_at"
+                {...validation.field("measured_at")}
                 required
                 type="datetime-local"
               />
+              <DailyFieldError validation={validation} name="measured_at" />
             </label>
             <fieldset className="vital-inputs">
               <legend>量測值（至少一項）</legend>
               <label className="field">
-                <span>收縮壓 mmHg</span>
-                <input inputMode="decimal" max="350" min="20" name="systolic" step="1" type="number" />
+                <span id={validation.labelId("systolic")}>收縮壓 mmHg</span>
+                <input inputMode="decimal" max="350" min="20" name="systolic" step="1" type="number" {...validation.field("systolic")} />
+                <DailyFieldError validation={validation} name="systolic" />
               </label>
               <label className="field">
-                <span>舒張壓 mmHg</span>
-                <input inputMode="decimal" max="250" min="10" name="diastolic" step="1" type="number" />
+                <span id={validation.labelId("diastolic")}>舒張壓 mmHg</span>
+                <input inputMode="decimal" max="250" min="10" name="diastolic" step="1" type="number" {...validation.field("diastolic")} />
+                <DailyFieldError validation={validation} name="diastolic" />
               </label>
               <label className="field">
-                <span>脈搏 bpm</span>
-                <input inputMode="decimal" max="350" min="10" name="pulse" step="1" type="number" />
+                <span id={validation.labelId("pulse")}>脈搏 bpm</span>
+                <input inputMode="decimal" max="350" min="10" name="pulse" step="1" type="number" {...validation.field("pulse")} />
+                <DailyFieldError validation={validation} name="pulse" />
               </label>
               <label className="field">
-                <span>體溫 °C</span>
-                <input inputMode="decimal" max="50" min="20" name="temperature" step="0.1" type="number" />
+                <span id={validation.labelId("temperature")}>體溫 °C</span>
+                <input inputMode="decimal" max="50" min="20" name="temperature" step="0.1" type="number" {...validation.field("temperature")} />
+                <DailyFieldError validation={validation} name="temperature" />
               </label>
               <label className="field">
-                <span>血氧 %</span>
-                <input inputMode="decimal" max="100" min="1" name="oxygen_saturation" step="1" type="number" />
+                <span id={validation.labelId("oxygen_saturation")}>血氧 %</span>
+                <input inputMode="decimal" max="100" min="1" name="oxygen_saturation" step="1" type="number" {...validation.field("oxygen_saturation")} />
+                <DailyFieldError validation={validation} name="oxygen_saturation" />
               </label>
             </fieldset>
             {error ? (

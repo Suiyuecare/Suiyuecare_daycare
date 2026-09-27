@@ -11,6 +11,8 @@ import { useCoreDraftGuard } from "./client-continuation";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
+import styles from "./daily-composer.module.css";
 
 type AttendanceRequest = { client_id: string; event_kind: AttendanceEventKind; occurred_at: string; reason?: string };
 
@@ -108,6 +110,7 @@ export function AttendanceComposer({
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
+  const validation = useDailyFormValidation();
   const draft = useCoreDraftGuard();
   const attempt = useCareWriteAttempt<AttendanceRequest>();
   const offline = useOfflineCareForm({ kind: "attendance", serviceDate, enabled, demo,
@@ -147,6 +150,7 @@ export function AttendanceComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    validation.reset();
   }
 
   function open(event: MouseEvent<HTMLButtonElement>) {
@@ -175,11 +179,13 @@ export function AttendanceComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current || pending) return;
     const prior = attempt.current();
     if (prior && !clients.some((client) => client.id === prior.body.client_id)) {
       setError("原出勤個案不在目前名單；請回到原個案確認上一筆結果，未改用其他個案。");
       return;
     }
+    if (!prior && !validation.validate(event.currentTarget)) return;
     if (!enabled || (!prior && (unavailableSelection || !selectedClient || !availableEvents.length)) || !draft.begin()) return;
     setPending(true);
     setError(null);
@@ -238,7 +244,7 @@ export function AttendanceComposer({
   }
 
   return (
-    <div className="core-composer">
+    <div className={`core-composer ${styles.composer}`}>
       <button
         className="button button--primary"
         disabled={!enabled || eligibleClients.length === 0 || unavailableSelection}
@@ -272,7 +278,9 @@ export function AttendanceComposer({
         onClose={() => trigger.current?.focus()}
         ref={dialog}
       >
-        <form className="core-dialog__surface" data-core-care-draft ref={formRef} onChange={() => { if (!attempt.current()) void offline.capture(); }} onSubmit={submit}>
+        <form className="core-dialog__surface" data-core-care-draft noValidate aria-busy={pending} ref={formRef}
+          onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
+          onChange={(event) => { if (!attempt.current()) { validation.clearChanged(event.target); void offline.capture(); } }} onSubmit={submit}>
           <header className="drawer__header">
             <div>
               <p className="eyebrow">第 1 步・出勤</p>
@@ -291,6 +299,7 @@ export function AttendanceComposer({
           </header>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
           <div className="drawer__body core-dialog__body">
+          <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => {
               setClientId(values.client_id ?? "");
@@ -304,10 +313,11 @@ export function AttendanceComposer({
               </span>
             </div>
             <label className="field">
-              <span>個案 *</span>
+              <span id={validation.labelId("client_id")}>個案 *</span>
               <select
                 autoFocus
                 name="client_id"
+                {...validation.field("client_id")}
                 onChange={(event) => {
                   changed();
                   const nextClient = eligibleClients.find(
@@ -328,11 +338,13 @@ export function AttendanceComposer({
                   </option>
                 ))}
               </select>
+              <DailyFieldError validation={validation} name="client_id" />
             </label>
             <label className="field">
-              <span>出勤動作 *</span>
+              <span id={validation.labelId("event_kind")}>出勤動作 *</span>
               <select
                 name="event_kind"
+                {...validation.field("event_kind")}
                 onChange={(event) => {
                   changed();
                   setEventKind(event.target.value as AttendanceEventKind);
@@ -346,11 +358,13 @@ export function AttendanceComposer({
                   </option>
                 ))}
               </select>
+              <DailyFieldError validation={validation} name="event_kind" />
             </label>
             <label className="field">
-              <span>事件日期與時間 *</span>
+              <span id={validation.labelId("occurred_at")}>事件日期與時間 *</span>
               <input
                 name="occurred_at"
+                {...validation.field("occurred_at")}
                 onChange={(event) => {
                   changed();
                   setOccurredAt(event.target.value);
@@ -359,12 +373,14 @@ export function AttendanceComposer({
                 type="datetime-local"
                 value={occurredAt}
               />
+              <DailyFieldError validation={validation} name="occurred_at" />
             </label>
             <label className="field">
-              <span>補登理由{isBackfill ? " *" : "（超過 15 分鐘時必填）"}</span>
+              <span id={validation.labelId("reason")}>補登理由{isBackfill ? " *" : "（超過 15 分鐘時必填）"}</span>
               <textarea
+                className="resize-none"
                 name="reason"
-                aria-describedby="attendance-reason-hint"
+                {...validation.field("reason", "attendance-reason-hint")}
                 maxLength={1000}
                 onChange={(event) => {
                   changed();
@@ -374,6 +390,7 @@ export function AttendanceComposer({
                 required={isBackfill}
                 value={reason}
               />
+              <DailyFieldError validation={validation} name="reason" />
               <small id="attendance-reason-hint">
                 {isBackfill
                   ? "目前時間已超過 15 分鐘；需確認補登授權與理由。"

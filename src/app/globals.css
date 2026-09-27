@@ -183,7 +183,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .client-selection-card__label { color: var(--ink-muted); font-size: 14px; font-weight: 700; line-height: 1.25; }
 .client-selection-card .client-selection-card__label { display: block; flex: 0 0 auto; margin: 0; color: var(--ink-muted); font-size: 14px; font-weight: 700; line-height: 1.25; }
 .client-selection-card__supplement { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; text-align: right; }
-.client-selection-card__supplement > :last-child { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-selection-card__supplement > :last-child { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
 .client-selection-card__controls { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .client-selection-card__select {
   display: block; width: 100%; min-width: 0; min-height: 44px; flex: 1 1 auto; border: 1px solid var(--line);
@@ -200,7 +200,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 @media (max-width: 520px) {
   .client-selection-card { padding: 12px; }
   .client-selection-card__heading { align-items: center; flex-wrap: nowrap; }
-  .client-selection-card__supplement { max-width: calc(100% - 48px); flex: 0 1 auto; justify-content: flex-end; text-align: right; }
+  .client-selection-card__supplement { max-width: calc(100% - 48px); flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; text-align: right; }
   .client-selection-card .client-selection-card__select { flex: 1 1 140px; }
   .client-selection-card__controls { gap: 8px; }
   .client-selection-card__action { padding-inline: 10px; }

@@ -1,17 +1,33 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { DailyExpectedState } from "@/lib/client-weekly/daily-projection";
-const mocks = vi.hoisted(() => ({ refresh: vi.fn() }));
+import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
+const mocks = vi.hoisted(() => ({ refresh: vi.fn(), synchronousTransition: false }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
+vi.mock("react", async (importOriginal) => {
+  const react = await importOriginal<typeof import("react")>();
+  return { ...react, useTransition: () => {
+    const transition = react.useTransition();
+    return mocks.synchronousTransition ? [false, (action: () => void) => action()] : transition;
+  } };
+});
 vi.mock("@/components/app/navigation-link", () => ({ NavigationLink: ({ children, href, className }: { children: ReactNode; href: string; className?: string }) => <a href={href} className={className}>{children}</a> }));
 import { DailyExpectedPanel } from "./daily-expected-panel";
 const state: Extract<DailyExpectedState, { status: "ready" }> = { status: "ready", serviceDate: "2026-09-14", generatedAt: new Date().toISOString(), expectedCount: 2, transportClientCount: 1, outboundCount: 1, inboundCount: 0,
   dispatch: { status: "forbidden" },
   clients: [{ clientId: "b0000000-0000-4000-8000-000000000001", displayName: "合成甲", startsAt: "09:00", endsAt: "16:00", outbound: true, inbound: false },
     { clientId: "b0000000-0000-4000-8000-000000000002", displayName: "合成乙", startsAt: "10:00", endsAt: "16:00", outbound: false, inbound: false }] };
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
+const releases: (() => void)[] = [];
+function remember(release: (() => void) | null) { if (release) releases.push(release); return release; }
+beforeEach(() => {
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
+  mocks.refresh.mockReset();
+  mocks.synchronousTransition = false;
+});
+afterEach(() => { cleanup(); for (const release of releases.splice(0)) release(); vi.useRealTimers(); vi.clearAllMocks(); });
 describe("expected attendance is separate from actual", () => {
   it("labels planned evidence and links only authorized destinations", () => {
     render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={true} canOpenTransport={true} />);
@@ -23,6 +39,105 @@ describe("expected attendance is separate from actual", () => {
   it("shows transport demand people only in transport mode", () => {
     render(<DailyExpectedPanel state={state} mode="transport" canOpenIntake={false} canOpenTransport={false} />);
     expect(screen.getByText("合成甲")).toBeTruthy(); expect(screen.queryByText("合成乙")).toBeNull(); expect(screen.queryAllByRole("link")).toHaveLength(0);
+  });
+  it("blocks refresh while a write outcome is unresolved, including before the disabled state commits", () => {
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    const button = screen.getByRole("button", { name: "重新讀取" });
+    let release: (() => void) | null = null;
+    act(() => {
+      release = remember(tryAcquirePendingOperation());
+      fireEvent.click(button);
+    });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/儲存結果尚待確認/)).toBeTruthy();
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    act(() => release?.());
+    fireEvent.click(button);
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+  });
+  it("does not refresh while a branch change owns the view", () => {
+    const release = remember(tryAcquireViewTransition());
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    const button = screen.getByRole("button", { name: "重新讀取" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    act(() => release?.());
+  });
+  it("owns the view before refreshing and releases after completion", async () => {
+    let finish!: () => void;
+    mocks.refresh.mockImplementation(() => {
+      expect(remember(tryAcquirePendingOperation())).toBeNull();
+      expect(remember(tryAcquireViewTransition())).toBeNull();
+      return new Promise<void>((resolve) => { finish = resolve; });
+    });
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新讀取" }));
+    expect(remember(tryAcquirePendingOperation())).toBeNull();
+    await act(async () => finish());
+    expect(remember(tryAcquirePendingOperation())).not.toBeNull();
+  });
+  it("releases the view when an unfinished refresh unmounts", () => {
+    mocks.refresh.mockImplementation(() => new Promise<void>(() => undefined));
+    const { unmount } = render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新讀取" }));
+    expect(remember(tryAcquirePendingOperation())).toBeNull();
+    unmount();
+    expect(remember(tryAcquirePendingOperation())).not.toBeNull();
+  });
+  it("allows repeated completed refreshes even when the snapshot is unchanged", () => {
+    mocks.synchronousTransition = true;
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "重新讀取" }));
+      expect(mocks.refresh).toHaveBeenCalledTimes(attempt);
+      const release = remember(tryAcquirePendingOperation());
+      expect(release).not.toBeNull();
+      act(() => release?.());
+    }
+  });
+  it("blocks a second refresh during the same unsettled transition", async () => {
+    let finish!: () => void;
+    mocks.refresh.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    const button = screen.getByRole("button", { name: "重新讀取" });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => finish());
+  });
+  it("keeps the original write held when the panel unmounts", () => {
+    const original = remember(tryAcquirePendingOperation());
+    const { unmount } = render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    unmount();
+    expect(remember(tryAcquireViewTransition())).toBeNull();
+    original?.();
+    expect(remember(tryAcquireViewTransition())).not.toBeNull();
+  });
+  it("releases its own view lock and offers retry after a synchronous refresh failure", () => {
+    mocks.synchronousTransition = true;
+    mocks.refresh.mockImplementationOnce(() => { throw new Error("synthetic private provider detail"); });
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新讀取" }));
+    expect(screen.getByRole("alert").textContent).toContain("更新未完成");
+    expect(screen.queryByText(/synthetic private provider detail/)).toBeNull();
+    const release = remember(tryAcquirePendingOperation());
+    expect(release).not.toBeNull();
+    act(() => release?.());
+    fireEvent.click(screen.getByRole("button", { name: "重新讀取" }));
+    expect(mocks.refresh).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+  it("does not start a refresh when the browser becomes offline or hidden before state commits", () => {
+    render(<DailyExpectedPanel state={state} mode="all" canOpenIntake={false} canOpenTransport={false} />);
+    const button = screen.getByRole("button", { name: "重新讀取" });
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, value: false });
+    fireEvent.click(button);
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    fireEvent.click(button);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(remember(tryAcquirePendingOperation())).not.toBeNull();
   });
   it("never prints false zero when loading failed", () => {
     render(<DailyExpectedPanel state={{ status: "unavailable", serviceDate: "2026-09-14" }} mode="all" canOpenIntake={false} canOpenTransport={false} />);

@@ -138,6 +138,16 @@ CMS上傳主按鈕採具名無障礙例外：只在`cms-upload-control.module.cs
 
 今日清單、個案清單與量表內容区的主要操作也沿用 --brand-strong 白字具名對比例外（5.02:1）；header 的既有 Finance 按鈕沒有變色，其全外框無障礙差異另列待驗收。原生 select／date／file chooser 與 details 接受平台 popup／鍵盤行為，不宣稱系統 popup 像素一致。合成資料瀏覽器驗證、本機測試與靜態稽核不是正式部署、真人 usability、完整 WCAG、hosted 寫入或89頁完成功能的證明。
 
+### 2026-09-28：連續操作與欄位提示切片
+
+不改 Finance header/sidebar、色碼、字型及 frame 幾何。ClientSelectionCard 的補充文字改為自然換行，手機不再截斷「已保存／待核對」；保留18px卡片、108px最小高度、16px欄位及44px控制，不宣稱不同內容有相同固定高度。
+
+出勤、生命徵象、照顧日誌共用 `core-care/daily-form-validation.tsx` 的同行錯誤、首錯焦點與中文組字保護。內容區沿用現有 `.field`／`.core-dialog`；`daily-composer.module.css` 只擁有這三張表單的不可拖曳 textarea 及等寬、有界 footer 按鈕，pending不換寬度。native select／datetime-local接受平台popup例外，noValidate後仍以既有schema及API驗證；沒有簽署或角色的新權限。
+
+`ModuleLoading` 是原導覽回饋的唯一owner：transition 的視覺顯示延後150ms，快速完成便不出現大畫面，inert、寫入保護及可安全登出立即生效。初始fallback即時顯示；不加最低等待、不新增JavaScript導覽計時器。Reduced-motion 保留原靜態bar，不加入新進場位移。
+
+預計名冊的重新讀取沿用既有 inline status、busy 及 tab-local view/write lease；不得在原筆保存未知時重載。查詢期限是伺服器資料owner，不用動畫假裝資料已更新。實際本機Chrome的桌機／390px、before/after及權限／錯誤測試見 `docs/SMOOTH_CONTINUOUS_WORK_READINESS_2026-09-28.md`；native未保存確認、hosted流程、Safari／輔具及全站效能仍須後續驗收。
+
 - 送審成功不是正式評估已完成；已採用也不等於臨床簽署能力已開放。
 - 待審不能顯示「已由」；僅真人完成的核准事件才是核准證據。
 - 不把別的分支、展示資料或資料庫服務密鑰拿來補載入失敗。

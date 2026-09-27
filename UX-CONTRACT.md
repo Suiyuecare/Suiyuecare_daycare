@@ -246,3 +246,13 @@ AppShell 只從伺服器過濾後 navigation 建常用捷徑，全部既有授�
 量表先填寫，但回查原操作／保存待讀回置於表單之前。所有完整題目、必填、安全提醒與草稿／尚不可正式簽署保留；來源說明收起不等於規則已正式啟用。收案progress僅表現選定步驟／profile真實缺項，不把visited計為完成；CMS缺封存仍明示原因並停用原檔上傳。未保存離開、未知後原鍵重試及拒絕回條處理不變。
 
 驗證必須包含 desktop／390px實際元件、搜尋清除／GET篩選序列化、date/client/shift連結、native details鍵盤、選案16px與控制44px、unknown回查可見、權限與登出回歸。baseline與candidate均只用同一合成scope；fake transport不作hosted Auth／保存／掃毒證明。10位初次使用者、50人並行、真正200%縮放／輔具與正式資料验收仍獨立列為未完成，不以本機測試代替。
+
+### 2026-09-28：連續操作、期限與表單回饋
+
+出勤／量測／日誌的首次送出由同一 `daily-form-validation` owner 關閉原生氣泡，保留required／單位／範圍／精度、血壓成對及本次觀察條件。錯誤與label／control關聯，移到首錯但不清內容；中文composition與229 Enter不送出。送出中fieldset唯讀，unknown沿用原body／key重試，不能讓新驗證改寫原筆。server schema與授權仍最後決定；離線草稿不因此視為正式保存。useCoreDraftGuard的native未保存confirm尚未遷移，不聲稱全三表單皆採canonical捨棄dialog。
+
+ModuleLoading的150ms只控制視覺揭露，status/inert/登出與操作lease即時生效；完成後立即消失，無最低等待。預計名冊refresh先同步取得共享view lease，blocked write／view、demo／forbidden／offline／hidden均不另讀；確切自身transition完成或卸載只釋放自身view lease，未知write不釋放。
+
+`api/server-read-deadline.ts`只擁有read-only的單次20秒期限，core-care／case-center／care-roster／daily-projection各自涵蓋client初始化、其RPC／query及相依名字查詢。必要signal傳至原PostgREST transport，在每個followup前及await後核對；晚到初始化、分頁、profile及結果不得入場。原client_factory、本人cookie、機構／分支、purpose／interaction、assignment與parser均不變；不cache個資、不用service role、不自动retry、不把逾時變成empty/zero。共用timer在settle清除，abort僅是transport取消，不能宣稱已終止資料庫SQL。
+
+期限不是整個authenticated route的SLA：Auth前置仍有無界連續讀取；首頁的daily projection仍在core／roster之後，可能累加等待。其他89頁、正式RLS、hosted登入／寫入、50並行及備份恢復不由本次測試代替。選案補充內容自然換行；不可用ellipsis藏掉已保存待核對，但也不能把自然高度說成所有內容固定同高。

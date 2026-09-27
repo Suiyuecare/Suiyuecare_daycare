@@ -14,6 +14,8 @@ import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
 import type { CareDiaryFields } from "@/lib/care-diary/schema";
 import { isDailyWorkflowShift, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
+import styles from "./daily-composer.module.css";
 
 type ClientOption = { id: string; name: string; code: string };
 type DiaryRequest = { client_id: string; page_slug: string; occurred_at: string; data: CareDiaryFields };
@@ -62,6 +64,7 @@ export function CareDiaryComposer({
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
+  const validation = useDailyFormValidation();
   const draft = useCoreDraftGuard();
   const attempt = useCareWriteAttempt<DiaryRequest>();
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
@@ -83,6 +86,7 @@ export function CareDiaryComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    validation.reset();
     dialog.current?.showModal();
   }
 
@@ -95,14 +99,17 @@ export function CareDiaryComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current || pending) return;
     const form = event.currentTarget;
     const prior = attempt.current();
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
     if (!enabled || unavailableSelection || invalidShift || !clients.some((client) => client.id === clientId)) {
-      setError("請重新選擇目前授權的個案；尚未送出日誌草稿。");
+      if (!prior) { setError(null); validation.validate(form, { client_id: "請重新選擇目前授權的個案；尚未送出日誌草稿。" }); }
+      else setError("請重新選擇目前授權的個案；尚未送出日誌草稿。");
       return;
     }
+    if (!prior && !validation.validate(form)) { setError(null); return; }
     if (!draft.begin()) return;
     setPending(true);
     setError(null);
@@ -161,7 +168,7 @@ export function CareDiaryComposer({
   }
 
   return (
-    <div className="core-composer">
+    <div className={`core-composer ${styles.composer}`}>
       <button
         className="button button--primary"
         disabled={!enabled || clients.length === 0 || unavailableSelection || invalidShift}
@@ -184,20 +191,23 @@ export function CareDiaryComposer({
         onClose={() => trigger.current?.focus()}
         ref={dialog}
       >
-        <form className="core-dialog__surface" data-core-care-draft ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`} onChange={() => { if (attempt.current()) return; draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
+        <form className="core-dialog__surface" data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`}
+          onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
+          onChange={(event) => { if (attempt.current()) return; validation.clearChanged(event.target); draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
           <header className="drawer__header"><div><p className="eyebrow">第 3 步・日誌草稿</p><h2 id="care-diary-dialog-title">新增照顧日誌</h2><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p></div><button aria-label="關閉" className="icon-button" disabled={pending} onClick={close} type="button"><X aria-hidden="true" /></button></header>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
           <div className="drawer__body core-dialog__body">
+          <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => { draft.changed(); setRestoredObservations(values); setDraftSession((value) => value + 1); }} />
             <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>此操作只建立草稿。異常旗標只是提醒工作人員確認，不會產生診斷或自動改變照顧決策。</span></div>
-            <label className="field"><span>個案 *</span><select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select></label>
-            <label className="field"><span>班別 *</span><select defaultValue={selectedShift ?? "full_day"} name="shift" required><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select></label>
-            <label className="field"><span>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate)} name="occurred_at" required type="datetime-local" /></label>
-            <label className="field"><span>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required /></label>
-            <DiaryObservationsFields key={draftSession} restored={restoredObservations} />
-            <label className="field"><span>紀錄摘要</span><textarea maxLength={2000} name="note" placeholder="只記錄必要觀察與處置，不輸入無關個資。" /></label>
-            <label className="field"><span>後續行動</span><textarea maxLength={1000} name="follow_up" placeholder="如需交班或追蹤，填寫具體行動。" /></label>
+            <label className="field"><span id={validation.labelId("client_id")}>個案 *</span><select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required {...validation.field("client_id")}><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select><DailyFieldError validation={validation} name="client_id" /></label>
+            <label className="field"><span id={validation.labelId("shift")}>班別 *</span><select defaultValue={selectedShift ?? "full_day"} name="shift" required {...validation.field("shift")}><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select><DailyFieldError validation={validation} name="shift" /></label>
+            <label className="field"><span id={validation.labelId("occurred_at")}>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate)} name="occurred_at" required type="datetime-local" {...validation.field("occurred_at")} /><DailyFieldError validation={validation} name="occurred_at" /></label>
+            <label className="field"><span id={validation.labelId("care_item")}>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required {...validation.field("care_item")} /><DailyFieldError validation={validation} name="care_item" /></label>
+            <DiaryObservationsFields key={draftSession} restored={restoredObservations} validation={validation} />
+            <label className="field"><span id={validation.labelId("note")}>紀錄摘要</span><textarea className="resize-none" maxLength={2000} name="note" placeholder="只記錄必要觀察與處置，不輸入無關個資。" {...validation.field("note")} /><DailyFieldError validation={validation} name="note" /></label>
+            <label className="field"><span id={validation.labelId("follow_up")}>後續行動</span><textarea className="resize-none" maxLength={1000} name="follow_up" placeholder="如需交班或追蹤，填寫具體行動。" {...validation.field("follow_up")} /><DailyFieldError validation={validation} name="follow_up" /></label>
             <label className="check-field"><input name="abnormal" type="checkbox" /><span>標記為需留意，送入後續人工確認</span></label>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
           </fieldset>
