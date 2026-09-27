@@ -12,9 +12,12 @@ import type { ImportPermission } from "./http";
 import { parseCentralCareHtml } from "./parser";
 import { importBatchRecordSchema, importOperationKeySchema, importUploadOperationSchema, originalImportReferenceSchema } from "./production-model";
 import { revalidateGeneralImportActor } from "./reauth";
+import { deterministicBatchId } from "./service";
+import { recoverTrustedHtmlImport } from "./trusted-recovery";
+import type { TrustedRecoveryInput } from "./recovery-model";
 import { stageTrustedHtmlImport, type StagingRpcClient } from "./trusted-staging";
 import { CURRENT_MAPPING_VERSION, type ImportActor, type ImportApproval, type ImportBatchRecord, type ImportScope,
-  type ImportUploadOperation, type ImportUploadRequestIdentity, type ParsedHtmlImport, type ProductionImportStorage } from "./types";
+  type HtmlImportFile, type ImportUploadOperation, type ImportUploadRequestIdentity, type ParsedHtmlImport, type ProductionImportStorage } from "./types";
 import { validateHtmlImportFile } from "./validation";
 import { S3ComplianceArchive } from "./worm-archive";
 
@@ -87,6 +90,10 @@ export class GeneralProductionImportRepository implements ProductionImportStorag
     if (this.stopped || performance.now() - this.startedAt >= PIPELINE_TIMEOUT_MS) { this.stopped = true; unknown(); }
   }
 
+  private assertNotAborted(signal?: AbortSignal) {
+    if (signal?.aborted) { this.stopped = true; unknown(); }
+  }
+
   private async bounded<T>(work: () => PromiseLike<T>): Promise<T> {
     const remaining = PIPELINE_TIMEOUT_MS - (performance.now() - this.startedAt);
     if (this.stopped || remaining <= 0) { this.stopped = true; unknown(); }
@@ -113,19 +120,25 @@ export class GeneralProductionImportRepository implements ProductionImportStorag
       const age = current.recentAal2At ? Date.now() - Date.parse(current.recentAal2At) : Number.NaN;
       if (!Number.isFinite(age) || age < 0 || age > 15 * 60_000) denied();
     }
+    return current;
   }
-  private async call(name: string, args: Record<string, unknown>, permission = this.dependencies.permission) {
+  private async call(name: string, args: Record<string, unknown>, permission = this.dependencies.permission, signal?: AbortSignal) {
+    this.assertNotAborted(signal);
     await this.check(permission);
+    this.assertNotAborted(signal);
     let result: Awaited<ReturnType<StagingRpcClient["rpc"]>>;
     try {
-      result = await this.bounded(() => this.dependencies.userClient.rpc(name, {
-        p_org: this.actor.organizationId, p_branch: this.actor.branchId, ...args,
-      }));
+      result = await this.bounded(() => {
+        this.assertNotAborted(signal);
+        return this.dependencies.userClient.rpc(name, { p_org: this.actor.organizationId, p_branch: this.actor.branchId, ...args });
+      });
     } catch { unknown(); }
+    this.assertNotAborted(signal);
     if (!result || typeof result !== "object" || !("data" in result) || !("error" in result)) invalid();
     if (result.error !== null) rpcError(result.error);
     // A successful RPC is not permission to disclose data after remote waits.
     await this.check(permission);
+    this.assertNotAborted(signal);
     return result.data;
   }
   private record(raw: unknown, id?: string): ImportBatchRecord {
@@ -267,6 +280,32 @@ export class GeneralProductionImportRepository implements ProductionImportStorag
     const operation = this.upload(data, key, { fileSha256: file.sha256, fileName: file.fileName, mimeType: file.mimeType });
     if (!operation.duplicate && (operation.batch.id !== captured.id || operation.batch.version !== 1 ||
       !isDeepStrictEqual(parsedPart(operation.batch), parsed) || operation.batch.byteLength !== file.bytes.byteLength)) invalid();
+    this.assertWithinDeadline();
+    return operation;
+  }
+
+  /** Explicit fresh authorization of the same queued source. This does not call
+   * legacy reserve again, rebind the original session, or create a new source. */
+  async recoverQueuedUpload(file: HtmlImportFile, options: TrustedRecoveryInput, signal?: AbortSignal) {
+    const captured = structuredClone(options);
+    const validated = validateHtmlImportFile({ ...file, bytes: Uint8Array.from(file.bytes) });
+    const parsed = parseCentralCareHtml(validated, CURRENT_MAPPING_VERSION);
+    await this.check("upload");
+    const receipt = await this.bounded(() => recoverTrustedHtmlImport({
+      userClient: this.dependencies.userClient, workerClient: this.dependencies.workerClient, archive: this.dependencies.archive,
+      reauthorize: async () => this.check("upload"), signal,
+    }, this.actor, validated, captured, "general"));
+    this.assertNotAborted(signal);
+    if (receipt.reservation_id !== captured.reservationId || receipt.status !== "completed" ||
+      receipt.staging_only !== true || receipt.formally_imported !== false ||
+      receipt.file_sha256 !== validated.sha256 || receipt.content_fingerprint !== parsed.contentFingerprint) invalid();
+    const batchId = deterministicBatchId(this.actor, captured.originalOperationKey);
+    const data = await this.call("general_import_repository_attach", { p_batch: batchId,
+      p_reservation: receipt.reservation_id, p_key: captured.originalOperationKey }, "upload", signal);
+    const operation = this.upload(data, captured.originalOperationKey, { fileSha256: validated.sha256,
+      fileName: validated.fileName, mimeType: validated.mimeType });
+    if (operation.duplicate || operation.batch.id !== batchId || operation.batch.version !== 1 ||
+      operation.batch.byteLength !== validated.bytes.byteLength || !isDeepStrictEqual(parsedPart(operation.batch), parsed)) invalid();
     this.assertWithinDeadline();
     return operation;
   }

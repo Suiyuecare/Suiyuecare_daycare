@@ -96,8 +96,8 @@ try {
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;
     grant all on storage.objects to anon,authenticated,service_role;`);
   const migrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 150, "This evidence requires the exact current 150-migration baseline");
-  assert.equal(migrations.at(-1), "20260927151109_general_import_repository.sql");
+  assert.equal(migrations.length, 151, "This evidence requires the exact current 151-migration baseline");
+  assert.equal(migrations.at(-1), "20260927160222_import_upload_recovery.sql");
   for (const name of migrations) {
     const source = await readFile(join(root, "supabase/migrations", name), "utf8");
     try { sql(source); } catch (error) { throw new Error(`Exact migration ${name}: ${error.message}`); }

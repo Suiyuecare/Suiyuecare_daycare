@@ -95,8 +95,8 @@ try {
   started = true; sql(bootstrapSql);
   sql("create schema storage;create table storage.buckets(id text primary key,name text not null,public boolean not null default false,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null references storage.buckets(id),name text not null);alter table storage.objects enable row level security;");
   const migrations = (await readdir(join(root, "supabase/migrations"))).filter((name) => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 150, "Frozen exact migration set including general-import repository evidence is required.");
-  assert.equal(migrations.at(-1), "20260927151109_general_import_repository.sql");
+  assert.equal(migrations.length, 151, "Frozen exact migration set including explicit import recovery evidence is required.");
+  assert.equal(migrations.at(-1), "20260927160222_import_upload_recovery.sql");
   const oldIdentity = () => sql("select jsonb_build_object('catalog',(select jsonb_agg(jsonb_build_object('hash',catalog_hash,'canonical',canonical_json) order by form_key) from private.questionnaire_rule_catalog),'authority',md5(pg_get_functiondef('private.questionnaire_assessment_authority(uuid,uuid,uuid,text,text)'::regprocedure)),'writer',md5(pg_get_functiondef('public.mutate_questionnaire_assessment(uuid,uuid,jsonb,uuid)'::regprocedure)),'activation',(select count(*) from private.questionnaire_rule_activations),'retirement',(select count(*) from private.questionnaire_rule_retirements));").trim();
   let previousIdentity;
   for (const name of migrations) {
@@ -104,7 +104,7 @@ try {
     const source = await readFile(join(root, "supabase/migrations", name), "utf8"); sql(source);
     evidence.migrations.push({ name, sha256: createHash("sha256").update(source).digest("hex") });
   }
-  assert.ok(previousIdentity); assert.equal(oldIdentity(), previousIdentity, "144-to-150 upgrade preserves original v1 catalog bytes, authority/writer and all adoption/retirement state.");
+  assert.ok(previousIdentity); assert.equal(oldIdentity(), previousIdentity, "144-to-151 upgrade preserves original v1 catalog bytes, authority/writer and all adoption/retirement state.");
   sql(await readFile(join(root, "supabase/seed.sql"), "utf8"));
   sql(run("/usr/bin/tar", ["-xOf", join(root, "node_modules/@electric-sql/pglite/dist/pgtap.tar.gz"), "share/postgresql/extension/pgtap--1.3.5.sql"]));
   const suite = await readFile(join(root, "supabase/tests/questionnaire_readiness_source.test.sql"), "utf8");

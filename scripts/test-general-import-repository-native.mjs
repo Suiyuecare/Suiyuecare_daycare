@@ -90,7 +90,7 @@ try {
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;
     grant all on storage.objects to anon,authenticated,service_role;`);
   const migrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 150); assert.equal(migrations.at(-1), "20260927151109_general_import_repository.sql");
+  assert.equal(migrations.length, 151); assert.equal(migrations.at(-1), "20260927160222_import_upload_recovery.sql");
   const fingerprint = () => sql(`select md5(jsonb_build_object('clients',(select jsonb_agg(to_jsonb(x)order by x.id)from public.clients x),
     'measurements',(select jsonb_agg(to_jsonb(x)order by x.id)from public.measurements x),
     'forms',(select jsonb_agg(to_jsonb(x)order by x.id)from public.form_versions x),
@@ -101,8 +101,8 @@ try {
     if (index === 149) { sql(await readFile(join(root, "supabase/seed.sql"), "utf8")); previous = fingerprint(); }
     sql(source); evidence.migrations.push({ name, sha256: createHash("sha256").update(source).digest("hex") });
   }
-  assert.ok(previous); assert.equal(fingerprint(), previous, "149-to-150 cannot alter existing seeded business data");
-  evidence.upgrade = { from: 149, to: 150, businessFingerprint: previous, unchanged: true };
+  assert.ok(previous); assert.equal(fingerprint(), previous, "149-to-151 cannot alter existing seeded business data");
+  evidence.upgrade = { from: 149, to: 151, businessFingerprint: previous, unchanged: true };
   sql(run("/usr/bin/tar", ["-xOf", join(root, "node_modules/@electric-sql/pglite/dist/pgtap.tar.gz"), "share/postgresql/extension/pgtap--1.3.5.sql"]));
   const testPath = join(root, "supabase/tests/general_import_repository.test.sql"); const testSource = await readFile(testPath, "utf8");
   evidence.testSha256 = createHash("sha256").update(testSource).digest("hex");
@@ -300,7 +300,7 @@ const repo=permission=>new GeneralProductionImportRepository({userClient:user,wo
   assert.equal(createHash("sha256").update(await readFile(import.meta.filename)).digest("hex"), evidence.runnerSha256);
   evidence.limitations = ["Synthetic local SQL/Auth only; not hosted Auth, real S3 bytes/WORM activation, scanner or formal client promotion", "Lock probes are targeted races, not 50-person HTTP load or universal revocation serialization"];
   await writeFile(join(runtime, "evidence.json"), JSON.stringify(evidence, null, 2));
-  console.log(`${engine}; exact150migrations; ${passed}/${expected}pgTAP; native evidence ${join(runtime, "evidence.json")}`);
+  console.log(`${engine}; exact151migrations; ${passed}/${expected}pgTAP; native evidence ${join(runtime, "evidence.json")}`);
 } catch (error) {
   testFailure = error; throw error;
 } finally {
