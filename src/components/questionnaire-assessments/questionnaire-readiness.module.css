@@ -1,0 +1,25 @@
+.panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem;
+  background: var(--surface);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; }
+.heading h2 { margin: 0; font-size: 1.25rem; }
+.heading p { margin: .3rem 0 0; color: var(--ink-muted); }
+.heading button { min-height: 44px; min-width: 11rem; }
+.status { min-height: 3rem; padding-block: .75rem; line-height: 1.6; }
+.warning { padding: .75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); line-height: 1.6; }
+.error { color: var(--danger, #8a1010); line-height: 1.6; }
+.issues { display: grid; gap: .5rem; padding: 0; margin: 0; list-style: none; }
+.issues li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .5rem; padding-block: .5rem; border-bottom: 1px solid var(--line); }
+.issues li span { flex: 1 1 18rem; }
+.issues li strong { font-size: .9rem; }
+.details summary { min-height: 44px; padding-block: .75rem; cursor: pointer; font-weight: 600; }
+.details summary:hover { color: var(--brand-strong); }
+.details summary:focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 3px; }
+.details li { line-height: 1.7; }
+@media (max-width: 640px) { .heading { align-items: stretch; } .heading button { min-width: 0; width: 100%; } }

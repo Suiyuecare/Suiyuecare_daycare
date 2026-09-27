@@ -5,7 +5,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const stubs = vi.hoisted(() => ({ fetch: vi.fn(), release: vi.fn(), acquire: vi.fn() }));
-vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: stubs.fetch }));
+vi.mock("@/lib/api/client-fetch", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/api/client-fetch")>(), fetchWithTimeout: stubs.fetch,
+}));
 vi.mock("@/lib/navigation/pending-operation-lock", () => ({ tryAcquirePendingOperation: stubs.acquire, useViewTransitionPending: () => false }));
 vi.mock("@/components/clients/client-selection-card", () => ({
   ClientSelectionCard: ({ disabled }: { disabled?: boolean }) => <select aria-label="個案" disabled={disabled}><option>合成個案</option></select>,
@@ -50,8 +52,8 @@ const functionalSnapshot = (selectedForm = functionalForms[0]!, reason = "合成
 const questionCard = (number: number) => within(screen.getByRole("radiogroup", { name: `第 ${number} 題` }).closest("section")!);
 
 describe("questionnaire independent drafts and version browsing", () => {
-  beforeEach(() => { vi.clearAllMocks(); stubs.acquire.mockReturnValue(stubs.release); vi.spyOn(window, "confirm").mockReturnValue(false); });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", stubs.fetch); stubs.acquire.mockReturnValue(stubs.release); vi.spyOn(window, "confirm").mockReturnValue(false); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it.each(Object.values(QUESTIONNAIRE_FORMS))("directly renders every question of $key after client selection", (selectedForm) => {
     const snapshot: QuestionnaireSnapshot = { ...defaultSnapshot(), formKey: selectedForm.key,

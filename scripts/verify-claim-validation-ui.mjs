@@ -9,11 +9,13 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argumentsToParse = process.argv.slice(2);
-if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before", "--announcements-receipt-before", "--social-work", "--social-work-before", "--psychosocial", "--psychosocial-before"].includes(argumentsToParse[0])) {
+if (argumentsToParse.length > 1 || argumentsToParse.length === 1 && !["--body", "--questionnaire", "--questionnaire-readiness", "--questionnaire-readiness-before", "--announcements", "--announcements-before", "--announcements-write", "--announcements-write-before", "--announcements-receipt-before", "--social-work", "--social-work-before", "--psychosocial", "--psychosocial-before"].includes(argumentsToParse[0])) {
   throw new Error("Only a named synthetic fixture is accepted.");
 }
 const bodyFixture = argumentsToParse[0] === "--body";
 const questionnaireFixture = argumentsToParse[0] === "--questionnaire";
+const readinessFixture = argumentsToParse[0]?.startsWith("--questionnaire-readiness");
+const readinessBaseline = argumentsToParse[0] === "--questionnaire-readiness-before";
 const announcementFixture = argumentsToParse[0]?.startsWith("--announcements");
 const baselineAnnouncement = argumentsToParse[0] === "--announcements-before";
 const baselineReceipt = argumentsToParse[0] === "--announcements-receipt-before";
@@ -22,7 +24,7 @@ const baselineWrite = argumentsToParse[0] === "--announcements-write-before";
 const socialFixture = argumentsToParse[0]?.startsWith("--social-work");
 const psychosocialFixture = argumentsToParse[0]?.startsWith("--psychosocial");
 const socialBaseline = (socialFixture || psychosocialFixture) && argumentsToParse[0]?.endsWith("-before");
-const route = socialFixture ? "/app/staff/social-work/records" : psychosocialFixture ? "/app/staff/social-work/psychosocial-assessment" : bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture ? "/app/staff/assessments/barthel-adl" : announcementFixture ? "/app/staff/operations/announcements" : "/app/staff/service-management/claims";
+const route = socialFixture ? "/app/staff/social-work/records" : psychosocialFixture ? "/app/staff/social-work/psychosocial-assessment" : bodyFixture ? "/app/staff/assessments/physical" : questionnaireFixture || readinessFixture ? "/app/staff/assessments/barthel-adl" : announcementFixture ? "/app/staff/operations/announcements" : "/app/staff/service-management/claims";
 const require = createRequire(import.meta.url);
 const vitePath = require.resolve("vite", { paths: [dirname(require.resolve("vitest/package.json"))] });
 const tailwindPath = require.resolve("@tailwindcss/postcss");
@@ -39,6 +41,7 @@ const stubs = {
     return null;
   },
   load(id) {
+    if (readinessBaseline && id === resolve(repo, "src/components/questionnaire-assessments/questionnaire-assessment-editor.tsx")) return execFileSync("git", ["show", "757a568:src/components/questionnaire-assessments/questionnaire-assessment-editor.tsx"], { cwd: repo, encoding: "utf8" });
     if (socialBaseline && ["src/components/social-work-records/social-work-record-actions.tsx", "src/components/social-work-records/social-work-records-workspace.tsx", "src/components/social-work-records/social-work-records.module.css", "src/components/psychosocial-assessments/psychosocial-assessment-actions.tsx", "src/components/psychosocial-assessments/psychosocial-assessments-workspace.tsx", "src/components/psychosocial-assessments/psychosocial-assessments.module.css"].some((name) => id === resolve(repo, name))) return execFileSync("git", ["show", `1ba1dba:${id.slice(repo.length + 1)}`], { cwd: repo, encoding: "utf8" });
     if (baselineReceipt && ["src/components/staff-announcements/staff-announcement-controller.tsx", "src/lib/staff-announcements/pending.ts"].some((name) => id === resolve(repo, name))) return execFileSync("git", ["show", `d3df299:${id.slice(repo.length + 1)}`], { cwd: repo, encoding: "utf8" });
     if (baselineWrite && ["staff-announcement-actions.tsx", "staff-announcements-workspace.tsx", "staff-announcements.module.css"].some((name) => id === resolve(repo, `src/components/staff-announcements/${name}`))) return execFileSync("git", ["show", `03ecf2d:${id.slice(repo.length + 1)}`], { cwd: repo, encoding: "utf8" });
@@ -52,7 +55,7 @@ const stubs = {
 await build({ root: repo, configFile: false, envFile: false, logLevel: "error", plugins: [stubs],
   resolve: { alias: { "@": resolve(repo, "src") } },
   define: { "process.env": "{}", "process.env.NODE_ENV": JSON.stringify("production") }, build: { outDir: runtime, emptyOutDir: false, minify: false,
-    target: "es2022", lib: { entry: resolve(repo, socialFixture || psychosocialFixture ? "scripts/fixtures/social-work-operation-ui.tsx" : bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : announcementWrite ? "scripts/fixtures/announcement-operation-ui.tsx" : announcementFixture ? "scripts/fixtures/announcement-page-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
+    target: "es2022", lib: { entry: resolve(repo, readinessFixture ? "scripts/fixtures/questionnaire-readiness-ui.tsx" : socialFixture || psychosocialFixture ? "scripts/fixtures/social-work-operation-ui.tsx" : bodyFixture ? "scripts/fixtures/body-assessment-ui.tsx" : questionnaireFixture ? "scripts/fixtures/questionnaire-state-ui.tsx" : announcementWrite ? "scripts/fixtures/announcement-operation-ui.tsx" : announcementFixture ? "scripts/fixtures/announcement-page-ui.tsx" : "scripts/fixtures/claim-validation-ui.tsx"),
       name: "SyntheticClaims", formats: ["iife"], fileName: () => "fixture.js" } } });
 const css = await postcss([tailwind({ base: repo })]).process(await readFile(resolve(repo, "src/app/globals.css"), "utf8"),
   { from: resolve(repo, "src/app/globals.css") });
@@ -70,14 +73,14 @@ const server = createServer(async (request, response) => {
   const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
   response.setHeader("Cache-Control", "private, no-store"); response.setHeader("X-Content-Type-Options", "nosniff");
   if (request.method !== "GET") { response.writeHead(405); response.end(); return; }
-  if (path === "/" || announcementFixture && path === route) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(html); return; }
+  if (path === "/" || (announcementFixture || readinessFixture) && path === route) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(html); return; }
   const asset = files[path];
   if (asset) { try { response.setHeader("Content-Type", asset[1]); response.end(await readFile(asset[0])); return; } catch { /* missing local asset */ } }
   response.writeHead(404); response.end("Synthetic fixture route not found");
 });
 await new Promise((done, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", done); });
 console.log(JSON.stringify({ syntheticOnly: true, url: `http://127.0.0.1:${server.address().port}/`, runtime,
-  scope: socialFixture || psychosocialFixture ? "Actual AppShell/social-work or psychosocial workspace/controller/shared dialogs/CSS; loopback synthetic API only, not hosted Auth/RLS/database/routing proof." : announcementWrite ? "Actual AppShell/announcement actions/shared confirmation/CSS; bounded in-memory fake requests, not Auth/RLS/production DB proof." : announcementFixture ? "Actual AppShell/announcement workspace/CSS; synthetic fixed paging dataset, not real Auth/DB/write evidence." : questionnaireFixture
+  scope: readinessFixture ? "Actual AppShell/questionnaire workspace and saved-version read-only panel/CSS; baseline editor from 757a568. Synthetic local API, not hosted Auth/RLS/database/signature proof." : socialFixture || psychosocialFixture ? "Actual AppShell/social-work or psychosocial workspace/controller/shared dialogs/CSS; loopback synthetic API only, not hosted Auth/RLS/database/routing proof." : announcementWrite ? "Actual AppShell/announcement actions/shared confirmation/CSS; bounded in-memory fake requests, not Auth/RLS/production DB proof." : announcementFixture ? "Actual AppShell/announcement workspace/CSS; synthetic fixed paging dataset, not real Auth/DB/write evidence." : questionnaireFixture
     ? "Actual AppShell/questionnaire editor/CSS, fixed synthetic N/A draft and fetch/router; not real Auth, persistence, scoring activation or SQL evidence."
     : "Actual AppShell/composer/shared modal/CSS, synthetic fetch/router; not real Auth, routing or SQL evidence." }));
 function stop() { server.close(); server.closeAllConnections(); process.exitCode = 0; }

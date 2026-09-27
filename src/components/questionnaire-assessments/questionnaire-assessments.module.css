@@ -1,12 +1,19 @@
 .workspace {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  overflow-wrap: anywhere;
   gap: 1rem;
 }
+
+.workspace > * { min-width: 0; }
+
+.workspace :is(input, select, textarea) { min-width: 0; max-width: 100%; }
 
 .formPanel,
 .questionCard {
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 18px;
+  border-radius: 10px;
   background: var(--surface, #fffdfa);
 }
 
@@ -19,9 +26,10 @@
 }
 
 .meta input {
+  width: 100%;
   min-height: 46px;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: .65rem .8rem;
   background: white;
   color: var(--text, #302d2a);
@@ -146,7 +154,7 @@
   min-height: 100px;
   resize: none;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: .75rem .85rem;
   background: white;
   color: var(--text, #302d2a);
@@ -171,6 +179,7 @@
 
 .questions {
   display: grid;
+  min-width: 0;
   gap: .8rem;
   margin: 0;
   padding: 0;
@@ -302,7 +311,7 @@
 .records {
   padding: 1rem;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 18px;
+  border-radius: 10px;
   background: var(--surface, #fffdfa);
 }
 
@@ -335,7 +344,7 @@
   min-width: 0;
   min-height: 46px;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: .65rem .8rem;
   background: var(--surface, #fffdfa);
   color: var(--text, #302d2a);
@@ -372,7 +381,7 @@
   margin-top: 1rem;
   padding: 1rem;
   border: 1px solid var(--border, #eadbc9);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-subtle, #fff8ee);
 }
 
@@ -394,6 +403,7 @@
 .workspace :disabled { opacity: .7; }
 
 @media (max-width: 640px) {
+  .actions button { min-width: 0; max-width: 100%; }
   .selection,
   .meta {
     grid-template-columns: 1fr;

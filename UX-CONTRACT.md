@@ -16,6 +16,7 @@
 | 申報驗證 | `claim-validation-client.ts`、`api/claims/validate/route.ts` | API／完整回執契約 | 2026-09-26 |
 | 店務摘要 | `store-overview/snapshot.ts`、`store-overview/access.ts` | 伺服器授權與來源驗證 | 2026-09-26 |
 | 人工身體觀察 | `body-assessments/parser.ts`、`api/body-assessments/route.ts` | 固定範圍／版本／簽署回執與 API 授權 | 2026-09-26 |
+| 九份量表已保存版完成檢查 | `questionnaire-assessments/readiness-source.ts`、`readiness-client.ts`、`readiness-view.ts`、原只讀API／RPC | 嚴格來源、純共用候選、正式阻擋契約 | 2026-09-27 |
 
 業務政策引用來源，不在 UI 中另定臨床角色、費用、資料保留期限或法律認定。本次不處理付款、刪除紀錄或真人規則核准。
 
@@ -124,7 +125,15 @@ GET 有 AbortController 與 request sequence 保護，舊量表／舊游標結�
 
 不適用原因必填，按伺服器契約以去除頭尾空白後的 Unicode 字元數驗證1–500字，拒絕控制字元。錯誤保留其他內容，aria-invalid／help／inline alert 關聯並聚焦第一個問題；不呼叫 POST。歷史檢視、無管理權限與未知結果均不可編輯；不改原內容／操作鍵重試規則。草稿 UI 不啟用規則、不補正式分數，不代替真人核准。編輯欄位由既有 module CSS 統一16px，保留 compact labels及原卡片幾何。
 
-此工作區的既有 native confirm 與歷程 guard 尚未遷入新的 shared unsaved owner，為明示的後續工作；不能把人工觀察的 scoped 確認驗收套用到全部量表。
+此工作區的既有兩處 native confirm 與歷程 guard 尚未遷入新的 shared unsaved owner，為明示的後續工作；不能把人工觀察的 scoped 確認驗收套用到全部量表。
+
+### 已保存量表完成檢查（九份題目式工具）
+
+2026-09-27接入候選唯讀panel，沿用Finance frame及同頁workspace，只有明確按下「檢查已保存評估」才GET。全context、authority/privacy epoch、表單與個案、來源generation、保存版、hash及nonce共同綁定；不以router.refresh、成功HTTP或新的分數取代原保存證據。AppShell在工作區外追蹤權限與登出；401／403、不可信回覆及來源內容不一致隔離臨床內容，真正較新且仍授權的來源才可重新入場。合法同個案SSR保留原編輯與未知原筆；被動切換不把原答案移至別案。
+
+查核持有自己的短期read fence，不解開任何write unknown。包含JSON解碼20秒獨立期限、可取消及晚callback owner檢查；報告60秒到期，不自動重查。dirty或未知操作不查、不POST、不取得MFA、不確認風險、不簽署。純browser core核對候選結構與分數；九份原canonical bytes／27個hash及server-only核對保持不變。結果永遠formalScore=null、signable=false，四個正式門檻收於details，安全警示不可收掉。
+
+10px內容卡及控制項、16px輸入、44px主要操作；typedDate沿用具名平台例外，inline真實日期錯誤與焦點，單一main、手機與放大後內層不橫向溢位。隔離Chrome23項、strict scope零finding、完整541檔／8,440項與本機原生全16套通過，不代表原native confirm／component-local未知journal完成遷移、正式計分採用、真人hosted或89頁上線；完整證據與剩餘門檻見QUESTIONNAIRE_READINESS_UI_2026-09-27.md。
 
 ## Migration and verification
 

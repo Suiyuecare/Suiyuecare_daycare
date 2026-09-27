@@ -27,7 +27,7 @@
 5. 報告不回傳原答案、備註、評估人姓名、目錄JSON或原始錯誤。查閱稽核不放上述內容、雜湊或nonce；API使用private/no-store，跨範圍、版本不一致、過期／錯誤回覆不補入其他資料。
 6. 被修訂的原版本仍可依法定讀取權限查核，但顯示`version_superseded`。查核不更改原草稿、未知寫入鎖或正式結果，也不重送原操作。一般讀取不新增核簽資格或要求寫入權限；資料庫原有員工登入規範仍生效。
 
-這是已保存版本的後端查核交付，**尚未接入前台量表工作區**，不宣稱現場員工已可點按完成正式評估。原量表的未知寫入在重新掛載後保留操作內容／精確回條仍需另一輪安全改善，不冒稱已與護理journal等效。
+後續本機候選已接入九份量表工作區的「完成檢查」，只查當前選定的已保存版本，不取代正式評估、採用或簽署。前台與復原邊界見[前台驗證](QUESTIONNAIRE_READINESS_UI_2026-09-27.md)。原量表未知寫入在完整卸載後的內容／精確回條仍需安全改善，不冒稱已與護理journal等效；未部署正式環境。
 
 ## 必須始終保留的正式阻斷
 
@@ -72,4 +72,4 @@
 
 上述log／JSON在`/Users/seniorlifepr/.codex/verification/daycare-20260926`，原生JSON另外保留於該次獨立執行的臨時證據目錄，不提交合成runtime到Git。獨立review逐一核對146份migration名稱及SHA-256與證據相符，未發現本切片blocking defect。
 
-HTTP401測試不是登入成功流程。未登入SPMSQ頁的HTTP200實為Next streaming的loading與登入redirect，沒有評估工作區；未冒稱頁面可用。89頁heading smoke曾在未啟動預設3000服務時返回fetch failed，保留`questionnaire-readiness-routes.log`為測試環境未設置的失敗，不列為頁面缺陷或通過證據。未執行本切片的瀏覽器／真人／hosted流程；前台尚未接入，本機通過不代表89頁完成或可以正式切換。
+HTTP401測試不是登入成功流程。未登入SPMSQ頁的HTTP200實為Next streaming的loading與登入redirect，沒有評估工作區；未冒稱頁面可用。89頁heading smoke曾在未啟動預設3000服務時返回fetch failed，保留`questionnaire-readiness-routes.log`為測試環境未設置的失敗，不列為頁面缺陷或通過證據。上表是後端切片凍結時的證據；後續前台另有本機瀏覽器驗證，不代表真人／hosted流程、89頁完成或可以正式切換。

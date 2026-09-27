@@ -1162,6 +1162,7 @@ export default async function StaffCatalogPage({
     return <QuestionnaireAssessmentsWorkspace
       assessorName={context.displayName}
       canManage={canManage}
+      context={context}
       form={form}
       loadError={loadError}
       pageTitle={page.title}

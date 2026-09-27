@@ -37,6 +37,7 @@ import { clearStaffAnnouncementPendingOnLogout, observeStaffAnnouncementAuthorit
 import { clearReferralPendingOnLogout, observeReferralAuthority, referralAuthoritySignature } from "@/lib/referral-management/pending";
 import { clearSocialWorkPendingOnLogout, observeSocialWorkAuthority, socialWorkAuthoritySignature } from "@/lib/social-work-records/pending";
 import { clearPsychosocialAssessmentPendingOnLogout, observePsychosocialAssessmentAuthority, psychosocialAssessmentAuthoritySignature } from "@/lib/psychosocial-assessments/pending";
+import { clearQuestionnaireViewOnLogout, observeQuestionnaireViewAuthority, questionnaireViewAuthority } from "@/lib/questionnaire-assessments/readiness-view";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
@@ -110,6 +111,7 @@ export function AppShell({
   const referralAuthority = referralAuthoritySignature(context);
   const socialWorkAuthority = socialWorkAuthoritySignature(context);
   const psychosocialAuthority = psychosocialAssessmentAuthoritySignature(context);
+  const questionnaireAuthority = questionnaireViewAuthority(context);
 
   // Track authority outside the announcement route too: an unmounted editor
   // must not accept an old reply after permissions change and later return.
@@ -128,6 +130,9 @@ export function AppShell({
   useLayoutEffect(() => {
     observePsychosocialAssessmentAuthority(psychosocialAuthority);
   }, [psychosocialAuthority]);
+  useLayoutEffect(() => {
+    observeQuestionnaireViewAuthority(questionnaireAuthority);
+  }, [questionnaireAuthority]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -233,6 +238,7 @@ export function AppShell({
     clearReferralPendingOnLogout();
     clearSocialWorkPendingOnLogout();
     clearPsychosocialAssessmentPendingOnLogout();
+    clearQuestionnaireViewOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();
