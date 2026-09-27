@@ -18,6 +18,7 @@ const suites = [
   "test-questionnaire-native.mjs",
   "test-questionnaire-rule-governance-native.mjs",
   "test-questionnaire-readiness-native.mjs",
+  "test-questionnaire-operation-receipt-native.mjs",
   "test-staff-announcements-native.mjs",
   "test-claim-operation-receipts-native.mjs",
   "test-nursing-assessments-native.mjs",

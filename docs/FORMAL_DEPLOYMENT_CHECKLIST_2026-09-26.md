@@ -20,6 +20,7 @@
 - 頁51補上原unknown鎖旁獨立手動授權GET；不重送、不換內容或鍵、不取得MFA。嚴格來源入場、指派撤銷／props替換及晚GET隔離已有本機回歸，不能把原操作仍待確認稱作已保存；本輪證據追加於[護理候選驗證](NURSING_WRITE_READINESS_2026-09-26.md)。
 - 頁51後續補本人原操作唯讀receipt GET；四種action、完整原body、目前授權及歷史不可變hash核對，查不到保留unknown；查到只確認保存，不冒稱清單更新。過期原簽署證據可依法定讀取範圍回查，但不授予新簽或重播；本機候選尚未套用正式環境。
 - 九份題目式工具新增私有結構／組合候選與已保存版本只讀查核API；後續本機已接前台「完成檢查」，不借用舊計分採用或啟用正式簽署。完整範圍、MNA-SF非完整MNA及證照核驗缺口見[已保存評估查核](QUESTIONNAIRE_READINESS_2026-09-27.md)，前台與來源／權限保護見[本輪驗證](QUESTIONNAIRE_READINESS_UI_2026-09-27.md)。
+- 九份題目式工具新增本人原操作精確receipt GET；原actor／key／request／版本／時間核對及稽核等待後撤權測試已通過。查無仍保留unknown、不重播、不啟用簽署；目前後端候選尚未接前台journal或復原按鈕。見[原操作查證驗證](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)。
 
 ## 還要製作／驗收的功能
 
@@ -36,8 +37,18 @@
 
 ## 需要負責人決定／提供的事項
 
-1. **Vercel授權：** 最新2026-09-26T17:28:24Z唯讀核對，團隊清單可取得 `entrepreneur-9585s-projects`；但該團隊專案清單只回另一個HR專案，指定日照專案`prj_eiwNI6buPlPXynMCWhatuzqxD74H`部署清單仍回403／forbidden。不是專案不存在的證據，未建立或替換任何專案。早期專案詳情工具另有 `idOrName` 參數轉接錯誤，不能把它當作403證據。日照發布權限與production branch／預覽保護仍未確認；不必提供密碼或Token。
-2. **資料區域與費用：** 最新2026-09-26T17:30:06Z唯讀核對仍為首爾 `ap-northeast-2`、ACTIVE_HEALTHY、PostgreSQL 17.6.1.166、正式migration130份（最後20260925141114）；本機本輪146份相對該次證據有16份候選增量，未套用。本輪未重新查雲端，此數量差以該次時間為準。原核准規劃是東京；選擇保留首爾須重新核准資料治理及原正式門檻，或先評估東京遷移／商用備份的成本。未決定前不新增費用、不擅自搬資料。
+2026-09-27T11:19–11:23Z僅唯讀複查：已連線Vercel團隊仍只回一個HR2專案，指定日照project的deployment list仍403；這是目前OAuth無權查閱，不證明專案不存在。Supabase日照project為ACTIVE_HEALTHY、首爾`ap-northeast-2`、API版本17.6.1.166／資料庫實際17.6，雲端仍130份migration、最後20260925141114。未使用對話中暴露的歷史Token，也未寫入雲端。
+
+後續2026-09-27T11:38Z唯讀使用本機既有Vercel CLI登入，已成功讀取同一指定專案，**不再把403當作所有發布通道都無法使用**。帳號`entrepreneur-9585`、團隊`entrepreneur-9585s-projects`為OWNER；project為`suiyue-daycare-preview`、GitHub `Suiyuecare/Suiyuecare_daycare`、production branch `main`、Node22、function default region東京`hnd1`（不是inspect中的Sandbox `iad1`）。`daycare.suiyuecare.com`已verified；目前production READY `dpl_Cde52jZutniyJHsALsMB8YRNYxRh`／commit `aa0b64f0f2f9168489f08ba615aa7b6c96ce059d`，不是本輪候選。
+
+既有Vercel SSO為`all_except_custom_domains`，正式自訂網域不能假設有Vercel SSO保護，仍需真正App/Supabase登入與隔離驗收；未關閉保護或產生bypass。CLI team list僅一個**Hobby**團隊，無已連線商用團隊可直接重用。[Vercel現行規則](https://vercel.com/docs/limits/fair-use-guidelines#commercial-usage)限定Hobby非商業個人使用；公司營運須Pro／Enterprise或另選經核准的商用部署方案。因使用者禁止新增費用，不自行升級或用免費trial代替商用採購／退出審查。僅驗證讀取與OWNER資格，沒有試送部署、更改設定、GitHub push、雲端migration或查看／輸出credential值。安全摘要見證據目錄`questionnaire-operation-receipt-vercel-readonly.json`。
+
+同次hosted Security Advisor回185項「RLS無policy」INFO及1項密碼外洩保護WARN。唯讀catalog確認185表均FORCE RLS且anon／authenticated直接DML權限皆0，不能為消除INFO而開放policy；service_role僅兩張既有private重新驗證表有select/insert/update權限，需保持伺服器密鑰隔離。這是目前正式舊schema的檢查，不是新增本機SQL或完整滲透驗收。[Advisor說明](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)、[Auth警示](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)。
+
+[Supabase公告](https://supabase.com/changelog/postgres-15-19-17-11-breaking-changes)安排2026-09-28提供既有專案17.11升級；正式切換前另需備份、相容性及升級後驗證，不自動升級或支付新費用。同次catalog只讀檢測ltree、float GiST及非內建custom estimator operator皆0；程式未見legacy PGP cipher呼叫，但未掃描實際加密資料，不宣稱所有升級前置已完成。
+
+1. **商用部署與費用：** 本機既有Vercel登入可讀指定project且為OWNER，main／網域／保護設定已核對；工具OAuth403不再是唯一通道阻擋。但現有唯一團隊為Hobby，與公司正式營運不相符，商用方案／費用尚待核准。不必提供密碼或Token，也不擅自升級。保護預覽、真正員工hosted登入、部署及回滾實作仍須在所有門檻通過後驗證。
+2. **資料區域與費用：** 最新雲端為上述首爾與130份migration；本機新增原操作查證後為147份候選、相差17份，均未套用。原核准規劃是東京；保留首爾須重新核准資料治理及正式門檻，或先評估東京遷移／商用備份成本。未決定前不新增費用、不擅自搬資料；正式資料庫安全小版本升級也須先排演與備份。
 3. **業務依據：** 確認Finance實體只含萬華一館，提供適用年度的官方申報樣檔，指派實際專業規則覆核人員，以及資料／法遵與上線驗收負責人。題目授權已確認，無須重新提出。
 
 ## 發布順序
@@ -51,3 +62,5 @@
 前輪後端候選（2026-09-27，已保存量表查核）：完整程式536檔／8,050項、portable135套／6,363斷言、原生PG17.11全16套、lint／型別／production build通過；九份實際本機草稿RPC→Node候選一致及撤權／修訂競態通過。當輪尚未接前台，詳見[後端驗證表](QUESTIONNAIRE_READINESS_2026-09-27.md)。
 
 最新前台候選（2026-09-27）：九份題目式工具已接「完成檢查」，完整程式541檔／8,440項、portable135套／6,363斷言、原生全16套、lint／型別／production build通過；隔離Chrome23項、兩份strict audit零finding及實際本機建置HTTP拒絕通過。四項正式阻擋仍保留，非全部89頁或真人hosted驗收。詳見[前台驗證表](QUESTIONNAIRE_READINESS_UI_2026-09-27.md)。這些通過只縮減本機工程風險，沒有解除上表的業務與正式門檻；未執行GitHub推送、Vercel發布或正式資料庫升級。
+
+後續原操作查證後端候選（2026-09-27）：147份migration；完整程式544檔／8,706項、portable136套／6,425斷言、原生17／17套、lint／型別／production build及相依套件audit通過。新增API52項、SQL62項、九表create／revise三時區與8組真backend探測通過，未接前台unknown journal／確認窗。Vercel既有CLI唯讀通道已找回，商用方案及其餘正式門檻不變；詳見[新後端證據](QUESTIONNAIRE_OPERATION_RECEIPT_2026-09-27.md)。
