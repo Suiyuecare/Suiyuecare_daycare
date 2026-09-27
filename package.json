@@ -19,6 +19,7 @@
     "test:database:native:intake": "node scripts/test-intake-native.mjs",
     "test:database:native:questionnaire": "node scripts/test-questionnaire-native.mjs",
     "test:database:native:rules": "node scripts/test-questionnaire-rule-governance-native.mjs",
+    "test:database:native:readiness": "node scripts/test-questionnaire-readiness-native.mjs",
     "test:database:native:claims": "node scripts/test-claim-operation-receipts-native.mjs",
     "test:database:native:nursing-receipts": "node scripts/test-nursing-operation-receipt-native.mjs",
     "test:routes": "node scripts/test-page-routes.mjs",
