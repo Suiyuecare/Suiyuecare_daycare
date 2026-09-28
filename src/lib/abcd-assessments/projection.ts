@@ -52,7 +52,7 @@ const source = z.object({
   assessments: z.array(assessment).max(200), matching_total: count, assessments_truncated: z.boolean(),
   assessment_total: count, a_total: count, b_total: count, c_total: count, d_total: count,
   reassessment_missing_total: count, draft_total: count, signed_total: count,
-  clients: z.array(client).max(200), client_total: count, clients_truncated: z.boolean(),
+  clients: z.array(client).max(201), client_total: count, clients_truncated: z.boolean(),
   years: z.array(year).max(200), year_total: count, years_truncated: z.boolean(),
   form_kind: z.literal("manual_unstandardized"), formal_rule_status: z.literal("not_configured"),
   attachment_status: z.literal("not_configured"), notification_status: z.literal("not_configured"),
@@ -129,7 +129,11 @@ export function projectAbcdAssessmentSnapshot(input: { row: unknown; expectedOrg
     row.assessments_truncated !== (row.matching_total > row.assessments.length) ||
     (row.assessments_truncated && row.assessments.length !== 200) ||
     row.client_total < row.clients.length || row.clients_truncated !== (row.client_total > row.clients.length) ||
-    (row.clients_truncated && row.clients.length !== 200) || row.year_total < row.years.length ||
+    (row.clients_truncated && row.clients.length < 200) ||
+    (row.clients.length === 201 && (!input.filters.clientId ||
+      !row.clients.some((item) => item.client_id === input.filters.clientId))) ||
+    (input.filters.clientId && !row.clients.some((item) => item.client_id === input.filters.clientId)) ||
+    row.year_total < row.years.length ||
     row.years_truncated !== (row.year_total > row.years.length) ||
     (row.years_truncated && row.years.length !== 200) ||
     !unique(row.assessments.map(({ assessment_key }) => assessment_key)) ||

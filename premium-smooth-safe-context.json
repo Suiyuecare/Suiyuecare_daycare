@@ -1,0 +1,20 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "sourceRoots": [
+    "src/components/app",
+    "src/components/workspace",
+    "src/components/core-care",
+    "src/components/abcd-assessments",
+    "src/components/ui"
+  ],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm test",
+    "build": "DAYCARE_DISABLE_FILESYSTEM_CACHE=true pnpm build"
+  },
+  "evidence": { "failurePaths": "src/components/abcd-assessments/abcd-assessments-workspace.test.tsx" }
+}

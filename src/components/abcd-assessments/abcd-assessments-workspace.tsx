@@ -60,11 +60,11 @@ export function AbcdAssessmentsWorkspace({ page, snapshot, filters, loadError, c
       <p>此頁只保存人工摘要、結果三態／理由及人工複評日期三態／依據；不冒充正式評估，也不產生分數、診斷、自動複評或照顧決策。</p>
       <p>附件、通知、匯出與離線功能也尚未配置；相關正式操作目前不開放。</p></div></section>
     {snapshot.demo ? <p className="demo-banner">目前為合成展示資料；所有正式寫入操作均關閉。</p> : null}
-    <CreateAbcdAssessment canManage={canManage} snapshot={snapshot} />
+    <CreateAbcdAssessment canManage={canManage} selectedClientId={filters.clientId} snapshot={snapshot} />
     <section aria-label="ABCD 候選評估統計" className={`metric-grid ${styles.metrics}`}>{metrics.map((item) =>
       <article className="metric-card" key={item.label}><span>{item.label}</span><strong>{item.value}</strong>
         <small>完整符合集合</small></article>)}</section>
-    <form action={basePath} className={styles.filters} method="get">
+    <form action={basePath} className={styles.filters} method="get" noValidate>
       <label><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部授權個案</option>
         {snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName}</option>)}</select></label>
       <label><span>年度</span><select defaultValue={filters.assessmentYear ?? ""} name="year"><option value="">全部年度</option>
@@ -84,21 +84,15 @@ export function AbcdAssessmentsWorkspace({ page, snapshot, filters, loadError, c
       {snapshot.assessmentsTruncated ? <p role="status">清單只顯示最新 200 筆；統計仍使用完整符合集合，請縮小篩選。</p> : null}
       {!snapshot.assessments.length ? <section className="empty-card"><CalendarClock aria-hidden="true" /><h3>沒有符合條件的候選評估</h3>
         <p>請調整個案、年度、類型、複評狀態、紀錄狀態或查詢；系統不會擴大至其他分支或未指派個案。</p></section> : <>
-        <div aria-label="可水平捲動的 ABCD 評估表格" className={styles.tableWrap} role="region" tabIndex={0}><table className={styles.table}>
-          <thead><tr><th>個案／評估日</th><th>年度／類型／狀態</th><th>人工內容</th><th>版本</th><th>操作</th></tr></thead>
-          <tbody>{snapshot.assessments.map((assessment) => <tr key={assessment.assessmentKey}><td><strong>{assessment.clientDisplayName}</strong>
-            <small>{assessment.assessmentDate}</small></td><td>{assessment.assessmentYear} 年・{assessment.assessmentType} 類
-            <small>{STATE[assessment.assessmentState]}</small></td><td><ManualDetails assessment={assessment} /></td>
-            <td>v{assessment.version}<small>{assessment.authorDisplayName}</small></td><td>
-              <AbcdAssessmentActions assessment={assessment} branchId={snapshot.branchId}
-                canManage={canManage} hasRecentAal2={hasRecentAal2}
-                organizationId={snapshot.organizationId} /></td></tr>)}</tbody></table></div>
-        <div className={styles.mobileCards}>{snapshot.assessments.map((assessment) => <article key={assessment.assessmentKey}>
+        <div className={styles.recordCards}>{snapshot.assessments.map((assessment) => <article
+          className={styles.recordCard} key={assessment.assessmentKey}>
           <div className={styles.cardHeading}><div><h3>{assessment.clientDisplayName}</h3>
             <small>{assessment.assessmentDate}・{assessment.assessmentYear} 年・{assessment.assessmentType} 類</small></div>
             <span className={`${styles.pill} ${styles[`pill_${assessment.assessmentState}`]}`}>{STATE[assessment.assessmentState]}</span></div>
-          <ManualDetails assessment={assessment} /><AbcdAssessmentActions assessment={assessment}
+          <p className={styles.recordMeta}>v{assessment.version}・{assessment.authorDisplayName}</p>
+          <div className={styles.recordBody}><ManualDetails assessment={assessment} /></div>
+          <div className={styles.recordAction}><AbcdAssessmentActions assessment={assessment}
             branchId={snapshot.branchId} canManage={canManage} hasRecentAal2={hasRecentAal2}
-            organizationId={snapshot.organizationId} /></article>)}</div></>}
+            organizationId={snapshot.organizationId} /></div></article>)}</div></>}
     </section></div>;
 }

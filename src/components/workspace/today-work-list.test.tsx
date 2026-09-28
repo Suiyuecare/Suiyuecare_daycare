@@ -19,6 +19,131 @@ const snapshot = buildDemoDailySnapshot(date);
 const rows = buildTodayWorkRows(snapshot);
 
 describe("TodayWorkList", () => {
+  it("keeps date-level attendance independent of a sole confirmed roster shift", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [], assignments: [{
+      id: "morning-assignment", clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+      staffName: "合成照服員", serviceDate: date, shift: "morning", version: 1, state: "scheduled",
+      isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+      tasks: [{ kind: "temperature", status: "pending", evidenceAt: null }],
+    }] };
+    const attendanceRow = { ...buildTodayWorkRows(snapshot, roster)[0]!, tasks: ["attendance" as const],
+      nextPage: 46 as const, nextLabel: "確認出勤", attendance: "尚無出勤" };
+    const { container } = render(<TodayWorkList rows={[attendanceRow]} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    expect(container.querySelector(".today-client__shift")).toHaveTextContent("上午");
+    expect(container.querySelector(".today-client__shift")).not.toHaveTextContent("全部班別");
+    expect(screen.queryByRole("combobox", { name: /工作班別/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link")).toHaveAttribute("href", expect.not.stringContaining("shift="));
+    expect(screen.getByRole("link")).toHaveAccessibleName(/確認出勤/);
+    expect(screen.getByRole("link")).not.toHaveAccessibleName(/上午・/);
+  });
+
+  it("does not make a two-shift attendance event look like a shift-specific confirmation", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `attendance-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+        staffName: "合成照服員", serviceDate: date, shift, version: 1, state: "scheduled",
+        isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料", tasks: [],
+      })) };
+    const attendanceRow = { ...buildTodayWorkRows(snapshot, roster)[0]!, tasks: ["attendance" as const],
+      nextPage: 46 as const, nextLabel: "確認出勤", attendance: "尚無出勤" };
+    render(<TodayWorkList rows={[attendanceRow]} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    expect(screen.queryByRole("combobox", { name: /工作班別/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /確認出勤/ })).toHaveAttribute("href",
+      `/app/staff/service-management/attendance?date=${date}&client=${snapshot.clients[0]!.clientId}`);
+  });
+
+  it("offers only still-pending shifts in the pending list", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `measurement-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+        staffName: "合成照服員", serviceDate: date, shift, version: 1, state: "scheduled",
+        isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+        tasks: [{ kind: "temperature" as const, status: shift === "morning" ? "recorded" as const : "pending" as const,
+          evidenceAt: shift === "morning" ? "2026-09-10T01:00:00Z" : null }],
+      })) };
+    const row = { ...buildTodayWorkRows(snapshot, roster)[0]!, tasks: ["measurements" as const],
+      nextPage: 3 as const, nextLabel: "前往量測" };
+    render(<TodayWorkList rows={[row]} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    const choice = screen.getByRole("combobox", { name: /工作班別/ });
+    expect(within(choice).queryByRole("option", { name: "上午" })).not.toBeInTheDocument();
+    expect(within(choice).getByRole("option", { name: "下午" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：1 位");
+    fireEvent.change(choice, { target: { value: "afternoon" } });
+    expect(screen.getByRole("link", { name: /下午・前往量測/ })).toHaveAttribute("href", expect.stringContaining("shift=afternoon"));
+  });
+
+  it("requires an explicit choice when a client has two shifts and scopes status, detail and destination together", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `assignment-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+        staffName: "合成照服員", serviceDate: date, shift, version: 1, state: "scheduled",
+        isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+        tasks: [{ kind: "temperature" as const, status: shift === "morning" ? "recorded" as const : "pending" as const,
+          evidenceAt: shift === "morning" ? "2026-09-10T01:00:00Z" : null },
+        { kind: "care_diary" as const, status: "pending" as const, evidenceAt: null }],
+      })) };
+    const workRows = buildTodayWorkRows(snapshot, roster).map((row) => ({ ...row,
+      tasks: row.tasks.filter((task) => task !== "attendance"), nextPage: 3 as const, nextLabel: "前往量測" }));
+    const { container } = render(<TodayWorkList rows={workRows} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    const card = container.querySelector<HTMLElement>(".today-client")!;
+    expect(within(card).getByText("上午・下午")).toBeVisible();
+    expect(within(card).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "先選班別" })).toBeDisabled();
+
+    const shiftChoice = within(card).getByRole("combobox", { name: "陳O華的工作班別" });
+    fireEvent.change(shiftChoice, { target: { value: "morning" } });
+    expect(within(card).getByRole("link")).toHaveAttribute("href", expect.stringContaining("shift=morning"));
+    expect(within(card).getByRole("link")).toHaveAccessibleName(/上午・/);
+    expect(within(card).getByText("已有紀錄")).toBeVisible();
+    fireEvent.click(within(card).getByText("陳O華・分工與紀錄詳情"));
+    expect(within(card).getByRole("region", { name: "上午照顧安排" })).toBeVisible();
+    expect(within(card).queryByRole("region", { name: "下午照顧安排" })).not.toBeInTheDocument();
+
+    fireEvent.change(shiftChoice, { target: { value: "afternoon" } });
+    expect(within(card).getByRole("link")).toHaveAttribute("href", expect.stringContaining("shift=afternoon"));
+    expect(within(card.querySelector<HTMLElement>(".today-client__status")!).getAllByText("待記錄")).toHaveLength(2);
+    expect(within(card).getByRole("region", { name: "下午照顧安排" })).toBeVisible();
+    expect(within(card).queryByRole("region", { name: "上午照顧安排" })).not.toBeInTheDocument();
+  });
+
+  it("does not present a missing roster as completed work", () => {
+    const roster: CareRosterSnapshot = { status: "empty", manager: false, demo: false, staffOptions: [], assignments: [] };
+    render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    expect(screen.getByRole("heading", { name: "今天尚未有已確認分工" })).toBeVisible();
+    expect(screen.getByText(/空白不代表工作已完成/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "查看全部當班個案" })).not.toBeInTheDocument();
+    expect(screen.queryByText("此清單目前沒有待處理個案")).not.toBeInTheDocument();
+  });
+
+  it("gives an authorized manager a direct next step when no daily assignment exists", () => {
+    const roster: CareRosterSnapshot = { status: "empty", manager: true, demo: false, staffOptions: [], assignments: [] };
+    render(<><TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />
+      <details id="today-roster-composer"><summary>主管：安排／調整每日照顧分工</summary><input aria-label="分工測試欄位" /></details></>);
+    fireEvent.click(screen.getByRole("button", { name: "安排今日分工" }));
+    expect(document.getElementById("today-roster-composer")).toHaveAttribute("open");
+    expect(screen.getByText("主管：安排／調整每日照顧分工")).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "查看全部當班個案" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a date-level diary draft out of already signed morning and afternoon queues", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `signed-diary-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+        staffName: "合成照服員", serviceDate: date, shift, version: 1, state: "scheduled",
+        isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+        tasks: [{ kind: "care_diary" as const, status: "recorded" as const, evidenceAt: "2026-09-10T01:00:00Z" }],
+      })) };
+    const row = { ...buildTodayWorkRows(snapshot, roster)[0]!, tasks: ["diary" as const],
+      nextPage: 6 as const, nextLabel: "接續照顧日誌", diary: "2／2 班已簽署；有草稿待完成" };
+    render(<TodayWorkList rows={[row]} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    expect(screen.getByRole("link", { name: /接續照顧日誌/ })).toHaveAttribute("href", expect.not.stringContaining("shift="));
+    fireEvent.change(screen.getByRole("combobox", { name: "班別" }), { target: { value: "morning" } });
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：0 位");
+    fireEvent.click(screen.getByRole("button", { name: "全部當班" }));
+    expect(screen.getByText("已簽署")).toBeVisible();
+    expect(screen.queryByText("草稿待完成")).not.toBeInTheDocument();
+  });
+
   it("shows selected-shift short statuses and one next action while preserving full evidence in a disclosure", () => {
     const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
       assignments: (["morning", "afternoon"] as const).map((shift) => ({
@@ -87,6 +212,7 @@ describe("TodayWorkList", () => {
     expect(container.querySelector(".today-client__status")).toHaveTextContent(state);
     expect(container.querySelector(".today-client__status")).not.toHaveTextContent("已簽署");
     expect(screen.getByRole("link")).toHaveAttribute("href", expect.stringContaining("care-diary"));
+    expect(screen.getByRole("link")).toHaveAttribute("href", expect.not.stringContaining("shift="));
     expect(container.querySelector("details")).toHaveTextContent(`1／1 班已簽署；有${state}日誌`);
   });
 

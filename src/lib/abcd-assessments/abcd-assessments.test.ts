@@ -104,6 +104,7 @@ describe("Page 21 ABCD manual candidate contracts", () => {
     expect(() => parseAbcdAssessmentFilters(new URLSearchParams("type=A&type=B"))).toThrow();
     expect(() => parseAbcdAssessmentFilters(new URLSearchParams("year=1999"))).toThrow();
     expect(() => parseAbcdAssessmentFilters(new URLSearchParams("score=8"))).toThrow();
+    expect(() => parseAbcdAssessmentFilters(new URLSearchParams("client=not-a-client"))).toThrow();
   });
 
   it("correlates receipt action, next version, type and year", () => {

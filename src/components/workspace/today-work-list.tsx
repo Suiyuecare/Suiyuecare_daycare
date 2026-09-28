@@ -17,6 +17,22 @@ const filters: { id: WorkTask; label: string; access: keyof DailyCareSnapshot["s
   { id: "attention", label: "需留意", access: "careDiaries" },
 ];
 const PAGE_SIZE = 20;
+const shiftLabels: Record<RosterShift, string> = { morning: "上午", afternoon: "下午" };
+
+function plannedShifts(row: TodayWorkRow): RosterShift[] {
+  return (["morning", "afternoon"] as const).filter((shift) => row.plannedShifts?.some((slot) => slot.shift === shift));
+}
+
+function actionShifts(row: TodayWorkRow, filter: WorkFilter): RosterShift[] {
+  const shifts = plannedShifts(row);
+  if (filter === "measurements" || filter === "diary") {
+    return shifts.filter((shift) => scopeTodayWorkShift(row, shift).tasks.includes(filter));
+  }
+  if (filter === "pending" && !row.tasks.includes("attendance") && !row.tasks.includes("attention")) {
+    return shifts.filter((shift) => scopeTodayWorkShift(row, shift).tasks.length > 0);
+  }
+  return shifts;
+}
 
 /** Short labels describe the selected records; they never imply all care is complete. */
 function shortWorkStatus(row: TodayWorkRow) {
@@ -46,6 +62,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [shift, setShift] = useState<RosterShift | "all">("all");
+  const [chosenShifts, setChosenShifts] = useState<Record<string, RosterShift>>({});
   const [unassigned, setUnassigned] = useState(false);
   const rosterReady = roster?.status === "ready" || roster?.status === "empty";
   const eligibleClientIds = rosterReady ? new Set(roster.assignments.filter((slot) => slot.state === "scheduled"
@@ -62,6 +79,13 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const shown = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   function changeFilter(next: WorkFilter) { setFilter(next); setPage(1); }
   function showAllClients() { setFilter("all"); setSearch(""); setShift("all"); setUnassigned(false); setPage(1); }
+  function openRosterComposer() {
+    const composer = document.getElementById("today-roster-composer");
+    if (!(composer instanceof HTMLDetailsElement)) return;
+    composer.open = true;
+    composer.querySelector("summary")?.focus();
+    composer.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
 
   if (!access.clients) return <section className="empty-card" role="status"><h2>目前無個案查閱權限</h2><p>請由機構管理員確認您的工作指派與資料範圍。</p></section>;
   return <section className="today-work" aria-labelledby="today-list-title">
@@ -89,24 +113,57 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
         ? `目前沒有「${selectedFilter?.label}」查閱權限，請切換清單範圍或聯絡管理員。`
         : `${filter === "all" ? rosterReady ? "全部當班" : "全部在案" : filter === "pending" ? "待處理" : selectedFilter?.label}：${filtered.length} 位${search ? "（搜尋結果）" : ""}。每位個案只列一次。`}</p>
       <ul className="today-client-list" id="today-client-list">
-        {shown.map((row) => { const action = todayWorkAction(row, filter); const status = shortWorkStatus(row); return <li className="today-client" key={row.id}>
+        {shown.map((row) => {
+          const assignedShifts = plannedShifts(row);
+          const selectableShifts = actionShifts(row, filter);
+          const defaultAction = todayWorkAction(row, filter);
+          // Attendance is one client/date event; the attention link is a read action.
+          // Neither confirms a particular roster shift.
+          const hasPendingShiftDiary = assignedShifts.some((shift) => scopeTodayWorkShift(row, shift).tasks.includes("diary"));
+          const dateLevelDiary = defaultAction.page === 6 && !hasPendingShiftDiary &&
+            (row.diary.includes("草稿待完成") || row.diary.includes("待簽署"));
+          const dateLevelAction = defaultAction.page === 46 || defaultAction.label === "查看需留意紀錄" || dateLevelDiary;
+          const requiresShiftChoice = !dateLevelAction && shift === "all" && assignedShifts.length > 1;
+          const chosenShift = chosenShifts[row.id];
+          const effectiveShift = shift !== "all" ? shift : assignedShifts.length === 1 ? assignedShifts[0]
+            : chosenShift && selectableShifts.includes(chosenShift) ? chosenShift : undefined;
+          const scopedRow = effectiveShift && (shift !== "all" || requiresShiftChoice) ? scopeTodayWorkShift(row, effectiveShift) : row;
+          const action = todayWorkAction(scopedRow, filter);
+          const navigationShift = dateLevelAction ? undefined : effectiveShift;
+          const status = shortWorkStatus(scopedRow);
+          return <li className="today-client" key={row.id}>
           <div className="today-client__identity"><span className="avatar" aria-hidden="true">{row.name.slice(0, 1)}</span><div><h3>{row.name}</h3><small>{row.code}</small></div>
-            {rosterReady && <span className="today-client__shift">{shift === "all" ? "全部班別" : shift === "morning" ? "上午" : "下午"}</span>}
+            {rosterReady && assignedShifts.length > 0 && <span className="today-client__shift">{effectiveShift ? shiftLabels[effectiveShift] : assignedShifts.map((item) => shiftLabels[item]).join("・")}</span>}
             {row.tasks.includes("attention") && <span className="today-attention">需留意</span>}</div>
-          <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{status.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{status.diary}</dd></div></dl>
-          {action.page ? <NavigationLink className="button button--primary today-client__action" loadingLabel={action.label}
-            href={dailyWorkflowHref(action.page, serviceDate, row.id, shift === "all" ? undefined : shift)} aria-label={`${row.name}（${row.code}）：${shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}${action.label}`}>{shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
-            : <p>請聯絡管理員確認工作權限。</p>}
-          {row.plannedShifts && <details className="task-details today-client__details"><summary>{row.name}・分工與紀錄詳情</summary><p className="data-table__secondary">{serviceDate}・{row.code}。已有紀錄不代表全部照顧工作完成。</p><dl className="today-client__status"><div><dt>量測紀錄</dt><dd>{row.measurements}</dd></div><div><dt>日誌紀錄</dt><dd>{row.diary}</dd></div></dl><div className={styles.slots}>{row.plannedShifts.filter((slot) => shift === "all" || slot.shift === shift).map((slot) => <section key={slot.id} aria-label={`${slot.shift === "morning" ? "上午" : "下午"}照顧安排`}>
+          <dl className="today-client__status" aria-live="polite"><div><dt>出勤</dt><dd>{scopedRow.attendance}</dd></div><div><dt>量測</dt><dd>{status.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{status.diary}</dd></div></dl>
+          <div className="today-client__action-stack">
+            {requiresShiftChoice && action.page && <label className="field today-client__shift-picker"><span>{row.name}的工作班別</span><select
+              value={effectiveShift ?? ""} onChange={(event) => setChosenShifts((current) => {
+                const next = { ...current };
+                const selected = event.target.value;
+                if (selected === "morning" || selected === "afternoon") next[row.id] = selected;
+                else delete next[row.id];
+                return next;
+              })}>
+              <option value="">請選擇班別</option>
+              {selectableShifts.map((item) => <option key={item} value={item}>{shiftLabels[item]}</option>)}
+            </select></label>}
+            {action.page ? requiresShiftChoice && !effectiveShift ? <button className="button button--primary today-client__action" disabled type="button">先選班別</button>
+              : <NavigationLink className="button button--primary today-client__action" loadingLabel={action.label}
+                href={dailyWorkflowHref(action.page, serviceDate, row.id, navigationShift)} aria-label={`${row.name}（${row.code}）：${navigationShift ? `${shiftLabels[navigationShift]}・` : ""}${action.label}`}>{navigationShift ? `${shiftLabels[navigationShift]}・` : ""}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
+              : <p>請聯絡管理員確認工作權限。</p>}
+          </div>
+          {row.plannedShifts && <details className="task-details today-client__details"><summary>{row.name}・分工與紀錄詳情</summary><p className="data-table__secondary">{serviceDate}・{row.code}。已有紀錄不代表全部照顧工作完成。</p><dl className="today-client__status"><div><dt>量測紀錄</dt><dd>{scopedRow.measurements}</dd></div><div><dt>日誌紀錄</dt><dd>{scopedRow.diary}</dd></div></dl><div className={styles.slots}>{row.plannedShifts.filter((slot) => !effectiveShift || slot.shift === effectiveShift).map((slot) => <section key={slot.id} aria-label={`${slot.shift === "morning" ? "上午" : "下午"}照顧安排`}>
             <h4>{slot.shift === "morning" ? "上午" : "下午"}・{slot.staffName ?? "待指派負責人"}</h4>
             <ul>{slot.tasks.map((task) => <li key={task.kind}>{ROSTER_TASK_LABELS[task.kind]}：{task.status === "recorded" ? task.kind === "care_diary" ? "已簽署" : "已有本班紀錄" : task.status === "restricted" ? "無查閱權限" : "尚待記錄"}{task.evidenceAt && <time dateTime={task.evidenceAt}>（{new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(task.evidenceAt))}）</time>}</li>)}</ul>
             {!slot.tasks.length && <p>尚未安排記錄項目，請主管確認。</p>}
           </section>)}</div></details>}
         </li>; })}
       </ul>
-      {!shown.length && !filterRestricted && <div className="today-empty"><h3>{search ? "找不到符合條件的個案" : filter === "all" ? "目前沒有可查閱的在案個案" : "此清單目前沒有待處理個案"}</h3>
-        <p>{search ? "試試其他姓名或代碼，或清除搜尋查看名單。" : "這只代表本清單的結果，其他照顧工作仍請依當日安排確認。"}</p>
-        {(search || filter !== "all") && <button className="button button--secondary" type="button" onClick={showAllClients}>{rosterReady ? "查看全部當班個案" : "查看全部在案個案"}</button>}</div>}
+      {!shown.length && !filterRestricted && <div className="today-empty"><h3>{roster?.status === "empty" ? "今天尚未有已確認分工" : search ? "找不到符合條件的個案" : filter === "all" ? "目前沒有可查閱的在案個案" : "此清單目前沒有待處理個案"}</h3>
+        <p>{roster?.status === "empty" ? roster.manager ? "請先確認收案及今日分工；空白不代表工作已完成。" : "請向主管確認今天的工作安排；空白不代表工作已完成。" : search ? "試試其他姓名或代碼，或清除搜尋查看名單。" : "這只代表本清單的結果，其他照顧工作仍請依當日安排確認。"}</p>
+        {roster?.status === "empty" && roster.manager ? <button className="button button--primary" onClick={openRosterComposer} type="button">安排今日分工</button> : null}
+        {roster?.status !== "empty" && (search || filter !== "all") && <button className="button button--secondary" type="button" onClick={showAllClients}>{rosterReady ? "查看全部當班個案" : "查看全部在案個案"}</button>}</div>}
       {pageCount > 1 && <nav className="today-pagination" aria-label="今日個案分頁"><button className="button button--secondary" type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一頁</button><span>第 {currentPage} / {pageCount} 頁</span><button className="button button--secondary" type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</button></nav>}
     </div>
   </section>;

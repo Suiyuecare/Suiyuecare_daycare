@@ -15,6 +15,9 @@ const BRANCH = "21200000-0000-4000-8000-000000000002";
 const ACTOR = "21200000-0000-4000-8000-000000000003";
 const CLIENT = "21200000-0000-4000-8000-000000000004";
 const OTHER_CLIENT = "21200000-0000-4000-8000-000000000009";
+const UNASSIGNED_CLIENT = "21200000-0000-4000-8000-000000000018";
+const EARLY_CLIENT = "21210000-0000-4000-8000-000000000001";
+const LATE_CLIENT = "21210000-0000-4000-8000-000000000201";
 const MEMBERSHIP = "21200000-0000-4000-8000-000000000005";
 const SESSION = "21200000-0000-4000-8000-000000000006";
 const KEY_A = "21200000-0000-4000-8000-000000000010";
@@ -46,6 +49,8 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
       file <= "20260908002000_abcd_assessments_page21.sql").sort();
     expect(files.at(-1)).toBe("20260908002000_abcd_assessments_page21.sql");
     for (const file of files) await database.exec(await readFile(resolve(directory, file), "utf8"));
+    await database.exec(await readFile(resolve(directory,
+      "20260928033352_abcd_selected_client_option.sql"), "utf8"));
     await database.query(`insert into auth.users(id,aud,role,email,created_at,updated_at)
       values ($1,'authenticated','authenticated','contract21@example.invalid',now(),now())`, [ACTOR]);
     await database.query("insert into public.organizations(id,code,name) values ($1,'contract21','合成 ABCD 測試機構')", [ORG]);
@@ -104,6 +109,46 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
       notificationStatus: "not_configured", exportStatus: "not_configured",
       offlineStatus: "not_configured" });
   });
+
+  it("denies a direct selected-client snapshot for an unassigned same-branch client", async () => {
+    await database.exec("reset role");
+    await database.query(`insert into public.clients(id,organization_id,branch_id,client_code,display_name,status,admitted_on)
+      values ($1,$2,$3,'SYN-ABCD-NO','未指派合成個案','active','2025-01-01')`,
+    [UNASSIGNED_CLIENT, ORG, BRANCH]);
+    await database.exec("set role authenticated");
+    await expect(snapshot({ ...emptyAbcdAssessmentFilters(), clientId: UNASSIGNED_CLIENT }))
+      .rejects.toThrow(/ABCD assessment snapshot is not permitted/u);
+  });
+
+  it("includes an authorized selected client beyond the first 200 options exactly once", async () => {
+    await database.exec("reset role");
+    await database.query(`insert into public.clients(id,organization_id,branch_id,client_code,
+      display_name,status,admitted_on)
+      select ('21210000-0000-4000-8000-'||lpad(series::text,12,'0'))::uuid,
+        $1,$2,'SYN-ABCD-BULK-'||series,'A'||lpad(series::text,3,'0'),
+        'active','2025-01-01'
+      from generate_series(1,201) series`, [ORG, BRANCH]);
+    await database.query(`insert into public.client_assignments(
+      organization_id,branch_id,client_id,assignee_user_id,assignment_kind)
+      select $1,$2,id,$3,'assessment' from public.clients
+      where organization_id=$1 and branch_id=$2
+        and client_code like 'SYN-ABCD-BULK-%'`, [ORG, BRANCH, ACTOR]);
+    await database.exec("set role authenticated");
+    const unfiltered = await snapshot();
+    expect(unfiltered.clientTotal).toBe(203);
+    expect(unfiltered.clients).toHaveLength(200);
+    expect(unfiltered.clients.some((client) => client.clientId === EARLY_CLIENT)).toBe(true);
+    expect(unfiltered.clients.some((client) => client.clientId === LATE_CLIENT)).toBe(false);
+    const selectedEarly = await snapshot({ ...emptyAbcdAssessmentFilters(), clientId: EARLY_CLIENT });
+    expect(selectedEarly.clients).toHaveLength(200);
+    expect(selectedEarly.clients.filter((client) => client.clientId === EARLY_CLIENT)).toHaveLength(1);
+    const selected = await snapshot({ ...emptyAbcdAssessmentFilters(), clientId: LATE_CLIENT });
+    expect(selected.clients).toHaveLength(201);
+    expect(selected.clientTotal).toBe(203);
+    expect(selected.clientsTruncated).toBe(true);
+    expect(selected.clients.filter((client) => client.clientId === LATE_CLIENT))
+      .toEqual([{ clientId: LATE_CLIENT, displayName: "A201" }]);
+  }, 20_000);
 
   it("accepts real create and exact replay receipts then projects the SQL row", async () => {
     const input = parseAbcdAssessmentMutation(createBody(), KEY_A);

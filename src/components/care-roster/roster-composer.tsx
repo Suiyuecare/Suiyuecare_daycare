@@ -117,7 +117,7 @@ export function RosterComposer({ roster, clients, serviceDate }: {
       setClientId(row.clientId); setShift(row.shift); setPrevious(row); setMessage(""); setNeedsReauth(false);
     });
   }
-  return <><details className={`panel today-management ${styles.composer}`}><summary>主管：安排／調整每日照顧分工</summary>
+  return <><details className={`panel today-management ${styles.composer}`} id="today-roster-composer"><summary>主管：安排／調整每日照顧分工</summary>
     <p>已核准的主管 Google 帳號可依已確認的照顧計畫安排上午／下午工作。儲存時重新核對分支、主管權限與人員的個案授權；分工不取代人員資格與工時排班審核。</p>
     {blockedAssignments.length > 0 && <section className={styles.blocked} aria-label="不適用服務的既有分工">
       <h3>先處理不適用的既有分工</h3><p>以下分工仍保留原安排，沒有自動取消；不列入今日待辦，也不顯示照顧紀錄。請核對個案後，填寫理由取消安排。</p>
