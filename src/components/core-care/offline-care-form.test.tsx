@@ -17,11 +17,11 @@ const context: TenantContext = { organizationId: "33333333-3333-4333-8333-333333
   userId: "55555555-5555-4555-8555-555555555555", organizationName: "合成", branchName: "合成分支", displayName: "合成人員",
   roles: ["care_worker"], scopes: ["care_records.write"], assuranceLevel: "aal2", recentAal2At: null, demo: false };
 function scopeKey(scope: { organizationId: string; branchId: string; userId: string }) { return `${scope.organizationId}:${scope.branchId}:${scope.userId}`; }
-function Form({ demo = false }: { demo?: boolean }) {
+function CareFormFixture({ demo = false }: { demo?: boolean }) {
   const formRef = useRef<HTMLFormElement>(null); const idempotencyKey = useRef(operationId);
   const offline = useOfflineCareForm({ kind: "care-note", serviceDate: "2026-09-12", enabled: true, demo,
     allowedClientIds: [clientId], formRef, idempotencyKey, onRestoreId: (id) => { idempotencyKey.current = id; } });
-  return <form ref={formRef} onChange={() => { void offline.capture(); }} onSubmit={(event) => {
+  return <form noValidate ref={formRef} onChange={() => { void offline.capture(); }} onSubmit={(event) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     void offline.queueIfOffline({ client_id: clientId, page_slug: "staff/daily-care/care-diary", occurred_at: "2026-09-12T01:00:00.000Z",
       data: { shift: "morning", care_item: "活動", note: data.get("note"), abnormal: false } });
@@ -32,7 +32,7 @@ function Form({ demo = false }: { demo?: boolean }) {
     <OfflineCareFormNotice offline={offline} />
   </form>;
 }
-function View({ actor = context }: { actor?: TenantContext }) { return <OfflineCareProvider context={actor}><Form demo={actor.demo} /></OfflineCareProvider>; }
+function View({ actor = context }: { actor?: TenantContext }) { return <OfflineCareProvider context={actor}><CareFormFixture demo={actor.demo} /></OfflineCareProvider>; }
 beforeEach(() => {
   vi.clearAllMocks(); mocks.records.clear(); vi.stubGlobal("crypto", webcrypto);
   mocks.load.mockImplementation(async (scope) => [...(mocks.records.get(scopeKey(scope))?.values() ?? [])]);

@@ -61,6 +61,36 @@ describe("client transition composer browser boundaries", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "建立個案異動" }).disabled).toBe(true);
     expect(screen.getByRole("link", { name: "其他異動：完成近期雙因素驗證" }).getAttribute("href")).toContain("/mfa");
   });
+  it("shows field-level corrections before any write and ignores IME submit", async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ClientTransitionComposer canManage clients={[client]} demo={false} hasRecentAal2 />);
+    fireEvent.click(screen.getByRole("button", { name: "建立個案異動" }));
+    const form = screen.getByRole("dialog").querySelector("form")!;
+    expect(form.noValidate).toBe(true);
+    fireEvent.submit(form);
+    const reason = screen.getByLabelText<HTMLTextAreaElement>("異動理由 *");
+    expect(reason.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.change(reason, { target: { value: "辦理轉出交接" } });
+    fireEvent.change(screen.getByLabelText("異動類型 *"), { target: { value: "transfer" } });
+    fireEvent.submit(form);
+    const handoff = screen.getByLabelText<HTMLTextAreaElement>("交接內容 *");
+    expect(handoff.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(handoff);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.change(handoff, { target: { value: "交接予合成承接單位與聯絡窗口" } });
+    fireEvent.compositionStart(handoff);
+    fireEvent.submit(form);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(handoff);
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+  });
   it("pins body, version and key after a mismatched 2xx, even if the DOM is changed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       requestId: "61000000-0000-4000-8000-000000000002",
@@ -137,6 +167,7 @@ describe("client transition composer browser boundaries", () => {
     fireEvent.click(screen.getByRole("button", { name: "建立個案異動" }));
     const dialog = screen.getByRole("dialog", { name: "建立個案異動" });
     const form = dialog.querySelector("form");
+    fireEvent.change(screen.getByLabelText("異動理由 *"), { target: { value: "暫停服務的現場理由" } });
     fireEvent.submit(form!);
     await screen.findByRole("button", { name: "建立中…" });
 

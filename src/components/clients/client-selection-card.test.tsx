@@ -53,4 +53,16 @@ describe("ClientSelectionCard", () => {
     expect(screen.getByRole("button", { name: "選取個案" })).toHaveAttribute("type", "submit");
     expect(screen.getByRole("option", { name: "請選擇個案" })).toBeDisabled();
   });
+
+  it("keeps its action in sync with a disabled field and connects an inline error", () => {
+    const { rerender } = render(<ClientSelectionCard id="assessment-client" label="個案"
+      options={options} actionLabel="開始" disabled error="請先選擇個案。" />);
+    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(screen.getByLabelText("個案")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("個案")).toHaveAttribute("aria-describedby", "assessment-client-error");
+    expect(screen.getByRole("alert")).toHaveTextContent("請先選擇個案。");
+    rerender(<ClientSelectionCard id="assessment-client" label="個案"
+      options={options} actionLabel="開始" actionDisabled />);
+    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+  });
 });

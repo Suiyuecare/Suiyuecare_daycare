@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { getModule, pageCatalog } from "@/lib/catalog";
 import { buildDemoRecords, type DemoRecord } from "@/lib/demo/fixtures";
@@ -10,6 +10,11 @@ import { OperationalWorkspace } from "./operational-workspace";
 const sharedPages = pageCatalog.filter((page) => [15, 16, 17, 18, 79, 85, 86, 87, 88, 89].includes(page.number));
 const page = sharedPages[0];
 const initialRecords = buildDemoRecords(page);
+
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); } });
+});
 
 afterEach(() => {
   cleanup();
@@ -92,11 +97,58 @@ describe("shared workspace truthful availability", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("僅保留在本頁，不會寫入正式紀錄");
     expect(dialog).not.toHaveTextContent("伺服器時間將在送出時寫入");
+    fireEvent.change(within(dialog).getByLabelText("個案 *"), { target: { value: "陳O華" } });
     fireEvent.submit(dialog.querySelector("form")!);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(summaryCount("展示紀錄")).toBe(String(initialRecords.length + 1));
     expect(screen.getByRole("status")).toHaveTextContent("展示草稿已加入本頁；重新整理後會復原");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses the shared modal, preserves an invalid demo draft, and focuses its first error", async () => {
+    render(workspace(true, []));
+    const trigger = screen.getByRole("button", { name: "選擇個案並填寫" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    const form = within(dialog).getByRole("button", { name: "儲存草稿" }).closest("form")!;
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(form).toHaveAttribute("novalidate");
+    const client = within(dialog).getByLabelText("個案 *");
+    const note = within(dialog).getByLabelText("紀錄摘要");
+    fireEvent.change(note, { target: { value: "合成觀察內容" } });
+    fireEvent.submit(form);
+    expect(client).toHaveFocus();
+    expect(client).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByText("請填寫個案。", { selector: "small" })).toHaveAttribute("id", client.getAttribute("aria-describedby"));
+    expect(note).toHaveValue("合成觀察內容");
+    expect(summaryCount("展示紀錄")).toBe("0");
+    fireEvent.change(client, { target: { value: "林O英" } });
+    expect(client).not.toHaveAttribute("aria-invalid");
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(summaryCount("展示紀錄")).toBe("1");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("clears only the local demo search and returns focus without resetting status", () => {
+    render(workspace(true));
+    fireEvent.click(screen.getByRole("button", { name: "待處理" }));
+    const search = screen.getByRole("searchbox", { name: "搜尋本頁紀錄" });
+    fireEvent.change(search, { target: { value: "合成查詢" } });
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋" }));
+    expect(search).toHaveValue("");
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("button", { name: "待處理" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("closes the shared demo modal on Escape and restores the originating trigger", () => {
+    render(workspace(true));
+    const trigger = screen.getByRole("button", { name: "選擇個案並填寫" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("hides open demo drawers and fixture data when the production boundary replaces demo mode", () => {

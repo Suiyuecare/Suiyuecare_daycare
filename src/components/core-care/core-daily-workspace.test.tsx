@@ -90,6 +90,40 @@ describe("daily care selected-client handoff and source boundaries", () => {
     fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
     expect(within(screen.getByRole("dialog")).getByLabelText("班別 *")).toHaveValue("afternoon");
   });
+  it("keeps the original GET parameters while stopping a blank service day with inline feedback", () => {
+    render(workspace(6, { selectedClientId: selected.clientId, selectedShift: "morning" }));
+    const dateInput = screen.getByLabelText("服務日期") as HTMLInputElement;
+    const dateForm = dateInput.closest("form")!;
+    expect(dateForm).toHaveAttribute("method", "get");
+    expect(dateForm).toHaveAttribute("novalidate");
+    fireEvent.change(dateInput, { target: { value: "" } });
+    const capturedSubmit = vi.fn();
+    document.addEventListener("submit", capturedSubmit, true);
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    document.removeEventListener("submit", capturedSubmit, true);
+    expect(capturedSubmit).not.toHaveBeenCalled();
+    const invalidSubmit = new Event("submit", { bubbles: true, cancelable: true });
+    fireEvent(dateForm, invalidSubmit);
+    expect(invalidSubmit.defaultPrevented).toBe(true);
+    expect(dateInput).toHaveFocus();
+    expect(dateInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("請選擇服務日期。", { selector: "small" })).toHaveAttribute("id", dateInput.getAttribute("aria-describedby"));
+    fireEvent.change(dateInput, { target: { value: "2026-09-11" } });
+    expect(dateInput).not.toHaveAttribute("aria-invalid");
+    const validSubmit = new Event("submit", { bubbles: true, cancelable: true });
+    fireEvent(dateForm, validSubmit);
+    expect(validSubmit.defaultPrevented).toBe(false);
+    expect(Object.fromEntries(new FormData(dateForm))).toEqual({ client: selected.clientId, shift: "morning", date: "2026-09-11" });
+  });
+  it("does not submit the date form while an IME Enter is committing text", () => {
+    render(workspace(3));
+    const dateInput = screen.getByLabelText("服務日期");
+    fireEvent.compositionStart(dateInput);
+    const composingEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, isComposing: true });
+    fireEvent(dateInput, composingEnter);
+    expect(composingEnter.defaultPrevented).toBe(true);
+    fireEvent.compositionEnd(dateInput);
+  });
   it("retains shift when recovering a failed load", () => {
     render(workspace(6, { selectedClientId: selected.clientId, selectedShift: "morning", snapshot: null, loadError: true }));
     expect(screen.getByRole("link", { name: "重新載入" }).getAttribute("href")).toContain("&shift=morning");

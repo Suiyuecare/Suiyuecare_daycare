@@ -115,9 +115,12 @@ describe("TodayWorkList", () => {
     expect(link).toHaveAttribute("href", "/app/staff/daily-care/vital-signs?date=2026-09-10&client=a3333333-3333-4333-8333-333333333333");
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-026" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /尚無出勤 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /尚無出勤 0 位，查看符合搜尋的名單/ }));
+    expect(screen.getByRole("searchbox")).toHaveValue("HX-026");
+    expect(screen.getByRole("status")).toHaveTextContent("尚無出勤：0 位（搜尋結果）");
+    fireEvent.click(screen.getByRole("button", { name: "查看全部在案個案" }));
     expect(screen.getByRole("searchbox")).toHaveValue("");
-    expect(screen.getByRole("status")).toHaveTextContent("尚無出勤：1 位");
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: /日誌待完成 2/ }));
     expect(screen.getByRole("link", { name: /張O德.*接續照顧日誌/ })).toHaveAttribute("href", "/app/staff/daily-care/care-diary?date=2026-09-10&client=a5555555-5555-4555-8555-555555555555");
   });

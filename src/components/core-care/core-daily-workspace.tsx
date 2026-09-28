@@ -1,5 +1,4 @@
 import {
-  CalendarDays,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
@@ -13,6 +12,7 @@ import { AttendanceComposer } from "@/components/core-care/attendance-composer";
 import { CareDiaryComposer } from "@/components/core-care/care-diary-composer";
 import { VitalSignComposer } from "@/components/core-care/vital-sign-composer";
 import { ClientContinuation } from "@/components/core-care/client-continuation";
+import { CoreDateFilter } from "@/components/core-care/core-date-filter";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
@@ -233,12 +233,7 @@ export function CoreDailyWorkspace({
           <h1>{page.title}</h1>
           <p className="page-heading__description">先確認個案與日期，再接續出勤、量測和照顧日誌。</p>
         </div>
-        <form className="core-date-filter" method="get">
-          {selectedClient ? <input name="client" type="hidden" value={selectedClient.clientId} /> : null}
-          {selectedShift ? <input name="shift" type="hidden" value={selectedShift} /> : null}
-          <label className="field"><span>服務日期</span><input defaultValue={serviceDate} name="date" type="date" /></label>
-          <button className="button button--secondary" type="submit"><CalendarDays aria-hidden="true" />套用日期</button>
-        </form>
+        <CoreDateFilter key={serviceDate} serviceDate={serviceDate} selectedClientId={selectedClient?.clientId} selectedShift={selectedShift} />
       </header>
 
       {loadError ? (

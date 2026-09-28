@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -14,7 +14,10 @@ import {
 
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { DemoRecord } from "@/lib/demo/fixtures";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "@/components/core-care/daily-form-validation";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { StatusPill } from "@/components/ui/status-pill";
+import styles from "./operational-workspace.module.css";
 
 function taipeiDateTimeLocal(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -53,6 +56,7 @@ export function OperationalWorkspace({
   const [selectedRecord, setSelectedRecord] = useState<DemoRecord | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const drawerTrigger = useRef<HTMLButtonElement | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const visibleRecords = useMemo(
     () =>
@@ -85,7 +89,6 @@ export function OperationalWorkspace({
 
   function closeDrawer() {
     setDrawerOpen(false);
-    requestAnimationFrame(() => drawerTrigger.current?.focus());
   }
 
   async function createRecord(data: {
@@ -157,7 +160,9 @@ export function OperationalWorkspace({
             <div className="panel__title"><h2>工作清單</h2><p>{demo ? `${visibleRecords.length} 筆展示紀錄符合目前條件` : "紀錄與統計尚未提供"}</p></div>
           </div>
           {demo ? <div className="filter-bar">
-            <label className="filter-search"><Search aria-hidden="true" /><span className="sr-only">搜尋本頁紀錄</span><input onChange={(event) => setQuery(event.target.value)} placeholder="搜尋個案或負責人…" type="search" value={query} /></label>
+            <div className={`filter-search ${styles.filterSearch}`}><Search aria-hidden="true" /><label className="sr-only" htmlFor="demo-record-search">搜尋本頁紀錄</label><input id="demo-record-search" onChange={(event) => setQuery(event.target.value)} placeholder="搜尋個案或負責人…" ref={searchRef} type="search" value={query} />
+              {query ? <button aria-label="清除搜尋" className={styles.clearSearch} onClick={() => { setQuery(""); searchRef.current?.focus(); }} type="button"><X aria-hidden="true" /></button> : null}
+            </div>
             {["全部", "待處理", "需留意", "已完成"].map((status) => (
               <button aria-pressed={selectedStatus === status} className="filter-chip" key={status} onClick={() => setSelectedStatus(status)} style={{ minHeight: 44 }} type="button">{status}</button>
             ))}
@@ -167,7 +172,7 @@ export function OperationalWorkspace({
               <section className="empty-card" role="status" aria-labelledby="workspace-unavailable-title">
                 <CircleAlert aria-hidden="true" />
                 <h2 id="workspace-unavailable-title">此功能尚未啟用</h2>
-                <p>本頁目前不讀取或保存紀錄。請先使用機構核准的既有表單。</p>
+                <p>請先使用機構核准的既有表單；此頁尚未啟用。</p>
               </section>
             </div>
           ) : visibleRecords.length ? (
@@ -199,7 +204,7 @@ export function OperationalWorkspace({
             </>
           ) : (
             <div className="panel__body">
-              <section className="empty-card"><Search aria-hidden="true" /><h2>沒有符合條件的展示紀錄</h2><p>清除篩選，或新增一筆展示草稿練習操作；不會建立正式紀錄。</p><button className="button button--secondary" onClick={() => { setQuery(""); setSelectedStatus("全部"); }} type="button">清除篩選</button></section>
+              <section className="empty-card"><Search aria-hidden="true" /><h2>沒有符合條件的展示紀錄</h2><p>清除篩選，或新增一筆展示草稿練習操作；不會建立正式紀錄。</p><button className="button button--secondary" onClick={() => { setQuery(""); setSelectedStatus("全部"); searchRef.current?.focus(); }} type="button">清除篩選</button></section>
             </div>
           )}
         </div>
@@ -222,7 +227,7 @@ export function OperationalWorkspace({
       </section>
 
       {demo && drawerOpen ? (
-        <RecordDrawer page={page} record={selectedRecord} onClose={closeDrawer} onCreate={createRecord} />
+        <RecordDrawer page={page} record={selectedRecord} returnFocusRef={drawerTrigger} onClose={closeDrawer} onCreate={createRecord} />
       ) : null}
     </>
   );
@@ -231,46 +236,25 @@ export function OperationalWorkspace({
 function RecordDrawer({
   page,
   record,
+  returnFocusRef,
   onClose,
   onCreate,
 }: {
   page: PageCatalogEntry;
   record: DemoRecord | null;
+  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onCreate: (data: { clientRef: string; occurredAt: string; note: string }) => Promise<void>;
 }) {
-  const closeButton = useRef<HTMLButtonElement>(null);
-  const dialog = useRef<HTMLElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    closeButton.current?.focus();
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        dialog.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      );
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  const pendingRef = useRef(false);
+  const validation = useDailyFormValidation();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pendingRef.current || validation.composing.current || !validation.validate(event.currentTarget)) return;
+    pendingRef.current = true;
     setPending(true);
     setError(null);
     const formData = new FormData(event.currentTarget);
@@ -282,23 +266,33 @@ function RecordDrawer({
       });
     } catch {
       setError("儲存失敗，您輸入的內容仍保留在畫面上。請稍後再試。");
+      pendingRef.current = false;
       setPending(false);
     }
   }
 
   return (
-    <div className="drawer-backdrop" role="presentation">
-      <section aria-labelledby="drawer-heading" aria-modal="true" className="drawer" ref={dialog} role="dialog">
-        <header className="drawer__header"><div><p className="eyebrow">{record ? "展示紀錄明細" : "建立展示草稿"}</p><h2 id="drawer-heading">{record ? record.primary : page.primaryActions[0] ?? page.title}</h2><p>{page.title}・僅保留在本頁，不會寫入正式紀錄</p></div><button aria-label="關閉" className="icon-button" onClick={onClose} ref={closeButton} type="button"><X /></button></header>
-        {record ? (
-          <div className="drawer__body"><div className="callout"><ShieldCheck aria-hidden="true" /><span>此為去識別化展示紀錄。正式簽署紀錄只能建立更正版，不能直接覆寫。</span></div><dl>{page.columns.slice(0, 6).map((column, index) => <div className="field" key={column}><dt>{column}</dt><dd>{record.values[index] ?? "—"}</dd></div>)}</dl></div>
-        ) : (
-          <form className="drawer__form" id="record-form" onSubmit={submit}>
-            <div className="drawer__body"><div className="drawer__form"><label className="field"><span>個案 *</span><select defaultValue="陳O華" name="clientRef" required><option>陳O華</option><option>林O英</option><option>黃O生</option></select></label><label className="field"><span>發生日期與時間 *</span><input defaultValue={taipeiDateTimeLocal()} name="occurredAt" required type="datetime-local" /></label><label className="field"><span>紀錄摘要</span><textarea name="note" placeholder="記錄必要觀察與後續行動，不輸入無關個資。" /></label>{error ? <p className="form-error" role="alert">{error}</p> : null}</div></div>
-            <footer className="drawer__footer"><button className="button button--secondary" onClick={onClose} type="button">取消</button><button className="button button--primary" disabled={pending} type="submit">{pending ? "儲存中…" : "儲存草稿"}</button></footer>
-          </form>
-        )}
-      </section>
-    </div>
+    <GovernanceDialog open title={record ? record.primary : page.primaryActions[0] ?? page.title}
+      busy={pending} onRequestClose={onClose} returnFocusRef={returnFocusRef}>
+      {record ? (
+        <div className={styles.recordBody}><p>去識別化展示紀錄，非正式個案資料。</p>
+          <dl>{page.columns.slice(0, 6).map((column, index) => <div className="field" key={column}><dt>{column}</dt><dd>{record.values[index] ?? "—"}</dd></div>)}</dl>
+        </div>
+      ) : (
+        <form className={styles.demoForm} id="record-form" noValidate onCompositionStart={validation.onCompositionStart}
+          onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
+          onChange={(event) => { validation.clearChanged(event.target); setError(null); }} onSubmit={submit}>
+          <p>僅保留在本頁，不會寫入正式紀錄。</p>
+          <fieldset className={styles.fields} disabled={pending}>
+            <label className="field"><span id={validation.labelId("clientRef")}>個案 *</span><select defaultValue="" name="clientRef" required {...validation.field("clientRef") }><option value="">請選擇個案</option><option>陳O華</option><option>林O英</option><option>黃O生</option></select><DailyFieldError validation={validation} name="clientRef" /></label>
+            <label className="field"><span id={validation.labelId("occurredAt")}>發生日期與時間 *</span><input defaultValue={taipeiDateTimeLocal()} name="occurredAt" required type="datetime-local" {...validation.field("occurredAt") } /><DailyFieldError validation={validation} name="occurredAt" /></label>
+            <label className="field"><span id={validation.labelId("note")}>紀錄摘要</span><textarea className={`${styles.demoTextarea} resize-none`} name="note" placeholder="記錄必要觀察與後續行動，不輸入無關個資。" rows={5} {...validation.field("note") } /></label>
+          </fieldset>
+          <DailyValidationSummary validation={validation} />
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          <div className={styles.actions}><button className="button button--primary" aria-busy={pending} disabled={pending} type="submit">{pending ? "儲存中…" : "儲存草稿"}</button></div>
+        </form>
+      )}
+    </GovernanceDialog>
   );
 }

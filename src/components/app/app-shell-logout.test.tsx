@@ -188,6 +188,14 @@ describe("staff shell logout privacy", () => {
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveAttribute("href", "/app/client-intake");
   });
+  it("opens the authorized assessment chooser from the common shortcut", () => {
+    mocks.pathname = "/app/assessments";
+    const { container } = render(<AppShell context={{ ...actor, demo: true }} navigation={getNavigationGroups("staff")}><p>合成評估入口</p></AppShell>);
+    const shortcut = container.querySelector<HTMLAnchorElement>('.sidebar__nav a[href="/app/assessments"]');
+    expect(shortcut).not.toBeNull();
+    expect(shortcut).toHaveTextContent("評估量表");
+    expect(shortcut).toHaveAttribute("aria-current", "page");
+  });
   it("keeps the Finance-style header identity and refresh action separate from logout", async () => {
     render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
 
@@ -308,7 +316,7 @@ describe("staff shell logout privacy", () => {
     render(<AppShell context={actor} navigation={navigation}><p>合成工作頁</p></AppShell>);
     const disclosure = screen.getByText("全部功能").closest("details")!;
     expect(disclosure).not.toHaveAttribute("open");
-    expect(screen.getByRole("link", { name: "評估量表" })).toHaveAttribute("href", "/app/staff/assessments/spmsq");
+    expect(screen.getByRole("link", { name: "評估量表" })).toHaveAttribute("href", "/app/assessments");
     fireEvent.click(screen.getByText("全部功能"));
     for (const group of navigation.filter((item) => item.id !== "workspace")) {
       const control = screen.getByRole("button", { name: group.title });

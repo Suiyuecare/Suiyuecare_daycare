@@ -52,6 +52,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   const saving = Object.values(busySteps).some(Boolean);
   const loadSequence = useRef(0);
   const readController = useRef<AbortController | null>(null);
+  const workPanel = useRef<HTMLDivElement>(null);
   const [draftEpoch, setDraftEpoch] = useState(0);
   const currentAuthority = intakeWriteAuthority(context);
   const owner = useRef({ authority: currentAuthority, epoch: writeState.epoch });
@@ -77,7 +78,12 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     revisionKey: JSON.stringify([snapshot?.clientId, snapshot?.profileVersion, snapshot?.clientRowVersion]),
     canPrompt: !saving && !loading && !uploadPending, permittedFormAttribute: "data-intake-write",
     onDiscard: () => { setDirtySteps({}); setDraftEpoch(value => value + 1); } });
-  function goTo(value: number) { if (hasCmsUploadOperation() || hasIntakeWriteOperation()) return; setStep(value); setVisited((v) => new Set([...v, value])); }
+  function goTo(value: number) {
+    if (hasCmsUploadOperation() || hasIntakeWriteOperation()) return;
+    setStep(value);
+    setVisited((v) => new Set([...v, value]));
+    workPanel.current?.scrollIntoView?.({ block: "start" });
+  }
   async function readClient(clientId: string, fromWrite = false) {
     if (!fromWrite && hasIntakeWriteOperation()) return;
     const sequence = ++loadSequence.current;
@@ -141,7 +147,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
       </>}
     />
     {context.demo ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
-    <nav aria-label="收案流程"><ol className={styles.steps}>{INTAKE_STEPS.map((title, index) => {
+    <nav aria-label="收案流程" className={styles.stepNav}><ol className={styles.steps}>{INTAKE_STEPS.map((title, index) => {
       const Icon = stepIcons[index];
       return <li key={title}><button type="button" aria-current={step === index ? "step" : undefined} disabled={loading || saving || uploadPending || index > 0 && !snapshot && !(index === 1 && manual)} onClick={() => goTo(index)}>
         <span className={styles.stepNumber}>{index + 1}</span><span className={styles.stepText}><span>{title}</span><small>{stepStatus(index)}</small></span><Icon className={styles.stepIcon} size={18} aria-hidden="true" />
@@ -156,7 +162,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
       </div> : null}
     </section>
     {error ? <div className={styles.error} role="alert"><p>{error}</p>{selectedId ? <button type="button" disabled={loading || uploadPending} onClick={() => readClient(selectedId)}>重試讀取此個案</button> : <button type="button" disabled={loading || uploadPending} onClick={() => window.location.reload()}>重新載入個案清單</button>}</div> : null}
-    {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={`${snapshot?.clientId ?? "new"}:${draftEpoch}`}>
+    {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={`${snapshot?.clientId ?? "new"}:${draftEpoch}`} ref={workPanel}>
       <div hidden={step !== 0}>{visited.has(0) ? <CmsIntakeStep context={context} current={snapshot} canImport={scope("imports.manage") && canCreate} canApprove={scope("imports.approve") && (snapshot ? canManage : canCreate)} demo={context.demo} archiveConfigured={archiveConfigured} onSaved={saved} onDirty={importDirty} onBusy={importBusy} profileHasDraft={Boolean(dirtySteps[1])} onManual={() => { setManual(true); goTo(1); }} /> : null}</div>
       <div hidden={step !== 1}>{visited.has(1) ? <IntakeProfileForm key={snapshot?.profileVersion ?? 0} context={context} initial={snapshot} canManage={snapshot ? canManage : canCreate} demo={context.demo} today={today} onSaved={saved} onDirty={profileDirty} onBusy={profileBusy} /> : null}</div>
       <div hidden={step !== 2}>{visited.has(2) && snapshot ? <ClientWeeklyWorkspace clientId={snapshot.clientId} canManage={!error && scope("staff_scheduling.manage")} demo={context.demo} today={today} onDirty={weeklyDirty} onBusy={weeklyBusy} /> : null}</div>

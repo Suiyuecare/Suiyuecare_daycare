@@ -60,17 +60,18 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const shown = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  function changeFilter(next: WorkFilter) { setFilter(next); setSearch(""); setPage(1); }
+  function changeFilter(next: WorkFilter) { setFilter(next); setPage(1); }
+  function showAllClients() { setFilter("all"); setSearch(""); setShift("all"); setUnassigned(false); setPage(1); }
 
   if (!access.clients) return <section className="empty-card" role="status"><h2>目前無個案查閱權限</h2><p>請由機構管理員確認您的工作指派與資料範圍。</p></section>;
   return <section className="today-work" aria-labelledby="today-list-title">
     <div className="today-counters" role="group" aria-label="篩選待處理工作">
       {visibleFilters.map((item) => <button key={item.id} type="button" className="today-counter"
-        aria-label={`${item.label} ${access[item.access] ? `${filterTodayWorkRows(authorizedRows, item.id).length} 位，查看名單` : "無查閱權限"}`}
+        aria-label={`${item.label} ${access[item.access] ? `${filterTodayWorkRows(authorizedRows, item.id, search).length} 位，${search ? "查看符合搜尋的名單" : "查看名單"}` : "無查閱權限"}`}
         disabled={!access[item.access]} aria-pressed={filter === item.id} aria-controls="today-client-list"
         onClick={() => changeFilter(item.id)}>
-        <span>{item.label}</span><strong>{access[item.access] ? filterTodayWorkRows(authorizedRows, item.id).length : "—"}</strong>
-        <small>{access[item.access] ? "位・查看名單" : "無查閱權限"}</small>
+        <span>{item.label}</span><strong>{access[item.access] ? filterTodayWorkRows(authorizedRows, item.id, search).length : "—"}</strong>
+        <small>{access[item.access] ? search ? "位・符合搜尋" : "位・查看名單" : "無查閱權限"}</small>
       </button>)}
     </div>
     <div className="panel today-list-panel">
@@ -105,7 +106,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
       </ul>
       {!shown.length && !filterRestricted && <div className="today-empty"><h3>{search ? "找不到符合條件的個案" : filter === "all" ? "目前沒有可查閱的在案個案" : "此清單目前沒有待處理個案"}</h3>
         <p>{search ? "試試其他姓名或代碼，或清除搜尋查看名單。" : "這只代表本清單的結果，其他照顧工作仍請依當日安排確認。"}</p>
-        {(search || filter !== "all") && <button className="button button--secondary" type="button" onClick={() => changeFilter("all")}>{rosterReady ? "查看全部當班個案" : "查看全部在案個案"}</button>}</div>}
+        {(search || filter !== "all") && <button className="button button--secondary" type="button" onClick={showAllClients}>{rosterReady ? "查看全部當班個案" : "查看全部在案個案"}</button>}</div>}
       {pageCount > 1 && <nav className="today-pagination" aria-label="今日個案分頁"><button className="button button--secondary" type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一頁</button><span>第 {currentPage} / {pageCount} 頁</span><button className="button button--secondary" type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</button></nav>}
     </div>
   </section>;

@@ -109,7 +109,7 @@ export function AppShell({
   });
   const primaryRoleLabel = context.roles[0] ? roleDisplayName(context.roles[0]) : "已登入";
   const runtimeLabel = context.demo ? "合成資料" : "正式系統";
-  const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
+  const pageTitle = pathname === "/app/assessments" ? "評估工作入口" : showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : activePage?.title ?? appBranding.applicationName;
   const announcementAuthority = staffAnnouncementAuthoritySignature(context);
@@ -377,7 +377,7 @@ export function AppShell({
           {assessmentShortcut || summaryShortcut ? <section className="nav-group" aria-label="常用工作">
             <div className="nav-group__label nav-group__label--static">常用工作</div>
             <div className="nav-group__items">
-              {assessmentShortcut ? <NavigationLink className="nav-link" href={`/app/${assessmentShortcut.slug}`} loadingLabel={assessmentShortcut.title} onClick={() => closeMenu({ returnFocus: false })}>
+              {assessmentShortcut ? <NavigationLink aria-current={pathname === "/app/assessments" ? "page" : undefined} className="nav-link" href="/app/assessments" loadingLabel="評估工作入口" onClick={() => closeMenu({ returnFocus: false })}>
                 <span className="nav-link__icon"><ClipboardCheck aria-hidden="true" /></span><span>評估量表</span>
               </NavigationLink> : null}
               {summaryShortcut ? <NavigationLink className="nav-link" href={`/app/${summaryShortcut.slug}`} loadingLabel={summaryShortcut.title} onClick={() => closeMenu({ returnFocus: false })}>

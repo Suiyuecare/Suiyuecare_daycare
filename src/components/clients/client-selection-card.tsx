@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 export type ClientSelectionOption = {
   value: string;
@@ -16,6 +16,9 @@ export function ClientSelectionCard({
   disabled = false,
   onValueChange,
   actionLabel,
+  actionDisabled = false,
+  error,
+  selectRef,
   supplement,
 }: {
   id: string;
@@ -28,6 +31,9 @@ export function ClientSelectionCard({
   disabled?: boolean;
   onValueChange?: (value: string) => void;
   actionLabel?: string;
+  actionDisabled?: boolean;
+  error?: string | null;
+  selectRef?: Ref<HTMLSelectElement>;
   supplement?: ReactNode;
 }) {
   return (
@@ -41,6 +47,9 @@ export function ClientSelectionCard({
         <select
           className="client-selection-card__select"
           id={id}
+          ref={selectRef}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
           {...(value === undefined ? { defaultValue } : { value })}
           disabled={disabled}
           name="client"
@@ -50,8 +59,9 @@ export function ClientSelectionCard({
           <option disabled={placeholderDisabled} value="">{placeholder}</option>
           {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
-        {actionLabel ? <button className="button button--secondary client-selection-card__action" type="submit">{actionLabel}</button> : null}
+        {actionLabel ? <button className="button button--secondary client-selection-card__action" disabled={disabled || actionDisabled} type="submit">{actionLabel}</button> : null}
       </div>
+      {error ? <p className="client-selection-card__error" id={`${id}-error`} role="alert">{error}</p> : null}
     </section>
   );
 }
