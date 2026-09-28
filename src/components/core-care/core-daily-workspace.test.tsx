@@ -130,9 +130,20 @@ describe("daily care selected-client handoff and source boundaries", () => {
   });
   it.each([46, 3, 6])("keeps the selected page %s record list focused on that person", (page) => {
     const { container } = render(workspace(page, { selectedClientId: selected.clientId }));
+    const recordDetails = screen.getByText("查看完整紀錄").closest("details")!;
+    expect(recordDetails).not.toHaveAttribute("open");
+    expect(recordDetails).toContainElement(screen.getByRole("table"));
+    fireEvent.click(within(recordDetails).getByText("查看完整紀錄"));
+    expect(recordDetails).toHaveAttribute("open");
     expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
     expect(container.querySelectorAll(".core-care-mobile .record-card")).toHaveLength(1);
     expect(screen.getByText("2026-09-10 · 1 位已選定個案")).toBeVisible();
+  });
+  it("keeps the full work list visible before a client is selected", () => {
+    render(workspace(3));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("查看完整紀錄")).not.toBeInTheDocument();
+    expect(screen.getByText(/資料更新於/u)).toBeVisible();
   });
   it.each([46, 3, 6])("does not let an invalid page %s selection fall back to any other composer", (page) => {
     render(workspace(page, { selectedClientId: "a9999999-9999-4999-8999-999999999999" }));
@@ -166,9 +177,12 @@ describe("daily care selected-client handoff and source boundaries", () => {
     render(workspace(6, { canWrite: false, selectedClientId: selected.clientId }));
     expect(screen.getByRole("button", { name: "新增日誌草稿" })).toBeDisabled();
     expect(screen.getByText(/新增紀錄需要對應權限及身分驗證/u)).toBeVisible();
-    const rules = screen.getByText("查看身分驗證與資料規則").closest("details")!;
+    const rules = screen.getByText("資料來源與驗證說明").closest("details")!;
+    expect(rules).not.toHaveAttribute("open");
     expect(rules.textContent).toContain("身分驗證");
     expect(rules.textContent).not.toContain("AAL2");
     expect(rules.textContent).toContain("最近 15 分鐘");
+    fireEvent.click(within(rules).getByText("資料來源與驗證說明"));
+    expect(within(rules).getByText(/週表、單日調整與實到/u)).toBeVisible();
   });
 });

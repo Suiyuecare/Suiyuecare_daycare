@@ -5,8 +5,10 @@ import { AssessmentEntryWorkspace } from "@/components/assessments/assessment-en
 import { requireTenantContext } from "@/lib/auth/context";
 import { staffPages } from "@/lib/catalog";
 import { ClientMasterSnapshotError, loadClientMasterSnapshot } from "@/lib/clients/master-snapshot";
+import { buildDemoCaseDirectory } from "@/lib/clients/demo-case-directory";
+import type { ClientMasterItem } from "@/lib/clients/master-types";
 import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
-import { authorizedAssessmentEntryPages, selectedAssessmentClientId } from "@/lib/assessment-entry/selection";
+import { authorizedAssessmentEntryPages, isAssessmentClientSelectable, selectedAssessmentClientId } from "@/lib/assessment-entry/selection";
 
 export const metadata: Metadata = { title: "評估工作入口" };
 export const dynamic = "force-dynamic";
@@ -23,16 +25,20 @@ export default async function AssessmentEntryPage({ searchParams }: {
   </section>;
 
   const query = await searchParams;
-  let clients: Awaited<ReturnType<typeof loadClientMasterSnapshot>>["clients"] = [];
+  let clients: readonly Pick<ClientMasterItem, "id" | "displayName" | "clientCode" | "status">[] = [];
   let loadError = false;
-  try {
-    clients = (await withServerReadDeadline((signal) =>
-      loadClientMasterSnapshot(context, "view", { signal }))).clients.filter((client) =>
-      !["transferred", "closed", "deceased"].includes(client.status));
-  } catch (error) {
-    if (!(error instanceof ClientMasterSnapshotError) &&
-      !(error instanceof Error && error.message === "SERVER_WORKSPACE_READ_UNAVAILABLE")) throw error;
-    loadError = true;
+  if (context.demo) {
+    clients = buildDemoCaseDirectory().filter((client) => isAssessmentClientSelectable(client.status));
+  } else {
+    try {
+      clients = (await withServerReadDeadline((signal) =>
+        loadClientMasterSnapshot(context, "view", { signal }))).clients.filter((client) =>
+        isAssessmentClientSelectable(client.status));
+    } catch (error) {
+      if (!(error instanceof ClientMasterSnapshotError) &&
+        !(error instanceof Error && error.message === "SERVER_WORKSPACE_READ_UNAVAILABLE")) throw error;
+      loadError = true;
+    }
   }
 
   const selectedClientId = selectedAssessmentClientId(query.client, clients);
@@ -43,5 +49,6 @@ export default async function AssessmentEntryPage({ searchParams }: {
     error={loadError}
     pages={pages}
     selectedClientId={selectedClientId}
+    selectionRejected={query.client !== undefined && query.client !== "" && selectedClientId === null}
   />;
 }

@@ -82,6 +82,8 @@ import { MnaAssessmentsWorkspace } from "@/components/mna-assessments/mna-assess
 import { QuestionnaireAssessmentsWorkspace } from "@/components/questionnaire-assessments/questionnaire-assessment-editor";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
 import { buildDemoQuestionnaireSnapshot } from "@/lib/questionnaire-assessments/demo-snapshot";
+import { buildDemoCaseDirectory } from "@/lib/clients/demo-case-directory";
+import { authorizedAssessmentEntryPages } from "@/lib/assessment-entry/selection";
 import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
 import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { StaffTrainingWorkspace } from "@/components/staff-training/staff-training-workspace";
@@ -768,6 +770,7 @@ export default async function StaffCatalogPage({
         canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
         allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
         canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
+        canOpenAssessments={authorizedAssessmentEntryPages(context, staffPages).length > 0}
         filters={filters}
         loadError={loadError}
         page={page}
@@ -1147,7 +1150,7 @@ export default async function StaffCatalogPage({
     let loadError = invalidFilters;
     if (context.demo) {
       snapshot = buildDemoQuestionnaireSnapshot(
-        formKey, (await loadClientMasterSnapshot(context)).clients, validClientId, new Date().toISOString(),
+        formKey, buildDemoCaseDirectory(), validClientId, new Date().toISOString(),
       );
     } else if (!invalidFilters) {
       try {
@@ -1453,6 +1456,7 @@ export default async function StaffCatalogPage({
             canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         canWrite={canWriteRoutine}
+        canOpenAssessments={authorizedAssessmentEntryPages(context, staffPages).length > 0}
         loadError={loadError}
         moduleTitle={getModule(page.moduleId).title}
         page={page}

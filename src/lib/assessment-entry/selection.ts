@@ -7,6 +7,16 @@ const entryPageNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28
 const connectedDemoPageNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 36]);
 const clientIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
+/** The entry only lists current/non-terminal clients; each form rechecks its
+ * own assignment and record authority before showing or saving anything. */
+export function isAssessmentClientSelectable(status: ClientMasterItem["status"]) {
+  return status === "active" || status === "suspended";
+}
+
+export function assessmentEntryHref(clientId: string) {
+  return `/app/assessments?${new URLSearchParams({ client: clientId })}`;
+}
+
 export function authorizedAssessmentEntryPages(
   context: Pick<TenantContext, "demo" | "scopes">,
   pages: readonly PageCatalogEntry[],

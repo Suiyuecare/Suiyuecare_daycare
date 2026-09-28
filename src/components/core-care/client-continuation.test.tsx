@@ -44,6 +44,15 @@ describe("select once and continue the authorized daily workflow", () => {
     expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/service-management/attendance?date=2026-09-10");
     expect(screen.getByRole("link", { name: "此個案的機構自訂表單" })).toHaveAttribute("href", `/app/client-forms?client=${second.clientId}`);
   });
+  it("continues from an eligible selected client to assessment only when the server offered the entry", () => {
+    const { rerender } = render(continuation({ selectedClientId: second.clientId, canOpenAssessments: true }));
+    expect(screen.getByRole("link", { name: "評估這位個案" })).toHaveAttribute("href", `/app/assessments?client=${second.clientId}`);
+    rerender(continuation({ selectedClientId: second.clientId }));
+    expect(screen.queryByRole("link", { name: "評估這位個案" })).not.toBeInTheDocument();
+    rerender(continuation({ selectedClientId: second.clientId, canOpenAssessments: true,
+      clients: [{ ...second, applicability: { attendance: "not_expected", care: "not_expected", reason: "history_only", eligible: false } }] }));
+    expect(screen.queryByRole("link", { name: "評估這位個案" })).not.toBeInTheDocument();
+  });
   it("hides custom forms when this client has no care-record source access", () => {
     render(continuation({ selectedClientId: second.clientId, clients: [{ ...second, sourceAccess: { ...snapshot.sourceAccess, careDiaries: false } }] }));
     expect(screen.queryByRole("link", { name: "此個案的機構自訂表單" })).not.toBeInTheDocument();

@@ -6,6 +6,7 @@ import { NavigationLink } from "@/components/app/navigation-link";
 import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { DAILY_WORKFLOW_STEPS, dailyWorkflowHref, type DailyWorkflowPage, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
+import { assessmentEntryHref } from "@/lib/assessment-entry/selection";
 import type { DailyCareSnapshot, DailyClientSummary } from "@/lib/core-care/types";
 import { useLegacyCoreDraftGuard } from "./legacy-core-draft-guard";
 
@@ -92,7 +93,7 @@ function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?:
       : client.careDiary.status === "draft" ? "已有草稿・未簽署" : "待簽署";
 }
 
-export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action }: {
+export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action, canOpenAssessments = false }: {
   page: DailyWorkflowPage;
   serviceDate: string;
   selectedClientId?: string;
@@ -100,6 +101,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
   clients: readonly DailyClientSummary[];
   sourceAccess: DailyCareSnapshot["sourceAccess"];
   action?: ReactNode;
+  canOpenAssessments?: boolean;
 }) {
   const selectId = useId();
   const [choice, setChoice] = useState("");
@@ -144,6 +146,10 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
         </li>)}
       </ol></nav>
       {selected ? action : null}
+      {selected && selected.applicability?.eligible !== false && canOpenAssessments ? <NavigationLink
+        className="button button--secondary" href={assessmentEntryHref(selected.clientId)} loadingLabel="評估量表" prefetch={false}>
+        評估這位個案
+      </NavigationLink> : null}
       {selected && sourceAccess.careDiaries && selected.sourceAccess?.careDiaries !== false ? <NavigationLink
         className="button button--secondary" href={`/app/client-forms?client=${selected.clientId}`} loadingLabel="個案表單填答" prefetch={false}>
         此個案的機構自訂表單

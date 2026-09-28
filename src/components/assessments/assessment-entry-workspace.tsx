@@ -1,6 +1,7 @@
 import { ArrowRight, ClipboardList, FileWarning } from "lucide-react";
 import Link from "next/link";
 
+import { NavigationLink } from "@/components/app/navigation-link";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
 import { AssessmentClientPicker } from "./assessment-client-picker";
@@ -12,12 +13,14 @@ export function AssessmentEntryWorkspace({
   error,
   pages,
   selectedClientId,
+  selectionRejected = false,
   demo = false,
 }: {
-  clients: readonly ClientMasterItem[];
+  clients: readonly Pick<ClientMasterItem, "id" | "displayName" | "clientCode">[];
   error: boolean;
   pages: readonly PageCatalogEntry[];
   selectedClientId: string | null;
+  selectionRejected?: boolean;
   demo?: boolean;
 }) {
   if (error) return <section className="empty-card" role="alert">
@@ -57,6 +60,7 @@ export function AssessmentEntryWorkspace({
     </header>
     <AssessmentClientPicker clients={clients.map(({ id, displayName, clientCode }) => ({ id, displayName, clientCode }))}
       key={selectedClient?.id ?? "none"} selectedClientId={selectedClient?.id ?? null}>
+    {selectionRejected ? <p className={styles.rejected} role="alert">這位個案目前無法選取。請從可查看的名單重新選擇。</p> : null}
     {clients.length === 0 ? <div className={styles.empty} role="status">目前沒有可查看的個案。</div> : null}
     {selectedClient ? <section aria-labelledby="assessment-shortcuts-title" className={styles.results}>
       <div className={styles.selected}><span>目前個案</span><strong>{selectedClient.displayName}</strong>
@@ -67,28 +71,28 @@ export function AssessmentEntryWorkspace({
         {candidateDrafts.length ? <section aria-label="題目式量表">
           <h3 className={styles.groupTitle}>{demo ? "展示量表（不可保存）" : "題目式量表"}</h3>
           <ul className={styles.cards}>{candidateDrafts.map((page) => <li key={page.slug}>
-            <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
+            <NavigationLink href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`} loadingLabel={page.title} prefetch={false}>
               <span>{page.title}<small>{candidateDescription(page.number)}</small></span>
               <ArrowRight aria-hidden="true" />
-            </Link>
+            </NavigationLink>
           </li>)}</ul>
         </section> : null}
         {observationDrafts.length ? <section aria-label="人工觀察草稿">
           <h3 className={styles.groupTitle}>人工觀察草稿</h3>
           <ul className={styles.cards}>{observationDrafts.map((page) => <li key={page.slug}>
-            <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
+            <NavigationLink href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`} loadingLabel={page.title} prefetch={false}>
               <span>{page.title}<small>人工觀察・不自動計分</small></span>
               <ArrowRight aria-hidden="true" />
-            </Link>
+            </NavigationLink>
           </li>)}</ul>
         </section> : null}
         {manualRecords.length ? <section aria-label="人工評估紀錄">
           <h3 className={styles.groupTitle}>人工評估與照顧紀錄</h3>
           <ul className={styles.cards}>{manualRecords.map((page) => <li key={page.slug}>
-            <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
+            <NavigationLink href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`} loadingLabel={page.title} prefetch={false}>
               <span>{page.title}<small>人工紀錄 · 不自動計分</small></span>
               <ArrowRight aria-hidden="true" />
-            </Link>
+            </NavigationLink>
           </li>)}</ul>
         </section> : null}
       </> : <p className={styles.empty} role="status">此帳號目前沒有可開啟的評估表單。</p>}

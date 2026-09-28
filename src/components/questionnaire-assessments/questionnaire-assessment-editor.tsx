@@ -21,6 +21,8 @@ import type {
   QuestionnaireSnapshot,
 } from "@/lib/questionnaire-assessments/types";
 import { ClientSelectionCard } from "@/components/clients/client-selection-card";
+import { NavigationLink } from "@/components/app/navigation-link";
+import { assessmentEntryHref } from "@/lib/assessment-entry/selection";
 import type { TenantContext } from "@/lib/domain/types";
 import { admitQuestionnaireViewSource, canAdmitQuestionnaireViewSource, canReadQuestionnaireView, getQuestionnaireViewState, questionnaireViewAuthority, quarantineQuestionnaireView, useQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
 import { QuestionnaireReadinessPanel } from "./questionnaire-readiness-panel";
@@ -803,6 +805,12 @@ export function QuestionnaireAssessmentsWorkspace({
         <h1>{pageTitle}</h1>
         <p className="page-heading__description">選個案後直接填表；未簽署的答案以版本草稿保存。</p>
       </div>
+      {chosenClient && context && (context.demo || context.scopes.includes("clients.read")) ? (
+        <div className="page-heading__actions">
+          <NavigationLink className="button button--secondary" href={assessmentEntryHref(chosenClient.clientId)}
+            loadingLabel="評估量表" prefetch={false}>返回這位個案的評估清單</NavigationLink>
+        </div>
+      ) : null}
     </header>
 
     {snapshot.demo ? <div className="callout" role="status">

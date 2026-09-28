@@ -99,6 +99,15 @@ describe("assessment entry workspace", () => {
     );
   });
 
+  it("does not reveal a different client for a rejected deep link", () => {
+    render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={null} selectionRejected />);
+    expect(screen.getByRole("alert")).toHaveTextContent("這位個案目前無法選取");
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue("");
+    expect(screen.queryByRole("heading", { name: "開始評估" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
+  });
+
   it("does not describe disabled demo questionnaires as writable or saved", () => {
     render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
       selectedClientId={client.id} demo />);

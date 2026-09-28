@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { IntakeEntryLink } from "@/components/client-intake/intake-entry-link";
+import { NavigationLink } from "@/components/app/navigation-link";
 
 import { CaseCenterHistory } from "@/components/core-care/case-center-history";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -23,6 +24,7 @@ import type {
   CaseCenterSnapshot,
 } from "@/lib/case-center/types";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
+import { assessmentEntryHref, isAssessmentClientSelectable } from "@/lib/assessment-entry/selection";
 
 const lifecycleLabels: Record<CaseCenterLifecycleFilter, string> = {
   all: "全部生命週期",
@@ -101,11 +103,13 @@ function ClientWorkActions({
   date,
   canOpenAttendance,
   canViewSummary,
+  canOpenAssessments,
 }: {
   client: CaseCenterClient;
   date: string;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
+  canOpenAssessments: boolean;
 }) {
   const canStart = canOpenAttendance && canStartClientWork(client, date);
   return (
@@ -132,6 +136,18 @@ function ClientWorkActions({
           查看當日紀錄
         </a>
       )}
+      {canOpenAssessments && isAssessmentClientSelectable(client.lifecycleStatus) ? (
+        <NavigationLink
+          aria-label={`評估 ${client.displayName}（${client.clientCode}）`}
+          className="button button--secondary"
+          data-case-client-id={client.id}
+          href={assessmentEntryHref(client.id)}
+          loadingLabel="評估量表"
+          prefetch={false}
+        >
+          評估這位個案
+        </NavigationLink>
+      ) : null}
     </div>
   );
 }
@@ -148,6 +164,7 @@ export function CaseCenterWorkspace({
   loadError = false,
   allowedDailyPages = [],
   canViewSummary = false,
+  canOpenAssessments = false,
 }: {
   page: PageCatalogEntry;
   snapshot: CaseCenterSnapshot | null;
@@ -156,6 +173,7 @@ export function CaseCenterWorkspace({
   allowedDailyPages?: readonly number[];
   canOpenIntake?: boolean;
   canViewSummary?: boolean;
+  canOpenAssessments?: boolean;
 }) {
   if (loadError || !snapshot) {
     return (
@@ -341,6 +359,7 @@ export function CaseCenterWorkspace({
                         <ClientWorkActions
                           canOpenAttendance={canOpenAttendance}
                           canViewSummary={canViewSummary}
+                          canOpenAssessments={canOpenAssessments}
                           client={client}
                           date={filters.date}
                         />
@@ -366,6 +385,7 @@ export function CaseCenterWorkspace({
                   <ClientWorkActions
                     canOpenAttendance={canOpenAttendance}
                     canViewSummary={canViewSummary}
+                    canOpenAssessments={canOpenAssessments}
                     client={client}
                     date={filters.date}
                   />

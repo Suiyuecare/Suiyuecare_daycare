@@ -75,6 +75,18 @@ describe("questionnaire draft leases with the actual application shell", () => {
     expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeVisible(); expect(window.confirm).not.toHaveBeenCalled();
   });
 
+  it("returns to the same client's assessment chooser only after the unsaved guard allows leaving", () => {
+    show();
+    const link = screen.getByRole("link", { name: "返回這位個案的評估清單" });
+    expect(link).toHaveAttribute("href", `/app/assessments?client=${clientId}`);
+    markDirty();
+    fireEvent.click(link);
+    expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(screen.getByRole("radiogroup", { name: "第 1 題" })).toBeVisible();
+    expect(stubs.replace).not.toHaveBeenCalled();
+  });
+
   it("releases only a known unsubmitted draft after explicit discard, allowing refresh and branch reads again", async () => {
     show(); markDirty(); fireEvent.click(screen.getByRole("button", { name: "新增一次評估" }));
     fireEvent.click(screen.getByRole("button", { name: "放棄修改並切換" })); expect(hasPendingOperations()).toBe(false);
@@ -92,7 +104,9 @@ describe("questionnaire draft leases with the actual application shell", () => {
     expect(hasPendingOperations()).toBe(true); expect(refresh()).toBeDisabled();
     expect(branches().every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
     fireEvent.click(refresh()); for (const button of branches()) fireEvent.click(button);
+    fireEvent.click(screen.getByRole("link", { name: "返回這位個案的評估清單" }));
     expect(stubs.refresh).not.toHaveBeenCalled(); expect(stubs.fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "放棄尚未保存的修改？" })).not.toBeInTheDocument();
   });
 
   it("releases a known unsubmitted draft on permitted unmount without leaving the tab locked", () => {

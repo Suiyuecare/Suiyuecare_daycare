@@ -169,6 +169,7 @@ export function CoreDailyWorkspace({
   selectedClientId,
   selectedShift,
   canWrite,
+  canOpenAssessments = false,
   snapshot,
   loadError = false,
   canViewManagementDetails = false,
@@ -181,6 +182,7 @@ export function CoreDailyWorkspace({
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
   canWrite: boolean;
+  canOpenAssessments?: boolean;
   snapshot: DailyCareSnapshot | null;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
@@ -198,6 +200,7 @@ export function CoreDailyWorkspace({
   })) : [];
   const selectedClient = visibleClients.find((client) => client.clientId === selectedClientId);
   const recordClients = selectedClient ? [selectedClient] : visibleClients;
+  const RecordListContainer = selectedClient ? "details" : "div";
   const invalidSelection = selectedClientId !== undefined && !selectedClient;
   const pageSourceAllowed = snapshot?.sourceAccess.clients && (
     page.number === 3 ? snapshot.sourceAccess.measurements : page.number === 6
@@ -246,10 +249,11 @@ export function CoreDailyWorkspace({
       ) : snapshot ? (
         <>
           <ClientContinuation key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "none"}`} page={workflowPage}
-            clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate} sourceAccess={snapshot.sourceAccess} action={composer} />
+            clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate} sourceAccess={snapshot.sourceAccess} action={composer}
+            canOpenAssessments={canOpenAssessments} />
           {selectedClient && pageSourceAllowed ? clientAttention : null}
           {selectedClient && page.number === 6 && pageSourceAllowed && selectedSourceAllowed ? diaryLifecycle : null}
-          <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>更新於 {generatedAt}；週表、單日調整與實到共同決定本日名單。請假、未到或未排服務不列照顧待填；既有紀錄仍保留。缺少安排時列待確認，當班項目請看「今日工作」。</span></div>
+          <p className="data-table__secondary core-care-updated-at">資料更新於 {generatedAt}</p>
           {!canWrite ? <p className="callout core-care-callout" role="status">目前僅可查看；新增紀錄需要對應權限及身分驗證。補登與簽署另有驗證及覆核要求。</p> : null}
 
           {metrics.length ? <section aria-label="本頁摘要" className="metric-grid core-care-metrics">
@@ -268,7 +272,8 @@ export function CoreDailyWorkspace({
               {!selectedClient ? <p>請先在上方選定個案，再新增紀錄。</p> : null}
             </div>
             {recordClients.length ? (
-              <>
+              <RecordListContainer className={selectedClient ? "task-details core-care-record-details" : undefined}>
+                {selectedClient ? <summary>查看完整紀錄</summary> : null}
                 <div className="table-wrap core-care-table">
                   <table className="data-table"><thead><tr>{tableHeadings(page).map((heading) => <th key={heading} scope="col">{heading}</th>)}</tr></thead><tbody><DesktopRows clients={recordClients} page={page} sourceAccess={snapshot.sourceAccess} /></tbody></table>
                 </div>
@@ -302,12 +307,12 @@ export function CoreDailyWorkspace({
                     </article>
                   ))}
                 </div>
-              </>
+              </RecordListContainer>
             ) : (
               <div className="panel__body"><section className="empty-card core-care-state"><Database aria-hidden="true" /><h2>這個服務日沒有可存取個案</h2><p>請確認分支、指派範圍與收案狀態；系統不會自動改查其他分支。</p></section></div>
             )}
           </section> : !invalidSelection && snapshot.sourceAccess.clients ? <section className="empty-card core-care-state" role="status"><ShieldCheck aria-hidden="true" /><h2>目前沒有本頁資料查看權限</h2><p>請聯絡主管確認權限。未取得的資料不會顯示成 0 或標示完成。</p></section> : null}
-          <details className="panel"><summary>查看身分驗證與資料規則</summary><div className="panel__body"><p>新增仍須具備對應寫入權限及身分驗證；補登、簽署等重要操作另須最近 15 分鐘重新驗證與適用覆核。無查閱權限不代表沒有紀錄，尚未發布的分母或異常門檻不會自行推算。</p>
+          <details className="panel"><summary>資料來源與驗證說明</summary><div className="panel__body"><p>週表、單日調整與實到共同決定本日名單。請假、未到或未排服務不列照顧待填；既有紀錄仍保留。缺少安排時列待確認，當班項目請看「今日工作」。</p><p>新增仍須具備對應寫入權限及身分驗證；補登、簽署等重要操作另須最近 15 分鐘重新驗證與適用覆核。無查閱權限不代表沒有紀錄，尚未發布的分母或異常門檻不會自行推算。</p>
             {canViewManagementDetails ? <><p>{page.description}</p><p>來源更新時間：{snapshot.generatedAt}；同一服務日資料不等於已完成簽署或正式申報。</p></> : null}
           </div></details>
         </>

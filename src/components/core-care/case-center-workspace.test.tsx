@@ -103,6 +103,29 @@ describe("case center front-line next step", () => {
     expect(container.querySelectorAll("[data-case-client-id]")).toHaveLength(2);
   });
 
+  it("offers the same authorized person-specific assessment route on desktop and mobile", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()}
+      canOpenAssessments allowedDailyPages={[46]} />);
+    const links = [...container.querySelectorAll<HTMLAnchorElement>('a[href^="/app/assessments?client="]')];
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect(link.getAttribute("href")).toBe(`/app/assessments?client=${clientId}`);
+      expect(link.dataset.caseClientId).toBe(clientId);
+      expect(link.getAttribute("aria-label")).toBe("評估 合成個案甲（SYN-001）");
+      expect(link.textContent).toBe("評估這位個案");
+    }
+  });
+
+  it("does not promise assessment for a terminal client or absent page permission", () => {
+    const terminal = render(<CaseCenterWorkspace page={page} filters={filters()}
+      snapshot={snapshot({ clients: [client({ lifecycleStatus: "closed", lifecycleState: "closed", serviceStatus: "ended" })] })}
+      canOpenAssessments />);
+    expect(terminal.container.querySelector('a[href^="/app/assessments?"]')).toBeNull();
+    terminal.unmount();
+    const unauthorized = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} />);
+    expect(unauthorized.container.querySelector('a[href^="/app/assessments?"]')).toBeNull();
+  });
+
   it("uses the chosen past service date rather than silently switching to today", () => {
     const date = "2026-05-01";
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters({ date })} snapshot={snapshot({ serviceDate: date })} allowedDailyPages={[46]} />);
