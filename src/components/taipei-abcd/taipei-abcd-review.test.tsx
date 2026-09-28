@@ -11,7 +11,7 @@ const fetchMock = vi.fn();
 describe("administrative review UI", () => {
   beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-  function show(extra: Partial<Parameters<typeof TaipeiAbcdReview>[0]> = {}) { const callbacks = { onBusy: vi.fn(), onDirty: vi.fn(), onChanged: vi.fn().mockResolvedValue(undefined) }; render(<TaipeiAbcdReview snapshot={snapshot} unsavedAnswers={false} disabled={false} {...callbacks} {...extra} />); return callbacks; }
+  function show(extra: Partial<Parameters<typeof TaipeiAbcdReview>[0]> = {}) { const callbacks = { onBusy: vi.fn(), onDirty: vi.fn(), onPending: vi.fn(), onChanged: vi.fn().mockResolvedValue(undefined) }; render(<TaipeiAbcdReview snapshot={snapshot} unsavedAnswers={false} disabled={false} {...callbacks} {...extra} />); return callbacks; }
   it("states administrative approval is not signed and gates high-risk export", () => { show(); expect(screen.getByRole("button", { name: "行政核准（非簽署）" })).toBeEnabled(); expect(screen.getByRole("button", { name: "產生同版預覽／列印 PDF" })).toBeDisabled(); expect(screen.getByText(/不是護理、社工或主管電子簽署/)).toBeInTheDocument(); });
   it("blocks review on unsaved answers and reports pending review reason to parent", () => { const callbacks = show(); fireEvent.change(screen.getByLabelText("送審／退回／核准／更正理由（至少三字）"), { target: { value: "合成覆核" } }); expect(callbacks.onDirty).toHaveBeenLastCalledWith(true); cleanup(); show({ unsavedAnswers: true }); expect(screen.getByRole("button", { name: "行政核准（非簽署）" })).toBeDisabled(); });
   it("retains exact retry after network loss and blocks double clicks while pending", async () => {
@@ -19,11 +19,15 @@ describe("administrative review UI", () => {
     fetchMock.mockRejectedValue(new Error("連線中斷"));
     const button = screen.getByRole("button", { name: "行政核准（非簽署）" }); fireEvent.click(button); fireEvent.click(button); await screen.findByText("連線中斷");
     expect(fetchMock).toHaveBeenCalledTimes(1); const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(callbacks.onPending).toHaveBeenLastCalledWith(true);
+    expect(screen.getByLabelText("送審／退回／核准／更正理由（至少三字）")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "退回補件" })).toBeDisabled();
     fetchMock.mockImplementation(async (_url: string, init: RequestInit) => { const p = JSON.parse(String(init.body)); return Response.json({ data: { eventId: org, draftId: id, state: "approved", sequence: 2, idempotencyKey: p.idempotency_key, replayed: true, isElectronicSignature: false } }); });
     fireEvent.click(button); await screen.findByText(/已重新讀回核對/); expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(payload); expect(callbacks.onChanged).toHaveBeenCalledTimes(1);
     // Dirty notification runs in an effect after the success render.
     await waitFor(() => expect(callbacks.onDirty).toHaveBeenLastCalledWith(false));
     expect(callbacks.onBusy).toHaveBeenLastCalledWith(false);
+    expect(callbacks.onPending).toHaveBeenLastCalledWith(false);
   });
   it("does not claim success until the parent confirms persisted snapshot", async () => {
     const onChanged = vi.fn().mockRejectedValueOnce(new Error("讀回尚未一致")).mockResolvedValue(undefined); show({ onChanged });
@@ -31,6 +35,23 @@ describe("administrative review UI", () => {
     fetchMock.mockImplementation(async (_url: string, init: RequestInit) => { const p = JSON.parse(String(init.body)); return Response.json({ data: { eventId: org, draftId: id, state: "approved", sequence: 2, idempotencyKey: p.idempotency_key, replayed: false, isElectronicSignature: false } }); });
     fireEvent.click(screen.getByRole("button", { name: "行政核准（非簽署）" })); await screen.findByText("讀回尚未一致"); expect(screen.queryByText(/已重新讀回核對/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "行政核准（非簽署）" })); await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2)); expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(JSON.parse(fetchMock.mock.calls[0][1].body));
+  });
+  it("lets a first definitive review rejection be corrected, but uses a fresh key", async () => {
+    const callbacks = show();
+    fireEvent.change(screen.getByLabelText("送審／退回／核准／更正理由（至少三字）"), { target: { value: "首次理由" } });
+    fetchMock.mockResolvedValue(Response.json({ requestId: "bb010000-0000-4000-8000-000000000051", status: "error", data: null,
+      errors: [{ code: "TAIPEI_REVIEW_UNCERTAIN", message: "請先補全審核資料" }] }, { status: 400 }));
+    fireEvent.click(screen.getByRole("button", { name: "行政核准（非簽署）" }));
+    await screen.findByText("請先補全審核資料");
+    expect(screen.getByLabelText("送審／退回／核准／更正理由（至少三字）")).toBeEnabled();
+    expect(callbacks.onPending).toHaveBeenLastCalledWith(false);
+    const first = JSON.parse(fetchMock.mock.calls[0][1].body);
+    fireEvent.change(screen.getByLabelText("送審／退回／核准／更正理由（至少三字）"), { target: { value: "修正理由" } });
+    fireEvent.click(screen.getByRole("button", { name: "行政核准（非簽署）" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const second = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(second.reason).toBe("修正理由");
+    expect(second.idempotency_key).not.toBe(first.idempotency_key);
   });
   it("requires a real reason without calling API", async () => { show(); fireEvent.click(screen.getByRole("button", { name: "行政核准（非簽署）" })); await screen.findByText(/請確認所有區段/); expect(fetchMock).not.toHaveBeenCalled(); });
 });

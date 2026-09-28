@@ -1,0 +1,18 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "sourceRoots": [
+    "src/components/care-roster",
+    "src/components/client-weekly",
+    "src/components/taipei-abcd"
+  ],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm test",
+    "build": "DAYCARE_DISABLE_FILESYSTEM_CACHE=true pnpm build"
+  },
+  "evidence": { "failurePaths": "src/components/care-roster/care-roster.test.tsx" }
+}

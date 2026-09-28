@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
 import { buildTodayWorkRows } from "@/lib/core-care/today-work";
@@ -10,8 +10,23 @@ import { TodayWorkList } from "@/components/workspace/today-work-list";
 import { RosterComposer } from "./roster-composer";
 const mocks = vi.hoisted(() => ({ refresh: vi.fn(), acquireOperation: vi.fn(), releaseOperation: vi.fn(), acquireView: vi.fn(), releaseView: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
-vi.mock("@/lib/navigation/pending-operation-lock", () => ({ tryAcquirePendingOperation: mocks.acquireOperation, tryAcquireViewTransition: mocks.acquireView }));
+vi.mock("@/lib/navigation/pending-operation-lock", () => ({
+  tryAcquirePendingOperation: mocks.acquireOperation, tryAcquireViewTransition: mocks.acquireView,
+  hasPendingOperations: () => false, hasViewTransition: () => false,
+}));
 vi.mock("@/components/app/navigation-link", () => ({ NavigationLink: ({ loadingLabel, ...props }: ComponentProps<"a"> & { loadingLabel: string }) => <a {...props} data-loading-label={loadingLabel} /> }));
+const showModalDescriptor = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+const closeDescriptor = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.open = true; } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value(this: HTMLDialogElement) { this.open = false; } });
+});
+afterAll(() => {
+  if (showModalDescriptor) Object.defineProperty(HTMLDialogElement.prototype, "showModal", showModalDescriptor);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  if (closeDescriptor) Object.defineProperty(HTMLDialogElement.prototype, "close", closeDescriptor);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+});
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 beforeEach(() => { mocks.acquireOperation.mockReturnValue(mocks.releaseOperation); mocks.acquireView.mockReturnValue(mocks.releaseView); });
 const snapshot = buildDemoDailySnapshot("2026-09-12");
@@ -58,6 +73,38 @@ describe("careworker roster interface", () => {
     rerender(<RosterComposer roster={{ ...first, assignments: [{ ...first.assignments[0], version: 2, sourceNote: "另一主管的異動" }] }} clients={snapshot.clients} serviceDate={snapshot.serviceDate} />);
     expect(screen.getByRole("textbox", { name: "安排依據／異動理由", hidden: true })).toHaveValue("主管填寫中尚未送出");
     expect(screen.getByText("調整第 1 版，儲存後保留歷史")).toBeInTheDocument();
+  });
+  it("keeps typed work when changing clients is cancelled and discards only after explicit confirmation", async () => {
+    const first = { ...roster, manager: true, assignments: [{ ...roster.assignments[0], shift: "morning" as const }] };
+    render(<RosterComposer roster={first} clients={snapshot.clients} serviceDate={snapshot.serviceDate} />);
+    const client = screen.getByRole("combobox", { name: "個案", hidden: true });
+    fireEvent.change(client, { target: { value: first.assignments[0].clientId } });
+    const note = screen.getByRole("textbox", { name: "安排依據／異動理由", hidden: true });
+    fireEvent.change(note, { target: { value: "主管填寫中尚未送出" } });
+    fireEvent.change(client, { target: { value: snapshot.clients[1].clientId } });
+    expect(screen.getByRole("dialog", { name: "尚有未保存內容" })).toBeVisible();
+    expect(client).toHaveValue(first.assignments[0].clientId);
+    expect(note).toHaveValue("主管填寫中尚未送出");
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "尚有未保存內容" }), { key: "Escape" });
+    expect(client).toHaveValue(first.assignments[0].clientId);
+    expect(note).toHaveValue("主管填寫中尚未送出");
+    fireEvent.change(client, { target: { value: snapshot.clients[1].clientId } });
+    fireEvent.click(screen.getByRole("button", { name: "捨棄填寫並繼續" }));
+    await waitFor(() => expect(client).toHaveValue(snapshot.clients[1].clientId));
+    expect(screen.getByRole("textbox", { name: "安排依據／異動理由", hidden: true })).toHaveValue("");
+  });
+  it("keeps the selected client after explicitly discarding a draft to change shift", async () => {
+    const manager = { ...roster, manager: true, assignments: [{ ...roster.assignments[0], shift: "morning" as const }] };
+    render(<RosterComposer roster={manager} clients={snapshot.clients} serviceDate={snapshot.serviceDate} />);
+    const client = screen.getByRole("combobox", { name: "個案", hidden: true });
+    fireEvent.change(client, { target: { value: manager.assignments[0].clientId } });
+    fireEvent.change(screen.getByRole("textbox", { name: "安排依據／異動理由", hidden: true }), { target: { value: "還沒送出的安排" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "班別", hidden: true }), { target: { value: "afternoon" } });
+    expect(screen.getByRole("dialog", { name: "尚有未保存內容" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "捨棄填寫並繼續" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "班別", hidden: true })).toHaveValue("afternoon"));
+    expect(client).toHaveValue(manager.assignments[0].clientId);
+    expect(screen.getByRole("textbox", { name: "安排依據／異動理由", hidden: true })).toBeEnabled();
   });
   it.each(["not_admitted", "inactive"] as const)("omits %s allocations from frontline cards and all counters", (serviceEligibility) => {
     const blocked = { ...roster, manager: true, assignments: [{ ...roster.assignments[0], isServiceEligible: false, serviceEligibility }] };
@@ -208,6 +255,21 @@ describe("roster write outcome safety", () => {
     expect(mocks.releaseOperation).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mocks.releaseView).toHaveBeenCalledTimes(1));
     fireEvent.submit(form); expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("unlocks the next roster edit only after the exact receipt appears in a fresh snapshot", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      const input = JSON.parse(init.body as string);
+      return Response.json({ requestId: roster.assignments[0].id, status: "ok", errors: [], data: { persisted: true, demo: false,
+        receipt: { id: roster.assignments[0].id, clientId: input.clientId, serviceDate: input.serviceDate, shift: input.shift, version: input.expectedVersion + 1, replayed: false } } }, { status: 201 });
+    });
+    const { form, manager, rerender } = prepareWrite(fetchMock);
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByRole("button", { name: "讀取最新分工清單", hidden: true })).toBeInTheDocument());
+    rerender(<RosterComposer roster={{ ...manager, assignments: [{ ...manager.assignments[0], version: 2, sourceNote: "伺服器讀回的安排" }] }} clients={snapshot.clients} serviceDate={snapshot.serviceDate} />);
+    await waitFor(() => expect(screen.getByRole("status", { hidden: true })).toHaveTextContent("已讀取最新分工"));
+    expect(screen.getByRole("button", { name: "確認並儲存分工", hidden: true })).toBeEnabled();
+    expect(screen.getByText("調整第 2 版，儲存後保留歷史")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it("keeps success final without refreshing or reloading over another pending writer", async () => {
     mocks.acquireView.mockReturnValue(null);

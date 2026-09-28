@@ -7,7 +7,8 @@
 .workspace button[aria-pressed=true],.workspace .primary { background:#9c4b0f; color:white; }
 .workspace button:disabled { cursor:not-allowed; opacity:.65; }
 .workspace :is(input,select,textarea) { max-width:100%; min-width:0; border:1px solid #bcb2a9; padding:.65rem; border-radius:.5rem; background:white; color:#302c29; font-size:16px; }
-.workspace :is(button,input,select,textarea,summary):focus-visible { outline:3px solid #216caf; outline-offset:3px; }
+.workspace :global(.resize-none) { resize:none; min-height:5rem; }
+.workspace :is(button,input,select,textarea,summary,[data-governance-focus-anchor]):focus-visible { outline:3px solid #216caf; outline-offset:3px; }
 .workspace details { border:1px solid #d8c5b4; border-radius:.7rem; overflow-wrap:anywhere; }
 .workspace summary { padding:.8rem 1rem; min-height:44px; cursor:pointer; font-weight:650; }
 .sectionBody { padding:0 1rem 1rem; display:grid; gap:1rem; }

@@ -67,6 +67,16 @@ beforeEach(() => {
 });
 
 describe("authorized daily page dispatch (deferred unit proof, not Next streaming/browser latency proof)", () => {
+  it("remounts daily work when branch, actor or service date changes so a prior roster edit cannot leak", async () => {
+    const first = findElement(await page(dashboard), DashboardWorkspace)?.key;
+    mocks.tenant.mockResolvedValue({ ...actor, branchId: "b0000000-0000-4000-8000-000000000002" });
+    const otherBranch = findElement(await page(dashboard), DashboardWorkspace)?.key;
+    mocks.tenant.mockResolvedValue(actor);
+    const otherDay = findElement(await page(dashboard, { date: "2026-09-29" }), DashboardWorkspace)?.key;
+    expect(first).toBeTruthy();
+    expect(otherBranch).not.toBe(first);
+    expect(otherDay).not.toBe(first);
+  });
   it("starts all three dashboard reads before any unresolved read completes and reuses the exact expected promise", async () => {
     const core = deferred<DailyCareSnapshot>(); const assignments = deferred<CareRosterSnapshot>(); const planned = deferred<DailyExpectedState>();
     mocks.snapshot.mockReturnValue(core.promise); mocks.roster.mockReturnValue(assignments.promise); mocks.expected.mockReturnValue(planned.promise);

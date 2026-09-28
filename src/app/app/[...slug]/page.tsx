@@ -741,6 +741,8 @@ export default async function StaffCatalogPage({
     }
     return (
       <><DashboardWorkspace
+        key={JSON.stringify([context.organizationId, context.branchId, context.userId, context.assuranceLevel,
+          [...context.roles].sort(), [...context.scopes].sort(), serviceDate])}
         canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         loadError={loadError}

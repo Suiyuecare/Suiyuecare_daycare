@@ -9,9 +9,21 @@ import { TAIPEI_ABCD_TEMPLATE } from "@/lib/taipei-abcd/catalog";
 const ids = { organizationId: "aa010000-0000-4000-8000-000000000001", branchId: "aa010000-0000-4000-8000-000000000002", clientId: "aa010000-0000-4000-8000-000000000003" };
 const empty = { ...ids, form: "A", usageYear: 115, month: 0, latest: null, history: [], currentSources: null, canEdit: true };
 const fetchMock = vi.fn();
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
 describe("Taipei intake draft UI", () => {
-  beforeEach(() => { vi.stubGlobal("fetch", fetchMock); fetchMock.mockReset(); fetchMock.mockResolvedValue(Response.json({ data: empty })); });
-  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock); fetchMock.mockReset(); fetchMock.mockResolvedValue(Response.json({ data: empty }));
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute("open"); } });
+  });
+  afterEach(() => {
+    cleanup(); vi.unstubAllGlobals();
+    for (const [name, descriptor] of [["showModal", originalShowModal], ["close", originalClose]] as const) {
+      if (descriptor) Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+      else Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+    }
+  });
   it("shows full A section inventory and no D/signature action", () => {
     render(<TaipeiAbcdIntakeStep {...ids} demo />);
     expect(screen.getByText(/D 表是小規模多機能臨時住宿紀錄/)).toBeInTheDocument();
@@ -24,7 +36,7 @@ describe("Taipei intake draft UI", () => {
     fetchMock.mockRejectedValue(new TypeError("連線暫時中斷"));
     fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" })); await screen.findByText("連線暫時中斷");
     const first = JSON.parse(fetchMock.mock.calls[1][1].body);
-    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" })); await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    fireEvent.click(screen.getByRole("button", { name: "以相同內容重試保存" })); await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual(first);
   });
   it("does not reuse a previous client's private snapshot on client switch", async () => {
@@ -86,8 +98,8 @@ describe("Taipei intake draft UI", () => {
     const values = model.sections.flatMap(s => s.rows.map(r => r.value)).join(" ");
     expect(values).toContain("53 kg"); expect(values).not.toContain("66 kg"); expect(values).toContain(savedSources.measurements[0].id); expect(values).not.toContain(currentSources.measurements[0].id);
   });
-  it("does not lose a C draft when month or form switching is cancelled", async () => {
-    const confirm = vi.fn().mockReturnValue(false); vi.stubGlobal("confirm", confirm);
+  it("uses the app-owned dialog to preserve a C draft on Cancel and Escape, then switches only after explicit discard", async () => {
+    const nativeConfirm = vi.fn(); vi.stubGlobal("confirm", nativeConfirm);
     fetchMock.mockImplementation(async (url: string) => { const query = new URL(url, "http://localhost").searchParams; return Response.json({ data: { ...empty, form: query.get("form"), month: Number(query.get("month")) } }); });
     render(<TaipeiAbcdIntakeStep {...ids} today="2026-09-14" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
@@ -95,10 +107,105 @@ describe("Taipei intake draft UI", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "儲存 C 表草稿" })).toBeEnabled());
     fireEvent.change(screen.getByLabelText("備註（例如左／右手禁測量）內容"), { target: { value: "合成核對草稿" } });
     fireEvent.change(screen.getByLabelText("115 年度月份"), { target: { value: "10" } });
+    const firstDialog = screen.getByRole("dialog", { name: "捨棄未保存的表單內容" });
+    expect(within(firstDialog).getByText(/切換到 10 月會捨棄/u)).toBeInTheDocument();
     expect(screen.getByLabelText("115 年度月份")).toHaveValue("9");
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "繼續填寫" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "A 表 · 基本資料" }));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByLabelText("備註（例如左／右手禁測量）內容")).toHaveValue("合成核對草稿");
-    expect(confirm).toHaveBeenCalledTimes(2); expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2); expect(nativeConfirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "A 表 · 基本資料" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "捨棄填寫並繼續" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    expect(screen.queryByDisplayValue("合成核對草稿")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+  it("keeps an uncertain original save immutable and blocks form/month/reload until exact retry", async () => {
+    const onBusy = vi.fn();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => init?.method === "POST" ? Promise.reject(new Error("NETWORK_UNKNOWN")) : Response.json({ data: { ...empty, form: new URL(url, "http://localhost").searchParams.get("form") } }));
+    render(<TaipeiAbcdIntakeStep {...ids} onBusy={onBusy} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "原次姓名" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await screen.findByText("NETWORK_UNKNOWN");
+    expect(screen.getByLabelText("個案姓名內容")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "以相同內容重試保存" })).toBeEnabled();
+    expect(onBusy).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "C 表 · 當月執行" }));
+    expect(screen.getByRole("button", { name: "A 表 · 基本資料" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新載入" })).toBeDisabled();
+    const first = fetchMock.mock.calls[1][1].body;
+    fireEvent.click(screen.getByRole("button", { name: "以相同內容重試保存" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock.mock.calls[2][1].body).toBe(first);
+  });
+  it("releases a first, definitively rejected draft for correction with a new key", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? Response.json({ requestId: "aa010000-0000-4000-8000-000000000051", status: "error", data: null, errors: [{ code: "INVALID_TAIPEI_ABCD_DRAFT", message: "請核對資料狀態" }] }, { status: 400 })
+      : Response.json({ data: empty }));
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "首次值" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await screen.findByText("請核對資料狀態");
+    expect(screen.getByLabelText("個案姓名內容")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled();
+    const first = JSON.parse(fetchMock.mock.calls[1][1].body);
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "修正值" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const second = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(second.answers["A1.name"].value).toBe("修正值");
+    expect(second.idempotency_key).not.toBe(first.idempotency_key);
+  });
+  it("keeps the original key after an uncertain attempt even if its retry receives a 400 envelope", async () => {
+    let postCount = 0;
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") return Response.json({ data: empty });
+      postCount += 1;
+      if (postCount === 1) throw new TypeError("網路中斷");
+      return Response.json({ requestId: "aa010000-0000-4000-8000-000000000052", status: "error", data: null, errors: [{ code: "INVALID_TAIPEI_ABCD_DRAFT", message: "回覆被拒" }] }, { status: 400 });
+    });
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "原值" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await screen.findByText("網路中斷");
+    const first = fetchMock.mock.calls[1][1].body;
+    fireEvent.click(screen.getByRole("button", { name: "以相同內容重試保存" }));
+    await screen.findByText("回覆被拒");
+    expect(screen.getByLabelText("個案姓名內容")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "以相同內容重試保存" })).toBeEnabled();
+    expect(fetchMock.mock.calls[2][1].body).toBe(first);
+  });
+  it("keeps the original key when a 400 response lacks a complete error envelope", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? Response.json({ status: "error", data: null, errors: [{ code: "INVALID_TAIPEI_ABCD_DRAFT", message: "缺少請求識別碼" }] }, { status: 400 })
+      : Response.json({ data: empty }));
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "待確認值" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await screen.findByText("缺少請求識別碼");
+    expect(screen.getByLabelText("個案姓名內容")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "以相同內容重試保存" })).toBeEnabled();
+  });
+  it("stops offering save after a confirmed permission rejection without erasing local input", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? Response.json({ requestId: "aa010000-0000-4000-8000-000000000053", status: "error", data: null, errors: [{ code: "TAIPEI_ABCD_NOT_AUTHORIZED", message: "此帳號無寫入權限" }] }, { status: 403 })
+      : Response.json({ data: empty }));
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "保留在畫面的內容" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await screen.findByText("此帳號無寫入權限");
+    expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeDisabled();
+    expect(screen.getByDisplayValue("保留在畫面的內容")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新載入" })).toBeEnabled();
   });
   it("releases the parent busy guard when unmounted during save", async () => {
     const onBusy = vi.fn();
