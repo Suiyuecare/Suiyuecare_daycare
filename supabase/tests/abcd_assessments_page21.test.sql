@@ -19,10 +19,13 @@ select ok(has_function_privilege('authenticated','public.mutate_abcd_assessment(
   and has_function_privilege('authenticated','public.abcd_assessment_snapshot(uuid,uuid,uuid,integer,text,text,text,text)','execute')
   and not has_function_privilege('service_role','public.mutate_abcd_assessment(uuid,uuid,text,jsonb,uuid)','execute'),
   'only authenticated callers receive public RPCs');
-select ok(not (select prosecdef from pg_proc where oid='public.mutate_abcd_assessment(uuid,uuid,text,jsonb,uuid)'::regprocedure)
+select ok((select not prosecdef and coalesce(proconfig,'{}'::text[]) @> array['search_path=""'] from pg_proc
+    where oid='public.mutate_abcd_assessment(uuid,uuid,text,jsonb,uuid)'::regprocedure)
+  and (select prosecdef and coalesce(proconfig,'{}'::text[]) @> array['search_path=""'] from pg_proc
+    where oid='private.mutate_abcd_assessment_reserved(uuid,uuid,text,jsonb,uuid)'::regprocedure)
   and (select prosecdef and coalesce(proconfig,'{}'::text[]) @> array['search_path=""'] from pg_proc
     where oid='private.mutate_abcd_assessment_guarded(uuid,uuid,text,jsonb,uuid)'::regprocedure),
-  'public wrapper is invoker and guarded core is pinned definer');
+  'public invoker and private reserved/core definers pin their search paths');
 select is((select count(*) from pg_trigger where not tgisinternal and tgname in
   ('abcd_assessment_versions_append_only','abcd_assessment_operations_append_only')),2::bigint,
   'both ledgers are append-only');
@@ -76,7 +79,28 @@ insert into public.clients(id,organization_id,branch_id,client_code,display_name
 insert into public.client_assignments(id,organization_id,branch_id,client_id,assignee_user_id,assignment_kind) values
  ('21100000-6000-4000-8000-000000000001','21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','21100000-5000-4000-8000-000000000001','21100000-1000-4000-8000-000000000002','daily-care');
 
-create temporary table created as select * from public.mutate_abcd_assessment(null,null,null,null,null) with no data;
+-- Test-only compatibility helper: the production API reserves before each
+-- mutation. Preserve the original page-21 business assertions under that
+-- required server-owned precondition, without weakening the public RPC.
+create function pg_temp.mutate_abcd_assessment(
+ p_expected_organization_id uuid,p_expected_branch_id uuid,p_action text,
+ p_payload jsonb,p_idempotency_key uuid
+) returns table(organization_id uuid,branch_id uuid,client_id uuid,
+ operation_id uuid,idempotency_key uuid,action text,assessment_key uuid,
+ version_id uuid,version integer,assessment_state text,assessment_type text,
+ assessment_year integer,previous_version_id uuid,source_content_hash text,
+ content_hash text,record_payload jsonb,committed_at timestamptz,replayed boolean)
+language plpgsql volatile security invoker set search_path='' as $$
+begin
+ perform public.reserve_abcd_assessment_operation(p_expected_organization_id,
+  p_expected_branch_id,case when p_action='save_assessment' then p_payload->>'mode'
+    when p_action='sign_assessment' then 'sign' else 'correct' end,
+  p_action,p_payload,p_idempotency_key);
+ return query select * from public.mutate_abcd_assessment(p_expected_organization_id,
+  p_expected_branch_id,p_action,p_payload,p_idempotency_key);
+end;$$;
+
+create temporary table created as select * from pg_temp.mutate_abcd_assessment(null,null,null,null,null) with no data;
 create temporary table type_b (like created); create temporary table prior_year (like created);
 create temporary table revised (like created); create temporary table signed (like created);
 create temporary table corrected (like created);
@@ -91,17 +115,17 @@ select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-00000000
 select throws_ok($$select * from public.abcd_assessment_snapshot(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000002')$$,
  '42501','ABCD assessment snapshot is not permitted','branch-scoped worker cannot read another branch');
-select throws_ok($$select * from public.mutate_abcd_assessment(
+select throws_ok($$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000002','assessment_type','A','assessment_year',2026,
  'assessment_date','2026-09-01','manual_summary','不得建立','result',jsonb_build_object('state','missing','text',null,'reason','尚未記錄'),
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','尚未指定'),'reason','建立候選初稿'),
  '21100000-8000-4000-8000-000000000099')$$,
- '42501','ABCD assessment client or identity is not permitted','unassigned worker cannot write another client');
+ '42501','ABCD reservation scope is not permitted','unassigned worker cannot write another client');
 
 select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"21100000-7000-4000-8000-000000000001"}',true);
-insert into created select * from public.mutate_abcd_assessment(
+insert into created select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','A','assessment_year',2026,
@@ -131,7 +155,7 @@ select is((select count(*) from public.abcd_assessment_versions
 
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"21100000-7000-4000-8000-000000000001"}',true);
-select is((select replayed from public.mutate_abcd_assessment(
+select is((select replayed from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','A','assessment_year',2026,
@@ -140,15 +164,15 @@ select is((select replayed from public.mutate_abcd_assessment(
  'reassessment',jsonb_build_object('state','recorded','date','2026-12-01','basis','人工依服務檢討日指定'),
  'reason','建立候選初稿'),'21100000-8000-4000-8000-000000000001')),true,
  'same actor and exact request replays');
-select throws_ok($$select * from public.mutate_abcd_assessment(
+select throws_ok($$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','B','assessment_year',2026,
  'assessment_date','2026-08-01','manual_summary','不同內容','result',jsonb_build_object('state','missing','text',null,'reason','尚缺'),
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','尚缺'),'reason','建立候選初稿'),
  '21100000-8000-4000-8000-000000000001')$$,
- '23505','ABCD assessment idempotency conflict','same actor key with different request is rejected');
-select throws_ok($$select * from public.mutate_abcd_assessment(
+ '23505','ABCD reservation idempotency conflict','same actor key with different request is rejected');
+select throws_ok($$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','A','assessment_year',2026,
@@ -157,7 +181,7 @@ select throws_ok($$select * from public.mutate_abcd_assessment(
  '21100000-8000-4000-8000-000000000002')$$,
  '23505','ABCD assessment identity already has a chain','same client year and type cannot start a second chain');
 
-insert into type_b select * from public.mutate_abcd_assessment(
+insert into type_b select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','B','assessment_year',2026,
@@ -165,7 +189,7 @@ insert into type_b select * from public.mutate_abcd_assessment(
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','尚未人工指定'),'reason','建立 B 類獨立初稿'),
  '21100000-8000-4000-8000-000000000003');
 select is((select assessment_type from type_b),'B','different type in same year creates an independent chain');
-insert into prior_year select * from public.mutate_abcd_assessment(
+insert into prior_year select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','A','assessment_year',2025,
@@ -174,7 +198,7 @@ insert into prior_year select * from public.mutate_abcd_assessment(
  '21100000-8000-4000-8000-000000000004');
 select is((select assessment_year from prior_year),2025,'same type in a different year creates an independent chain');
 
-insert into revised select * from public.mutate_abcd_assessment(
+insert into revised select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','revise','assessment_key',(select assessment_key from created),
  'previous_version_id',(select version_id from created),'expected_version',1,'expected_content_hash',(select content_hash from created),
@@ -190,7 +214,7 @@ select is((select previous_version_id from public.abcd_assessment_versions where
 
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"21100000-7000-4000-8000-000000000001"}',true);
-select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
+select throws_ok(format($sql$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','revise','assessment_key','%s','previous_version_id','%s','expected_version',2,'expected_content_hash','%s',
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','B','assessment_year',2026,
@@ -198,7 +222,7 @@ select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','尚缺'),'reason','嘗試換類型'),
  '21100000-8000-4000-8000-000000000006')$sql$,(select assessment_key from revised),(select version_id from revised),(select content_hash from revised)),
  '40001','ABCD assessment type or year cannot change','a chain cannot change from A to B');
-select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
+select throws_ok(format($sql$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','revise','assessment_key','%s','previous_version_id','%s','expected_version',1,'expected_content_hash','%s',
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','A','assessment_year',2026,
@@ -206,7 +230,7 @@ select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','舊版'),'reason','舊版重送'),
  '21100000-8000-4000-8000-000000000007')$sql$,(select assessment_key from created),(select version_id from created),(select content_hash from created)),
  '40001','ABCD assessment version is stale','stale expected version is rejected');
-select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
+select throws_ok(format($sql$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','sign_assessment',
  jsonb_build_object('client_id','21100000-5000-4000-8000-000000000001','assessment_key','%s',
  'previous_version_id','%s','expected_version',2,'expected_content_hash','%s','assessment_type','A','assessment_year',2026),
@@ -224,7 +248,7 @@ insert into private.reauth_events(user_id,session_id,challenge_id,aal,verificati
  (select factor_verified_at from private.reauth_challenges where id='21100000-9000-4000-8000-000000000001'));
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"21100000-7000-4000-8000-000000000001"}',true);
-insert into signed select * from public.mutate_abcd_assessment(
+insert into signed select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','sign_assessment',
  jsonb_build_object('client_id','21100000-5000-4000-8000-000000000001','assessment_key',(select assessment_key from revised),
  'previous_version_id',(select version_id from revised),'expected_version',2,'expected_content_hash',(select content_hash from revised),
@@ -248,7 +272,7 @@ select ok((select current.manual_summary=prior.manual_summary and current.result
 
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"21100000-7000-4000-8000-000000000001"}',true);
-select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
+select throws_ok(format($sql$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','revise','assessment_key','%s','previous_version_id','%s','expected_version',3,'expected_content_hash','%s',
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','A','assessment_year',2026,
@@ -256,7 +280,7 @@ select throws_ok(format($sql$select * from public.mutate_abcd_assessment(
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','不可'),'reason','嘗試修訂已簽紀錄'),
  '21100000-8000-4000-8000-000000000009')$sql$,(select assessment_key from signed),(select version_id from signed),(select content_hash from signed)),
  '23514','only a draft ABCD assessment can be revised','signed record cannot return to draft');
-insert into corrected select * from public.mutate_abcd_assessment(
+insert into corrected select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','correct_assessment',
  jsonb_build_object('client_id','21100000-5000-4000-8000-000000000001','assessment_key',(select assessment_key from signed),
  'previous_version_id',(select version_id from signed),'expected_version',3,'expected_content_hash',(select content_hash from signed),
@@ -335,7 +359,7 @@ select set_config('request.jwt.claims','{"sub":"21100000-1000-4000-8000-00000000
 select throws_ok($$select * from public.abcd_assessment_snapshot(
  '21100000-2000-4000-8000-000000000002','21100000-3000-4000-8000-000000000003')$$,
  '42501','ABCD assessment snapshot is not permitted','cross-tenant snapshot is denied');
-select throws_ok($$select * from public.mutate_abcd_assessment(
+select throws_ok($$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','C','assessment_year',2026,
@@ -343,7 +367,7 @@ select throws_ok($$select * from public.mutate_abcd_assessment(
  'reassessment',jsonb_build_object('state','missing','date',null,'basis','尚缺'),'reason','多餘欄位測試','score',99),
  '21100000-8000-4000-8000-000000000011')$$,
  '22023','ABCD draft payload shape is invalid','invented score field is rejected by strict payload shape');
-select throws_ok($$select * from public.mutate_abcd_assessment(
+select throws_ok($$select * from pg_temp.mutate_abcd_assessment(
  '21100000-2000-4000-8000-000000000001','21100000-3000-4000-8000-000000000001','save_assessment',
  jsonb_build_object('mode','create','assessment_key',null,'previous_version_id',null,'expected_version',0,'expected_content_hash',null,
  'client_id','21100000-5000-4000-8000-000000000001','assessment_type','C','assessment_year',2026,

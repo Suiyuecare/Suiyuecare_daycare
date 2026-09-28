@@ -17,10 +17,12 @@ function clientLink(target: EventTarget | null) {
 function savePosition(link?: HTMLElement | null) {
   const state = (window.history.state ?? {}) as Record<string, unknown>;
   const clientId = link?.dataset.caseClientId;
+  const scrollY = Math.max(0, Math.round(window.scrollY));
+  if (state.caseCenterScrollY === scrollY && (!clientId || state.caseCenterFocusClientId === clientId)) return;
   window.history.replaceState(
     {
       ...state,
-      caseCenterScrollY: Math.max(0, Math.round(window.scrollY)),
+      caseCenterScrollY: scrollY,
       ...(clientId ? { caseCenterFocusClientId: clientId } : {}),
     },
     "",

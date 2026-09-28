@@ -57,6 +57,19 @@ const receipt = z.object({ organization_id: uuid, branch_id: uuid, client_id: uu
   source_content_hash: sha256.nullable(), content_hash: sha256,
   record_payload: recordPayload, committed_at: timestamp,
   replayed: z.boolean() }).strict();
+const apiReceipt = z.object({ reservationId: uuid.optional(), organizationId: uuid, branchId: uuid,
+  clientId: uuid, operationId: uuid, idempotencyKey: uuid,
+  action: z.enum(["save_assessment", "sign_assessment", "correct_assessment"]),
+  assessmentKey: uuid, versionId: uuid, version: z.number().int().positive().max(1_000_000),
+  assessmentState: z.enum(ABCD_ASSESSMENT_STATES), assessmentType: z.enum(ABCD_ASSESSMENT_TYPES),
+  assessmentYear, previousVersionId: uuid.nullable(), sourceContentHash: sha256.nullable(),
+  contentHash: sha256,
+  recordPayload: z.object({ clientId: uuid, assessmentType: z.enum(ABCD_ASSESSMENT_TYPES),
+    assessmentYear, assessmentDate: date, manualSummary: text(8_000), result, reassessment,
+    formKind: z.literal("manual_unstandardized"),
+    formalRuleStatus: z.literal("not_configured") }).strict(),
+  committedAt: timestamp, replayed: z.boolean(), persisted: z.literal(true),
+  demo: z.literal(false) }).strict();
 
 function invalid(message: string): never {
   throw new IntegrationError("INVALID_ABCD_ASSESSMENT_OPERATION", message, 400);
@@ -175,4 +188,31 @@ export function parseAbcdAssessmentReceipt(value: unknown, input: AbcdAssessment
       formKind: row.record_payload.form_kind, formalRuleStatus: row.record_payload.formal_rule_status },
     committedAt: row.committed_at, replayed: row.replayed,
     persisted: true, demo: false };
+}
+
+/** Revalidates the public camelCase API envelope against the original write. */
+export function parseAbcdAssessmentApiReceipt(value: unknown, input: AbcdAssessmentMutationInput,
+  expectedOrganizationId: string, expectedBranchId: string): AbcdAssessmentReceipt {
+  const parsed = apiReceipt.safeParse(value);
+  if (!parsed.success) throw new IntegrationError("ABCD_ASSESSMENT_RECEIPT_INVALID",
+    "ABCD 評估回執不完整；請保留相同操作鍵重新核對。", 502);
+  const row = parsed.data;
+  const verified = parseAbcdAssessmentReceipt({ organization_id: row.organizationId,
+    branch_id: row.branchId, client_id: row.clientId, operation_id: row.operationId,
+    idempotency_key: row.idempotencyKey, action: row.action,
+    assessment_key: row.assessmentKey, version_id: row.versionId, version: row.version,
+    assessment_state: row.assessmentState, assessment_type: row.assessmentType,
+    assessment_year: row.assessmentYear, previous_version_id: row.previousVersionId,
+    source_content_hash: row.sourceContentHash, content_hash: row.contentHash,
+    record_payload: { client_id: row.recordPayload.clientId,
+      assessment_type: row.recordPayload.assessmentType,
+      assessment_year: row.recordPayload.assessmentYear,
+      assessment_date: row.recordPayload.assessmentDate,
+      manual_summary: row.recordPayload.manualSummary, result: row.recordPayload.result,
+      reassessment: row.recordPayload.reassessment,
+      form_kind: row.recordPayload.formKind,
+      formal_rule_status: row.recordPayload.formalRuleStatus },
+    committed_at: row.committedAt, replayed: row.replayed }, input,
+  expectedOrganizationId, expectedBranchId);
+  return row.reservationId ? { ...verified, reservationId: row.reservationId } : verified;
 }

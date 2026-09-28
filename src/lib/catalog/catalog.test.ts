@@ -155,6 +155,13 @@ describe("page catalog contract", () => {
     );
   });
 
+  it("allows governed ABCD drafts without a second-factor prompt while preserving signed-action reauthentication", () => {
+    const page = getPageBySlug("staff/assessments/abcd");
+    expect(page?.acceptance.join(" ")).toMatch(/草稿建立與修訂允許已核准 Google 工作階段/u);
+    expect(page?.acceptance.join(" ")).toMatch(/簽署與更正仍要求近期 AAL2/u);
+    expect(page?.requiredPermissions).toEqual(["clients.read", "abcd_assessments.read"]);
+  });
+
   it("gates high-risk staff pages with explicit production permissions", () => {
     const expectedPermissions = new Map([
       ["staff/workspace/case-center", ["clients.read"]],

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDemoAbcdAssessmentSnapshot } from "./demo";
-import { parseAbcdAssessmentMutation, parseAbcdAssessmentReceipt } from "./parser";
+import { parseAbcdAssessmentApiReceipt, parseAbcdAssessmentMutation,
+  parseAbcdAssessmentReceipt } from "./parser";
 import { projectAbcdAssessmentSnapshot } from "./projection";
 import { emptyAbcdAssessmentFilters, parseAbcdAssessmentFilters } from "./query";
 
@@ -123,6 +124,17 @@ describe("Page 21 ABCD manual candidate contracts", () => {
       committed_at: "2026-09-07T03:00:00Z", replayed: false };
     expect(parseAbcdAssessmentReceipt(receipt, input, org, branch)).toMatchObject({ persisted: true, demo: false,
       assessmentType: "A", assessmentYear: 2026 });
+    const apiReceipt = { ...parseAbcdAssessmentReceipt(receipt, input, org, branch),
+      reservationId: "21160000-0000-4000-8000-000000000020" };
+    expect(parseAbcdAssessmentApiReceipt(apiReceipt, input, org, branch)).toEqual(apiReceipt);
+    expect(() => parseAbcdAssessmentApiReceipt({ ...apiReceipt, clientId: user },
+      input, org, branch)).toThrow(/回執/u);
+    expect(() => parseAbcdAssessmentApiReceipt({ ...apiReceipt, version: 2 },
+      input, org, branch)).toThrow(/回執/u);
+    expect(() => parseAbcdAssessmentApiReceipt({ ...apiReceipt, recordPayload: {
+      ...apiReceipt.recordPayload, manualSummary: "遭置換的摘要" } }, input, org, branch)).toThrow(/回執/u);
+    expect(() => parseAbcdAssessmentApiReceipt({ ...apiReceipt, diagnosis: "forged" },
+      input, org, branch)).toThrow(/回執/u);
     expect(() => parseAbcdAssessmentReceipt({ ...receipt, assessment_type: "B" }, input, org, branch)).toThrow(/回執/u);
     expect(() => parseAbcdAssessmentReceipt({ ...receipt, version: 2 }, input, org, branch)).toThrow(/回執/u);
     expect(() => parseAbcdAssessmentReceipt({ ...receipt, organization_id: user }, input, org, branch)).toThrow(/回執/u);

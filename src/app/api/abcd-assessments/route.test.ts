@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const stubs = vi.hoisted(() => ({ authorizeStaffRequest: vi.fn(), readJsonObject: vi.fn(),
-  requireRecentAal2: vi.fn(), createServerSupabaseClient: vi.fn(), rpc: vi.fn(), maybeSingle: vi.fn() }));
+  requireRecentAal2: vi.fn(), createServerSupabaseClient: vi.fn(), rpc: vi.fn(), maybeSingle: vi.fn(),
+  getTenantContext: vi.fn(), authorizeRoutineIntake: vi.fn() }));
+
+vi.mock("@/lib/auth/context", () => ({ getTenantContext: stubs.getTenantContext }));
+vi.mock("@/lib/auth/routine-intake", () => ({ authorizeRoutineIntake: stubs.authorizeRoutineIntake }));
 
 vi.mock("@/lib/integrations/http", () => ({
   authorizeStaffRequest: stubs.authorizeStaffRequest, readJsonObject: stubs.readJsonObject,
@@ -26,6 +30,7 @@ const branchId = "21120000-0000-4000-8000-000000000001";
 const userId = "21130000-0000-4000-8000-000000000001";
 const clientId = "21140000-0000-4000-8000-000000000001";
 const key = "21150000-0000-4000-8000-000000000001";
+const reservationId = "21150000-0000-4000-8000-000000000020";
 const assessmentKey = "21160000-0000-4000-8000-000000000001";
 const versionId = "21170000-0000-4000-8000-000000000001";
 const hash = "a".repeat(64);
@@ -62,9 +67,12 @@ function request(operation?: string) {
 describe("Page 21 ABCD assessment API boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks(); stubs.authorizeStaffRequest.mockResolvedValue(actor);
+    stubs.getTenantContext.mockResolvedValue(actor);
+    stubs.authorizeRoutineIntake.mockResolvedValue(actor);
     stubs.requireRecentAal2.mockResolvedValue(undefined); stubs.readJsonObject.mockResolvedValue(body);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
-    stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
+    stubs.rpc.mockImplementation((name: string) => name === "reserve_abcd_assessment_operation" ?
+      Promise.resolve({ data: reservationId, error: null }) : { maybeSingle: stubs.maybeSingle });
     stubs.maybeSingle.mockResolvedValue({ data: receipt, error: null });
   });
 
@@ -93,6 +101,11 @@ describe("Page 21 ABCD assessment API boundary", () => {
   it("binds tenant branch explicit identity and idempotency without invented fields", async () => {
     const response = await POST(request("create")); expect(response.status).toBe(201);
     expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+    expect(stubs.rpc).toHaveBeenNthCalledWith(1, "reserve_abcd_assessment_operation", {
+      p_expected_organization_id: organizationId, p_expected_branch_id: branchId,
+      p_operation: "create", p_action: "save_assessment",
+      p_payload: expect.objectContaining({ client_id: clientId }), p_idempotency_key: key,
+    });
     expect(stubs.rpc).toHaveBeenCalledWith("mutate_abcd_assessment", {
       p_expected_organization_id: organizationId, p_expected_branch_id: branchId,
       p_action: "save_assessment", p_payload: expect.objectContaining({ client_id: clientId,
@@ -100,9 +113,57 @@ describe("Page 21 ABCD assessment API boundary", () => {
         result: { state: "recorded", text: "人工候選結果", reason: null } }),
       p_idempotency_key: key,
     });
-    const sent = stubs.rpc.mock.calls[0]?.[1].p_payload;
+    const sent = stubs.rpc.mock.calls[1]?.[1].p_payload;
     expect(sent).not.toHaveProperty("score"); expect(sent).not.toHaveProperty("diagnosis");
-    expect((await response.json()).data).toMatchObject({ assessmentKey, persisted: true, demo: false });
+    expect((await response.json()).data).toMatchObject({ assessmentKey, reservationId,
+      persisted: true, demo: false });
+  });
+
+  it("admits an approved Google AAL1 draft only through exact-client ABCD intake", async () => {
+    const routineActor = { ...actor, assuranceLevel: "aal1" };
+    stubs.getTenantContext.mockResolvedValue(routineActor);
+    stubs.authorizeRoutineIntake.mockResolvedValue(routineActor);
+    const response = await POST(request("create"));
+    expect(response.status).toBe(201);
+    expect(stubs.authorizeStaffRequest).not.toHaveBeenCalled();
+    expect(stubs.authorizeRoutineIntake).toHaveBeenCalledExactlyOnceWith("abcd.save", clientId);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+  });
+
+  it("denies unapproved or changed AAL1 intake identity before any database mutation", async () => {
+    stubs.getTenantContext.mockResolvedValue({ ...actor, assuranceLevel: "aal1" });
+    stubs.authorizeRoutineIntake.mockRejectedValueOnce(Object.assign(new Error("not approved"),
+      { code: "INTAKE_NOT_AUTHORIZED", httpStatus: 403 }));
+    const denied = await POST(request("create"));
+    expect(denied.status).toBe(403);
+    expect(stubs.rpc).not.toHaveBeenCalled();
+    stubs.authorizeRoutineIntake.mockResolvedValueOnce({ ...actor, assuranceLevel: "aal1",
+      userId: "21130000-0000-4000-8000-000000000099" });
+    const changed = await POST(request("create"));
+    expect(changed.status).toBe(403);
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps AAL1 sign behind recent AAL2 before reading the body", async () => {
+    stubs.getTenantContext.mockResolvedValue({ ...actor, assuranceLevel: "aal1" });
+    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("reauth"),
+      { code: "AAL2_REQUIRED", httpStatus: 403 }));
+    const response = await POST(request("sign"));
+    expect(response.status).toBe(403);
+    expect(stubs.readJsonObject).not.toHaveBeenCalled();
+    expect(stubs.authorizeRoutineIntake).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate if reservation fails or its receipt is malformed", async () => {
+    stubs.rpc.mockImplementation((name: string) => name === "reserve_abcd_assessment_operation" ?
+      Promise.resolve({ data: null, error: { code: "42501" } }) : { maybeSingle: stubs.maybeSingle });
+    const denied = await POST(request("create")); expect(denied.status).toBe(403);
+    expect(stubs.rpc).toHaveBeenCalledTimes(1);
+    stubs.rpc.mockClear();
+    stubs.rpc.mockImplementation((name: string) => name === "reserve_abcd_assessment_operation" ?
+      Promise.resolve({ data: "bad", error: null }) : { maybeSingle: stubs.maybeSingle });
+    const malformed = await POST(request("create")); expect(malformed.status).toBe(409);
+    expect(stubs.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("rejects header and body disagreement without touching the database", async () => {
@@ -132,14 +193,14 @@ describe("Page 21 ABCD assessment API boundary", () => {
       version_id: "21170000-0000-4000-8000-000000000002", version: 2,
       assessment_state: "signed", previous_version_id: versionId,
       source_content_hash: "b".repeat(64) }, error: null });
-    const response = await POST(request("sign")); expect(response.status).toBe(502);
-    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RECEIPT_INVALID");
+    const response = await POST(request("sign")); expect(response.status).toBe(409);
+    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RESULT_UNCERTAIN");
   });
 
   it("fails closed on a mismatched receipt", async () => {
     stubs.maybeSingle.mockResolvedValue({ data: { ...receipt, assessment_type: "B" }, error: null });
-    const response = await POST(request("create")); expect(response.status).toBe(502);
-    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RECEIPT_INVALID");
+    const response = await POST(request("create")); expect(response.status).toBe(409);
+    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RESULT_UNCERTAIN");
   });
 
   it.each([
@@ -149,20 +210,22 @@ describe("Page 21 ABCD assessment API boundary", () => {
     { record_payload: { ...receipt.record_payload, manual_summary: "遭置換的摘要" } },
   ])("rejects a receipt detached from the authorized context or canonical content", async (forgery) => {
     stubs.maybeSingle.mockResolvedValue({ data: { ...receipt, ...forgery }, error: null });
-    const response = await POST(request("create")); expect(response.status).toBe(502);
-    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RECEIPT_INVALID");
+    const response = await POST(request("create")); expect(response.status).toBe(409);
+    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RESULT_UNCERTAIN");
   });
 
-  it.each([["42501", 403, "ABCD_ASSESSMENT_NOT_AUTHORIZED"],
-    ["40001", 409, "ABCD_ASSESSMENT_VERSION_CONFLICT"],
-    ["23505", 409, "ABCD_ASSESSMENT_IDEMPOTENCY_CONFLICT"],
-    ["23514", 409, "ABCD_ASSESSMENT_STATE_CONFLICT"],
-    ["22023", 400, "INVALID_ABCD_ASSESSMENT_OPERATION"],
-    ["XX000", 409, "ABCD_ASSESSMENT_RESULT_UNCERTAIN"]])
-  ("maps database code %s without leaking details", async (code, status, expected) => {
+  it.each(["42501", "40001", "23505", "23514", "22023", "XX000"])
+  ("keeps the reserved operation uncertain after mutation error %s", async (code) => {
     stubs.maybeSingle.mockResolvedValue({ data: null, error: { code, message: "sensitive detail" } });
-    const response = await POST(request("create")); expect(response.status).toBe(status);
-    const payload = await response.json(); expect(payload.errors[0].code).toBe(expected);
+    const response = await POST(request("create")); expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload.errors[0].code).toBe("ABCD_ASSESSMENT_RESULT_UNCERTAIN");
     expect(JSON.stringify(payload)).not.toContain("sensitive detail");
+  });
+
+  it("keeps a reserved operation uncertain when the mutation transport rejects", async () => {
+    stubs.maybeSingle.mockRejectedValue(new Error("transport lost after commit"));
+    const response = await POST(request("create")); expect(response.status).toBe(409);
+    expect((await response.json()).errors[0].code).toBe("ABCD_ASSESSMENT_RESULT_UNCERTAIN");
   });
 });

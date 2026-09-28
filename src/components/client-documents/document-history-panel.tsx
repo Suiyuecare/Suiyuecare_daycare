@@ -99,19 +99,37 @@ function HistoryEditor({ clientId, canManage, demo, disabled, today, onDirty, on
       }
       if (!input) return;
       const data = await request("/api/client-documents/lifecycle", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal: controller.current?.signal });
-      if (!validateDocumentLifecycleReceipt(data.receipt, input)) throw new HistoryError(503, "INVALID_RECEIPT");
+      const receipt = validateDocumentLifecycleReceipt(data.receipt, input);
+      if (!receipt) throw new HistoryError(503, "INVALID_RECEIPT");
       if (!mounted.current || owner !== generation.current) return;
       setPending(null); setSelected(null); setRecovery(null); setReason(""); setConfirmed(false); uncertain.current = false;
       callbacks.current.onDirty(false); setPages([]); setIndex(0);
       setMessage("這份文件的處置已儲存。原檔仍保留；不會變更醫囑或產生給藥紀錄。");
       // A verified receipt proves the write; a later read failure is not a reason
       // to submit another mutation or show an old snapshot as the new result.
+      // Both reads depend on that receipt, not on each other. Keep their result
+      // admission joint, so an unavailable summary cannot expose a new page.
       try {
-        await callbacks.current.onChanged();
+        const summaryRead = callbacks.current.onChanged();
+        const historyRead = fetchPage(category).then(
+          (next) => ({ ok: true as const, next }),
+          (failure: unknown) => ({ ok: false as const, failure }),
+        );
+        await summaryRead;
         if (!mounted.current || owner !== generation.current) return;
-        const next = await fetchPage(category);
+        const result = await historyRead;
+        if (!result.ok) throw result.failure;
+        const next = result.next;
+        const updated = next.rows.find((row) => row.id === receipt.documentId);
+        if (updated && (updated.reviewRevision < receipt.reviewRevision ||
+          updated.reviewRevision === receipt.reviewRevision && updated.disposition !== receipt.disposition)) {
+          throw new HistoryError(503, "STALE_HISTORY_AFTER_WRITE");
+        }
         if (mounted.current && owner === generation.current) { setPages([next]); setStale(false); }
-      } catch { if (mounted.current && owner === generation.current) setError("處置已有成功回條，但清單更新失敗，請重新查詢確認。不要再次新增相同處置。"); }
+      } catch {
+        controller.current?.abort();
+        if (mounted.current && owner === generation.current) setError("處置已有成功回條，但清單更新失敗，請重新查詢確認。不要再次新增相同處置。");
+      }
     } catch (failure) {
       if (!mounted.current || owner !== generation.current) return;
       if (input && failure instanceof HistoryError && failure.status === 409 && !uncertain.current) {

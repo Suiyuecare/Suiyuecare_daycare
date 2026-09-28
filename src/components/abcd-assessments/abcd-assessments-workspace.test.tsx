@@ -19,6 +19,12 @@ const page = staffPages.find(({ number }) => number === 21)!;
 const filters = emptyAbcdAssessmentFilters();
 const demo = buildDemoAbcdAssessmentSnapshot(filters);
 const formal: AbcdAssessmentSnapshot = { ...demo, demo: false };
+function recoveryRead(clientId: string | null = null) {
+  return Response.json({ status: "ok", requestId: "21090000-0000-4000-8000-000000000001",
+    errors: [], data: { organizationId: formal.organizationId, branchId: formal.branchId,
+      clientId, generatedAt: "2026-09-28T04:01:00Z", absenceIsFinal: false,
+      truncated: false, pendingTruncated: false, operations: [] } });
+}
 
 function workspace(snapshot: AbcdAssessmentSnapshot | null, options: { loadError?: boolean;
   canManage?: boolean; recent?: boolean; filters?: AbcdAssessmentFilters } = {}) {
@@ -69,6 +75,7 @@ describe("Page 21 ABCD candidate workspace", () => {
   it("renders complete-set metrics and honest unconfigured boundaries without engineering language", () => {
     const { container } = workspace(demo);
     expect(screen.getByRole("heading", { level: 1, name: "ABCD 評估" })).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/完整統計（/u));
     const region = screen.getByRole("region", { name: "ABCD 候選評估統計" });
     for (const [label, value] of [["符合評估", "5"], ["A 類", "2"], ["B 類", "1"],
       ["C 類", "1"], ["D 類", "1"], ["複評日期缺值", "2"]]) {
@@ -76,8 +83,39 @@ describe("Page 21 ABCD candidate workspace", () => {
       expect(within(node.closest("article")!).getByText(value)).toBeInTheDocument();
     }
     expect(screen.getByText(/正式 A／B／C／D 題本、公式、代碼與授權來源尚未配置/u)).toBeInTheDocument();
-    expect(screen.getByText(/不產生分數、診斷、自動複評或照顧決策/u)).toBeInTheDocument();
+    expect(screen.getByText(/不是正式 ABCD 量表；沒有正式分數、診斷、自動複評或照顧決策/u)).toBeVisible();
     expect(container.textContent).not.toMatch(/\b(?:SQL|RPC|UUID|formal_rule_status|not_configured)\b/u);
+  });
+
+  it("shows the client task first and collapses secondary guidance, filters, record detail and metrics", () => {
+    const { container } = workspace(demo);
+    expect(screen.getByRole("heading", { name: "先選個案" })).toBeVisible();
+    expect(screen.getByRole("searchbox", { name: "評估個案" })).toHaveValue("");
+    expect(screen.getByText(/不是正式 ABCD 量表；沒有正式分數/u)).toBeVisible();
+    for (const label of ["查看尚未開通的正式功能", "更多篩選", "完整統計（5 筆）"]) {
+      const disclosure = screen.getByText(label).closest("details");
+      expect(disclosure).not.toHaveAttribute("open");
+    }
+    expect(container.querySelectorAll("details[class*='manualDisclosure']")).toHaveLength(demo.assessments.length);
+    expect(container.querySelectorAll("details[class*='manualDisclosure'][open]")).toHaveLength(0);
+    const filter = screen.getByRole("heading", { name: "先選個案" }).closest("section")!.querySelector("form")!;
+    expect(filter).toHaveAttribute("method", "get");
+    expect(filter).toHaveAttribute("action", "/app/staff/assessments/abcd");
+    expect([...new FormData(filter).keys()]).toEqual(["client", "year", "type", "reassessment", "status", "q"]);
+  });
+
+  it("keeps active advanced filters visible and identifies the selected client", () => {
+    const selected = { ...filters, clientId: demo.clients[0]!.clientId, assessmentType: "B" as const,
+      assessmentYear: 2026, reassessmentState: "missing" as const, status: "draft" as const,
+      query: "甲" };
+    const view = buildDemoAbcdAssessmentSnapshot(selected);
+    workspace(view, { filters: selected });
+    expect(screen.getByRole("heading", { name: `${demo.clients[0]!.displayName}的評估` })).toBeInTheDocument();
+    const advanced = screen.getByText("更多篩選（已套用）").closest("details")!;
+    expect(advanced).toHaveAttribute("open");
+    const form = advanced.closest("form")!;
+    expect(Object.fromEntries(new FormData(form))).toEqual({ client: selected.clientId, year: "2026",
+      type: "B", reassessment: "missing", status: "draft", q: "甲" });
   });
 
   it("shows A/B and year variants as distinct candidate records", () => {
@@ -89,18 +127,22 @@ describe("Page 21 ABCD candidate workspace", () => {
   });
 
   it("mounts exactly one operation form per record across desktop and mobile widths", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new TypeError("network failed"));
+    const fetchMock = vi.fn().mockImplementation((url: string) => url.startsWith("/api/abcd-assessments/recovery") ?
+      Promise.resolve(recoveryRead()) : Promise.reject(new TypeError("network failed")));
     vi.stubGlobal("fetch", fetchMock);
+    const mutationCalls = () => fetchMock.mock.calls.filter(([url, init]) =>
+      url === "/api/abcd-assessments" && (init as RequestInit | undefined)?.method === "POST");
     const view = workspace(formal, { canManage: true, recent: true });
     expect(screen.getAllByText("候選紀錄操作")).toHaveLength(formal.assessments.length);
     const draftIndex = formal.assessments.findIndex((assessment) => assessment.assessmentState === "draft");
     const action = screen.getAllByText("候選紀錄操作")[draftIndex]!.closest("details")!;
     fireEvent.click(within(action).getByText("候選紀錄操作"));
+    await waitFor(() => expect(within(action).getByRole("button", { name: "鎖定版本並送出" })).toBeEnabled());
     fireEvent.change(within(action).getByLabelText("修訂理由"),
       { target: { value: "人工檢查後修正候選內容" } });
     fireEvent.click(within(action).getByRole("button", { name: "鎖定版本並送出" }));
     await within(action).findByText(/操作結果尚未確認；原內容已鎖定/u);
-    const firstInit = fetchMock.mock.calls[0]![1] as RequestInit;
+    const firstInit = mutationCalls()[0]![1] as RequestInit;
     const originalWidth = window.innerWidth;
     try {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
@@ -110,8 +152,8 @@ describe("Page 21 ABCD candidate workspace", () => {
       expect(screen.getAllByText("候選紀錄操作")).toHaveLength(formal.assessments.length);
       expect(within(action).getByRole("button", { name: "操作待確認" })).toBeDisabled();
       fireEvent.click(within(action).getByRole("button", { name: "以相同內容重試" }));
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      const secondInit = fetchMock.mock.calls[1]![1] as RequestInit;
+      await waitFor(() => expect(mutationCalls()).toHaveLength(2));
+      const secondInit = mutationCalls()[1]![1] as RequestInit;
       expect(secondInit.body).toBe(firstInit.body);
       expect((secondInit.headers as Record<string, string>)["idempotency-key"])
         .toBe((firstInit.headers as Record<string, string>)["idempotency-key"]);
@@ -122,6 +164,7 @@ describe("Page 21 ABCD candidate workspace", () => {
 
   it("exposes signer time purpose role and reauthentication evidence in history", () => {
     const { container } = workspace(demo);
+    fireEvent.click(screen.getAllByText("查看人工內容與版本")[0]!);
     const summary = [...container.querySelectorAll("summary")]
       .find((node) => node.textContent?.includes("版本與簽署證據")) as HTMLElement;
     fireEvent.click(summary);
@@ -341,20 +384,20 @@ describe("Page 21 ABCD candidate workspace", () => {
     const { assessment } = renderExisting("sign");
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
       return Response.json({ requestId: "21990000-0000-4000-8000-000000000001", status: "ok", errors: [],
-        data: { organization_id: formal.organizationId, branch_id: formal.branchId,
-          client_id: assessment.clientId, operation_id: "21990000-0000-4000-8000-000000000002",
-          idempotency_key: (init.headers as Record<string, string>)["idempotency-key"],
-          action: "sign_assessment", assessment_key: assessment.assessmentKey,
-          version_id: "21990000-0000-4000-8000-000000000004", version: assessment.version + 1,
-          assessment_state: "signed", assessment_type: assessment.assessmentType,
-          assessment_year: assessment.assessmentYear, previous_version_id: assessment.versionId,
-          source_content_hash: assessment.contentHash, content_hash: "a".repeat(64),
-          record_payload: { client_id: assessment.clientId, assessment_type: assessment.assessmentType,
-            assessment_year: assessment.assessmentYear, assessment_date: assessment.assessmentDate,
-            manual_summary: assessment.manualSummary, result: assessment.result,
-            reassessment: assessment.reassessment, form_kind: "manual_unstandardized",
-            formal_rule_status: "not_configured" },
-          committed_at: "2026-09-08T01:01:00Z", replayed: false },
+        data: { organizationId: formal.organizationId, branchId: formal.branchId,
+          clientId: assessment.clientId, operationId: "21990000-0000-4000-8000-000000000002",
+          idempotencyKey: (init.headers as Record<string, string>)["idempotency-key"],
+          action: "sign_assessment", assessmentKey: assessment.assessmentKey,
+          versionId: "21990000-0000-4000-8000-000000000004", version: assessment.version + 1,
+          assessmentState: "signed", assessmentType: assessment.assessmentType,
+          assessmentYear: assessment.assessmentYear, previousVersionId: assessment.versionId,
+          sourceContentHash: assessment.contentHash, contentHash: "a".repeat(64),
+          recordPayload: { clientId: assessment.clientId, assessmentType: assessment.assessmentType,
+            assessmentYear: assessment.assessmentYear, assessmentDate: assessment.assessmentDate,
+            manualSummary: assessment.manualSummary, result: assessment.result,
+            reassessment: assessment.reassessment, formKind: "manual_unstandardized",
+            formalRuleStatus: "not_configured" },
+          committedAt: "2026-09-08T01:01:00Z", replayed: false, persisted: true, demo: false },
       }, { status: 201 });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -481,19 +524,19 @@ describe("Page 21 ABCD candidate workspace", () => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       const key = (init.headers as Record<string, string>)["idempotency-key"];
       return Response.json({ requestId: "21990000-0000-4000-8000-000000000001", status: "ok", errors: [],
-        data: { organization_id: formal.organizationId, branch_id: formal.branchId,
-          client_id: body.client_id, operation_id: "21990000-0000-4000-8000-000000000002",
-          idempotency_key: key, action: "save_assessment",
-          assessment_key: "21990000-0000-4000-8000-000000000003",
-          version_id: "21990000-0000-4000-8000-000000000004", version: 1,
-          assessment_state: "draft", assessment_type: body.assessment_type,
-          assessment_year: body.assessment_year, previous_version_id: null,
-          source_content_hash: null, content_hash: "a".repeat(64),
-          record_payload: { client_id: body.client_id, assessment_type: body.assessment_type,
-            assessment_year: body.assessment_year, assessment_date: body.assessment_date,
-            manual_summary: body.manual_summary, result: body.result, reassessment: body.reassessment,
-            form_kind: "manual_unstandardized", formal_rule_status: "not_configured" },
-          committed_at: "2026-09-08T01:01:00Z", replayed: false },
+        data: { organizationId: formal.organizationId, branchId: formal.branchId,
+          clientId: body.client_id, operationId: "21990000-0000-4000-8000-000000000002",
+          idempotencyKey: key, action: "save_assessment",
+          assessmentKey: "21990000-0000-4000-8000-000000000003",
+          versionId: "21990000-0000-4000-8000-000000000004", version: 1,
+          assessmentState: "draft", assessmentType: body.assessment_type,
+          assessmentYear: body.assessment_year, previousVersionId: null,
+          sourceContentHash: null, contentHash: "a".repeat(64),
+          recordPayload: { clientId: body.client_id, assessmentType: body.assessment_type,
+            assessmentYear: body.assessment_year, assessmentDate: body.assessment_date,
+            manualSummary: body.manual_summary, result: body.result, reassessment: body.reassessment,
+            formKind: "manual_unstandardized", formalRuleStatus: "not_configured" },
+          committedAt: "2026-09-08T01:01:00Z", replayed: false, persisted: true, demo: false },
       }, { status: 201 });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -507,18 +550,35 @@ describe("Page 21 ABCD candidate workspace", () => {
   });
 
   it("carries the authorized selected client into the create form and never posts for the first client", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new TypeError("network failed"));
-    vi.stubGlobal("fetch", fetchMock);
     const selectedClientId = formal.clients[1]!.clientId;
+    const fetchMock = vi.fn().mockImplementation((url: string) => url.startsWith("/api/abcd-assessments/recovery") ?
+      Promise.resolve(recoveryRead(selectedClientId)) : Promise.reject(new TypeError("network failed")));
+    vi.stubGlobal("fetch", fetchMock);
     const selectedFilters = { ...filters, clientId: selectedClientId };
     workspace(formal, { canManage: true, filters: selectedFilters });
     const create = screen.getByRole("region", { name: "新增 ABCD 人工候選評估" });
     expect(create.querySelector("details")).toHaveAttribute("open");
     expect(within(create).getByRole("combobox", { name: "個案" })).toHaveValue(selectedClientId);
     fillCreate(create);
+    await waitFor(() => expect(within(create).getByRole("button", { name: "建立人工候選草稿" })).toBeEnabled());
     fireEvent.click(within(create).getByRole("button", { name: "建立人工候選草稿" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string).client_id).toBe(selectedClientId);
+    const writeCalls = () => fetchMock.mock.calls.filter(([url, init]) =>
+      url === "/api/abcd-assessments" && (init as RequestInit | undefined)?.method === "POST");
+    await waitFor(() => expect(writeCalls()).toHaveLength(1));
+    expect(JSON.parse((writeCalls()[0]![1] as RequestInit).body as string).client_id).toBe(selectedClientId);
+  });
+
+  it("pauses new ABCD writes when the original-operation lookup fails after a reload", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("network failed"));
+    vi.stubGlobal("fetch", fetchMock);
+    workspace(formal, { canManage: true, recent: true,
+      filters: { ...filters, clientId: formal.clients[0]!.clientId } });
+    expect(await screen.findByRole("alert", { name: "" })).toHaveTextContent(/原操作仍可能已保存/u);
+    const create = screen.getByRole("region", { name: "新增 ABCD 人工候選評估" });
+    expect(within(create).getByRole("button", { name: "建立人工候選草稿" })).toBeDisabled();
+    expect(within(create).getByText(/暫停新操作/u)).toBeVisible();
+    expect(fetchMock.mock.calls.every(([url]) => String(url).startsWith("/api/abcd-assessments/recovery")))
+      .toBe(true);
   });
 
   it.each([null, "21010000-0000-4000-8000-000000000099"])(

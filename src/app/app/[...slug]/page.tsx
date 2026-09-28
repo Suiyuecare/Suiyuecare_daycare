@@ -1315,7 +1315,7 @@ export default async function StaffCatalogPage({
     let loadError = false;
     try { filters = parseAbcdAssessmentFilters(parameters); }
     catch { loadError = true; }
-    const canManage = !context.demo && context.assuranceLevel === "aal2" &&
+    const canManage = !context.demo &&
       context.scopes.includes("clients.read") && context.scopes.includes("abcd_assessments.read") &&
       context.scopes.includes("abcd_assessments.manage");
     let snapshot = null;
@@ -1324,7 +1324,7 @@ export default async function StaffCatalogPage({
       try {
         [snapshot, recentAal2] = await Promise.all([
           loadAbcdAssessmentSnapshot(context, filters),
-          canManage ? hasRecentAal2() : Promise.resolve(false),
+          canManage && context.assuranceLevel === "aal2" ? hasRecentAal2() : Promise.resolve(false),
         ]);
       } catch (error) {
         if (!(error instanceof AbcdAssessmentSnapshotError)) throw error;

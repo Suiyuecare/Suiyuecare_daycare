@@ -202,6 +202,7 @@ describe("private document intake UI", () => {
       .mockResolvedValueOnce(Response.json({ status: "ok", data: { snapshot: history } }))
       .mockResolvedValueOnce(Response.json({ status: "ok", data: { receipt: { clientId: props.clientId, documentId, category: "medication_bag", reviewRevision: 1, disposition: "reviewed", persisted: true, replayed: false } } }))
       .mockResolvedValueOnce(Response.json({ status: "error" }, { status: 503 }))
+      .mockResolvedValueOnce(Response.json({ status: "error" }, { status: 503 }))
       .mockResolvedValueOnce(Response.json(liveRead()));
     vi.stubGlobal("fetch", fetch);
     render(<ClientDocumentsWorkspace {...props} />);
@@ -212,6 +213,8 @@ describe("private document intake UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "確認儲存這份處置" }));
     await screen.findByText(/補件摘要待更新/);
     expect(screen.queryAllByRole("article")).toHaveLength(0);
+    expect(screen.queryByText("合成藥袋・第 1 份／版")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/api/client-documents/history?"))).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "重試確認原次文件處置" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "重新載入附件清單" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "重新載入附件清單" }));

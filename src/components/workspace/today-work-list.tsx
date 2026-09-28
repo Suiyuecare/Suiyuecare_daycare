@@ -73,7 +73,13 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const visibleFilters = filters.map((item) => rosterReady && item.id === "measurements" ? { ...item, label: "量測待完成" } : item);
   const selectedFilter = visibleFilters.find((item) => item.id === filter);
   const filterRestricted = Boolean(selectedFilter && !access[selectedFilter.access]);
-  const filtered = filterRestricted ? [] : filterTodayWorkRows(authorizedRows, filter, search);
+  const searchMatchedRows = filterTodayWorkRows(authorizedRows, "all", search);
+  const taskCounts: Record<WorkTask, number> = { attendance: 0, measurements: 0, diary: 0, attention: 0 };
+  const filtered: TodayWorkRow[] = [];
+  for (const row of searchMatchedRows) {
+    for (const item of filters) if (row.tasks.includes(item.id)) taskCounts[item.id] += 1;
+    if (!filterRestricted && (filter === "all" || (filter === "pending" ? row.tasks.length > 0 : row.tasks.includes(filter)))) filtered.push(row);
+  }
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const shown = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -91,10 +97,10 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   return <section className="today-work" aria-labelledby="today-list-title">
     <div className="today-counters" role="group" aria-label="篩選待處理工作">
       {visibleFilters.map((item) => <button key={item.id} type="button" className="today-counter"
-        aria-label={`${item.label} ${access[item.access] ? `${filterTodayWorkRows(authorizedRows, item.id, search).length} 位，${search ? "查看符合搜尋的名單" : "查看名單"}` : "無查閱權限"}`}
+        aria-label={`${item.label} ${access[item.access] ? `${taskCounts[item.id]} 位，${search ? "查看符合搜尋的名單" : "查看名單"}` : "無查閱權限"}`}
         disabled={!access[item.access]} aria-pressed={filter === item.id} aria-controls="today-client-list"
         onClick={() => changeFilter(item.id)}>
-        <span>{item.label}</span><strong>{access[item.access] ? filterTodayWorkRows(authorizedRows, item.id, search).length : "—"}</strong>
+        <span>{item.label}</span><strong>{access[item.access] ? taskCounts[item.id] : "—"}</strong>
         <small>{access[item.access] ? search ? "位・符合搜尋" : "位・查看名單" : "無查閱權限"}</small>
       </button>)}
     </div>

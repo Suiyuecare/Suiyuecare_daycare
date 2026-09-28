@@ -65,7 +65,17 @@ describe("assessment entry workspace", () => {
     />);
     expect(screen.getByText("合成測試個案")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
+    expect(screen.getByText("保存與簽署依您的個案分工與表單權限；結果仍須專業判讀。")).not.toBeVisible();
+    fireEvent.click(screen.getByText("填寫前須知"));
     expect(screen.getByText("保存與簽署依您的個案分工與表單權限；結果仍須專業判讀。")).toBeVisible();
+
+    const secondaryGroups = [...document.querySelectorAll("details")]
+      .filter((details) => /人工觀察草稿|人工評估與照顧紀錄/u.test(details.querySelector("summary")?.textContent ?? ""));
+    expect(secondaryGroups).toHaveLength(2);
+    expect(secondaryGroups.every((details) => !details.open)).toBe(true);
+    fireEvent.click(secondaryGroups[0]!.querySelector("summary")!);
+    fireEvent.click(secondaryGroups[1]!.querySelector("summary")!);
+    expect(secondaryGroups.every((details) => details.open)).toBe(true);
 
     const cards = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/app/"));
     expect(cards).toHaveLength(pages.length);
@@ -85,7 +95,7 @@ describe("assessment entry workspace", () => {
       "staff/assessments/swallowing", "staff/assessments/bsrs", "staff/professional-care/mna",
     ]) expect(cards.some((card) => card.getAttribute("href") === `/app/${slug}?client=${encodeURIComponent(client.id)}`)).toBe(true);
     expect(screen.queryByRole("heading", { name: "登錄評估結果" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "人工觀察草稿" })).toBeVisible();
+    expect(secondaryGroups[0]!.querySelector("summary")).toHaveTextContent("人工觀察草稿 1");
     expect(screen.getByText("SPMSQ・10 題")).toBeVisible();
   });
 
@@ -113,6 +123,7 @@ describe("assessment entry workspace", () => {
       selectedClientId={client.id} demo />);
     expect(screen.getByRole("heading", { name: "展示量表（不可保存）" })).toBeVisible();
     expect(screen.getByText("展示資料僅供試看；不可保存或簽署。")).toBeVisible();
+    fireEvent.click(screen.getByText("填寫前須知"));
     expect(screen.getByText("外部評估結果登錄尚未開放，請勿在此輸入敏感資料。")).toBeVisible();
     expect(screen.queryByText(/答案會以草稿版本保存/u)).not.toBeInTheDocument();
   });

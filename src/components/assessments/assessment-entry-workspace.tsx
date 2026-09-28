@@ -77,29 +77,30 @@ export function AssessmentEntryWorkspace({
             </NavigationLink>
           </li>)}</ul>
         </section> : null}
-        {observationDrafts.length ? <section aria-label="人工觀察草稿">
-          <h3 className={styles.groupTitle}>人工觀察草稿</h3>
+        {observationDrafts.length ? <details className={styles.moreForms}>
+          <summary>人工觀察草稿 <span>{observationDrafts.length}</span></summary>
           <ul className={styles.cards}>{observationDrafts.map((page) => <li key={page.slug}>
             <NavigationLink href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`} loadingLabel={page.title} prefetch={false}>
               <span>{page.title}<small>人工觀察・不自動計分</small></span>
               <ArrowRight aria-hidden="true" />
             </NavigationLink>
           </li>)}</ul>
-        </section> : null}
-        {manualRecords.length ? <section aria-label="人工評估紀錄">
-          <h3 className={styles.groupTitle}>人工評估與照顧紀錄</h3>
+        </details> : null}
+        {manualRecords.length ? <details className={styles.moreForms}>
+          <summary>人工評估與照顧紀錄 <span>{manualRecords.length}</span></summary>
           <ul className={styles.cards}>{manualRecords.map((page) => <li key={page.slug}>
             <NavigationLink href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`} loadingLabel={page.title} prefetch={false}>
               <span>{page.title}<small>人工紀錄 · 不自動計分</small></span>
               <ArrowRight aria-hidden="true" />
             </NavigationLink>
           </li>)}</ul>
-        </section> : null}
+        </details> : null}
       </> : <p className={styles.empty} role="status">此帳號目前沒有可開啟的評估表單。</p>}
-      <p className={styles.note}>{demo
-        ? "展示資料僅供試看；不可保存或簽署。"
-        : "保存與簽署依您的個案分工與表單權限；結果仍須專業判讀。"}</p>
-      <p className={styles.note}>外部評估結果登錄尚未開放，請勿在此輸入敏感資料。</p>
+      {demo ? <p className={styles.demoNote} role="status">展示資料僅供試看；不可保存或簽署。</p> : null}
+      <details className={styles.guidance}><summary>填寫前須知</summary>
+        <p>{demo ? "僅供合成資料試看。" : "保存與簽署依您的個案分工與表單權限；結果仍須專業判讀。"}</p>
+        <p>外部評估結果登錄尚未開放，請勿在此輸入敏感資料。</p>
+      </details>
     </section> : clients.length ? <p className={styles.prompt} role="status">選取個案後，這裡會列出可用表單。</p> : null}
     </AssessmentClientPicker>
   </div>;

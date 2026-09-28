@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
-import { parseAbcdAssessmentMutation, parseAbcdAssessmentReceipt } from "@/lib/abcd-assessments/parser";
+import { parseAbcdAssessmentApiReceipt, parseAbcdAssessmentMutation } from "@/lib/abcd-assessments/parser";
 import type { AbcdAssessment, AbcdAssessmentMutationInput, AbcdAssessmentSnapshot,
   AbcdValueState } from "@/lib/abcd-assessments/types";
 import { installPendingNavigationGuard } from "@/lib/navigation/pending-navigation-guard";
 
+import { useAbcdRecoveryGate } from "./abcd-recovery-gate";
 import styles from "./abcd-assessments.module.css";
 
 type State = { kind: "idle" | "working" | "success" | "error"; text: string };
@@ -91,7 +92,7 @@ async function send(input: AbcdAssessmentMutationInput, operation: ExistingOpera
   const response = await fetchWithTimeout("/api/abcd-assessments", { method: "POST", cache: "no-store",
     headers: { "content-type": "application/json", "idempotency-key": input.idempotencyKey,
       "x-abcd-assessment-operation": operation }, body: JSON.stringify(payload) });
-  return parseAbcdAssessmentReceipt(await envelope(response), input, organizationId, branchId);
+  return parseAbcdAssessmentApiReceipt(await envelope(response), input, organizationId, branchId);
 }
 
 function CandidateFields({ initial, fixedIdentity }: { initial?: AbcdAssessment; fixedIdentity?: boolean }) {
@@ -139,6 +140,7 @@ export function CreateAbcdAssessment({ canManage, selectedClientId = null, snaps
   canManage: boolean; selectedClientId?: string | null; snapshot: AbcdAssessmentSnapshot;
 }) {
   const router = useRouter();
+  const recovery = useAbcdRecoveryGate();
   const sent = useRef<{ input: AbcdAssessmentMutationInput; organizationId: string; branchId: string;
     hadUnknown: boolean } | null>(null);
   const [pendingAttempt, setPendingAttempt] = useState<NonNullable<typeof sent.current> | null>(null);
@@ -233,6 +235,10 @@ export function CreateAbcdAssessment({ canManage, selectedClientId = null, snaps
       clientField.current?.focus();
       return;
     }
+    if (!recovery.canStart(chosenClientId)) {
+      setState({ kind: "error", text: recovery.reasonFor(chosenClientId) ?? "請先查證原操作。" });
+      return;
+    }
     const firstInvalid = event.currentTarget.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
       "input:invalid, select:invalid, textarea:invalid");
     if (firstInvalid) {
@@ -261,7 +267,8 @@ export function CreateAbcdAssessment({ canManage, selectedClientId = null, snaps
     snapshot.clients.some((client) => client.clientId === pendingAttempt.input.clientId);
   return <section aria-label="新增 ABCD 人工候選評估" className={styles.actions}><details className={styles.action} ref={details}>
     <summary>新增獨立候選草稿</summary><form noValidate onChange={changed} onInput={changed} onSubmit={submit}>
-      <fieldset className={styles.formGrid} disabled={pendingAttempt !== null || state.kind === "success"}>
+      <fieldset className={styles.formGrid} disabled={pendingAttempt !== null || state.kind === "success" ||
+        !recovery.canStart(visibleClientId)}>
         <label><span>個案</span><select aria-describedby={clientError ? "abcd-create-client-error" : undefined}
           aria-invalid={Boolean(clientError)} name="client_id" onChange={(event) => {
             setClientId(event.target.value); setClientError("");
@@ -280,7 +287,8 @@ export function CreateAbcdAssessment({ canManage, selectedClientId = null, snaps
           原個案已不在目前可選名單，尚未送出的內容不會改存到其他個案。
         </p> : null}
         <CandidateFields /><button className="button button--primary" type="submit">{pendingAttempt ? "保存待確認" : "建立人工候選草稿"}</button>
-      </fieldset>{state.kind !== "idle" ? <p className={state.kind === "error" ? styles.error : styles.message}
+      </fieldset>{!pendingAttempt && !recovery.canStart(visibleClientId) ? <p className={styles.reauth} role="status">
+        {recovery.reasonFor(visibleClientId)}</p> : null}{state.kind !== "idle" ? <p className={state.kind === "error" ? styles.error : styles.message}
         role={resultUnknown ? "alert" : "status"}>{state.text}</p> : null}
       {resultUnknown ? <button className="button button--secondary" disabled={state.kind === "working" || !retryScopeValid}
         onClick={() => { if (sent.current) void sendExact(sent.current); }} type="button">以相同內容重試</button> : null}
@@ -298,6 +306,7 @@ export function AbcdAssessmentActions({ canManage, hasRecentAal2, assessment, or
     versionId: string; version: number; contentHash: string; assessmentState: AbcdAssessment["assessmentState"];
     hadUnknown: boolean };
   const router = useRouter();
+  const recovery = useAbcdRecoveryGate();
   const sent = useRef<Attempt | null>(null);
   const [pendingAttempt, setPendingAttempt] = useState<Attempt | null>(null);
   const available: ExistingOperation[] = !canManage ? [] : assessment.assessmentState === "draft" ?
@@ -384,6 +393,10 @@ export function AbcdAssessmentActions({ canManage, hasRecentAal2, assessment, or
       setState({ kind: "error", text: "操作權限或重新驗證已失效，請更新畫面後再試。" });
       return;
     }
+    if (!recovery.canStart(assessment.clientId)) {
+      setState({ kind: "error", text: recovery.reasonFor(assessment.clientId) ?? "請先查證原操作。" });
+      return;
+    }
     const firstInvalid = event.currentTarget.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
       "input:invalid, select:invalid, textarea:invalid");
     if (firstInvalid) {
@@ -433,6 +446,7 @@ export function AbcdAssessmentActions({ canManage, hasRecentAal2, assessment, or
     noValidate onChange={changed}
     onInput={changed} onSubmit={submit}>
     <fieldset className={styles.formGrid} disabled={!formContextCurrent || pendingAttempt !== null || state.kind === "success" ||
+      !recovery.canStart(assessment.clientId) ||
       (recentRequired && !hasRecentAal2)}>
       <label><span>操作</span><select value={operation} onChange={(event) => {
         setOperation(event.target.value as ExistingOperation); changed(); }}>
@@ -445,9 +459,11 @@ export function AbcdAssessmentActions({ canManage, hasRecentAal2, assessment, or
         系統未套用正式題本、公式、分數、診斷、自動複評或照顧決策，並同意以目前版本及內容指紋建立不可變簽署證據。</p> : null}
       <button className="button button--primary"
         disabled={!formContextCurrent || pendingAttempt !== null || state.kind === "success" ||
+          !recovery.canStart(assessment.clientId) ||
           (recentRequired && !hasRecentAal2)}
         type="submit">{pendingAttempt ? "操作待確認" : "鎖定版本並送出"}</button>
-    </fieldset>{recentRequired && !hasRecentAal2 ? <p className={styles.reauth}>簽署與更正需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link></p> : null}
+    </fieldset>{!pendingAttempt && !recovery.canStart(assessment.clientId) ? <p className={styles.reauth} role="status">
+      {recovery.reasonFor(assessment.clientId)}</p> : null}{recentRequired && !hasRecentAal2 ? <p className={styles.reauth}>簽署與更正需同一工作階段最近 15 分鐘 AAL2。 <Link href="/mfa?audience=staff&purpose=sensitive-action">重新驗證</Link></p> : null}
     {!formContextCurrent && state.kind !== "success" ? <p className={styles.reauth} role="alert">
       此評估版本或個案已更新；原表單內容已保留但不能直接送出。
       {pendingAttempt ? "原操作結果尚未確認，請先由主管核對原筆；不要重新建立。" : "請核對新版本後重新載入。"}

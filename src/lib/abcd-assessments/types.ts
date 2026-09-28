@@ -148,6 +148,7 @@ export type AbcdAssessmentMutationInput =
   | CorrectAbcdAssessmentInput;
 
 export type AbcdAssessmentReceipt = {
+  reservationId?: string;
   organizationId: string;
   branchId: string;
   clientId: string;

@@ -17,6 +17,7 @@
 - 正式方案須具備 99.9% SLA、PITR、備份與稽核，並完成 RPO 15 分鐘、RTO 4 小時還原演練。
 - S3 啟用 Versioning 與 Object Lock；上傳後以 Head/Get 驗證 Compliance、KMS key、版本 ID、retain-until 及 SHA-256。
 - 原始 HTML、API、家屬與機構頁面均為 private/no-store；CDN、log、trace、error 不含明文個資或附件。
+- ABCD 重載續做所需的敏感保留內容，須以正式排程在期限後刪除並監測成功／失敗；僅建立 24 小時到期欄位或手動清除函式不算通過。保留操作、續做與直接 RPC 需在正式 PostgreSQL 多連線競態中驗證。
 - 所有供應商完成 DPA、次處理者、資料區域、跨境傳輸與資料退出審查。
 
 ## 業務完整性
