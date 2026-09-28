@@ -20,6 +20,7 @@ export function SearchField(props: SearchFieldProps) {
   const composing = useRef(false);
   const [hasValue, setHasValue] = useState(props.mode === "local" ? Boolean(props.value) : Boolean(props.defaultValue));
   const [isComposing, setIsComposing] = useState(false);
+  const [compositionDraft, setCompositionDraft] = useState<string | null>(null);
   const [error, setError] = useState("");
   const errorId = useId();
   useEffect(() => {
@@ -37,20 +38,30 @@ export function SearchField(props: SearchFieldProps) {
     form.addEventListener("submit", validate);
     return () => form.removeEventListener("submit", validate);
   }, [maxLength, props.mode, lengthUnit]);
-  const showClear = props.mode === "local" ? Boolean(props.value) : hasValue;
+  const showClear = props.mode === "local" ? Boolean(compositionDraft ?? props.value) : hasValue;
   return <div className={`filter-search ${styles.search}`}>
     <div className={styles.control}><label><Search aria-hidden="true" /><span className="sr-only">{label}</span>
       <input ref={input} name={name} type="search" autoComplete="off"
-        {...(props.mode === "local" ? { value: props.value } : { defaultValue: props.defaultValue })}
+        {...(props.mode === "local" ? { value: compositionDraft ?? props.value } : { defaultValue: props.defaultValue })}
         maxLength={lengthUnit === "code-units" ? maxLength : maxLength * 2} placeholder={placeholder} aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         onChange={(event) => {
-          if (props.mode === "local") props.onValueChange(event.target.value);
+          if (props.mode === "local") {
+            if (composing.current) setCompositionDraft(event.target.value);
+            else props.onValueChange(event.target.value);
+          }
           else setHasValue(Boolean(event.target.value));
           setError("");
         }}
         onCompositionStart={() => { composing.current = true; setIsComposing(true); }}
-        onCompositionEnd={() => { composing.current = false; setIsComposing(false); }}
+        onCompositionEnd={(event) => {
+          composing.current = false;
+          setIsComposing(false);
+          if (props.mode === "local") {
+            if (event.currentTarget.value !== props.value) props.onValueChange(event.currentTarget.value);
+            setCompositionDraft(null);
+          }
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.nativeEvent.isComposing || composing.current)) event.preventDefault();
         }} />

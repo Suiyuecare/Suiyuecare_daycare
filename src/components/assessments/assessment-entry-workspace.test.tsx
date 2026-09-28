@@ -7,6 +7,7 @@ import { getPageBySlug } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
 
 import { AssessmentEntryWorkspace } from "./assessment-entry-workspace";
+import { AssessmentClientPicker } from "./assessment-client-picker";
 
 const client: ClientMasterItem = {
   id: "c1600000-0000-4000-8000-000000000001",
@@ -163,5 +164,58 @@ describe("assessment entry workspace", () => {
     render(<AssessmentEntryWorkspace clients={[]} error={false} pages={pages} selectedClientId={null} />);
     expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("目前沒有可查看的個案");
+  });
+
+  it("searches a large authorized roster locally without silently changing the selected client", () => {
+    const roster = Array.from({ length: 500 }, (_, index) => ({
+      ...client,
+      id: `c1600000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      clientCode: `SYN-${String(index + 1).padStart(3, "0")}`,
+      displayName: `合成個案 ${index + 1}`,
+    }));
+    render(<AssessmentEntryWorkspace clients={roster} error={false} pages={pages}
+      selectedClientId={roster[0]!.id} />);
+    const picker = screen.getByRole("combobox", { name: "個案" });
+    const search = screen.getByRole("searchbox", { name: "搜尋個案" });
+    fireEvent.change(search, { target: { value: "SYN-500" } });
+    expect(screen.getAllByRole("status").some((status) => status.textContent?.includes("找到 1 位個案"))).toBe(true);
+    expect(within(picker).getAllByRole("option")).toHaveLength(3);
+    expect(within(picker).getByRole("option", { name: /原選取（不符搜尋）/u })).toHaveValue(roster[0]!.id);
+    expect(picker).toHaveValue(roster[0]!.id);
+    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
+
+    fireEvent.change(picker, { target: { value: roster[499]!.id } });
+    expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋個案" }));
+    expect(search).toHaveFocus();
+    expect(search).toHaveValue("");
+    expect(picker).toHaveValue(roster[499]!.id);
+    expect(within(picker).getAllByRole("option")).toHaveLength(501);
+    expect(screen.getByRole("button", { name: "開始" })).toBeEnabled();
+  });
+
+  it("clears hidden search state and rejects a draft client removed from the authorized roster", () => {
+    const roster = Array.from({ length: 15 }, (_, index) => ({
+      id: `c1600000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      clientCode: `SYN-${String(index + 1).padStart(3, "0")}`,
+      displayName: `合成個案 ${index + 1}`,
+    }));
+    const { rerender } = render(<AssessmentClientPicker clients={roster} selectedClientId={null}>
+      <p>原個案內容</p>
+    </AssessmentClientPicker>);
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜尋個案" }), { target: { value: "SYN-015" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "個案" }), { target: { value: roster[14]!.id } });
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(roster[14]!.id);
+
+    rerender(<AssessmentClientPicker clients={roster.slice(0, 10)} selectedClientId={null}>
+      <p>原個案內容</p>
+    </AssessmentClientPicker>);
+    expect(screen.queryByRole("searchbox", { name: "搜尋個案" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue("");
+    expect(within(screen.getByRole("combobox", { name: "個案" })).getAllByRole("option")).toHaveLength(11);
+    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(fireEvent.submit(screen.getByRole("combobox", { name: "個案" }).closest("form")!)).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent("目前無法選取");
   });
 });

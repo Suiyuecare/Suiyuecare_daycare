@@ -52,7 +52,7 @@ describe("TodayWorkList", () => {
       `/app/staff/service-management/attendance?date=${date}&client=${snapshot.clients[0]!.clientId}`);
   });
 
-  it("offers only still-pending shifts in the pending list", () => {
+  it("opens the only still-pending shift directly while keeping its status and destination scoped", () => {
     const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
       assignments: (["morning", "afternoon"] as const).map((shift) => ({
         id: `measurement-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
@@ -63,12 +63,19 @@ describe("TodayWorkList", () => {
       })) };
     const row = { ...buildTodayWorkRows(snapshot, roster)[0]!, tasks: ["measurements" as const],
       nextPage: 3 as const, nextLabel: "前往量測" };
-    render(<TodayWorkList rows={[row]} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
-    const choice = screen.getByRole("combobox", { name: /工作班別/ });
-    expect(within(choice).queryByRole("option", { name: "上午" })).not.toBeInTheDocument();
-    expect(within(choice).getByRole("option", { name: "下午" })).toBeInTheDocument();
+    const { container } = render(<TodayWorkList rows={[row]} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    expect(screen.queryByRole("combobox", { name: /工作班別/ })).not.toBeInTheDocument();
+    expect(container.querySelector(".today-client__shift")).toHaveTextContent("下午");
     expect(screen.getByRole("status")).toHaveTextContent("待處理：1 位");
-    fireEvent.change(choice, { target: { value: "afternoon" } });
+    expect(screen.getByRole("link", { name: /下午・前往量測/ })).toHaveAttribute("href", expect.stringContaining("shift=afternoon"));
+    expect(screen.getByRole("link", { name: /下午・前往量測/ })).toHaveAttribute("href",
+      `/app/staff/daily-care/vital-signs?date=${date}&client=${snapshot.clients[0]!.clientId}&shift=afternoon`);
+    fireEvent.click(screen.getByRole("button", { name: "全部當班" }));
+    const bothShifts = screen.getByRole("combobox", { name: /工作班別/ });
+    fireEvent.change(bothShifts, { target: { value: "morning" } });
+    expect(screen.getByRole("link", { name: /上午・查看紀錄/ })).toHaveAttribute("href", expect.stringContaining("shift=morning"));
+    fireEvent.click(screen.getByRole("button", { name: "待處理" }));
+    expect(screen.queryByRole("combobox", { name: /工作班別/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /下午・前往量測/ })).toHaveAttribute("href", expect.stringContaining("shift=afternoon"));
   });
 

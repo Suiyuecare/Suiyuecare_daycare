@@ -129,11 +129,15 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
           const dateLevelDiary = defaultAction.page === 6 && !hasPendingShiftDiary &&
             (row.diary.includes("草稿待完成") || row.diary.includes("待簽署"));
           const dateLevelAction = defaultAction.page === 46 || defaultAction.label === "查看需留意紀錄" || dateLevelDiary;
-          const requiresShiftChoice = !dateLevelAction && shift === "all" && assignedShifts.length > 1;
+          // A client can attend both shifts while only one still has this task.
+          // In that case the remaining shift is unambiguous and needs no extra tap.
+          const requiresShiftChoice = !dateLevelAction && shift === "all" && assignedShifts.length > 1 && selectableShifts.length !== 1;
           const chosenShift = chosenShifts[row.id];
           const effectiveShift = shift !== "all" ? shift : assignedShifts.length === 1 ? assignedShifts[0]
-            : chosenShift && selectableShifts.includes(chosenShift) ? chosenShift : undefined;
-          const scopedRow = effectiveShift && (shift !== "all" || requiresShiftChoice) ? scopeTodayWorkShift(row, effectiveShift) : row;
+            : chosenShift && selectableShifts.includes(chosenShift) ? chosenShift
+              : !dateLevelAction && selectableShifts.length === 1 ? selectableShifts[0] : undefined;
+          const scopedRow = effectiveShift && (shift !== "all" || (!dateLevelAction && assignedShifts.length > 1))
+            ? scopeTodayWorkShift(row, effectiveShift) : row;
           const action = todayWorkAction(scopedRow, filter);
           const navigationShift = dateLevelAction ? undefined : effectiveShift;
           const status = shortWorkStatus(scopedRow);

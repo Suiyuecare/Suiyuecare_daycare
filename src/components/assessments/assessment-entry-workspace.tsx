@@ -59,7 +59,8 @@ export function AssessmentEntryWorkspace({
       <div><p className="eyebrow">評估工作入口</p><h1>先選個案</h1></div>
     </header>
     <AssessmentClientPicker clients={clients.map(({ id, displayName, clientCode }) => ({ id, displayName, clientCode }))}
-      key={selectedClient?.id ?? "none"} selectedClientId={selectedClient?.id ?? null}>
+      key={`${selectedClient?.id ?? "none"}:${clients.map((client) => client.id).join(",")}`}
+      selectedClientId={selectedClient?.id ?? null}>
     {selectionRejected ? <p className={styles.rejected} role="alert">這位個案目前無法選取。請從可查看的名單重新選擇。</p> : null}
     {clients.length === 0 ? <div className={styles.empty} role="status">目前沒有可查看的個案。</div> : null}
     {selectedClient ? <section aria-labelledby="assessment-shortcuts-title" className={styles.results}>

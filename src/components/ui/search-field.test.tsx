@@ -91,6 +91,18 @@ describe("shared local work-list search", () => {
     fireEvent.click(screen.getByRole("button", { name: "清除搜尋今日個案" }));
     expect(change).toHaveBeenCalledExactlyOnceWith("");
   });
+  it("keeps local results stable during Chinese composition and commits the completed text once", () => {
+    const change = vi.fn();
+    render(<LocalSearch initialValue="測試" onValueChange={change} />);
+    const input = screen.getByRole("searchbox");
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "測試新" } });
+    expect(input).toHaveValue("測試新");
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    expect(change).toHaveBeenCalledExactlyOnceWith("測試新");
+    expect(input).toHaveValue("測試新");
+  });
   it("reflects parent resets rather than retaining an old clear button", () => {
     const change = vi.fn();
     const { rerender } = render(<SearchField mode="local" value="測試" onValueChange={change} label="搜尋個案" placeholder="找姓名" />);
