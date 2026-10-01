@@ -58,6 +58,21 @@ beforeEach(async () => {
 });
 afterEach(() => { cleanup(); uploadJournal.clearCmsUploadOnLogout(); intakeJournal.clearIntakeWritesOnLogout(); medicationJournal.clearMedicationPendingOnLogout(); for (const unregister of unregisterOwners.splice(0)) unregister(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("staff shell logout privacy", () => {
+  it("clears the in-memory today-work search before asynchronous sign-out completes", async () => {
+    let finish!: () => void; mocks.clear.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const workMemory = await import("@/lib/workspace/today-work-memory");
+    const authority = workMemory.todayWorkAuthoritySignature(actor);
+    workMemory.observeTodayWorkAuthority(authority);
+    workMemory.saveTodayWorkView("synthetic-work-scope", { ...workMemory.initialTodayWorkView, search: "合成個案姓名" });
+    render(<AppShell context={actor} navigation={[]}><p>合成工作清單</p></AppShell>);
+    expect(workMemory.readTodayWorkView("synthetic-work-scope")?.search).toBe("合成個案姓名");
+    fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(workMemory.readTodayWorkView("synthetic-work-scope")).toBeNull();
+    expect(screen.queryByText("合成工作清單")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledOnce());
+    await act(async () => finish());
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+  });
   it("clears original intake intent before asynchronous logout and cannot revive it via authority ABA", async () => {
     let finish!: () => void; mocks.clear.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
     const { emptyIntakeProfile } = await import("@/lib/client-intake/model");

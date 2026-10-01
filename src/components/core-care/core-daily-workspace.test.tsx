@@ -68,9 +68,16 @@ describe("daily care selected-client handoff and source boundaries", () => {
     expect(screen.queryByRole("region", { name: "本頁摘要" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: trigger }).closest(".core-client-continuation")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: trigger }));
-    const clientInput = within(screen.getByRole("dialog", { name: title })).getByLabelText("個案 *");
-    expect(clientInput).toHaveValue(selected.clientId);
-    expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
+    const dialog = screen.getByRole("dialog", { name: title });
+    if (page === 6) {
+      expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent(selected.displayName);
+      expect(dialog.querySelector('input[name="client_id"]')).toHaveValue(selected.clientId);
+      expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
+    } else {
+      const clientInput = within(dialog).getByLabelText("個案 *");
+      expect(clientInput).toHaveValue(selected.clientId);
+      expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
+    }
   });
   it.each([46, 3, 6])("requires selection in the continuation before opening page %s composer", (page) => {
     render(workspace(page));
@@ -89,6 +96,27 @@ describe("daily care selected-client handoff and source boundaries", () => {
     for (const link of within(screen.getByRole("navigation", { name: "個案照顧三步驟" })).getAllByRole("link")) expect(link.getAttribute("href")).toContain("&shift=afternoon");
     fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
     expect(within(screen.getByRole("dialog")).getByLabelText("班別 *")).toHaveValue("afternoon");
+  });
+  it("puts a positively identified draft ahead of creating another, without treating absent snapshot data as proof", () => {
+    const draftClient = { ...snapshot.clients[4]!, careDiary: { ...snapshot.clients[4]!.careDiary!, status: "draft" as const } };
+    const current = { ...snapshot, clients: [draftClient] };
+    const view = render(workspace(6, { selectedClientId: draftClient.clientId, snapshot: current,
+      diaryLifecycle: <section id="diary-lifecycle-title">已儲存日誌</section> }));
+    const continueLink = screen.getByRole("link", { name: "接續已存草稿" });
+    const addButton = screen.getByRole("button", { name: "新增日誌草稿" });
+    expect(continueLink).toHaveAttribute("href", "#diary-lifecycle-title");
+    expect(addButton).toHaveClass("button--secondary");
+    expect(continueLink.compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.rerender(workspace(6, { selectedClientId: draftClient.clientId,
+      snapshot: { ...current, clients: [{ ...draftClient, careDiary: { ...draftClient.careDiary, status: "submitted" } }] },
+      diaryLifecycle: <section id="diary-lifecycle-title">待簽日誌</section> }));
+    expect(screen.getByRole("link", { name: "檢視待簽日誌" })).toHaveAttribute("href", "#diary-lifecycle-title");
+    expect(screen.getByRole("button", { name: "新增日誌草稿" })).toHaveClass("button--secondary");
+    view.rerender(workspace(6, { selectedClientId: draftClient.clientId,
+      snapshot: { ...current, clients: [{ ...draftClient, careDiary: null }] },
+      diaryLifecycle: <section id="diary-lifecycle-title">正在核對原始日誌</section> }));
+    expect(screen.queryByRole("link", { name: "接續已存草稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新增日誌草稿" })).toHaveClass("button--primary");
   });
   it("keeps the original GET parameters while stopping a blank service day with inline feedback", () => {
     render(workspace(6, { selectedClientId: selected.clientId, selectedShift: "morning" }));

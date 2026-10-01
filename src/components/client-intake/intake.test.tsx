@@ -107,11 +107,51 @@ describe("intake usability and truthful writes", () => {
     expect(screen.getByRole("button", { name: /2\s*基本資料.*先建立個案/u })).toBeDisabled();
     expect(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" })).toBeEnabled();
   });
+  it("moves the selected case into view and focus only after its profile has loaded", async () => {
+    const snapshot: IntakeSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true,
+      profile: { ...emptyIntakeProfile, displayName: "合成測試個案", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null };
+    const fetcher = vi.fn().mockResolvedValue(Response.json(success(snapshot)));
+    vi.stubGlobal("fetch", fetcher);
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    try {
+      render(<IntakeWorkspace context={context} clients={[{ id, displayName: snapshot.profile.displayName, clientCode: snapshot.profile.clientCode }]}
+        initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+      expect(screen.getByRole("region", { name: "匯入與建檔填寫區" })).not.toHaveFocus();
+      fireEvent.change(screen.getByLabelText("個案"), { target: { value: id } });
+      await waitFor(() => expect(screen.getByRole("region", { name: "基本資料填寫區" })).toHaveFocus());
+      expect(scroll).toHaveBeenCalledWith({ block: "start" });
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(screen.getByRole("heading", { name: "核對基本資料" })).toBeVisible();
+    } finally {
+      if (originalScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+  });
+  it("does not move focus into a case profile when selection fails", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ requestId: other, status: "error", data: null,
+      errors: [{ code: "CLIENT_NOT_AUTHORIZED", message: "無此個案權限" }] }, { status: 403 }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntakeWorkspace context={context} clients={[{ id, displayName: "合成測試個案", clientCode: "TEST-001" }]}
+      initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+    fireEvent.change(screen.getByLabelText("個案"), { target: { value: id } });
+    await screen.findByRole("alert");
+    expect(screen.getByRole("region", { name: "匯入與建檔填寫區" })).not.toHaveFocus();
+    expect(screen.queryByRole("region", { name: "基本資料填寫區" })).not.toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
   it("updates the visible missing-item list from current input without saving or treating a missing value as complete", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
     const missing = screen.getByRole("region", { name: "基本資料待核對" });
     expect(missing).toHaveTextContent("5 項");
+    const detail = within(missing).getByText("基本資料待核對 · 5 項").closest("details");
+    expect(detail).not.toHaveAttribute("open");
+    expect(within(missing).getByText("身分識別資料")).not.toBeVisible();
+    fireEvent.click(within(missing).getByText("基本資料待核對 · 5 項"));
+    expect(detail).toHaveAttribute("open");
+    expect(within(missing).getByText("身分識別資料")).toBeVisible();
     fireEvent.change(screen.getByLabelText("身分證／居留證識別"), { target: { value: "X123456789" } });
     expect(missing).toHaveTextContent("4 項"); expect(within(missing).queryByText("身分識別資料")).not.toBeInTheDocument();
     expect(missing).toHaveTextContent("告知同意確認"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
@@ -227,6 +267,7 @@ describe("intake usability and truthful writes", () => {
     expect(screen.getByRole("button", { name: /2\s*基本資料/u })).toHaveAttribute("aria-current", "step");
     fireEvent.click(recover); await waitFor(() => expect(writes.hasIntakeWriteOperation()).toBe(false));
     expect(screen.getByLabelText("個案")).toHaveValue(id); expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("region", { name: "基本資料填寫區" })).not.toHaveFocus();
     expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1);
   });
   it("pending saved readback explains the original-operation lock before the ordinary read-only permission notice", () => {
@@ -489,10 +530,11 @@ describe("intake usability and truthful writes", () => {
     fireEvent.click(screen.getByRole("button", { name: /3\s*每週到站與接送/ }));
     fireEvent.click(await screen.findByLabelText("週一到站"));
     fireEvent.click(screen.getByRole("button", { name: /2\s*基本資料/ }));
-    expect(screen.getByRole("heading", { name: "核對個案基本資料" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "核對基本資料" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("個案"), { target: { value: other } });
     expect(confirm).not.toHaveBeenCalled(); expect(await screen.findByRole("dialog")).toHaveAccessibleName("捨棄未保存的收案資料");
     fireEvent.click(screen.getByRole("button", { name: "繼續填寫" })); expect(screen.getByLabelText("個案")).toHaveValue(id);
+    expect(screen.getByRole("region", { name: "基本資料填寫區" })).not.toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: /3\s*每週到站與接送/ })); expect(screen.getByLabelText("週一到站")).toBeChecked();
   });
 });

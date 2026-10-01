@@ -5,6 +5,8 @@ import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
 import { buildTodayWorkRows } from "@/lib/core-care/today-work";
+import { clearTodayWorkViewOnLogout, readTodayWorkView, todayWorkAuthoritySignature,
+  todayWorkViewScope } from "@/lib/workspace/today-work-memory";
 import type { CareRosterSnapshot } from "@/lib/care-roster/types";
 import { TodayWorkList } from "./today-work-list";
 import { DashboardWorkspace } from "./dashboard-workspace";
@@ -13,12 +15,63 @@ vi.mock("@/components/app/navigation-link", () => ({
   NavigationLink: ({ loadingLabel, ...props }: ComponentProps<"a"> & { loadingLabel: string }) => <a {...props} data-loading-label={loadingLabel} />,
 }));
 vi.mock("./dashboard-auto-refresh", () => ({ DashboardAutoRefresh: () => <button onClick={() => undefined}>立即更新</button> }));
-afterEach(cleanup);
+afterEach(() => { cleanup(); clearTodayWorkViewOnLogout(); });
 const date = "2026-09-10";
 const snapshot = buildDemoDailySnapshot(date);
 const rows = buildTodayWorkRows(snapshot);
 
 describe("TodayWorkList", () => {
+  it("returns to the same filtered search, page and focused action without putting a name in the URL", () => {
+    const scopeKey = todayWorkAuthoritySignature({ organizationId: "org-a", branchId: "branch-a", userId: "actor-a",
+      demo: true, roles: ["care_worker"], scopes: ["clients.read"], assuranceLevel: "aal1", recentAal2At: null });
+    const many = Array.from({ length: 45 }, (_, index) => ({ ...rows[0]!, id: `a1111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
+      code: `SYN-${String(index).padStart(3, "0")}`, tasks: ["attendance" as const], nextPage: 46 as const, nextLabel: "確認出勤" }));
+    const mount = () => render(<main className="main-stage" id="main-content" tabIndex={-1}>
+      <TodayWorkList rows={many} serviceDate={date} access={snapshot.sourceAccess} scopeKey={scopeKey} /></main>);
+    const first = mount();
+    fireEvent.click(screen.getByRole("button", { name: /尚無出勤 45 位/ }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "SYN" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    expect(screen.getByRole("navigation", { name: "今日個案分頁" })).toHaveTextContent("第 3 / 3 頁");
+    const action = screen.getByRole("link", { name: /SYN-044.*確認出勤/ });
+    expect(action.getAttribute("href")).not.toContain("SYN");
+    first.container.querySelector<HTMLElement>(".main-stage")!.scrollTop = 420;
+    fireEvent.click(action);
+    first.unmount();
+
+    const returned = mount();
+    expect(screen.getByRole("searchbox")).toHaveValue("SYN");
+    expect(screen.getByRole("button", { name: /尚無出勤 45 位/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("navigation", { name: "今日個案分頁" })).toHaveTextContent("第 3 / 3 頁");
+    expect(screen.getByRole("link", { name: /SYN-044.*確認出勤/ })).toHaveFocus();
+    expect(returned.container.querySelector<HTMLElement>(".main-stage")!.scrollTop).toBe(420);
+  });
+
+  it("does not restore an old client action when today's authorized list or source access shrinks", () => {
+    const scopeKey = todayWorkAuthoritySignature({ organizationId: "org-a", branchId: "branch-a", userId: "actor-a",
+      demo: true, roles: ["care_worker"], scopes: ["clients.read"], assuranceLevel: "aal1", recentAal2At: null });
+    const person = rows[0]!;
+    const first = render(<main className="main-stage" id="main-content" tabIndex={-1}>
+      <TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess} scopeKey={scopeKey} /></main>);
+    first.container.querySelector<HTMLElement>(".main-stage")!.scrollTop = 420;
+    fireEvent.click(screen.getByRole("link"));
+    first.unmount();
+    const removed = render(<main className="main-stage" id="main-content" tabIndex={-1}>
+      <TodayWorkList rows={[]} serviceDate={date} access={snapshot.sourceAccess} scopeKey={scopeKey} /></main>);
+    expect(screen.queryByText(person.name)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(removed.container.querySelector(".today-work")).toHaveFocus();
+    expect(removed.container.querySelector<HTMLElement>(".main-stage")!.scrollTop).toBe(0);
+    removed.unmount();
+
+    const noAccess = { ...snapshot.sourceAccess, clients: false };
+    render(<main className="main-stage" id="main-content" tabIndex={-1}>
+      <TodayWorkList rows={[person]} serviceDate={date} access={noAccess} scopeKey={scopeKey} /></main>);
+    expect(screen.getByText("目前無個案查閱權限")).toBeVisible();
+    expect(screen.queryByText(person.name)).not.toBeInTheDocument();
+    expect(readTodayWorkView(todayWorkViewScope(scopeKey, date, snapshot.sourceAccess))).toBeNull();
+  });
   it("starts with a compact mobile list and reveals filters on request without changing its results", () => {
     const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     const toggle = screen.getByRole("button", { name: /篩選個案與工作，待處理：5 位/ });

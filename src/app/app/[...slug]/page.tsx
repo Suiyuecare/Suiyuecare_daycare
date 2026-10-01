@@ -6,6 +6,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
+import { todayWorkAuthoritySignature } from "@/lib/workspace/today-work-memory";
 import { QuestionnaireRuleWorkspace } from "@/components/questionnaire-rule-governance/questionnaire-rule-workspace";
 import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
@@ -739,10 +740,11 @@ export default async function StaffCatalogPage({
       if (!(error instanceof CoreCareSnapshotError)) throw error;
       loadError = true;
     }
+    const workScopeKey = todayWorkAuthoritySignature(context);
     return (
       <><DashboardWorkspace
-        key={JSON.stringify([context.organizationId, context.branchId, context.userId, context.assuranceLevel,
-          [...context.roles].sort(), [...context.scopes].sort(), serviceDate])}
+        key={JSON.stringify([workScopeKey, serviceDate])}
+        workScopeKey={workScopeKey}
         canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         loadError={loadError}

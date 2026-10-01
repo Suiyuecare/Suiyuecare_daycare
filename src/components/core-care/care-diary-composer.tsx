@@ -61,6 +61,7 @@ export function CareDiaryComposer({
   demo,
   selectedClientId,
   selectedShift,
+  existingOpenRecord = false,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
@@ -68,6 +69,7 @@ export function CareDiaryComposer({
   demo: boolean;
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
+  existingOpenRecord?: boolean;
 }) {
   const router = useRouter();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -94,6 +96,7 @@ export function CareDiaryComposer({
     },
   });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
+  const lockedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const invalidShift = selectedShift !== undefined && !isDailyWorkflowShift(selectedShift);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +140,9 @@ export function CareDiaryComposer({
     }
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
-    if (!enabled || unavailableSelection || invalidShift || !clients.some((client) => client.id === clientId)) {
+    if (!enabled || unavailableSelection || invalidShift ||
+      (selectedClientId !== undefined && clientId !== selectedClientId) ||
+      !clients.some((client) => client.id === clientId)) {
       if (!prior) { setError(null); validation.validate(form, { client_id: "請重新選擇目前授權的個案；尚未送出日誌草稿。" }); }
       else setError("請重新選擇目前授權的個案；尚未送出日誌草稿。");
       return;
@@ -233,7 +238,7 @@ export function CareDiaryComposer({
   return (
     <div className={`core-composer ${styles.composer}`}>
       <button
-        className="button button--primary"
+        className={`button ${existingOpenRecord ? "button--secondary" : "button--primary"}`}
         disabled={!enabled || clients.length === 0 || unavailableSelection || invalidShift}
         onClick={open}
         title={!enabled ? "目前角色沒有建立照顧草稿的權限" : unavailableSelection ? "指定個案不在目前授權名單，請重新選擇" : clients.length === 0 ? "沒有可建立紀錄的個案" : undefined}
@@ -249,13 +254,15 @@ export function CareDiaryComposer({
         <form data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "unselected"}`}
           onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
           onChange={(event) => { if (attempt.current()) return; validation.clearChanged(event.target); draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
-          <p className="eyebrow">第 3 步・日誌草稿</p><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
           <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => { draft.changed(); setRestoredObservations(values); setDraftSession((value) => value + 1); }} />
-            <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>此操作只建立草稿。異常旗標只是提醒工作人員確認，不會產生診斷或自動改變照顧決策。</span></div>
-            <label className="field"><span id={validation.labelId("client_id")}>個案 *</span><select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required {...validation.field("client_id")}><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select><DailyFieldError validation={validation} name="client_id" /></label>
+            {lockedClient ? <div className={styles.selectedClient} role="group" aria-label="已選定個案">
+              <span>個案</span><strong>{lockedClient.name}</strong><small>{lockedClient.code}</small>
+              <small className={styles.selectedClientNote}><ShieldCheck aria-hidden="true" />僅存草稿；異常標記不自動診斷</small>
+              <input type="hidden" name="client_id" value={lockedClient.id} />
+            </div> : <><p className={styles.safetyNote}><ShieldCheck aria-hidden="true" />僅存草稿；異常標記只提醒人工確認，不會自動診斷。</p><label className="field"><span id={validation.labelId("client_id")}>個案 *</span><select defaultValue="" name="client_id" required {...validation.field("client_id")}><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select><DailyFieldError validation={validation} name="client_id" /></label></>}
             <label className="field"><span id={validation.labelId("shift")}>班別 *</span><select defaultValue={selectedShift ?? ""} name="shift" required {...validation.field("shift")}><option value="">請選擇班別</option><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select><DailyFieldError validation={validation} name="shift" /></label>
             <label className="field"><span id={validation.labelId("occurred_at")}>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate, selectedShift)} name="occurred_at" required type="datetime-local" {...validation.field("occurred_at", timeHintId)} /><small id={timeHintId}>班別依實際發生時間判定，中午 12:00 為分界。</small><DailyFieldError validation={validation} name="occurred_at" /></label>
             <label className="field"><span id={validation.labelId("care_item")}>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required {...validation.field("care_item")} /><DailyFieldError validation={validation} name="care_item" /></label>

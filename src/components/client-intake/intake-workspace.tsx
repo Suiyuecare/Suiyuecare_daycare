@@ -46,6 +46,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   const loadSequence = useRef(0);
   const readController = useRef<AbortController | null>(null);
   const workPanel = useRef<HTMLDivElement>(null);
+  const pendingSelectionFocus = useRef<string | null>(null);
   const [draftEpoch, setDraftEpoch] = useState(0);
   const currentAuthority = intakeWriteAuthority(context);
   const owner = useRef({ authority: currentAuthority, epoch: writeState.epoch });
@@ -54,6 +55,14 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     owner.current = { authority: currentAuthority, epoch: writeState.epoch };
     return cancelRead;
   }, [cancelRead, currentAuthority, writeState.epoch]);
+  useLayoutEffect(() => {
+    if (!pendingSelectionFocus.current || !snapshot || loading || error || step !== 1 ||
+      pendingSelectionFocus.current !== snapshot.clientId || selectedId !== snapshot.clientId ||
+      hasCmsUploadOperation() || hasIntakeWriteOperation()) return;
+    pendingSelectionFocus.current = null;
+    workPanel.current?.scrollIntoView?.({ block: "start" });
+    workPanel.current?.focus({ preventScroll: true });
+  }, [snapshot, selectedId, step, loading, error, writeState.epoch]);
   const scope = (permission: string) => context.demo || context.scopes.includes(permission);
   const canManage = !error && scope("clients.manage") && scope("clients.demographics.read");
   const canCreate = canManage && scope("clients.view_all");
@@ -77,8 +86,9 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     setVisited((v) => new Set([...v, value]));
     workPanel.current?.scrollIntoView?.({ block: "start" });
   }
-  async function readClient(clientId: string, fromWrite = false) {
+  async function readClient(clientId: string, fromWrite = false, focusOnSuccess = false) {
     if (!fromWrite && hasIntakeWriteOperation()) return;
+    pendingSelectionFocus.current = null;
     const sequence = ++loadSequence.current;
     const authority = currentAuthority, epoch = writeState.epoch;
     readController.current?.abort(); const controller = new AbortController(); readController.current = controller;
@@ -91,6 +101,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
       const original = getIntakeWriteState().operation;
       if (fromWrite && original && !matchesIntakeWriteReadback(original, result)) throw new Error("INTAKE_ORIGINAL_READBACK_UNCONFIRMED");
       const sameClient = snapshot?.clientId === clientId;
+      if (focusOnSuccess && !fromWrite) pendingSelectionFocus.current = clientId;
       setSelectedId(clientId); setSnapshot(result); setManual(false); setStep(1);
       if (sameClient) setVisited((s) => new Set([...s, 1]));
       else { setVisited(new Set([1])); setDirtySteps({}); }
@@ -104,12 +115,13 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   }
   async function chooseConfirmed(id: string) {
     if (saving || loading || hasCmsUploadOperation() || hasIntakeWriteOperation()) return;
-    if (!id) { ++loadSequence.current; setSelectedId(""); setSnapshot(null); setManual(false); setVisited(new Set([0])); setStep(0); setError(""); setDirtySteps({}); window.history.replaceState(null, "", "/app/client-intake"); return; }
+    if (!id) { pendingSelectionFocus.current = null; ++loadSequence.current; setSelectedId(""); setSnapshot(null); setManual(false); setVisited(new Set([0])); setStep(0); setError(""); setDirtySteps({}); window.history.replaceState(null, "", "/app/client-intake"); return; }
     if (context.demo) {
       const client = clients.find((c) => c.id === id)!;
+      pendingSelectionFocus.current = id;
       setSelectedId(id); setSnapshot({ clientId: id, profileVersion: 0, clientRowVersion: 1, pending: true, fieldAuthority: {}, sourceBatchId: null, profile: { displayName: client.displayName, clientCode: client.clientCode, dateOfBirth: null, identityNumber: null, sex: "unknown", phone: null, registeredAddress: null, residentialAddress: null, cmsLevel: null, disability: null, contacts: [], consent: { status: "pending", confirmedOn: null }, notes: "" } }); setVisited(new Set([1])); setStep(1); setDirtySteps({}); return;
     }
-    await readClient(id);
+    await readClient(id, false, true);
   }
   function choose(id: string) {
     if (saving || loading || hasCmsUploadOperation() || hasIntakeWriteOperation()) return;
@@ -154,7 +166,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
         </button> : null}
     </section>
     {error ? <div className={styles.error} role="alert"><p>{error}</p>{selectedId ? <button type="button" disabled={loading || uploadPending} onClick={() => readClient(selectedId)}>重試讀取此個案</button> : <button type="button" disabled={loading || uploadPending} onClick={() => window.location.reload()}>重新載入個案清單</button>}</div> : null}
-    {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={`${snapshot?.clientId ?? "new"}:${draftEpoch}`} ref={workPanel}>
+    {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={`${snapshot?.clientId ?? "new"}:${draftEpoch}`} ref={workPanel} role="region" aria-label={`${INTAKE_STEPS[step]}填寫區`} tabIndex={-1}>
       <div hidden={step !== 0}>{visited.has(0) ? <CmsIntakeStep context={context} current={snapshot} canImport={scope("imports.manage") && canCreate} canApprove={scope("imports.approve") && (snapshot ? canManage : canCreate)} demo={context.demo} archiveConfigured={archiveConfigured} onSaved={saved} onDirty={importDirty} onBusy={importBusy} profileHasDraft={Boolean(dirtySteps[1])} onManual={() => { setManual(true); goTo(1); }} /> : null}</div>
       <div hidden={step !== 1}>{visited.has(1) ? <IntakeProfileForm key={snapshot?.profileVersion ?? 0} context={context} initial={snapshot} canManage={snapshot ? canManage : canCreate} demo={context.demo} today={today} onSaved={saved} onDirty={profileDirty} onBusy={profileBusy} /> : null}</div>
       <div hidden={step !== 2}>{visited.has(2) && snapshot ? <ClientWeeklyWorkspace clientId={snapshot.clientId} canManage={!error && scope("staff_scheduling.manage")} demo={context.demo} today={today} onDirty={weeklyDirty} onBusy={weeklyBusy} /> : null}</div>

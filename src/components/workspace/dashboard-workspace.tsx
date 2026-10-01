@@ -7,13 +7,14 @@ import { TodayWorkList } from "./today-work-list";
 import type { CareRosterSnapshot } from "@/lib/care-roster/types";
 import { RosterComposer } from "@/components/care-roster/roster-composer";
 
-export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = false, canViewManagementDetails = false, canOpenReadiness = false }: {
+export function DashboardWorkspace({ snapshot, serviceDate, roster, workScopeKey, loadError = false, canViewManagementDetails = false, canOpenReadiness = false }: {
   snapshot: DailyCareSnapshot | null;
   serviceDate: string;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
   canOpenReadiness?: boolean;
   roster?: CareRosterSnapshot;
+  workScopeKey?: string;
 }) {
   if (loadError || !snapshot) {
     return <section className="empty-card core-care-state" role="alert">
@@ -41,7 +42,7 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = 
           loadingLabel="開站準備清單" href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>開站檢查</NavigationLink> : null}
       </div>
     </header>
-    <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} />
+    <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} scopeKey={workScopeKey} />
     {roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
     <footer className="today-footer">
       <NavigationLink className="button button--secondary" loadingLabel="個案中心" href={`/app/staff/workspace/case-center?date=${serviceDate}`}>到個案中心調整篩選</NavigationLink>

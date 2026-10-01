@@ -193,7 +193,7 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
     {loading && <p role="status">正在載入此個案的 {form} 表……</p>}
     {error && <div className={styles.error} role="alert" id={errorId}><p>{error}</p><button type="button" disabled={saving || retryPending || reviewPending} onClick={() => requestLocalChange({ kind: "reload", scope: identity })}>重新載入</button></div>}
     {message && <p role="status">{message}</p>}
-    {!loading && <>
+    {!loading && (demo || snapshot) && <>
       <div className={styles.progress} role="group" aria-label="填寫進度"><strong>{snapshot?.latest ? `已存草稿第 ${snapshot.latest.version} 版` : "尚無已存草稿"}</strong><div className={styles.progressCounts}>
         <span>已填 <b>{progress.recorded}</b></span><span>不適用 <b>{progress.notApplicable}</b></span><span>待核對 <b>{progress.unconfirmed}</b></span><span>未填 <b>{progress.missing}</b></span>
       </div></div>

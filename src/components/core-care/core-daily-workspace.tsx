@@ -216,11 +216,13 @@ export function CoreDailyWorkspace({
     } : null,
   }] : [];
   const selectedSourceAllowed = selectedClient?.sourceAccess?.[page.number === 3 ? "measurements" : page.number === 6 ? "careDiaries" : "attendance"] !== false;
+  const canContinueDiary = Boolean(diaryLifecycle && selectedClient && page.number === 6 && pageSourceAllowed && selectedSourceAllowed);
+  const existingOpenDiary = canContinueDiary && (selectedClient?.careDiary?.status === "draft" || selectedClient?.careDiary?.status === "submitted");
   const composer = snapshot && selectedClient && selectedClient.applicability?.eligible !== false && pageSourceAllowed && selectedSourceAllowed ? (
     page.number === 3 ? <VitalSignComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
       serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} />
       : page.number === 6 ? <CareDiaryComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-        serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} />
+        serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} existingOpenRecord={existingOpenDiary} />
         : page.number === 46 ? <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
           serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} /> : null
   ) : null;
@@ -250,7 +252,7 @@ export function CoreDailyWorkspace({
         <>
           <ClientContinuation key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "none"}`} page={workflowPage}
             clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate} sourceAccess={snapshot.sourceAccess} action={composer}
-            canOpenAssessments={canOpenAssessments} />
+            canOpenAssessments={canOpenAssessments} canContinueDiary={canContinueDiary} />
           {selectedClient && pageSourceAllowed ? clientAttention : null}
           {selectedClient && page.number === 6 && pageSourceAllowed && selectedSourceAllowed ? diaryLifecycle : null}
           <p className="data-table__secondary core-care-updated-at">資料更新於 {generatedAt}</p>

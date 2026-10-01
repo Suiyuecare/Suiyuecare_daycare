@@ -93,7 +93,7 @@ function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?:
       : client.careDiary.status === "draft" ? "已有草稿・未簽署" : "待簽署";
 }
 
-export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action, canOpenAssessments = false }: {
+export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action, canOpenAssessments = false, canContinueDiary = false }: {
   page: DailyWorkflowPage;
   serviceDate: string;
   selectedClientId?: string;
@@ -102,6 +102,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
   sourceAccess: DailyCareSnapshot["sourceAccess"];
   action?: ReactNode;
   canOpenAssessments?: boolean;
+  canContinueDiary?: boolean;
 }) {
   const selectId = useId();
   const [choice, setChoice] = useState("");
@@ -109,6 +110,10 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
   const selected = allowedClients.find((client) => client.clientId === selectedClientId);
   const chosen = allowedClients.find((client) => client.clientId === choice);
   const shiftLabel = selected && selectedShift ? { morning: "上午班", afternoon: "下午班", full_day: "全日工作" }[selectedShift] : null;
+  // A positive dated snapshot may point to an existing record. Absence is not
+  // proof that no draft exists; the lifecycle read remains authoritative.
+  const openDiary = page === 6 && canContinueDiary && selected &&
+    (selected.careDiary?.status === "draft" || selected.careDiary?.status === "submitted");
 
   if (!sourceAccess.clients) return <section className="callout core-care-callout" role="status">
     <p>目前沒有個案名單查看權限。請聯絡主管確認授權；這不表示今天沒有個案。</p>
@@ -146,6 +151,9 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
           </span>}
         </li>)}
       </ol></nav>
+      {openDiary ? <a className="button button--primary" href="#diary-lifecycle-title">
+        {selected.careDiary?.status === "draft" ? "接續已存草稿" : "檢視待簽日誌"}
+      </a> : null}
       {selected ? action : null}
       {selected && selected.applicability?.eligible !== false && canOpenAssessments ? <NavigationLink
         className="button button--secondary" href={assessmentEntryHref(selected.clientId)} loadingLabel="評估量表" prefetch={false}>

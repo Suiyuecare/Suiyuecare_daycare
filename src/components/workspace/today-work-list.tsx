@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { SearchField } from "@/components/ui/search-field";
@@ -8,6 +8,8 @@ import { filterTodayWorkRows, scopeTodayWorkShift, todayWorkAction, type TodayWo
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { ROSTER_TASK_LABELS, type CareRosterSnapshot, type RosterShift } from "@/lib/care-roster/types";
+import { initialTodayWorkView, markTodayWorkReturn, observeTodayWorkViewScope, readTodayWorkView, saveTodayWorkView,
+  takeTodayWorkReturn, todayWorkViewScope, type TodayWorkView } from "@/lib/workspace/today-work-memory";
 import styles from "@/components/care-roster/care-roster.module.css";
 
 const filters: { id: WorkTask; label: string; access: keyof DailyCareSnapshot["sourceAccess"] }[] = [
@@ -54,17 +56,46 @@ function shortWorkStatus(row: TodayWorkRow) {
   return { measurements: measurementStatus, diary: diaryStatus };
 }
 
-export function TodayWorkList({ rows, serviceDate, access, roster }: {
+export function TodayWorkList({ rows, serviceDate, access, roster, scopeKey }: {
   rows: readonly TodayWorkRow[]; serviceDate: string; access: DailyCareSnapshot["sourceAccess"];
-  roster?: CareRosterSnapshot;
+  roster?: CareRosterSnapshot; scopeKey?: string;
 }) {
-  const [filter, setFilter] = useState<WorkFilter>("pending");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [shift, setShift] = useState<RosterShift | "all">("all");
-  const [chosenShifts, setChosenShifts] = useState<Record<string, RosterShift>>({});
-  const [unassigned, setUnassigned] = useState(false);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const memoryScope = scopeKey ? todayWorkViewScope(scopeKey, serviceDate, access, roster) : undefined;
+  const [viewState, setViewState] = useState(() => ({ scope: memoryScope,
+    view: readTodayWorkView(memoryScope) ?? initialTodayWorkView }));
+  // A refreshed permission/source snapshot may change without a route remount.
+  // Do not render an old actor's filter or search even for one frame.
+  const view = viewState.scope === memoryScope ? viewState.view : initialTodayWorkView;
+  const { filter, search, page, shift, unassigned, mobileFiltersOpen } = view;
+  const [chosenShiftState, setChosenShiftState] = useState(() => ({ scope: memoryScope, shifts: {} as Record<string, RosterShift> }));
+  const chosenShifts = chosenShiftState.scope === memoryScope ? chosenShiftState.shifts : {};
+  const rootRef = useRef<HTMLElement>(null);
+  const actionRefs = useRef(new Map<string, HTMLAnchorElement>());
+  useLayoutEffect(() => {
+    observeTodayWorkViewScope(memoryScope);
+    if (viewState.scope !== memoryScope) return;
+    const position = takeTodayWorkReturn(memoryScope);
+    if (!position) return;
+    // The old client may no longer be assigned or visible. Never reconstruct a
+    // row from memory: focus only a link rendered from the current snapshot.
+    const matchedAction = actionRefs.current.get(position.clientId);
+    const target = matchedAction ?? rootRef.current ?? document.getElementById("main-content");
+    target?.focus({ preventScroll: true });
+    const scroller = document.querySelector<HTMLElement>(".main-stage");
+    if (scroller) scroller.scrollTop = matchedAction ? position.scrollTop : 0;
+    if (scroller && matchedAction) {
+      const actionBounds = matchedAction.getBoundingClientRect();
+      const stageBounds = scroller.getBoundingClientRect();
+      if (actionBounds.bottom < stageBounds.top || actionBounds.top > stageBounds.bottom) {
+        matchedAction.scrollIntoView?.({ block: "nearest" });
+      }
+    }
+  }, [memoryScope, viewState.scope]);
+  function changeView(patch: Partial<TodayWorkView>) {
+    const next = { ...view, ...patch };
+    saveTodayWorkView(memoryScope, next);
+    setViewState({ scope: memoryScope, view: next });
+  }
   const rosterReady = roster?.status === "ready" || roster?.status === "empty";
   const eligibleClientIds = rosterReady ? new Set(roster.assignments.filter((slot) => slot.state === "scheduled"
     && slot.isServiceEligible === true && slot.serviceEligibility === "eligible").map((slot) => slot.clientId)) : null;
@@ -87,8 +118,8 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const mobileScopeLabel = [shift !== "all" ? shiftLabels[shift] : null, unassigned ? "待指派" : null,
     filter === "all" ? rosterReady ? "全部當班" : "全部在案" : filter === "pending" ? "待處理" : selectedFilter?.label,
     search ? "搜尋中" : null].filter(Boolean).join("・");
-  function changeFilter(next: WorkFilter) { setFilter(next); setPage(1); setMobileFiltersOpen(false); }
-  function showAllClients() { setFilter("all"); setSearch(""); setShift("all"); setUnassigned(false); setPage(1); setMobileFiltersOpen(false); }
+  function changeFilter(next: WorkFilter) { changeView({ filter: next, page: 1, mobileFiltersOpen: false }); }
+  function showAllClients() { changeView({ filter: "all", search: "", shift: "all", unassigned: false, page: 1, mobileFiltersOpen: false }); }
   function openRosterComposer() {
     const composer = document.getElementById("today-roster-composer");
     if (!(composer instanceof HTMLDetailsElement)) return;
@@ -98,10 +129,10 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   }
 
   if (!access.clients) return <section className="empty-card" role="status"><h2>目前無個案查閱權限</h2><p>請由機構管理員確認您的工作指派與資料範圍。</p></section>;
-  return <section className="today-work" aria-labelledby="today-list-title">
+  return <section className="today-work" aria-labelledby="today-list-title" ref={rootRef} tabIndex={-1}>
     <button aria-controls="today-filter-counters today-filter-controls" aria-expanded={mobileFiltersOpen}
       aria-label={`篩選個案與工作，${mobileScopeLabel}：${filterRestricted ? "目前無查閱權限" : `${filtered.length} 位`}`}
-      className="today-mobile-filter-toggle" onClick={() => setMobileFiltersOpen((open) => !open)} type="button">
+      className="today-mobile-filter-toggle" onClick={() => changeView({ mobileFiltersOpen: !mobileFiltersOpen })} type="button">
       <span>{mobileScopeLabel}</span>
       <strong>{filterRestricted ? "—" : filtered.length} 位</strong><span>篩選</span>
     </button>
@@ -117,13 +148,13 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
     <div className="panel today-list-panel">
       <div className="panel__header"><div className="panel__title"><h2 id="today-list-title">{rosterReady ? roster.manager ? "分支當班照顧清單" : "我的當班個案" : "在案工作清單"}</h2><p className={rosterReady ? "today-panel-ready-note" : undefined}>{rosterReady ? `${serviceDate}・${shift === "all" ? "全部班別" : shift === "morning" ? "上午" : "下午"}，依已確認分工顯示。` : roster?.status === "unavailable" ? "今日安排未取得，名單不代表今天應到。請聯絡主管確認。" : "尚未比對今日排程，請先確認個案今天是否接受服務。"}</p></div></div>
       <div className={`today-filter-controls${mobileFiltersOpen ? "" : " today-filters--collapsed"}`} id="today-filter-controls">
-      {rosterReady && <div className="today-toolbar"><label className="field"><span>班別</span><select value={shift} onChange={(e) => { setShift(e.target.value as RosterShift | "all"); setPage(1); }}><option value="all">全部班別</option><option value="morning">上午</option><option value="afternoon">下午</option></select></label>{roster.manager && <label className="check-field"><input type="checkbox" checked={unassigned} onChange={(e) => { setUnassigned(e.target.checked); setFilter("all"); setPage(1); }} />只看待指派</label>}</div>}
+      {rosterReady && <div className="today-toolbar"><label className="field"><span>班別</span><select value={shift} onChange={(e) => changeView({ shift: e.target.value as RosterShift | "all", page: 1 })}><option value="all">全部班別</option><option value="morning">上午</option><option value="afternoon">下午</option></select></label>{roster.manager && <label className="check-field"><input type="checkbox" checked={unassigned} onChange={(e) => changeView({ unassigned: e.target.checked, filter: "all", page: 1 })} />只看待指派</label>}</div>}
       <div className="today-toolbar">
         <div className="today-view-buttons" role="group" aria-label="清單範圍">
           <button className="button button--secondary" aria-pressed={filter === "pending"} type="button" onClick={() => changeFilter("pending")}>待處理</button>
           <button className="button button--secondary" aria-pressed={filter === "all"} type="button" onClick={() => changeFilter("all")}>{rosterReady ? "全部當班" : "全部在案"}</button>
         </div>
-        <SearchField mode="local" value={search} onValueChange={(value) => { setSearch(value); setPage(1); }}
+        <SearchField mode="local" value={search} onValueChange={(value) => changeView({ search: value, page: 1 })}
           label="搜尋今日個案姓名或代碼" placeholder="找個案姓名或代碼" />
       </div>
       </div>
@@ -161,18 +192,24 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
           <dl className="today-client__status" aria-live="polite"><div><dt>出勤</dt><dd>{scopedRow.attendance}</dd></div><div><dt>量測</dt><dd>{status.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{status.diary}</dd></div></dl>
           <div className="today-client__action-stack">
             {requiresShiftChoice && action.page && <label className="field today-client__shift-picker"><span>{row.name}的工作班別</span><select
-              value={effectiveShift ?? ""} onChange={(event) => setChosenShifts((current) => {
-                const next = { ...current };
+              value={effectiveShift ?? ""} onChange={(event) => setChosenShiftState((current) => {
+                const next = { ...(current.scope === memoryScope ? current.shifts : {}) };
                 const selected = event.target.value;
                 if (selected === "morning" || selected === "afternoon") next[row.id] = selected;
                 else delete next[row.id];
-                return next;
+                return { scope: memoryScope, shifts: next };
               })}>
               <option value="">請選擇班別</option>
               {selectableShifts.map((item) => <option key={item} value={item}>{shiftLabels[item]}</option>)}
             </select></label>}
             {action.page ? requiresShiftChoice && !effectiveShift ? <button className="button button--primary today-client__action" disabled type="button">先選班別</button>
               : <NavigationLink className="button button--primary today-client__action" loadingLabel={action.label}
+                ref={(node) => { if (node) actionRefs.current.set(row.id, node); else actionRefs.current.delete(row.id); }}
+                onClick={(event) => {
+                  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+                  markTodayWorkReturn(memoryScope, { ...view, page: currentPage }, row.id,
+                    document.querySelector<HTMLElement>(".main-stage")?.scrollTop ?? 0);
+                }}
                 href={dailyWorkflowHref(action.page, serviceDate, row.id, navigationShift)} aria-label={`${row.name}（${row.code}）：${actionLabelShift ? `${shiftLabels[actionLabelShift]}・` : ""}${action.label}`}>{actionLabelShift ? `${shiftLabels[actionLabelShift]}・` : ""}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
               : <p>請聯絡管理員確認工作權限。</p>}
           </div>
@@ -187,7 +224,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
         <p>{roster?.status === "empty" ? roster.manager ? "請先確認收案及今日分工；空白不代表工作已完成。" : "請向主管確認今天的工作安排；空白不代表工作已完成。" : search ? "試試其他姓名或代碼，或清除搜尋查看名單。" : "這只代表本清單的結果，其他照顧工作仍請依當日安排確認。"}</p>
         {roster?.status === "empty" && roster.manager ? <button className="button button--primary" onClick={openRosterComposer} type="button">安排今日分工</button> : null}
         {roster?.status !== "empty" && (search || filter !== "all") && <button className="button button--secondary" type="button" onClick={showAllClients}>{rosterReady ? "查看全部當班個案" : "查看全部在案個案"}</button>}</div>}
-      {pageCount > 1 && <nav className="today-pagination" aria-label="今日個案分頁"><button className="button button--secondary" type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一頁</button><span>第 {currentPage} / {pageCount} 頁</span><button className="button button--secondary" type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</button></nav>}
+      {pageCount > 1 && <nav className="today-pagination" aria-label="今日個案分頁"><button className="button button--secondary" type="button" disabled={currentPage === 1} onClick={() => changeView({ page: currentPage - 1 })}>上一頁</button><span>第 {currentPage} / {pageCount} 頁</span><button className="button button--secondary" type="button" disabled={currentPage === pageCount} onClick={() => changeView({ page: currentPage + 1 })}>下一頁</button></nav>}
     </div>
   </section>;
 }

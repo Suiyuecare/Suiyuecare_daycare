@@ -112,11 +112,14 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
   if (isolated) return <p role="status">原收案操作仍待核對，內容已隔離。請回原授權範圍核對；若登入或權限已變更，請安全登出後重新登入。</p>;
   const missingItems = intakeMissingItems(profile);
   return <form ref={formRef} onSubmit={save} noValidate data-intake-write className={styles.form}>
-    <div><h2>{initial ? "核對個案基本資料" : "手動建立待收案個案"}</h2><p>沒有的資料可留待補，請勿猜填。</p></div>
-    {demo ? <p className={styles.notice}>合成資料試看：可以查看欄位，不會保存個案。</p> : pending ? <p className={styles.notice}>請先核對原次保存；在結果確認前，暫時不能修改資料。</p> : !canManage ? <p className={styles.notice}>目前僅可查看，請由有權限的收案人員修改。</p> : null}
-    <section className={styles.missingCard} aria-label="基本資料待核對"><h3>基本資料待核對{missingItems.length ? ` · ${missingItems.length} 項` : " · 基本欄位已提供"}</h3>
-      {!missingItems.length ? <p>基本欄位已提供；仍須確認評估、文件與正式收案審核。</p> : null}
-      {missingItems.length ? <ul className={styles.missingItems}>{missingItems.map((item) => <li key={item}>{item}</li>)}</ul> : null}
+    <div className={styles.formLead}><h2>{initial ? "核對基本資料" : "建立個案"}</h2><p>缺項可補，勿猜填。</p></div>
+    {demo ? <p className={styles.notice}>合成資料試看 · 不會儲存。</p> : pending ? <p className={styles.notice}>請先核對原次保存；在結果確認前，暫時不能修改資料。</p> : !canManage ? <p className={styles.notice}>目前僅可查看，請由有權限的收案人員修改。</p> : null}
+    <section className={styles.missingCard} aria-label="基本資料待核對">
+      <details className={styles.missingDisclosure}>
+        <summary>基本資料待核對{missingItems.length ? ` · ${missingItems.length} 項` : " · 基本欄位已提供"}</summary>
+        {!missingItems.length ? <p>基本欄位已提供；仍須確認評估、文件與正式收案審核。</p> : null}
+        {missingItems.length ? <ul className={styles.missingItems}>{missingItems.map((item) => <li key={item}>{item}</li>)}</ul> : null}
+      </details>
     </section>
     <fieldset disabled={disabled}><legend>身分與聯繫</legend><div className={styles.grid}>
       {field("displayName", "姓名／顯示稱呼", "text", true)}{field("clientCode", "機構個案編號", "text", true)}

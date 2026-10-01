@@ -62,9 +62,20 @@ describe("Taipei intake draft UI", () => {
     expect(screen.queryByText(/可核對的 CMS 來源建議/)).not.toBeInTheDocument();
     expect(screen.getByText("B_PLAN · 三、個別化照顧計畫")).toBeInTheDocument();
   });
-  it("failed reads stay fail-closed without synthesized success", async () => {
+  it("failed reads hide empty progress and fields until a successful retry", async () => {
     fetchMock.mockResolvedValue(Response.json({ errors: [{ message: "無此個案權限" }] }, { status: 403 }));
-    render(<TaipeiAbcdIntakeStep {...ids} />); await screen.findByText("無此個案權限"); expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeDisabled();
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await screen.findByText("無此個案權限");
+    expect(screen.queryByRole("group", { name: "填寫進度" })).not.toBeInTheDocument();
+    expect(screen.queryByText("尚無已存草稿")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("個案姓名內容")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "儲存 A 表草稿" })).not.toBeInTheDocument();
+    fetchMock.mockResolvedValue(Response.json({ data: empty }));
+    fireEvent.click(screen.getByRole("button", { name: "重新載入" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    expect(screen.getByRole("group", { name: "填寫進度" })).toHaveTextContent("尚無已存草稿");
+    expect(screen.getByLabelText("個案姓名內容")).toBeInTheDocument();
+    expect(screen.queryByText("無此個案權限")).not.toBeInTheDocument();
   });
   it("reports dirty state and confirms persisted version through a second GET before success", async () => {
     const onDirty = vi.fn(); const onBusy = vi.fn(); let saved: Record<string, unknown> | null = null;
