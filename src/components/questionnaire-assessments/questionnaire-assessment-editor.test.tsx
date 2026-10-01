@@ -56,7 +56,8 @@ const functionalSnapshot = (selectedForm = functionalForms[0]!, reason = "合成
   return { ...defaultSnapshot(), formKey: selectedForm.key,
     clients: [{ ...defaultSnapshot().clients[0]!, latest, assessments: [{ ...latest, assessmentCreatedAt: stamp }], assessmentTotal: 1 }] } satisfies QuestionnaireSnapshot;
 };
-const questionCard = (number: number) => within(screen.getByRole("radiogroup", { name: `第 ${number} 題` }).closest("section")!);
+const questionGroup = (number: number) => screen.getByRole("radiogroup", { name: new RegExp(`^${number}\\.\\s+\\S`, "u") });
+const questionCard = (number: number) => within(questionGroup(number).closest("section")!);
 
 describe("questionnaire independent drafts and version browsing", () => {
   beforeEach(() => {
@@ -81,7 +82,7 @@ describe("questionnaire independent drafts and version browsing", () => {
 
   it("puts the active questionnaire and concise progress before saved-history tools while keeping its formal gate visible", () => {
     workspace();
-    const firstQuestion = screen.getByRole("radiogroup", { name: "第 1 題" });
+    const firstQuestion = questionGroup(1);
     const records = screen.getByRole("region", { name: "已保存的評估" });
     const progress = screen.getByLabelText("作答進度");
     expect(firstQuestion.compareDocumentPosition(records) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -102,7 +103,10 @@ describe("questionnaire independent drafts and version browsing", () => {
     workspace(snapshot, true, selectedForm);
     selectedForm.questions.forEach((question, index) => {
       expect(screen.getByRole("heading", { name: `${index + 1}. ${question.prompt}` })).toBeVisible();
-      const group = within(screen.getByRole("radiogroup", { name: `第 ${index + 1} 題` }));
+      const groupElement = screen.getByRole("radiogroup", { name: `${index + 1}. ${question.prompt}` });
+      expect(groupElement).toHaveAccessibleName(`${index + 1}. ${question.prompt}`);
+      expect(groupElement).toHaveAccessibleDescription(question.helpText ?? "");
+      const group = within(groupElement);
       question.choices.forEach(choice => expect(group.getByRole("radio", { name: choice.label })).toBeVisible());
     });
     expect(screen.getAllByRole("radio").every(element => !(element as HTMLInputElement).checked)).toBe(true);
@@ -114,9 +118,9 @@ describe("questionnaire independent drafts and version browsing", () => {
     fireEvent.click(button("保存修訂版本"));
     await waitFor(() => expect(button("確認保存結果")).toBeVisible());
     const recovery = screen.getByRole("region", { name: "保存結果待確認" });
-    expect(recovery.compareDocumentPosition(screen.getByRole("radiogroup", { name: "第 1 題" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(recovery.compareDocumentPosition(questionGroup(1)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "確認保存結果" })).toHaveLength(1);
-    within(screen.getByRole("radiogroup", { name: "第 1 題" })).getAllByRole("radio").forEach(element => expect(element).toBeDisabled());
+    within(questionGroup(1)).getAllByRole("radio").forEach(element => expect(element).toBeDisabled());
     expect(posts()).toHaveLength(1);
   });
 
@@ -337,6 +341,20 @@ describe("questionnaire independent drafts and version browsing", () => {
     expect(hasPendingOperations()).toBe(false);
   });
 
+  it("keeps one mobile save action with visible uncertain-save feedback", async () => {
+    workspace();
+    const save = button("保存修訂版本");
+    expect(save.closest("form")?.querySelectorAll('button[type="submit"]')).toHaveLength(1);
+    expect(save.parentElement?.className).toContain("mobileSaveActions");
+    stubs.fetch.mockRejectedValueOnce(new Error("連線中斷"));
+    fireEvent.click(save);
+    await waitFor(() => expect(button("以相同內容重試")).toBeVisible());
+    const retry = button("以相同內容重試");
+    expect(retry.closest("form")?.querySelectorAll('button[type="submit"]')).toHaveLength(1);
+    expect(within(retry.parentElement!).getByRole("status")).toHaveTextContent("原操作結果尚未完整確認");
+    expect(posts()).toHaveLength(1);
+  });
+
   it("never posts again when the commit succeeded but readback failed", async () => {
     workspace(); stubs.fetch.mockResolvedValueOnce(response(receipt("revise", 1, 2))).mockRejectedValueOnce(new Error("讀取中斷"));
     fireEvent.click(button("保存修訂版本"));
@@ -349,11 +367,11 @@ describe("questionnaire independent drafts and version browsing", () => {
   });
 
   it("asks before discarding edits and preserves them when the user continues", () => {
-    workspace(); fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    workspace(); fireEvent.click(within(questionGroup(1)).getByLabelText("答錯"));
     fireEvent.click(button("新增一次評估"));
     expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeTruthy();
     fireEvent.click(button("繼續填寫"));
-    expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
+    expect(within(questionGroup(1)).getByLabelText("答錯")).toBeChecked();
     fireEvent.click(button("新增一次評估")); fireEvent.click(button("放棄修改並切換"));
     expect(screen.getAllByRole("radio").every((element) => !(element as HTMLInputElement).checked)).toBe(true);
     expect(button("保存本次評估")).toBeTruthy();
@@ -391,10 +409,10 @@ describe("questionnaire independent drafts and version browsing", () => {
   it("requires shared explicit discard before a Link can unmount a dirty draft, without native confirm", async () => {
     const view = workspace(); const navigate = vi.fn();
     render(<Link href="/app/staff/other" onClick={(event) => { event.preventDefault(); navigate(); }}>側欄切頁</Link>);
-    fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    fireEvent.click(within(questionGroup(1)).getByLabelText("答錯"));
     fireEvent.click(screen.getByRole("link", { name: "側欄切頁" }));
     expect(window.confirm).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled();
-    expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
+    expect(within(questionGroup(1)).getByLabelText("答錯")).toBeChecked();
     fireEvent.click(button("放棄修改並切換"));
     await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
     view.unmount();
@@ -404,7 +422,7 @@ describe("questionnaire independent drafts and version browsing", () => {
     workspace(); const navigate = vi.fn();
     render(<><a href="/app/staff/other" target="_blank" onClick={(event) => { event.preventDefault(); navigate(); }}>另開分頁</a>
       <a href="#details" onClick={(event) => { event.preventDefault(); navigate(); }}>同頁段落</a></>);
-    fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    fireEvent.click(within(questionGroup(1)).getByLabelText("答錯"));
     fireEvent.click(screen.getByRole("link", { name: "另開分頁" })); fireEvent.click(screen.getByRole("link", { name: "同頁段落" }));
     expect(navigate).toHaveBeenCalledTimes(2); expect(window.confirm).not.toHaveBeenCalled();
   });
@@ -437,7 +455,7 @@ describe("questionnaire independent drafts and version browsing", () => {
     window.history.replaceState(state, "", window.location.href); workspace();
     const nextRouter = vi.fn(); window.addEventListener("popstate", nextRouter);
     const restore = vi.spyOn(window.history, "pushState");
-    fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    fireEvent.click(within(questionGroup(1)).getByLabelText("答錯"));
     try {
       fireEvent(window, new PopStateEvent("popstate", { state: { __NA: true } }));
       expect(nextRouter).toHaveBeenCalledTimes(1); expect(restore).not.toHaveBeenCalled();
@@ -447,7 +465,7 @@ describe("questionnaire independent drafts and version browsing", () => {
   });
 
   it("cannot discard through an already-open switch confirmation while a POST is pending", async () => {
-    workspace(); fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    workspace(); fireEvent.click(within(questionGroup(1)).getByLabelText("答錯"));
     fireEvent.click(button("新增一次評估"));
     let resolve!: (value: Response) => void;
     stubs.fetch.mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; }));
@@ -459,7 +477,7 @@ describe("questionnaire independent drafts and version browsing", () => {
   });
 
   it("blocks the native client-selection submit while dirty or uncertain, even if its action button is enabled", () => {
-    workspace(); fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    workspace(); fireEvent.click(within(questionGroup(1)).getByLabelText("答錯"));
     const clientForm = screen.getByLabelText("個案").closest("form")!;
     expect(fireEvent.submit(clientForm)).toBe(false);
   });

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { ClientJsonReadError, fetchJsonWithTimeout, fetchWithTimeout } from "@/lib/api/client-fetch";
 import { careDiaryDataSchema, diaryActionSchema, diaryRecordSchema, observationsFromForm, type DiaryRecord } from "@/lib/care-diary/schema";
+import { isDiaryShiftTimeAligned } from "@/lib/care-diary/shift-time";
 import { DiaryObservationsFields } from "./diary-observations";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
@@ -52,6 +53,16 @@ function DiaryEditor({ record, sourceRevision, pending, locked, enabled, onSave,
       const form = new FormData(event.currentTarget);
       const fields = careDiaryDataSchema.safeParse({ shift: form.get("shift"), care_item: form.get("care_item"), note: form.get("note"), follow_up: form.get("follow_up"), abnormal: form.get("abnormal") === "on", observations: observationsFromForm(form) });
       if (!fields.success) { setError("請確認照顧項目與本次觀察結果，內容尚未送出。"); return; }
+      if (!isDiaryShiftTimeAligned(fields.data.shift, record.occurred_at)) {
+        const timeIsMorning = isDiaryShiftTimeAligned("morning", record.occurred_at);
+        const timeIsAfternoon = isDiaryShiftTimeAligned("afternoon", record.occurred_at);
+        const message = timeIsMorning ? "這筆紀錄發生在上午，請選上午或全日；若時間有誤請聯繫主管。"
+          : timeIsAfternoon ? "這筆紀錄發生在下午，請選下午或全日；若時間有誤請聯繫主管。"
+            : "這筆紀錄的發生時間無法辨識，請聯繫主管核對。";
+        validation.validate(event.currentTarget, { shift: message });
+        setError(null);
+        return;
+      }
       setError(null);
       if (await onSave(fields.data)) draft.saved();
     } catch { setError("請檢查本次觀察結果，內容仍保留在畫面，尚未送出。");

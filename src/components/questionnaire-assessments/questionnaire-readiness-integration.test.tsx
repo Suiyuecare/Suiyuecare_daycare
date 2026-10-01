@@ -26,6 +26,7 @@ import { AppShell } from "@/components/app/app-shell";
 import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
 import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
 import { clearQuestionnairePendingOnLogout } from "@/lib/questionnaire-assessments/pending";
+import { QUESTIONNAIRE_FORMS } from "@/lib/questionnaire-assessments/forms";
 import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
 import { context, deferred, formKeys, ids, readinessEnvelope, savedFixture } from "./questionnaire-readiness-test-fixtures";
 
@@ -54,6 +55,7 @@ function tree(fixture = savedFixture(), actor: TenantContext = context, canManag
 }
 const panel = () => screen.getByRole("region", { name: "已保存評估完成檢查" });
 const inspect = () => screen.getByRole("button", { name: "檢查已保存評估" });
+const firstQuestionGroup = () => screen.getByRole("radiogroup", { name: `1. ${QUESTIONNAIRE_FORMS.spmsq.questions[0]!.prompt}` });
 function readiness(fixture = savedFixture(), actor = context, superseded = false) {
   network.mockImplementation(async input => Response.json(readinessEnvelope(String(input), fixture.draft, actor, superseded)));
 }
@@ -71,11 +73,11 @@ function hiddenClinical() {
   expect(screen.queryByRole("region", { name: "量表計分預覽" })).not.toBeInTheDocument();
 }
 function changeOriginalAnswers() {
-  fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+  fireEvent.click(within(firstQuestionGroup()).getByLabelText("答錯"));
   fireEvent.change(screen.getByLabelText(/補充觀察與後續事項/u), { target: { value: "SYNTHETIC_UNSAVED_KEEP" } });
 }
 function preservedAnswers() {
-  expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
+  expect(within(firstQuestionGroup()).getByLabelText("答錯")).toBeChecked();
   expect(screen.getByDisplayValue("SYNTHETIC_UNSAVED_KEEP")).toBeInTheDocument();
     expect(inspect()).toBeDisabled();
 }
@@ -93,10 +95,35 @@ function withClientB(fixture = savedFixture()) {
 }
 
 describe("questionnaire readiness with the real workspace and authority shell", () => {
+  it("adopts a newer verified same-client snapshot when no answers or write are pending", () => {
+    const fixture = savedFixture();
+    const view = render(tree(fixture));
+    expect(screen.queryByRole("region", { name: "評估紀錄狀態" })).not.toBeInTheDocument();
+    const incoming = newerFixture();
+    view.rerender(tree(incoming));
+    expect(screen.getByText("修訂草稿 v2")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("SYNTHETIC_NEW_SSR_NOTE")).toBeInTheDocument();
+    expect(screen.queryByText(/資料已有更新；本次填寫與原筆待確認操作已保留/u)).not.toBeInTheDocument();
+    expect(network).not.toHaveBeenCalled();
+  });
+  it("does not show a retained-work warning after a clean demo snapshot refresh", () => {
+    const fixture = savedFixture();
+    const demoActor = { ...context, demo: true };
+    const demoFixture = { ...fixture, snapshot: { ...fixture.snapshot, demo: true,
+      clients: fixture.snapshot.clients.map(client => ({ ...client, latest: null, assessments: [], assessmentTotal: 0 })) } };
+    const view = render(tree(demoFixture, demoActor, false));
+    expect(screen.queryByRole("region", { name: "評估紀錄狀態" })).not.toBeInTheDocument();
+    vi.setSystemTime(Date.now() + 1);
+    view.rerender(tree({ ...demoFixture, snapshot: { ...demoFixture.snapshot, generatedAt: new Date().toISOString() } }, demoActor, false));
+    expect(screen.queryByText(/資料已有更新；本次填寫與原筆待確認操作已保留/u)).not.toBeInTheDocument();
+    expect(screen.getByText("展示用合成個案；不能寫入真實評估資料。")).toBeInTheDocument();
+    expect(network).not.toHaveBeenCalled();
+  });
   it.each(["identical clone", "new saved baseline"])("preserves dirty answers and original revision target after SSR %s", async update => {
     const fixture = savedFixture(); const view = render(tree(fixture)); changeOriginalAnswers();
     const incoming = update === "identical clone" ? { ...fixture, snapshot: structuredClone(fixture.snapshot) } : newerFixture();
     view.rerender(tree(incoming)); preservedAnswers();
+    if (update === "new saved baseline") expect(screen.getByText(/資料已有更新；本次填寫與原筆待確認操作已保留/u)).toBeInTheDocument();
     expect(screen.queryByDisplayValue("SYNTHETIC_NEW_SSR_NOTE")).not.toBeInTheDocument();
     expect(screen.getByText("修訂草稿 v1")).toBeInTheDocument(); expect(network).not.toHaveBeenCalled();
     network.mockResolvedValue(Response.json({ errors: [] }, { status: 503 }));
@@ -115,6 +142,7 @@ describe("questionnaire readiness with the real workspace and authority shell", 
     const first = network.mock.calls[0]![1]!;
     view.rerender(tree(update === "identical clone" ? { ...fixture, snapshot: structuredClone(fixture.snapshot) } : newerFixture()));
     preservedAnswers(); expect(screen.getByRole("button", { name: "以相同內容重試" })).toBeInTheDocument();
+    if (update === "new saved baseline") expect(screen.getByText(/資料已有更新；本次填寫與原筆待確認操作已保留/u)).toBeInTheDocument();
     expect(network).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "以相同內容重試" }));
     await waitFor(() => expect(network).toHaveBeenCalledTimes(2));
@@ -192,7 +220,7 @@ describe("questionnaire readiness with the real workspace and authority shell", 
   });
   it.each(["answer", "date", "context", "note"])("hides a confirmed report immediately after a dirty %s change", async field => {
     const fixture = savedFixture(); readiness(fixture); render(tree(fixture)); await check();
-    if (field === "answer") fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+    if (field === "answer") fireEvent.click(within(firstQuestionGroup()).getByLabelText("答錯"));
     else if (field === "date") fireEvent.change(screen.getByLabelText("評估日期"), { target: { value: "2026-09-25" } });
     else if (field === "context") fireEvent.change(screen.getByLabelText(/教育程度/u), { target: { value: "beyond_high_school" } });
     else fireEvent.change(screen.getByLabelText(/補充觀察與後續事項/u), { target: { value: "SYNTHETIC_UNSAVED_NOTE" } });

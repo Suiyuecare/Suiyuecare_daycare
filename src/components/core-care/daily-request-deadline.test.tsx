@@ -26,6 +26,10 @@ function open(spec: typeof specs[number]) {
   const dialog = screen.getByRole("dialog");
   const field = within(dialog).getByLabelText(spec.field);
   fireEvent.change(field, { target: { value: spec.value } });
+  if (spec.kind === "diary") {
+    fireEvent.change(within(dialog).getByLabelText("班別 *"), { target: { value: "full_day" } });
+    fireEvent.change(within(dialog).getByLabelText("發生日期與時間 *"), { target: { value: "2026-09-10T09:00" } });
+  }
   return { dialog, field, form: dialog.querySelector("form")! };
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }

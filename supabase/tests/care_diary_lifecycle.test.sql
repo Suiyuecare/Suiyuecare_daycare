@@ -1,5 +1,8 @@
 begin;
 select plan(43);
+-- Lifecycle behavior is independent of the wall-clock half-day. The dedicated
+-- shift-time test covers morning/afternoon boundaries, so these writes use
+-- full_day to avoid time-of-day-dependent fixture failures.
 insert into auth.users(id,aud,role,email,email_confirmed_at,created_at,updated_at) values
  ('b0100000-0000-4000-8000-000000000001','authenticated','authenticated','diary-owner@example.invalid',now()-interval '1 day',now()-interval '1 day',now());
 insert into auth.identities(id,provider_id,user_id,identity_data,provider) values
@@ -36,18 +39,18 @@ select ok(not private.care_diary_fields_valid('{"shift":"morning","care_item":"c
 set local role authenticated;
 select set_config('request.jwt.claims',jsonb_build_object('sub','b0100000-0000-4000-8000-000000000001','session_id','b0300000-0000-4000-8000-000000000001','aud','authenticated','role','authenticated','aal','aal2','email','diary-owner@example.invalid','is_anonymous',false,'iat',floor(extract(epoch from clock_timestamp())),'exp',floor(extract(epoch from clock_timestamp()+interval '30 minutes')),'amr',jsonb_build_array(jsonb_build_object('method','oauth','timestamp',current_setting('test.diary_amr')::bigint),jsonb_build_object('method','totp','timestamp',current_setting('test.diary_amr')::bigint)))::text,true);
 select ok(public.is_executive_login_allowed(),'real admission is enforced with synthetic pinned Google identity');
-select lives_ok($$select * from public.record_care_diary_quick_draft('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000001','b0800000-0000-4000-8000-000000000001',now()-interval '1 hour','{"shift":"morning","care_item":"care","note":"observed","abnormal":false,"observations":{"meal":{"state":"unknown"},"water":{"state":"observed","value":100},"toileting":{"state":"not_applicable"},"activity":{"state":"unknown"}}}','b1000000-0000-4000-8000-000000000001')$$,'quick draft creates atomically');
+select lives_ok($$select * from public.record_care_diary_quick_draft('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000001','b0800000-0000-4000-8000-000000000001',now()-interval '1 hour','{"shift":"full_day","care_item":"care","note":"observed","abnormal":false,"observations":{"meal":{"state":"unknown"},"water":{"state":"observed","value":100},"toileting":{"state":"not_applicable"},"activity":{"state":"unknown"}}}','b1000000-0000-4000-8000-000000000001')$$,'quick draft creates atomically');
 select is(pg_temp.diary_snapshot()->'records'->0->>'status','draft','new diary is draft');
 select throws_ok($$select pg_temp.diary_action('sign',1)$$,'23514','diary transition is not permitted','cannot skip submission');
-select throws_ok($$select pg_temp.diary_action('edit',2,99,'{"shift":"morning","care_item":"care","note":"edited","abnormal":false}')$$,'40001','diary version conflict','stale write is rejected');
-select is(pg_temp.diary_action('edit',3,null,'{"shift":"morning","care_item":"care","note":"edited","abnormal":false}')->'record'->>'version','2','edit creates revision');
+select throws_ok($$select pg_temp.diary_action('edit',2,99,'{"shift":"full_day","care_item":"care","note":"edited","abnormal":false}')$$,'40001','diary version conflict','stale write is rejected');
+select is(pg_temp.diary_action('edit',3,null,'{"shift":"full_day","care_item":"care","note":"edited","abnormal":false}')->'record'->>'version','2','edit creates revision');
 select is(jsonb_array_length(pg_temp.diary_snapshot()->'records'),1,'one event has one current diary');
 select is(jsonb_array_length(pg_temp.diary_snapshot()->'history'),2,'old revision retained');
 select is((public.mutate_care_diary('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000001','edit',
- (pg_temp.diary_snapshot()->'history'->0->>'id')::uuid,1,'{"shift":"morning","care_item":"care","note":"edited","abnormal":false}',null,
+ (pg_temp.diary_snapshot()->'history'->0->>'id')::uuid,1,'{"shift":"full_day","care_item":"care","note":"edited","abnormal":false}',null,
  'b0900000-0000-4000-8000-000000000003')->>'replayed')::boolean,true,'identical operation replays after the current version advanced');
 select throws_ok($$select public.mutate_care_diary('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000001','edit',
- (pg_temp.diary_snapshot()->'history'->0->>'id')::uuid,1,'{"shift":"morning","care_item":"care","note":"different","abnormal":false}',null,
+ (pg_temp.diary_snapshot()->'history'->0->>'id')::uuid,1,'{"shift":"full_day","care_item":"care","note":"different","abnormal":false}',null,
  'b0900000-0000-4000-8000-000000000003')$$,'23505','diary idempotency conflict','same key different content is blocked');
 select is(jsonb_array_length(pg_temp.diary_snapshot()->'history'),2,'failed or replayed operations create no additional revision');
 select is(pg_temp.diary_action('submit',4)->'record'->>'status','submitted','submission is not a signature');
@@ -55,7 +58,7 @@ select is(pg_temp.diary_snapshot()->'records'->0->'signed_at','null'::jsonb,'sub
 select throws_ok($$select pg_temp.diary_action('reopen',11,null,null,'')$$,'22023','correction reason is required','return to draft needs a reason');
 select is(pg_temp.diary_action('reopen',12,null,null,'Fix draft before signing')->'record'->>'status','draft','submitted may return to a new draft without a signature');
 select is(pg_temp.diary_action('submit',13)->'record'->>'status','submitted','returned draft can be resubmitted');
-select throws_ok($$select pg_temp.diary_action('edit',5,null,'{"shift":"morning","care_item":"care","note":"overwrite","abnormal":false}')$$,'23514','diary transition is not permitted','submitted content is frozen');
+select throws_ok($$select pg_temp.diary_action('edit',5,null,'{"shift":"full_day","care_item":"care","note":"overwrite","abnormal":false}')$$,'23514','diary transition is not permitted','submitted content is frozen');
 select is(pg_temp.diary_action('sign',6)->'record'->>'status','signed','explicit sign finalizes');
 select ok(pg_temp.diary_snapshot()->'records'->0->>'content_hash' ~ '^[a-f0-9]{64}$','signature stores content hash');
 select throws_ok($$select pg_temp.diary_action('reopen',14,null,null,'Try to overwrite signed')$$,'23514','diary transition is not permitted','signed records cannot use the return-to-draft shortcut');
@@ -69,13 +72,13 @@ select is(jsonb_array_length(pg_temp.diary_snapshot()->'records'),1,'all edit su
 select throws_ok($$select public.care_diary_snapshot('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000099','b0800000-0000-4000-8000-000000000001')$$,'42501','diary read is not permitted','cross branch direct RPC denied');
 -- An explicitly concerning observation may be saved as an incomplete draft,
 -- but completion must never silently lose the worker's concern.
-select lives_ok($$select * from public.record_care_diary_quick_draft('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000001','b0800000-0000-4000-8000-000000000001',now()-interval '1 minute','{"shift":"morning","care_item":"concern","note":"","abnormal":false,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}','b1000000-0000-4000-8000-000000000002')$$,'incomplete concerning observation can be kept as draft');
+select lives_ok($$select * from public.record_care_diary_quick_draft('b0500000-0000-4000-8000-000000000001','b0600000-0000-4000-8000-000000000001','b0800000-0000-4000-8000-000000000001',now()-interval '1 minute','{"shift":"full_day","care_item":"concern","note":"","abnormal":false,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}','b1000000-0000-4000-8000-000000000002')$$,'incomplete concerning observation can be kept as draft');
 select throws_ok($$select pg_temp.diary_action('submit',20)$$,'23514','diary completion fields are missing','concern cannot complete without note, follow-up and human abnormal confirmation');
-select lives_ok($$select pg_temp.diary_action('edit',21,null,'{"shift":"morning","care_item":"concern","note":"Specific observed concern","abnormal":true,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}')$$,'concern draft allows incremental completion');
+select lives_ok($$select pg_temp.diary_action('edit',21,null,'{"shift":"full_day","care_item":"concern","note":"Specific observed concern","abnormal":true,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}')$$,'concern draft allows incremental completion');
 select throws_ok($$select pg_temp.diary_action('submit',22)$$,'23514','diary completion fields are missing','concern still needs follow-up');
-select lives_ok($$select pg_temp.diary_action('edit',23,null,'{"shift":"morning","care_item":"concern","note":"Specific observed concern","follow_up":"Inform responsible nurse","abnormal":false,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}')$$,'note and follow-up can be saved without automatic abnormal inference');
+select lives_ok($$select pg_temp.diary_action('edit',23,null,'{"shift":"full_day","care_item":"concern","note":"Specific observed concern","follow_up":"Inform responsible nurse","abnormal":false,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}')$$,'note and follow-up can be saved without automatic abnormal inference');
 select throws_ok($$select pg_temp.diary_action('submit',24)$$,'23514','diary completion fields are missing','human must explicitly confirm abnormal flag, not inferred by code');
-select lives_ok($$select pg_temp.diary_action('edit',25,null,'{"shift":"morning","care_item":"concern","note":"Specific observed concern","follow_up":"Inform responsible nurse","abnormal":true,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}')$$,'fully reviewed concerning observation remains a draft until submitted');
+select lives_ok($$select pg_temp.diary_action('edit',25,null,'{"shift":"full_day","care_item":"concern","note":"Specific observed concern","follow_up":"Inform responsible nurse","abnormal":true,"observations":{"meal":{"state":"unknown"},"water":{"state":"unknown"},"toileting":{"state":"observed","value":"concern"},"activity":{"state":"unknown"}}}')$$,'fully reviewed concerning observation remains a draft until submitted');
 select is(pg_temp.diary_action('submit',26)->'record'->>'status','submitted','complete concern can be submitted');
 reset role;
 insert into public.roles(id,organization_id,role_key,name,is_active) values

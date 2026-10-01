@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=2",
     "test:database": "node scripts/test-database.mjs",
     "test:database:compile": "node scripts/test-database.mjs --compile-only",
     "test:database:native": "node scripts/test-native-database.mjs",

@@ -34,7 +34,8 @@ const snapshot: QuestionnaireSnapshot = { formKey: "spmsq", generatedAt: "2026-0
   clients: [{ clientId, displayName: "合成個案", serviceStatus: "active", latest: null, assessments: [], assessmentTotal: 0 }] };
 const show = () => render(<AppShell context={context} navigation={[]}><QuestionnaireAssessmentsWorkspace context={context} assessorName="測試護理人員" canManage form={QUESTIONNAIRE_FORMS.spmsq}
   loadError={false} pageTitle="SPMSQ" selectedClientId={clientId} snapshot={{ ...snapshot, generatedAt: new Date().toISOString() }} /></AppShell>);
-const markDirty = () => fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+const firstQuestionGroup = () => screen.getByRole("radiogroup", { name: `1. ${QUESTIONNAIRE_FORMS.spmsq.questions[0]!.prompt}` });
+const markDirty = () => fireEvent.click(within(firstQuestionGroup()).getByLabelText("答錯"));
 const refresh = () => screen.getByRole("button", { name: "重新整理" });
 const branches = () => screen.getAllByRole("button", { name: "測試機構，目前分支：甲分支" });
 const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
@@ -83,7 +84,7 @@ describe("questionnaire draft leases with the actual application shell", () => {
     fireEvent.click(link);
     expect(screen.getByRole("dialog", { name: "放棄尚未保存的修改？" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
-    expect(screen.getByRole("radiogroup", { name: "第 1 題" })).toBeVisible();
+    expect(firstQuestionGroup()).toBeVisible();
     expect(stubs.replace).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
 import { ClientJsonReadError, fetchJsonWithTimeout } from "@/lib/api/client-fetch";
@@ -90,6 +90,7 @@ function QuestionnaireEditor({
   onLockChange: (locked: boolean) => void;
 }) {
   const latest = baseline;
+  const questionIdPrefix = useId();
   const journal = useQuestionnairePending(scope);
   const recovered = (journal.operation?.input.request ?? journal.confirmed[0]?.operation.input.request) as EditorRequest | undefined;
   const [answers, setAnswers] = useState(() => recovered?.answers ?? initialAnswers(form, latest));
@@ -364,9 +365,11 @@ function QuestionnaireEditor({
         const reasonId = `${form.key}-${question.id}-reason`;
         const reasonHintId = `${reasonId}-hint`;
         const reasonErrorId = `${reasonId}-error`;
+        const promptId = `${questionIdPrefix}-${question.id}-prompt`;
+        const helpId = `${questionIdPrefix}-${question.id}-help`;
         return <section className={styles.questionCard} key={question.id}>
-          <h3 className={styles.questionTitle}>{index + 1}. {question.prompt}</h3>
-          {question.helpText ? <p className={styles.questionHelp}>{question.helpText}</p> : null}
+          <h3 className={styles.questionTitle} id={promptId}>{index + 1}. {question.prompt}</h3>
+          {question.helpText ? <p className={styles.questionHelp} id={helpId}>{question.helpText}</p> : null}
           <div className={styles.questionActions}>
             <span>{answer.state === "answered" ? "已作答" : answer.state === "not_applicable" ? "不適用" : "未填"}</span>
             {answer.state !== "missing" ? <button
@@ -380,7 +383,8 @@ function QuestionnaireEditor({
               type="button"
             >清除答案</button> : null}
           </div>
-          <div className={styles.choiceGrid} role="radiogroup" aria-label={`第 ${index + 1} 題`}>
+          <div className={styles.choiceGrid} role="radiogroup" aria-labelledby={promptId}
+            aria-describedby={question.helpText ? helpId : undefined}>
             {question.choices.map((choice) => <label className={styles.choice} key={choice.value}>
               <input
                 checked={value === choice.value}
@@ -466,13 +470,13 @@ function QuestionnaireEditor({
       </> : null}
     </details>
     </fieldset>
-    <div className={styles.actions}>
+    <div className={`${styles.actions}${!readOnly && canManage && scope ? ` ${styles.mobileSaveActions}` : ""}`}>
       {!readOnly ? <button className="button button--primary" disabled={!canManage || !scope || pending || checking || committed || reading || viewTransitionPending} type="submit">
         {pending ? "保存中…" : retryPending ? "以相同內容重試" : latest ? "保存修訂版本" : "保存本次評估"}
       </button> : <span>{latest ? "歷史版本僅供查看；修訂請選擇該次評估的最新草稿。" : "此量表僅供檢視，尚無已保存紀錄。"}</span>}
       {!canManage ? <span>目前帳號只有檢視權限</span> : null}
+      {message ? <p aria-live="polite" className={styles.message} role="status">{message}</p> : null}
     </div>
-    {message ? <p aria-live="polite" className={styles.message} role="status">{message}</p> : null}
     {latest ? <p className={styles.message}>
       最近保存：{latest.authorDisplayName}・{new Intl.DateTimeFormat("zh-TW", {
         timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short",
@@ -536,6 +540,26 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
     permittedFormAttribute: "data-questionnaire-write", onDiscard: () => {
       setDirty(false); setEditorEpoch((current) => current + 1);
     } });
+
+  // A newer verified SSR snapshot is ordinary background refresh when there
+  // is no local work to preserve. Rebase the clean editor before paint; never
+  // replace unsent answers, a write attempt, or an exact-history readback.
+  useLayoutEffect(() => {
+    if (originalSourceKey.current === sourceKey || dirty || locked || reading || exit.open ||
+        journal.operation || journal.confirmed.length > 0 || journal.navigationBlocked ||
+        (scope && !isQuestionnairePendingSourceAdmitted(scope, sourceAt))) return;
+    controller.current?.abort(); requestSequence.current += 1;
+    setAssessments(client.assessments ?? []);
+    setTotal(client.assessmentTotal ?? (client.latest ? 1 : 0));
+    setCursor(client.nextAssessmentCursor ?? null);
+    setBaseline(client.latest);
+    setSelectedKey(client.latest?.assessmentKey ?? "");
+    setReadOnly(!canManage);
+    setVersions([]); setVersionTotal(0); setBeforeVersion(null);
+    setReadError(""); setFeedback(""); setReloadKey(null);
+    setEditorEpoch((current) => current + 1);
+    originalSourceKey.current = sourceKey;
+  }, [sourceKey, sourceAt, scope, client, canManage, dirty, locked, reading, exit.open, journal]);
 
   function requestSwitch(operation: () => void) {
     if (!ownerCurrent() || locked || reading || journal.operation || journal.confirmed.length) return;
@@ -638,9 +662,11 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
     (versions[0]?.assessmentKey === selectedKey ? versions[0] : client.latest?.assessmentKey === selectedKey ? client.latest : null);
   const disabled = locked || reading || Boolean(journal.operation) || journal.confirmed.length > 0;
   const confirmedKey = journal.confirmed[0]?.receipt.assessmentKey ?? null;
+  const retainedSource = originalSourceKey.current !== sourceKey &&
+    (dirty || locked || exit.open || Boolean(journal.operation) || journal.confirmed.length > 0 || journal.navigationBlocked);
   return <>
-    {exit.notice || reading || readError || feedback || reloadKey || confirmedKey || originalSourceKey.current !== sourceKey ? <section className={styles.recovery} aria-label="評估紀錄狀態">
-      {originalSourceKey.current !== sourceKey ? <p role="status">資料已有更新；本次填寫與原筆待確認操作已保留。請先完成保存或回查，再查看版本歷程。</p> : null}
+    {exit.notice || reading || readError || feedback || reloadKey || confirmedKey || retainedSource ? <section className={styles.recovery} aria-label="評估紀錄狀態">
+      {retainedSource ? <p role="status">資料已有更新；本次填寫與原筆待確認操作已保留。請先完成保存或回查，再查看版本歷程。</p> : null}
       {exit.notice ? <p role="status">{exit.notice}</p> : null}
       {reading ? <p role="status">正在讀取評估紀錄…</p> : null}
       {readError ? <p role="alert">{readError} <button className="button button--quiet" disabled={disabled} onClick={() => retryRead.current?.()} type="button">重新讀取歷程</button></p> : null}

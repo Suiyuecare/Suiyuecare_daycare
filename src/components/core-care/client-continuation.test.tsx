@@ -67,8 +67,26 @@ describe("select once and continue the authorized daily workflow", () => {
     render(continuation({ selectedClientId: client.clientId, clients: [client], selectedShift: "afternoon", page: 6 }));
     const steps = within(screen.getByRole("navigation", { name: "個案照顧三步驟" })).getAllByRole("link");
     for (const link of steps) expect(link.getAttribute("href")).toContain("&shift=afternoon");
-    expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/daily-care/care-diary?date=2026-09-10&shift=afternoon");
+    expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/daily-care/care-diary?date=2026-09-10");
     expect(screen.getByRole("link", { name: /3\. 日誌/u })).toHaveTextContent("當日有簽署・請核對班別");
+  });
+  it("identifies attendance as a date-level record while preserving confirmed work context", () => {
+    render(continuation({ selectedClientId: second.clientId, selectedShift: "morning" }));
+    expect(screen.getByText(/目前班別：上午班（出勤按當日）/)).toBeVisible();
+    const steps = within(screen.getByRole("navigation", { name: "個案照顧三步驟" })).getAllByRole("link");
+    for (const link of steps) expect(link.getAttribute("href")).toContain("&shift=morning");
+    expect(steps[0]).toHaveTextContent("出勤");
+    expect(steps[0]).not.toHaveTextContent("上午出勤");
+  });
+  it("clears the first client's shift when switching to a different client", () => {
+    const first = snapshot.clients[0]!;
+    render(continuation({ selectedClientId: first.clientId, selectedShift: "morning", page: 6 }));
+    expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/daily-care/care-diary?date=2026-09-10");
+    cleanup();
+    render(continuation({ selectedShift: "morning", page: 6 }));
+    fireEvent.change(screen.getByRole("combobox", { name: "選擇個案" }), { target: { value: second.clientId } });
+    expect(screen.getByRole("link", { name: "選定這位個案" })).toHaveAttribute("href", `/app/staff/daily-care/care-diary?date=2026-09-10&client=${second.clientId}`);
+    expect(screen.queryByText(/目前班別：上午班/)).not.toBeInTheDocument();
   });
   it("does not expose unavailable source status or an actionable link", () => {
     render(continuation({ selectedClientId: second.clientId, sourceAccess: { ...snapshot.sourceAccess, measurements: false } }));

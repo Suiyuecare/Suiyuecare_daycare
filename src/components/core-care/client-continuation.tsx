@@ -108,6 +108,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
   const allowedClients = sourceAccess.clients ? clients : [];
   const selected = allowedClients.find((client) => client.clientId === selectedClientId);
   const chosen = allowedClients.find((client) => client.clientId === choice);
+  const shiftLabel = selected && selectedShift ? { morning: "上午班", afternoon: "下午班", full_day: "全日工作" }[selectedShift] : null;
 
   if (!sourceAccess.clients) return <section className="callout core-care-callout" role="status">
     <p>目前沒有個案名單查看權限。請聯絡主管確認授權；這不表示今天沒有個案。</p>
@@ -115,14 +116,14 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
 
   if (selectedClientId !== undefined && !selected) return <section className="callout core-care-callout" role="alert">
     <p>無法使用指定個案。請重新選擇目前授權的個案，系統不會自動改用其他人。</p>
-    <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate, undefined, selectedShift)} loadingLabel="個案選擇" prefetch={false}>重新選擇個案</NavigationLink>
+    <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate)} loadingLabel="個案選擇" prefetch={false}>重新選擇個案</NavigationLink>
   </section>;
 
   return <section className="panel core-client-continuation" aria-labelledby={`${selectId}-heading`}>
     <div className="panel__header">
       <div className="panel__title"><h2 id={`${selectId}-heading`}>{selected ? `${selected.displayName}的接續工作` : "先選定個案，再接續記錄"}</h2>
-        <p>{serviceDate}（臺北時間）{selectedShift ? ` · ${{ morning: "上午", afternoon: "下午", full_day: "全日" }[selectedShift]}` : ""}{selected ? ` · ${selected.clientCode}` : " · 出勤、量測、日誌沿用同一位個案與日期"}</p></div>
-      {selected ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate, undefined, selectedShift)} loadingLabel="個案選擇" prefetch={false}>更換個案</NavigationLink> : null}
+        <p>{serviceDate}（臺北時間）{shiftLabel ? ` · 目前班別：${shiftLabel}${page === 46 ? "（出勤按當日）" : ""}` : page === 46 ? " · 出勤按當日" : ""}{selected ? ` · ${selected.clientCode}` : " · 出勤、量測、日誌沿用同一位個案與日期"}</p></div>
+      {selected ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate)} loadingLabel="個案選擇" prefetch={false}>更換個案</NavigationLink> : null}
     </div>
     <div className="panel__body">
       {!selected ? allowedClients.length ? <div className="core-client-picker">
@@ -130,7 +131,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
           <option value="">請選擇目前要照顧的個案</option>
           {allowedClients.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}（{client.clientCode}）</option>)}
         </select></label>
-        {chosen ? <NavigationLink className="button button--primary" href={dailyWorkflowHref(page, serviceDate, chosen.clientId, selectedShift)} loadingLabel={`${chosen.displayName}的工作清單`} prefetch={false}>選定這位個案</NavigationLink>
+        {chosen ? <NavigationLink className="button button--primary" href={dailyWorkflowHref(page, serviceDate, chosen.clientId)} loadingLabel={`${chosen.displayName}的工作清單`} prefetch={false}>選定這位個案</NavigationLink>
           : <button className="button button--primary" type="button" disabled>請先選擇個案</button>}
       </div> : <p>這個日期沒有可存取個案。請確認服務日期、分支與個案指派。</p> : null}
       <nav aria-label="個案照顧三步驟"><ol className="core-workflow-steps">

@@ -17,6 +17,7 @@ import { clearUnsavedChangesOnLogout } from "@/lib/navigation/unsaved-changes";
 import { parseQuestionnaireMutation } from "@/lib/questionnaire-assessments/mutation-contract";
 import { clearQuestionnairePendingOnLogout, getQuestionnairePending } from "@/lib/questionnaire-assessments/pending";
 import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState, questionnaireViewAuthority } from "@/lib/questionnaire-assessments/readiness-view";
+import { QUESTIONNAIRE_FORMS } from "@/lib/questionnaire-assessments/forms";
 import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
 import { context, deferred, ids, savedFixture } from "./questionnaire-readiness-test-fixtures";
 
@@ -50,12 +51,13 @@ function tree(fixture = savedFixture(), current: TenantContext = actor, canManag
     assessorName={current.displayName} canManage={canManage} form={fixture.form} loadError={false}
     pageTitle={fixture.form.title} selectedClientId={ids.clientId} snapshot={fixture.snapshot} /></AppShell>;
 }
+const firstQuestionGroup = () => screen.getByRole("radiogroup", { name: `1. ${QUESTIONNAIRE_FORMS.spmsq.questions[0]!.prompt}` });
 function changeAnswers() {
-  fireEvent.click(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯"));
+  fireEvent.click(within(firstQuestionGroup()).getByLabelText("答錯"));
   fireEvent.change(screen.getByLabelText(/補充觀察與後續事項/u), { target: { value: "SYNTHETIC_ORIGINAL_WIRE_NOTE" } });
 }
 function originalVisible() {
-  expect(within(screen.getByRole("radiogroup", { name: "第 1 題" })).getByLabelText("答錯")).toBeChecked();
+  expect(within(firstQuestionGroup()).getByLabelText("答錯")).toBeChecked();
   expect(screen.getByDisplayValue("SYNTHETIC_ORIGINAL_WIRE_NOTE")).toBeInTheDocument();
 }
 async function unknown() {

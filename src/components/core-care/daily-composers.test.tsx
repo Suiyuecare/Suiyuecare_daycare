@@ -16,7 +16,7 @@ beforeAll(() => {
   } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const clients = [
   { id: "a1111111-1111-4111-8111-111111111111", name: "合成個案甲", code: "SYN-01", attendance: null },
   { id: "a2222222-2222-4222-8222-222222222222", name: "合成個案乙", code: "SYN-02", attendance: null },
@@ -31,6 +31,7 @@ describe("care diary shift continuation", () => {
     fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("班別 *")).toHaveValue(shift);
+    fireEvent.change(within(dialog).getByLabelText("發生日期與時間 *"), { target: { value: `${date}T${shift === "afternoon" ? "13:00" : "09:00"}` } });
     fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成班別觀察" } });
     fireEvent.submit(dialog.querySelector("form")!); await within(dialog).findByRole("alert");
     expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).data.shift).toBe(shift);
@@ -39,6 +40,46 @@ describe("care diary shift continuation", () => {
     render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift={"night" as "morning"} enabled demo={false} />);
     expect(screen.getByRole("button", { name: "新增日誌草稿" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("不會自動改成全日");
+  });
+  it("requires a deliberate shift when the page has no confirmed shift", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    const dialog = screen.getByRole("dialog");
+    const shift = within(dialog).getByLabelText("班別 *");
+    expect(shift).toHaveValue("");
+    fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成全日觀察" } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(shift).toHaveFocus();
+    expect(shift).toHaveAttribute("aria-invalid", "true");
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(shift, { target: { value: "full_day" } });
+    fireEvent.change(within(dialog).getByLabelText("發生日期與時間 *"), { target: { value: `${date}T09:00` } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    await within(dialog).findByRole("alert");
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).data.shift).toBe("full_day");
+  });
+  it("does not invent a time for a past service day or the opposite shift", () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-02T05:00:00Z"));
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    expect(within(screen.getByRole("dialog")).getByLabelText("發生日期與時間 *")).toHaveValue("");
+  });
+  it("keeps an opposite-shift event local until the actual time is corrected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    const dialog = screen.getByRole("dialog"); const form = dialog.querySelector("form")!;
+    const time = within(dialog).getByLabelText("發生日期與時間 *");
+    fireEvent.change(time, { target: { value: `${date}T13:00` } });
+    fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成班別觀察" } });
+    fireEvent.submit(form);
+    expect(time).toHaveFocus(); expect(time).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("上午班請填 12:00 前");
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(time, { target: { value: `${date}T11:00` } });
+    fireEvent.submit(form); await within(dialog).findByRole("alert");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
   it("does not reset the diary shift or fields when confirmation is cancelled", () => {
     const spec = specs[2]; mount(spec.kind); const { dialog, field } = open(spec);
@@ -66,6 +107,7 @@ function open(spec: typeof specs[number]) {
   const form = dialog.querySelector("form")!;
   const field = within(dialog).getByLabelText(spec.field);
   fireEvent.change(field, { target: { value: spec.value } });
+  if (spec.kind === "diary") fireEvent.change(within(dialog).getByLabelText("班別 *"), { target: { value: "full_day" } });
   fireEvent.change(within(dialog).getByLabelText(spec.time), { target: { value: `${date}T09:10` } });
   return { dialog, form, field };
 }

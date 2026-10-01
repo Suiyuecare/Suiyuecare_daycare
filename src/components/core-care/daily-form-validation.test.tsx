@@ -24,6 +24,10 @@ function mount(spec: typeof specs[number], selected = true) {
   render(spec.kind === "attendance" ? <AttendanceComposer {...passed} /> : spec.kind === "vitals" ? <VitalSignComposer {...passed} /> : <CareDiaryComposer {...passed} />);
   fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
   const dialog = screen.getByRole("dialog");
+  if (spec.kind === "diary") {
+    fireEvent.change(within(dialog).getByLabelText("班別 *"), { target: { value: "full_day" } });
+    fireEvent.change(within(dialog).getByLabelText("發生日期與時間 *"), { target: { value: "2026-09-28T09:00" } });
+  }
   return { dialog, form: dialog.querySelector("form")! };
 }
 function expectFieldError(field: HTMLElement) {

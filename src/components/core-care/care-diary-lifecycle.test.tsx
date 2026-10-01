@@ -72,6 +72,31 @@ describe("care diary completion UI", () => {
     confirm("捨棄填寫並繼續");
     expect(window.confirm).not.toHaveBeenCalled(); expect(screen.queryByLabelText("照顧項目")).not.toBeInTheDocument();
   });
+  it("keeps a wrong-shift revision unsent and allows full-day for the original event time", async () => {
+    let revised: DiaryRecord | null = null;
+    const fetch = vi.fn().mockResolvedValueOnce(snapshot())
+      .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { data: DiaryRecord["fields"] };
+        revised = { ...record, id: nextId, version: 2, previous_version_id: id, fields: body.data };
+        return response(revised);
+      })
+      .mockImplementationOnce(async () => snapshot(revised!));
+    vi.stubGlobal("fetch", fetch); mount();
+    fireEvent.click(await screen.findByRole("button", { name: "繼續編輯草稿" }));
+    const shift = screen.getByLabelText("班別");
+    fireEvent.change(shift, { target: { value: "afternoon" } });
+    fireEvent.submit(shift.closest("form")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("這筆紀錄發生在上午，請選上午或全日");
+    expect(shift).toHaveAttribute("aria-invalid", "true");
+    expect(shift).toHaveFocus();
+    expect(shift).toHaveValue("afternoon");
+    expect(fetch).toHaveBeenCalledOnce();
+    fireEvent.change(shift, { target: { value: "full_day" } });
+    fireEvent.submit(shift.closest("form")!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    const submitted = JSON.parse(String((fetch.mock.calls[1]![1] as RequestInit).body)) as { data: DiaryRecord["fields"] };
+    expect(submitted.data.shift).toBe("full_day");
+  });
   it("offers returning submitted records to draft without signing", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(snapshot({ ...record, status: "submitted" }))); mount();
     expect(await screen.findByRole("button", { name: "退回草稿修訂" })).toBeEnabled();

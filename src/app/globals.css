@@ -359,6 +359,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .metric-card__value span { color: var(--ink-muted); font-size: .76rem; font-weight: 700; }
 .metric-card__foot { margin: 8px 0 0; color: var(--ink-faint); font-size: .72rem; line-height: 1.45; }
 .today-heading { align-items: center; margin-bottom: 20px; }
+.today-mobile-filter-toggle { display: none; }
 .today-counters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .today-counter { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; text-align: left; padding: 10px 14px; min-height: 64px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); cursor: pointer; }
 .today-counter > span { font-weight: 800; }
@@ -431,8 +432,20 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-client__status { grid-row: 2; grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
-  .today-counters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .today-counter { min-height: 64px; padding: 10px 12px; gap: 4px; }
+  .today-context-bar { display: none; }
+  .today-heading { gap: 8px; margin-bottom: 12px; }
+  .today-heading .page-heading__description { display: none; }
+  .today-heading h1 { font-size: 25px; }
+  .today-mobile-filter-toggle { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--ink); font-weight: 800; }
+  .today-mobile-filter-toggle span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .today-mobile-filter-toggle strong { margin-left: auto; font-size: 1.15rem; white-space: nowrap; }
+  .today-mobile-filter-toggle span:last-child { color: var(--brand-strong); }
+  .today-counters.today-filters--collapsed, .today-filter-controls.today-filters--collapsed { display: none; }
+  .today-list-panel > .panel__header { min-height: 48px; padding: 10px 16px; }
+  .today-panel-ready-note { display: none; }
+  .today-result:not(.today-result--restricted) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .today-counters { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: thin; gap: 8px; margin-bottom: 12px; padding-bottom: 4px; }
+  .today-counter { flex: 0 0 min(38vw, 150px); scroll-snap-align: start; min-height: 64px; padding: 10px 12px; gap: 4px; }
   .today-counter > strong { font-size: 1.5rem; }
   .today-counter > span { font-size: .9rem; }
   .today-client { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 18px 16px; }
@@ -712,6 +725,10 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .page-heading h1 { font-size: 30px; }
   .page-heading__actions { justify-content: stretch; }
   .page-heading__actions .button { flex: 1; }
+  .today-heading { flex-direction: row; align-items: center; }
+  .today-heading .page-heading__actions { justify-content: flex-end; flex: 0 0 auto; gap: 6px; }
+  .today-heading .page-heading__actions .button { flex: 0 0 auto; padding-inline: 10px; }
+  .today-heading .eyebrow { margin-bottom: 2px; font-size: .72rem; }
   .core-care-heading { align-items: stretch; }
   .core-date-filter { align-items: stretch; flex-direction: column; }
   .core-date-filter .field { min-width: 0; }

@@ -1,5 +1,7 @@
 begin;
 select plan(206);
+-- Routine access is independent of wall-clock half-day. Use full_day for
+-- diary writes; care_diary_shift_time_guard_test.sql owns noon-boundary cases.
 
 -- Real admission and all migrations; no legacy auth predicate override.
 select set_config('test.routine_amr',floor(extract(epoch from clock_timestamp()-interval '2 minutes'))::text,true);
@@ -77,7 +79,7 @@ create function pg_temp.draft(p_key uuid default 'c0900000-0000-4000-8000-000000
 returns boolean language sql security invoker as $$
  select replayed from public.record_care_diary_quick_draft('c0500000-0000-4000-8000-000000000001','c0600000-0000-4000-8000-000000000001',
  'c0800000-0000-4000-8000-000000000001',current_setting('test.routine_now')::timestamptz,
- jsonb_build_object('shift','morning','care_item','Synthetic routine','note',p_note,'abnormal',false),p_key); $$;
+ jsonb_build_object('shift','full_day','care_item','Synthetic routine','note',p_note,'abnormal',false),p_key); $$;
 create function pg_temp.diary() returns jsonb language sql security invoker as $$
  select public.care_diary_snapshot('c0500000-0000-4000-8000-000000000001','c0600000-0000-4000-8000-000000000001','c0800000-0000-4000-8000-000000000001'); $$;
 create function pg_temp.diary_action(p_action text,p_fields jsonb default null,p_version integer default null) returns jsonb language plpgsql security invoker as $$
@@ -158,14 +160,14 @@ select is((select count(*)::integer from public.care_records),1,'only core diary
 select is(jsonb_array_length(pg_temp.diary()->'records'),1,'diary RPC reads actual saved result');
 select is(pg_temp.diary()->'records'->0->>'status','draft','saved draft is not a signature');
 select throws_ok($$select pg_temp.draft('c0900000-0000-4000-8000-000000000003','changed')$$,'23505',null,'draft changed payload replay conflicts');
-select throws_ok($$select pg_temp.diary_action('edit','{"shift":"morning","care_item":"Synthetic routine","note":"Synthetic update","abnormal":false}',99)$$,'40001',null,'stale draft edit denied');
-select is(pg_temp.diary_action('edit','{"shift":"morning","care_item":"Synthetic routine","note":"Synthetic update","abnormal":false}')->'record'->>'version','2','ordinary edit creates new version');
+select throws_ok($$select pg_temp.diary_action('edit','{"shift":"full_day","care_item":"Synthetic routine","note":"Synthetic update","abnormal":false}',99)$$,'40001',null,'stale draft edit denied');
+select is(pg_temp.diary_action('edit','{"shift":"full_day","care_item":"Synthetic routine","note":"Synthetic update","abnormal":false}')->'record'->>'version','2','ordinary edit creates new version');
 select is(pg_temp.diary_action('submit')->'record'->>'status','submitted','ordinary submission creates unsigned submitted version');
 select is(pg_temp.diary()->'records'->0->'signed_by','null'::jsonb,'submission does not fabricate signer');
 select throws_ok($$select pg_temp.diary_action('sign')$$,'42501',null,'sign keeps original privileged assurance');
 select throws_ok($$select pg_temp.diary_action('correct')$$,'42501',null,'correct keeps original privileged assurance');
 select throws_ok($$select pg_temp.diary_action('reopen')$$,'42501',null,'reopen keeps original privileged assurance');
-select throws_ok($$select pg_temp.diary_action('edit','{"shift":"morning","care_item":"Synthetic routine","note":"Cannot overwrite","abnormal":false}')$$,'23514',null,'submitted record cannot be overwritten via edit');
+select throws_ok($$select pg_temp.diary_action('edit','{"shift":"full_day","care_item":"Synthetic routine","note":"Cannot overwrite","abnormal":false}')$$,'23514',null,'submitted record cannot be overwritten via edit');
 select throws_ok($$insert into public.care_records(organization_id,branch_id,client_id,record_key,category,occurred_at,created_by) values('c0500000-0000-4000-8000-000000000001','c0600000-0000-4000-8000-000000000001','c0800000-0000-4000-8000-000000000001',gen_random_uuid(),'staff/daily-care/care-diary',now(),'c0100000-0000-4000-8000-000000000002')$$,'42501',null,'direct row insert and forged creator rejected');
 select throws_ok($$update public.care_records set signed_by='c0100000-0000-4000-8000-000000000002',signed_at=now(),status='signed'$$,'42501',null,'direct forged signing denied');
 select throws_ok($$insert into public.measurements(organization_id,branch_id,client_id,measurement_kind,measured_at,numeric_value,idempotency_key) values('c0500000-0000-4000-8000-000000000001','c0600000-0000-4000-8000-000000000001','c0800000-0000-4000-8000-000000000001','temperature',now(),36.5,gen_random_uuid())$$,'42501',null,'routine helper adds no direct measurement insert privilege');

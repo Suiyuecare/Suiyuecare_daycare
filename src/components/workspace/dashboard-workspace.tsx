@@ -30,16 +30,17 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = 
   const updated = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
     .format(new Date(snapshot.generatedAt));
   return <>
-    <nav aria-label="所在位置" className="context-bar"><span>工作台</span><span aria-hidden="true">／</span><span aria-current="page" className="context-bar__crumb">今日工作</span></nav>
+    <nav aria-label="所在位置" className="context-bar today-context-bar"><span>工作台</span><span aria-hidden="true">／</span><span aria-current="page" className="context-bar__crumb">今日工作</span></nav>
     <header className="page-heading today-heading">
       <div><p className="eyebrow">{dayLabel}・更新於 {updated}{snapshot.demo ? "・合成示範" : ""}</p>
         <h1>今日工作</h1>
         <p className="page-heading__description">選個案，接續完成當日紀錄。</p></div>
-      <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
+      <div className="page-heading__actions">
+        <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
+        {canOpenReadiness ? <NavigationLink className="button button--secondary" aria-label="主管：檢查開站缺項"
+          loadingLabel="開站準備清單" href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>開站檢查</NavigationLink> : null}
+      </div>
     </header>
-    {canOpenReadiness ? <p className="callout"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
-      href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink>
-      <span>確認帳號、個案與當班安排。</span></p> : null}
     <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} />
     {roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
     <footer className="today-footer">

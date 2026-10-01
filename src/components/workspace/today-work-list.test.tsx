@@ -19,7 +19,21 @@ const snapshot = buildDemoDailySnapshot(date);
 const rows = buildTodayWorkRows(snapshot);
 
 describe("TodayWorkList", () => {
-  it("keeps date-level attendance independent of a sole confirmed roster shift", () => {
+  it("starts with a compact mobile list and reveals filters on request without changing its results", () => {
+    const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
+    const toggle = screen.getByRole("button", { name: /篩選個案與工作，待處理：5 位/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector("#today-filter-counters")).toHaveClass("today-filters--collapsed");
+    expect(container.querySelector("#today-filter-controls")).toHaveClass("today-filters--collapsed");
+    expect(container.querySelectorAll(".today-client")).toHaveLength(5);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelectorAll(".today-client")).toHaveLength(2);
+  });
+
+  it("keeps attendance date-level while carrying the sole confirmed shift into later work", () => {
     const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [], assignments: [{
       id: "morning-assignment", clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
       staffName: "合成照服員", serviceDate: date, shift: "morning", version: 1, state: "scheduled",
@@ -32,7 +46,8 @@ describe("TodayWorkList", () => {
     expect(container.querySelector(".today-client__shift")).toHaveTextContent("上午");
     expect(container.querySelector(".today-client__shift")).not.toHaveTextContent("全部班別");
     expect(screen.queryByRole("combobox", { name: /工作班別/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("link")).toHaveAttribute("href", expect.not.stringContaining("shift="));
+    expect(screen.getByRole("link")).toHaveAttribute("href",
+      `/app/staff/service-management/attendance?date=${date}&client=${snapshot.clients[0]!.clientId}&shift=morning`);
     expect(screen.getByRole("link")).toHaveAccessibleName(/確認出勤/);
     expect(screen.getByRole("link")).not.toHaveAccessibleName(/上午・/);
   });
@@ -50,6 +65,10 @@ describe("TodayWorkList", () => {
     expect(screen.queryByRole("combobox", { name: /工作班別/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /確認出勤/ })).toHaveAttribute("href",
       `/app/staff/service-management/attendance?date=${date}&client=${snapshot.clients[0]!.clientId}`);
+    fireEvent.change(screen.getByRole("combobox", { name: "班別" }), { target: { value: "afternoon" } });
+    expect(screen.getByRole("link", { name: /確認出勤/ })).toHaveAttribute("href",
+      `/app/staff/service-management/attendance?date=${date}&client=${snapshot.clients[0]!.clientId}&shift=afternoon`);
+    expect(screen.getByRole("link", { name: /確認出勤/ })).not.toHaveAccessibleName(/下午・/);
   });
 
   it("opens the only still-pending shift directly while keeping its status and destination scoped", () => {
@@ -311,6 +330,8 @@ describe("dashboard frontline / management boundary", () => {
     rerender(<DashboardWorkspace snapshot={snapshot} serviceDate={date} canOpenReadiness />);
     expect(screen.getByRole("link", { name: "主管：檢查開站缺項" })).toHaveAttribute("href",
       `/app/staff/operations/organization?effectiveOn=${date}#opening-readiness`);
+    expect(screen.getByRole("link", { name: "主管：檢查開站缺項" })).toHaveTextContent("開站檢查");
+    expect(screen.queryByText("確認帳號、個案與當班安排。")).not.toBeInTheDocument();
     rerender(<DashboardWorkspace snapshot={null} serviceDate={date} canOpenReadiness loadError />);
     expect(screen.getByRole("link", { name: "主管：檢查開站缺項" })).toBeVisible();
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();

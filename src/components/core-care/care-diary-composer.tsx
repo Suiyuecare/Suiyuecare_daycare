@@ -16,6 +16,7 @@ import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { useCareRequestOwner } from "./use-care-request-owner";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
 import type { CareDiaryFields } from "@/lib/care-diary/schema";
+import { isDiaryShiftTimeAligned } from "@/lib/care-diary/shift-time";
 import { isDailyWorkflowShift, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
 import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
 import styles from "./daily-composer.module.css";
@@ -23,18 +24,24 @@ import styles from "./daily-composer.module.css";
 type ClientOption = { id: string; name: string; code: string };
 type DiaryRequest = { client_id: string; page_slug: string; occurred_at: string; data: CareDiaryFields };
 
-function defaultTaipeiLocal(serviceDate: string) {
+function defaultTaipeiLocal(serviceDate: string, shift?: DailyWorkflowShift) {
+  const now = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   })
-    .formatToParts(new Date())
+    .formatToParts(now)
     .reduce<Record<string, string>>((result, part) => {
       result[part.type] = part.value;
       return result;
     }, {});
+  if (serviceDate !== `${parts.year}-${parts.month}-${parts.day}` ||
+      (shift && !isDiaryShiftTimeAligned(shift, now.toISOString()))) return "";
   return `${serviceDate}T${parts.hour}:${parts.minute}`;
 }
 
@@ -67,10 +74,11 @@ export function CareDiaryComposer({
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
   const validation = useDailyFormValidation();
+  const timeHintId = `${validation.labelId("occurred_at")}-hint`;
   const [editorOpen, setEditorOpen] = useState(false);
   const attempt = useCareWriteAttempt<DiaryRequest>();
   const attemptScope = useRef<string | null>(null);
-  const privacyScope = JSON.stringify(["care-note", demo, serviceDate, selectedClientId ?? null, selectedShift ?? "full_day"]);
+  const privacyScope = JSON.stringify(["care-note", demo, serviceDate, selectedClientId ?? null, selectedShift ?? "unselected"]);
   const capabilities = JSON.stringify([enabled, clients.map((client) => client.id).sort()]);
   const draft = useCoreDraftGuard({
     scopeKey: privacyScope,
@@ -135,6 +143,17 @@ export function CareDiaryComposer({
       return;
     }
     if (!prior && !validation.validate(form)) { setError(null); return; }
+    let candidateOccurredAt: string | undefined;
+    if (!prior) {
+      try { candidateOccurredAt = taipeiLocalToIso(String(data.get("occurred_at") ?? "")); }
+      catch { validation.validate(form, { occurred_at: "請確認實際發生時間。" }); return; }
+      const shift = String(data.get("shift") ?? "") as CareDiaryFields["shift"];
+      if (!isDiaryShiftTimeAligned(shift, candidateOccurredAt)) {
+        validation.validate(form, { occurred_at: shift === "morning"
+          ? "上午班請填 12:00 前的實際發生時間。" : "下午班請填 12:00 起的實際發生時間。" });
+        return;
+      }
+    }
     if (!draft.begin()) return;
     setPending(true);
     setError(null);
@@ -143,7 +162,7 @@ export function CareDiaryComposer({
       const body = prior?.body ?? {
           client_id: clientId,
           page_slug: "staff/daily-care/care-diary",
-          occurred_at: taipeiLocalToIso(String(data.get("occurred_at") ?? "")),
+          occurred_at: candidateOccurredAt!,
           data: {
             shift: String(data.get("shift") ?? "") as CareDiaryFields["shift"],
             care_item: String(data.get("care_item") ?? ""),
@@ -227,7 +246,7 @@ export function CareDiaryComposer({
       {notice ? <p className="core-composer__notice" role="status">{notice}</p> : null}
       <GovernanceDialog open={editorOpen && !draft.open} title="新增照顧日誌" busy={pending}
         cancelLabel={attempt.locked && !pending ? "稍後處理" : "取消"} onRequestClose={close} returnFocusRef={trigger}>
-        <form data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`}
+        <form data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "unselected"}`}
           onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
           onChange={(event) => { if (attempt.current()) return; validation.clearChanged(event.target); draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
           <p className="eyebrow">第 3 步・日誌草稿</p><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p>
@@ -237,8 +256,8 @@ export function CareDiaryComposer({
             <OfflineCareFormNotice offline={offline} onRestore={(values) => { draft.changed(); setRestoredObservations(values); setDraftSession((value) => value + 1); }} />
             <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>此操作只建立草稿。異常旗標只是提醒工作人員確認，不會產生診斷或自動改變照顧決策。</span></div>
             <label className="field"><span id={validation.labelId("client_id")}>個案 *</span><select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required {...validation.field("client_id")}><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select><DailyFieldError validation={validation} name="client_id" /></label>
-            <label className="field"><span id={validation.labelId("shift")}>班別 *</span><select defaultValue={selectedShift ?? "full_day"} name="shift" required {...validation.field("shift")}><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select><DailyFieldError validation={validation} name="shift" /></label>
-            <label className="field"><span id={validation.labelId("occurred_at")}>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate)} name="occurred_at" required type="datetime-local" {...validation.field("occurred_at")} /><DailyFieldError validation={validation} name="occurred_at" /></label>
+            <label className="field"><span id={validation.labelId("shift")}>班別 *</span><select defaultValue={selectedShift ?? ""} name="shift" required {...validation.field("shift")}><option value="">請選擇班別</option><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select><DailyFieldError validation={validation} name="shift" /></label>
+            <label className="field"><span id={validation.labelId("occurred_at")}>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate, selectedShift)} name="occurred_at" required type="datetime-local" {...validation.field("occurred_at", timeHintId)} /><small id={timeHintId}>班別依實際發生時間判定，中午 12:00 為分界。</small><DailyFieldError validation={validation} name="occurred_at" /></label>
             <label className="field"><span id={validation.labelId("care_item")}>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required {...validation.field("care_item")} /><DailyFieldError validation={validation} name="care_item" /></label>
             <DiaryObservationsFields key={draftSession} restored={restoredObservations} validation={validation} />
             <label className="field"><span id={validation.labelId("note")}>紀錄摘要</span><textarea className="resize-none" maxLength={2000} name="note" placeholder="只記錄必要觀察與處置，不輸入無關個資。" {...validation.field("note")} /><DailyFieldError validation={validation} name="note" /></label>
