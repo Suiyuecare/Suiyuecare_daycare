@@ -136,6 +136,8 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     if (!snapshot && index > 0 && !(index === 1 && manual)) return "先建立個案";
     return "待查看";
   }
+  const quickManual = (!archiveConfigured || !scope("imports.manage")) && !snapshot && !selectedId && step === 0 && canCreate &&
+    !dirty && !saving && !loading && !uploadPending && !error;
   return <div className={styles.workspace}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>收案</p><h1>個案建檔</h1><p>選好個案，依步驟補齊收案資料。</p></div><Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link></header>
     <ClientSelectionCard
@@ -151,7 +153,13 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
         <span className={styles.selectorDetail}>{snapshot ? missingItems.length ? `已保存基本資料 · 待核對 ${missingItems.length} 項` : "基本欄位已提供 · 評估與文件另行核對" : "先匯入 CMS，或選擇手動建檔。"}</span>
       </>}
     />
-    {context.demo ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
+    {quickManual ? <div className={styles.quickStart}>
+      <span>{context.demo ? "展示模式 · 僅供檢視" : !archiveConfigured ? "CMS 匯入暫停 · 可先建檔" : "無 CMS 匯入權限 · 可先建檔"}</span>
+      <button className={`button button--primary ${styles.primary}`} type="button" onClick={() => { setManual(true); goTo(1); }}>
+        {context.demo ? "查看建檔畫面" : "手動建立個案"}
+      </button>
+    </div> : null}
+    {context.demo && !quickManual ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
     <nav aria-label="收案流程" className={styles.stepNav}><ol className={styles.steps}>{INTAKE_STEPS.map((title, index) => {
       const Icon = stepIcons[index];
       return <li key={title}><button type="button" aria-current={step === index ? "step" : undefined} disabled={loading || saving || uploadPending || index > 0 && !snapshot && !(index === 1 && manual)} onClick={() => goTo(index)}>
@@ -167,7 +175,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     </section>
     {error ? <div className={styles.error} role="alert"><p>{error}</p>{selectedId ? <button type="button" disabled={loading || uploadPending} onClick={() => readClient(selectedId)}>重試讀取此個案</button> : <button type="button" disabled={loading || uploadPending} onClick={() => window.location.reload()}>重新載入個案清單</button>}</div> : null}
     {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={`${snapshot?.clientId ?? "new"}:${draftEpoch}`} ref={workPanel} role="region" aria-label={`${INTAKE_STEPS[step]}填寫區`} tabIndex={-1}>
-      <div hidden={step !== 0}>{visited.has(0) ? <CmsIntakeStep context={context} current={snapshot} canImport={scope("imports.manage") && canCreate} canApprove={scope("imports.approve") && (snapshot ? canManage : canCreate)} demo={context.demo} archiveConfigured={archiveConfigured} onSaved={saved} onDirty={importDirty} onBusy={importBusy} profileHasDraft={Boolean(dirtySteps[1])} onManual={() => { setManual(true); goTo(1); }} /> : null}</div>
+      <div hidden={step !== 0}>{visited.has(0) ? <CmsIntakeStep context={context} current={snapshot} canImport={scope("imports.manage") && canCreate} canApprove={scope("imports.approve") && (snapshot ? canManage : canCreate)} demo={context.demo} archiveConfigured={archiveConfigured} showManualAction={!quickManual} onSaved={saved} onDirty={importDirty} onBusy={importBusy} profileHasDraft={Boolean(dirtySteps[1])} onManual={() => { setManual(true); goTo(1); }} /> : null}</div>
       <div hidden={step !== 1}>{visited.has(1) ? <IntakeProfileForm key={snapshot?.profileVersion ?? 0} context={context} initial={snapshot} canManage={snapshot ? canManage : canCreate} demo={context.demo} today={today} onSaved={saved} onDirty={profileDirty} onBusy={profileBusy} /> : null}</div>
       <div hidden={step !== 2}>{visited.has(2) && snapshot ? <ClientWeeklyWorkspace clientId={snapshot.clientId} canManage={!error && scope("staff_scheduling.manage")} demo={context.demo} today={today} onDirty={weeklyDirty} onBusy={weeklyBusy} /> : null}</div>
       <div hidden={step !== 3}>{visited.has(3) && snapshot ? <TaipeiAbcdIntakeStep clientId={snapshot.clientId} organizationId={context.organizationId} branchId={context.branchId!} usageYear={115} readOnly={Boolean(error) || context.demo || !scope("abcd_assessments.manage")} demo={context.demo} onDirty={abcdDirty} onBusy={abcdBusy} today={today} prefill={profileToTaipeiPrefill(snapshot.profile)} /> : null}</div>

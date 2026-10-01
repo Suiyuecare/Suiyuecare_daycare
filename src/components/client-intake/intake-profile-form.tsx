@@ -26,6 +26,7 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
   const [error, setError] = useState("");
   const [invalid, setInvalid] = useState<string[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
+  const optionalDetails = useRef<HTMLDetailsElement>(null);
   const errorId = useId();
   const inFlight = useRef(false);
   const active = useRef<IntakeWriteOperation | null>(null), controller = useRef<AbortController | null>(null);
@@ -40,7 +41,8 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
   const disabled = !canManage || demo || busy || Boolean(pending) || isolated;
   const canRecover = pending?.phase === "saved" ? ["clients.read", "clients.demographics.read"].every(scope => context.scopes.includes(scope)) : canManage;
   function focusField(name: string) {
-    const control = formRef.current?.elements.namedItem(name);
+    if (name !== "displayName" && name !== "clientCode") optionalDetails.current?.setAttribute("open", "");
+    const control = formRef.current?.elements.namedItem(name === "contacts" ? "contacts.0.name" : name);
     if (control instanceof HTMLElement) control.focus();
   }
   useEffect(() => { if (invalid.length) focusField(invalid[0]); }, [invalid]);
@@ -114,6 +116,9 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
   return <form ref={formRef} onSubmit={save} noValidate data-intake-write className={styles.form}>
     <div className={styles.formLead}><h2>{initial ? "核對基本資料" : "建立個案"}</h2><p>缺項可補，勿猜填。</p></div>
     {demo ? <p className={styles.notice}>合成資料試看 · 不會儲存。</p> : pending ? <p className={styles.notice}>請先核對原次保存；在結果確認前，暫時不能修改資料。</p> : !canManage ? <p className={styles.notice}>目前僅可查看，請由有權限的收案人員修改。</p> : null}
+    <fieldset disabled={disabled}><legend>先填這兩項</legend><div className={styles.grid}>
+      {field("displayName", "姓名／顯示稱呼", "text", true)}{field("clientCode", "機構個案編號", "text", true)}
+    </div></fieldset>
     <section className={styles.missingCard} aria-label="基本資料待核對">
       <details className={styles.missingDisclosure}>
         <summary>基本資料待核對{missingItems.length ? ` · ${missingItems.length} 項` : " · 基本欄位已提供"}</summary>
@@ -121,12 +126,13 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
         {missingItems.length ? <ul className={styles.missingItems}>{missingItems.map((item) => <li key={item}>{item}</li>)}</ul> : null}
       </details>
     </section>
+    <details className={styles.optionalProfile} open={Boolean(initial)} ref={optionalDetails}>
+      <summary>{initial ? "核對其餘基本資料" : "補充資料（可稍後填）"}</summary>
     <fieldset disabled={disabled}><legend>身分與聯繫</legend><div className={styles.grid}>
-      {field("displayName", "姓名／顯示稱呼", "text", true)}{field("clientCode", "機構個案編號", "text", true)}
       {field("identityNumber", "身分證／居留證識別")}{field("dateOfBirth", "出生日期", "date")}
-      <label>性別<select value={profile.sex} disabled={locked("sex")} onChange={(e) => update("sex", e.target.value as IntakeProfile["sex"])}><option value="unknown">未提供</option><option value="male">男</option><option value="female">女</option><option value="other">其他</option></select></label>
+      <label>性別<select name="sex" value={profile.sex} disabled={locked("sex")} onChange={(e) => update("sex", e.target.value as IntakeProfile["sex"])}><option value="unknown">未提供</option><option value="male">男</option><option value="female">女</option><option value="other">其他</option></select></label>
       {field("phone", "個案電話", "tel")}{field("registeredAddress", "戶籍地址")}{field("residentialAddress", "居住地址")}
-      <label>CMS 等級<select value={profile.cmsLevel ?? ""} disabled={locked("cmsLevel")} onChange={(e) => update("cmsLevel", e.target.value ? Number(e.target.value) : null)}><option value="">未提供</option>{[1, 2, 3, 4, 5, 6, 7, 8].map((v) => <option key={v} value={v}>{v} 級</option>)}</select></label>
+      <label>CMS 等級<select name="cmsLevel" value={profile.cmsLevel ?? ""} disabled={locked("cmsLevel")} onChange={(e) => update("cmsLevel", e.target.value ? Number(e.target.value) : null)}><option value="">未提供</option>{[1, 2, 3, 4, 5, 6, 7, 8].map((v) => <option key={v} value={v}>{v} 級</option>)}</select></label>
       {field("disability", "身障資格／程度")}
     </div></fieldset>
     <fieldset disabled={disabled}><legend>關係人與交接聯絡</legend>
@@ -140,9 +146,10 @@ function IntakeProfileEditor({ context, initial, canManage, demo, today, onSaved
       <button type="button" disabled={profile.contacts.length >= 10} onClick={() => update("contacts", [...profile.contacts, { name: "", relationship: "", phone: "", address: "", isPrimary: profile.contacts.length === 0, isEmergency: false }])}>＋新增聯絡人</button>
     </fieldset>
     <fieldset disabled={disabled}><legend>告知同意與補充</legend><div className={styles.grid}>
-      <label>告知同意狀態<select value={profile.consent.status} onChange={(e) => update("consent", { status: e.target.value as IntakeProfile["consent"]["status"], confirmedOn: null })}><option value="pending">待確認</option><option value="confirmed">已明確確認</option><option value="declined">尚未同意</option></select></label>
+      <label>告知同意狀態<select name="consent.status" value={profile.consent.status} onChange={(e) => update("consent", { status: e.target.value as IntakeProfile["consent"]["status"], confirmedOn: null })}><option value="pending">待確認</option><option value="confirmed">已明確確認</option><option value="declined">尚未同意</option></select></label>
       <label>確認日期<input name="consent.confirmedOn" {...errorAttributes("consent.confirmedOn")} type="date" max={today} required={profile.consent.status === "confirmed"} disabled={profile.consent.status !== "confirmed"} value={profile.consent.confirmedOn ?? ""} onChange={(e) => update("consent", { ...profile.consent, confirmedOn: e.target.value || null })} /></label>
     </div><label>機構補充說明<textarea className="resize-none" name="notes" {...errorAttributes("notes")} value={profile.notes} rows={3} maxLength={4000} onChange={(e) => update("notes", e.target.value)} /></label></fieldset>
+    </details>
     {error ? <div className={styles.error} role="alert" id={errorId}><p>{error}</p>{invalid.length ? <ul>{invalid.map((path) => <li key={path}><button type="button" onClick={() => focusField(path)}>{fieldLabel(path)}</button></li>)}</ul> : null}</div> : null}{message ? <p role="status">{message}</p> : null}
     {pending ? <div role="status"><p>{pending.phase === "saved" ? "已有保存回條，請重讀資料核對原版本，不會再次送出。" : "原次保存仍待確認，內容已固定；只能明確重試同一次操作。"}</p>
       <button className={`button button--primary ${styles.primary}`} type="button" disabled={busy || pending.phase === "sending" || !canRecover} onClick={recover}>{busy ? "核對中…" : pending.phase === "saved" ? "重讀已保存資料（不重送）" : "重試原次保存"}</button>

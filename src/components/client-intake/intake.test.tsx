@@ -103,9 +103,28 @@ describe("intake usability and truthful writes", () => {
     const background = screen.getByText(/一般建檔、CMS 核對與每週安排/u);
     expect(background.closest("details")).not.toHaveAttribute("open"); expect(background).not.toBeVisible();
     expect(screen.getByText("建檔不代表正式收案；評估、文件與服務狀態仍需各自確認。")).toBeVisible();
-    expect(screen.getByText(/HTML 匯入暫停：原檔封存尚未設定/u)).toBeVisible();
+    expect(screen.getByText(/CMS 匯入暫停，原檔封存尚未設定/u)).toBeVisible();
     expect(screen.getByRole("button", { name: /2\s*基本資料.*先建立個案/u })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "手動建立個案" })).toBeEnabled();
+  });
+  it("offers the only manual start action before the five-step navigation when CMS is unavailable", () => {
+    render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" />);
+    const action = screen.getByRole("button", { name: "手動建立個案" });
+    const steps = screen.getByRole("navigation", { name: "收案流程" });
+    expect(screen.getAllByRole("button", { name: "手動建立個案" })).toHaveLength(1);
+    expect(action.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(action);
+    expect(screen.getByRole("region", { name: "基本資料填寫區" })).toBeInTheDocument();
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeVisible();
+  });
+  it("still offers manual creation first when the account can create cases but not upload CMS files", () => {
+    const manualOnly = { ...context, scopes: context.scopes.filter((scope) => scope !== "imports.manage") };
+    act(() => { writes.observeIntakeWriteAuthority(writes.intakeWriteAuthority(manualOnly)); journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(manualOnly)); });
+    render(<IntakeWorkspace context={manualOnly} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+    expect(screen.getByRole("button", { name: "手動建立個案" })).toBeEnabled();
+    expect(screen.getByText("無 CMS 匯入權限 · 可先建檔")).toBeVisible();
+    expect(screen.queryByText("CMS 匯入暫停 · 可先建檔")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/CMS HTML/u)).not.toBeInTheDocument();
   });
   it("moves the selected case into view and focus only after its profile has loaded", async () => {
     const snapshot: IntakeSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true,
@@ -158,11 +177,46 @@ describe("intake usability and truthful writes", () => {
     fireEvent.change(screen.getByLabelText("身分證／居留證識別"), { target: { value: "" } });
     expect(missing).toHaveTextContent("5 項"); expect(missing).toHaveTextContent("身分識別資料"); expect(fetcher).not.toHaveBeenCalled();
   });
+  it("puts the two required fields and one create action ahead of optional intake details", () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    const extras = screen.getByText("補充資料（可稍後填）").closest("details")!;
+    const name = screen.getByLabelText("姓名／顯示稱呼（必填）");
+    const create = screen.getByRole("button", { name: "建立待收案個案" });
+    expect(extras).not.toHaveAttribute("open");
+    expect(name).toBeVisible(); expect(screen.getByLabelText("機構個案編號（必填）")).toBeVisible();
+    expect(screen.getByLabelText("身分證／居留證識別")).not.toBeVisible();
+    expect(name.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
+    fireEvent.click(screen.getByText("補充資料（可稍後填）"));
+    expect(screen.getByLabelText("身分證／居留證識別")).toBeVisible();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("opens optional fields and focuses an invalid consent date without losing entered intake data", async () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    const name = screen.getByLabelText("姓名／顯示稱呼（必填）");
+    fireEvent.change(name, { target: { value: "合成新個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "SYN-001" } });
+    const summary = screen.getByText("補充資料（可稍後填）");
+    const extras = summary.closest("details")!;
+    fireEvent.click(summary);
+    fireEvent.change(screen.getByLabelText("告知同意狀態"), { target: { value: "confirmed" } });
+    fireEvent.click(summary);
+    expect(extras).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    await waitFor(() => expect(extras).toHaveAttribute("open"));
+    expect(screen.getByLabelText("確認日期")).toHaveFocus();
+    expect(name).toHaveValue("合成新個案");
+    expect(screen.getByLabelText("機構個案編號（必填）")).toHaveValue("SYN-001");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("does not offer unknown-case CMS staging to assigned-only staff", () => {
     const context = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.manage", "clients.demographics.read", "imports.manage", "imports.approve"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
     journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(context));
     const { rerender } = render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
-    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
+    expect(screen.queryByLabelText(/CMS HTML/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "手動建立個案" })).toBeDisabled();
     expect(screen.getByText(/一般建檔、CMS 核對與每週安排/)).toHaveTextContent("不另要求驗證器");
     const approved = { ...context, scopes: [...context.scopes, "clients.view_all"] };
     act(() => journal.observeCmsUploadAuthority(journal.cmsUploadAuthority(approved)));
@@ -172,20 +226,32 @@ describe("intake usability and truthful writes", () => {
   it("synthetic mode never enables a real file upload or save", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     render(<CmsIntakeStep context={{ ...context, demo: true }} current={null} canImport canApprove demo onSaved={vi.fn()} onManual={vi.fn()} onDirty={vi.fn()} />);
-    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled(); expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled(); expect(fetch).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText(/CMS HTML/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "上傳並核對資料" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看建檔畫面" })).toBeEnabled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("labels the demo shortcut as view-only and never enables a real profile save", () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    render(<IntakeWorkspace context={{ ...context, demo: true }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" />);
+    fireEvent.click(screen.getByRole("button", { name: "查看建檔畫面" }));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeDisabled();
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("explains missing CMS archive configuration before file selection and leaves manual intake available", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const onManual = vi.fn();
     render(<CmsIntakeStep context={context} current={null} canImport canApprove demo={false} archiveConfigured={false} onSaved={vi.fn()} onManual={onManual} onDirty={vi.fn()} />);
-    expect(screen.getByText("HTML 匯入暫停：原檔封存尚未設定。請保留原檔，可先手動建檔。")).toBeVisible();
-    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
-    expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" }));
+    expect(screen.getByText("CMS 匯入暫停，原檔封存尚未設定。請保留下載檔；可先手動建檔。")).toBeVisible();
+    expect(screen.queryByLabelText(/CMS HTML/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "上傳並核對資料" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "手動建立個案" }));
     expect(onManual).toHaveBeenCalledOnce(); expect(fetch).not.toHaveBeenCalled();
   });
   it("labels missing information as missing, not complete", () => {
     render(<IntakeProfileForm context={context} initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
     expect(screen.getByRole("region", { name: "基本資料待核對" })).toHaveTextContent("可聯繫的關係人"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
+    fireEvent.click(screen.getByText("補充資料（可稍後填）"));
     fireEvent.click(screen.getByRole("button", { name: "＋新增聯絡人" })); expect(screen.getByLabelText("聯絡人姓名")).toBeVisible();
   });
   it("retains fields and idempotency key when an uncertain request is retried", async () => {
@@ -255,7 +321,7 @@ describe("intake usability and truthful writes", () => {
       .mockResolvedValueOnce(Response.json(success(snapshot)));
     vi.stubGlobal("fetch", fetcher);
     render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
-    fireEvent.click(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" }));
+    fireEvent.click(screen.getByRole("button", { name: "手動建立個案" }));
     fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: profile.displayName } });
     fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: profile.clientCode } });
     fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
@@ -344,7 +410,7 @@ describe("intake usability and truthful writes", () => {
     test.fetcher.mockImplementationOnce((_url, options) => Promise.resolve(Response.json(success(writeReceipt(options.body)))));
     render(<CmsIntakeStep {...test.props} />);
     expect(test.fetcher).toHaveBeenCalledTimes(3); expect(screen.queryByRole("heading", { name: "姓名" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/CMS HTML/u)).toBeDisabled(); expect(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" })).toBeDisabled();
+    expect(screen.getByLabelText(/CMS HTML/u)).toBeDisabled(); expect(screen.getByRole("button", { name: "手動建立個案" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "重試原次建檔" })); await waitFor(() => expect(test.onSaved).toHaveBeenCalledWith(id));
     expect(test.fetcher.mock.calls[3][0]).toBe("/api/client-intake/imports/approve"); expect(test.fetcher.mock.calls[3][1].body).toBe(body);
     expect(writes.getIntakeWriteState().operation?.phase).toBe("saved");
@@ -430,6 +496,25 @@ describe("intake usability and truthful writes", () => {
     expect(fetcher.mock.calls[1]![0]).toBe("/api/client-intake/imports/operations");
     expect(fetcher.mock.calls[2]![1].headers["idempotency-key"]).toBe(original.key);
     expect(journal.getCmsUploadOperation(scope)!.file).toEqual(original.file); expect(journal.hasCmsUploadOperation()).toBe(true);
+  });
+  it("keeps an original upload visible for recovery if archive configuration becomes unavailable", async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error("UNKNOWN_UPLOAD"))
+      .mockResolvedValueOnce(Response.json(success({ found: false, operation: null })));
+    vi.stubGlobal("fetch", fetcher);
+    const view = renderCms();
+    await selectAndUpload(); await screen.findByRole("alert");
+    const original = journal.getCmsUploadOperation(journal.cmsUploadScope(context, "routine-intake", null));
+    expect(original?.phase).toBe("unknown");
+    view.rerender(<CmsIntakeStep {...view.props} archiveConfigured={false} />);
+    expect(screen.getByLabelText(/CMS HTML/u)).toBeDisabled();
+    const lookup = screen.getByRole("button", { name: "確認上傳結果" });
+    expect(lookup).toBeEnabled();
+    fireEvent.click(lookup); await screen.findByText(/尚未查到原操作/u);
+    expect(screen.getByRole("button", { name: "繼續原上傳" })).toBeDisabled();
+    expect(journal.getCmsUploadOperation(journal.cmsUploadScope(context, "routine-intake", null))?.key).toBe(original?.key);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1]![0]).toBe("/api/client-intake/imports/operations");
+    expect(fetcher.mock.calls[1]![1]).toMatchObject({ method: "GET", headers: { "idempotency-key": original?.key } });
   });
   it("authority ABA advances preview epoch and cannot redisplay or approve old parsed source", async () => {
     const test = await showPreview(); chooseDecisions(); const oldApprove = screen.getByRole("button", { name: "確認建立待收案個案" });

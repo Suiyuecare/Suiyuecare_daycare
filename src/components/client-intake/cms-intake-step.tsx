@@ -29,12 +29,13 @@ type Props = {
   context: TenantContext; current: IntakeSnapshot | null; canImport: boolean; canApprove: boolean; demo: boolean;
   onSaved: (id: string) => Promise<IntakeSnapshot | void>; onManual: () => void; onDirty: (dirty: boolean) => void;
   onBusy?: (busy: boolean) => void; profileHasDraft?: boolean; archiveConfigured?: boolean;
+  showManualAction?: boolean;
 };
 export function CmsIntakeStep(props: Props) {
   const state = useIntakeWriteState();
   return <CmsIntakeEditor {...props} key={JSON.stringify([intakeWriteAuthority(props.context), state.epoch, props.current?.clientId ?? null])} />;
 }
-function CmsIntakeEditor({ context, current, canImport, canApprove, demo, onSaved, onManual, onDirty, onBusy, profileHasDraft = false, archiveConfigured = false }: Props) {
+function CmsIntakeEditor({ context, current, canImport, canApprove, demo, onSaved, onManual, onDirty, onBusy, profileHasDraft = false, archiveConfigured = false, showManualAction = true }: Props) {
   const writeState = useIntakeWriteState();
   const pending = getIntakeWriteOperation(context, "cms", current?.clientId ?? null);
   const writePending = hasIntakeWriteOperation();
@@ -129,14 +130,27 @@ function CmsIntakeEditor({ context, current, canImport, canApprove, demo, onSave
     if (operation) await send(operation);
   }
   const showSource = !demo && !uploadDirty && isIntakeWriteAuthorityCurrent(context) && canUseCmsUpload(scope) && previewScope === scopeKey && previewEpoch === uploadState.epoch;
+  const uploadAvailable = !demo && canImport && archiveConfigured;
+  // Keep the original upload/recovery owner mounted whenever an attempt or
+  // preview exists. A new visit with no usable upload only needs one clear
+  // next action, not a disabled file picker and disabled submit button.
+  const showUploadControl = uploadAvailable || uploadDirty || Boolean(uploadState.operation) || Boolean(preview);
+  const canOpenManual = demo || context.scopes.includes("clients.manage") && context.scopes.includes("clients.demographics.read") &&
+    (Boolean(current) || context.scopes.includes("clients.view_all"));
   return <section className={styles.form}>
-    <div><h2>匯入 CMS 資料</h2><p>選擇中央系統下載的 HTML，核對後建立個案。</p></div>
+    <div><h2>{showUploadControl ? "匯入 CMS 資料" : current ? "核對個案資料" : "開始建檔"}</h2>
+      {showUploadControl ? <p>選擇中央系統下載的 HTML，核對後建立個案。</p> : null}</div>
     {current && canUseCmsUpload(scope) ? <p className={styles.notice}>目前正在更新：{current.profile.displayName}。系統仍會用精確身分識別核對，不依姓名合併。</p> : null}
-    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停：原檔封存尚未設定。請保留原檔，可先手動建檔。</p></div> : null}
-    <CmsUploadControl context={context} mode="routine-intake" clientId={current?.clientId ?? null} enabled={!commitBusy && !writePending && !demo && canImport && archiveConfigured}
-      onPreview={readPreview} onDirty={setUploadDirty} onBusy={setUploadBusy} onSelectionChanged={selectionChanged} />
-    <div className={styles.inline}><button type="button" onClick={onManual} disabled={busy || uploadDirty || writePending}>沒有 CMS 檔？手動建檔</button></div>
-    {demo ? <p className={styles.notice}>合成資料試看：不接收真實 HTML，也不連線至中央系統。</p> : !canImport ? <p className={styles.notice}>您尚未取得匯入權限，可請收案負責人協助。</p> : null}
+    {demo ? <p className={styles.notice}>展示模式：可試看建檔，不會保存資料或上傳 HTML。</p>
+      : !archiveConfigured ? <p className={styles.notice} role="status">CMS 匯入暫停，原檔封存尚未設定。請保留下載檔；可先手動建檔。</p>
+      : !canImport ? <p className={styles.notice} role="status">目前沒有 CMS 匯入權限。可手動建檔，或請收案負責人協助。</p> : null}
+    {showUploadControl ? <CmsUploadControl context={context} mode="routine-intake" clientId={current?.clientId ?? null} enabled={!commitBusy && !writePending && uploadAvailable}
+      recoveryEnabled={!commitBusy && !writePending && !demo && canImport}
+      onPreview={readPreview} onDirty={setUploadDirty} onBusy={setUploadBusy} onSelectionChanged={selectionChanged} /> : null}
+    {showManualAction ? <div className={styles.inline}><button className={!showUploadControl ? `button button--primary ${styles.primary}` : undefined}
+      type="button" onClick={onManual} disabled={busy || uploadDirty || writePending || !canOpenManual}>
+      {current ? "核對基本資料" : demo ? "查看建檔畫面" : "手動建立個案"}</button></div> : null}
+    {!canOpenManual && !demo ? <p className={styles.notice}>此帳號不能建立新個案，請由收案管理員處理。</p> : null}
     {showSource && preview?.imported && preview.importReceipt ? <div className={styles.notice}><p>這份檔案已完成建檔，沒有再建立第二位個案。</p><button type="button" disabled={busy} onClick={() => onSaved(preview.importReceipt!.clientId)}>開啟已建立個案</button></div> : null}
     {showSource && preview && !preview.imported && !committed ? <fieldset disabled={busy || writePending}>
       <h3>逐欄核對後，才會寫入個案資料</h3>

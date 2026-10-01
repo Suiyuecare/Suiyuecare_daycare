@@ -70,6 +70,21 @@ describe("shared CMS upload recovery control", () => {
     expect(fetcher.mock.calls[0]![1]).toMatchObject({ method: "GET", headers: { "idempotency-key": test.operation.key } });
     expect(preview).not.toHaveBeenCalled(); expect(journal.hasCmsUploadOperation()).toBe(true);
   });
+  it("allows only observational lookup when a new upload is paused", async () => {
+    const test = await seed(), preview = vi.fn();
+    const fetcher = vi.fn().mockResolvedValue(Response.json(envelope({ found: false, operation: null })));
+    vi.stubGlobal("fetch", fetcher);
+    render(<Control context={test.context} mode="routine-intake" enabled={false} recoveryEnabled onPreview={preview} />);
+    expect(input().disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "繼續原上傳" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((check() as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(check()); await screen.findByText(/尚未查到原操作/u);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0]![0]).toBe("/api/client-intake/imports/operations");
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({ method: "GET", headers: { "idempotency-key": test.operation.key } });
+    expect(preview).not.toHaveBeenCalled();
+    expect(journal.getCmsUploadOperation(test.scope)?.key).toBe(test.operation.key);
+  });
   it("same-name same-size changed bytes cannot replace an unknown original", async () => {
     const test = await seed(), fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     render(<Control context={test.context} mode="routine-intake" enabled onPreview={vi.fn()} />);

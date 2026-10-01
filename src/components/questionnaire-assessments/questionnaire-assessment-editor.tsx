@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
 import { ClientJsonReadError, fetchJsonWithTimeout } from "@/lib/api/client-fetch";
@@ -345,23 +345,6 @@ function QuestionnaireEditor({
       </label>)}
     </fieldset> : null}
 
-    {form.measurementFields?.length ? <fieldset className={styles.measurements}>
-      <legend>身體測量（MNA-SF）</legend>
-      {form.measurementFields.map(({ key, label }) => <label key={key}>
-        {label}
-        <input
-          inputMode="decimal"
-          max={key === "height_cm" ? 240 : key === "weight_kg" ? 300 : 80}
-          min={key === "height_cm" ? 50 : key === "weight_kg" ? 20 : 10}
-          onChange={(event) => { const value = event.currentTarget.value; setContext((current) => ({ ...current, [key]: value })); }}
-          step="0.1"
-          type="number"
-          value={context[key] ?? ""}
-        />
-      </label>)}
-      {bmi !== null ? <p>依輸入身高與體重計算 BMI：{bmi.toFixed(1)}。請確認 F 題選擇的區間相符；若無法取得 BMI，改輸入小腿圍並選擇小腿圍選項。</p> : <p>輸入可取得的身高與體重；若無法取得 BMI，請改填小腿圍並依 F 題指示作答。</p>}
-    </fieldset> : null}
-
     <fieldset className={styles.questions} disabled={pending}>
       <legend className="sr-only">{form.title}題目</legend>
       {form.questions.map((question, index) => {
@@ -372,7 +355,25 @@ function QuestionnaireEditor({
         const reasonErrorId = `${reasonId}-error`;
         const promptId = `${questionIdPrefix}-${question.id}-prompt`;
         const helpId = `${questionIdPrefix}-${question.id}-help`;
-        return <section className={styles.questionCard} key={question.id}>
+        return <Fragment key={question.id}>
+          {form.key === "mna_sf" && question.id === "anthropometry" && form.measurementFields?.length ?
+            <fieldset className={`${styles.measurements} ${styles.anthropometryMeasurements}`}>
+              <legend>身體測量（MNA-SF）</legend>
+              {form.measurementFields.map(({ key, label }) => <label key={key}>
+                {label}
+                <input
+                  inputMode="decimal"
+                  max={key === "height_cm" ? 240 : key === "weight_kg" ? 300 : 80}
+                  min={key === "height_cm" ? 50 : key === "weight_kg" ? 20 : 10}
+                  onChange={(event) => { const value = event.currentTarget.value; setContext((current) => ({ ...current, [key]: value })); }}
+                  step="0.1"
+                  type="number"
+                  value={context[key] ?? ""}
+                />
+              </label>)}
+              {bmi !== null ? <p>依輸入身高與體重計算 BMI：{bmi.toFixed(1)}。請確認 F 題選擇的區間相符；若無法取得 BMI，改輸入小腿圍並選擇小腿圍選項。</p> : <p>輸入可取得的身高與體重；若無法取得 BMI，請改填小腿圍並依 F 題指示作答。</p>}
+            </fieldset> : null}
+          <section className={styles.questionCard}>
           <div className={styles.questionHeading}>
             <h3 className={styles.questionTitle} id={promptId}>{index + 1}. {question.prompt}</h3>
             <div className={styles.questionActions}>
@@ -436,7 +437,8 @@ function QuestionnaireEditor({
             <small id={reasonHintId}>必填，去除頭尾空白後 1–500 字；不列入分數。</small>
             {reasonErrors[question.id] ? <p id={reasonErrorId} role="alert">{reasonErrors[question.id]}</p> : null}
           </div> : null}
-        </section>;
+          </section>
+        </Fragment>;
       })}
     </fieldset>
 

@@ -80,6 +80,32 @@ describe("questionnaire independent drafts and version browsing", () => {
     expect(screen.queryByRole("button", { name: /簽署/ })).toBeNull();
   });
 
+  it("places MNA-SF measurements directly before F, after questions A–E, without clearing values", () => {
+    const mna = QUESTIONNAIRE_FORMS.mna_sf;
+    const snapshot: QuestionnaireSnapshot = { ...defaultSnapshot(), formKey: mna.key,
+      clients: [{ ...defaultSnapshot().clients[0]!, latest: null, assessments: [], assessmentTotal: 0 }] };
+    workspace(snapshot, true, mna);
+    const measurements = screen.getByText("身體測量（MNA-SF）").closest("fieldset")!;
+    const cards = Array.from({ length: mna.questions.length }, (_, index) => questionGroup(index + 1).closest("section")!);
+    const sequence = [...measurements.parentElement!.children].filter((node) => node.tagName !== "LEGEND");
+    cards.slice(0, 5).forEach((card, index) => expect(sequence[index]).toBe(card));
+    expect(sequence[5]).toBe(measurements);
+    expect(sequence[6]).toBe(cards[5]);
+    expect(sequence).toHaveLength(7);
+
+    const height = screen.getByRole("spinbutton", { name: "身高（公分）" });
+    const weight = screen.getByRole("spinbutton", { name: "體重（公斤）" });
+    const calf = screen.getByRole("spinbutton", { name: "小腿圍（公分）" });
+    fireEvent.change(height, { target: { value: "160" } });
+    fireEvent.change(weight, { target: { value: "48" } });
+    fireEvent.change(calf, { target: { value: "30" } });
+    fireEvent.click(within(questionGroup(1)).getByRole("radio", { name: mna.questions[0]!.choices[0]!.label }));
+    expect(height).toHaveValue(160);
+    expect(weight).toHaveValue(48);
+    expect(calf).toHaveValue(30);
+    expect(screen.getByText(/依輸入身高與體重計算 BMI：18\./u)).toBeVisible();
+  });
+
   it("puts the active questionnaire and concise progress before saved-history tools while keeping its formal gate visible", () => {
     workspace();
     const firstQuestion = questionGroup(1);

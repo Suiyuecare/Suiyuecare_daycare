@@ -13,7 +13,7 @@ import styles from "./cms-upload-control.module.css";
 /** One shared upload/recovery owner. HTML/File bytes never enter the tab journal,
  * storage, previews or logs. Preview readers belong to their existing workspace. */
 type Props = {
-  context: TenantContext; mode: CmsUploadMode; clientId?: string | null; enabled: boolean; uploadLabel?: string;
+  context: TenantContext; mode: CmsUploadMode; clientId?: string | null; enabled: boolean; recoveryEnabled?: boolean; uploadLabel?: string;
   onPreview: (result: CmsUploadResult, signal: AbortSignal, current: () => boolean) => Promise<void>;
   onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void;
   onSelectionChanged?: () => void;
@@ -25,7 +25,7 @@ export function CmsUploadControl(props: Props) {
   const key = JSON.stringify([cmsUploadScope(props.context, props.mode, props.clientId ?? null), state.epoch, state.authority]);
   return <CmsUploadControlOwner {...props} key={key} />;
 }
-function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPreview, onDirty, onBusy, onSelectionChanged,
+function CmsUploadControlOwner({ context, mode, clientId = null, enabled, recoveryEnabled = enabled, onPreview, onDirty, onBusy, onSelectionChanged,
   uploadLabel = "上傳並核對資料" }: Props) {
   const state = useCmsUploadState(), scope = cmsUploadScope(context, mode, clientId);
   const scopeKey = JSON.stringify(scope), liveScope = useRef(scopeKey);
@@ -36,7 +36,11 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
   const running = useRef(false), controller = useRef<AbortController | null>(null), mount = useRef({ generation: 0 });
   const input = useRef<HTMLInputElement>(null), statusAnchor = useRef<HTMLDivElement>(null);
   const id = useId();
-  const allowed = enabled && canUseCmsUpload(scope);
+  const authorized = canUseCmsUpload(scope);
+  const allowed = enabled && authorized;
+  // A disabled new upload must not trap an existing uncertain operation.
+  // The lookup is observational and still bound to its original authority.
+  const canCheckOriginal = recoveryEnabled && authorized;
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
   useEffect(() => { onDirty?.(Boolean(file || operation)); }, [file, operation, onDirty]);
   useEffect(() => {
@@ -99,7 +103,7 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
     }
   }
   async function check() {
-    if (!operation || running.current || !allowed) return;
+    if (!operation || running.current || !canCheckOriginal) return;
     const read = beginCmsUploadRead(scope, operation.token); if (!read) return;
     const generation = mount.current.generation; running.current = true; setBusy(true); setError(""); setStatus("正在確認原上傳結果；不會重送檔案…");
     try {
@@ -153,11 +157,11 @@ function CmsUploadControlOwner({ context, mode, clientId = null, enabled, onPrev
     </label>
     <p id={`${id}-help`}>{operation ? "保留原操作；續做時請重新選取同一份原檔。" : "原檔不會在畫面執行，也不會自動建立個案。"}</p>
     {foreignPending ? <p role="status">另一項 CMS 上傳仍待確認。請回原分支與原個案處理，或安全登出後重新核對。</p> : null}
-    {!allowed && !context.demo ? <p role="status">目前無法上傳；請先確認分支、權限與封存服務。</p> : null}
+    {!allowed && !context.demo ? <p role="status">{operation && canCheckOriginal ? "新上傳暫停；仍可確認原上傳結果，請保留原檔。" : "目前無法上傳；請先確認分支、權限與封存服務。"}</p> : null}
     {operation ? <div className="callout"><span>{operation.result ? "原檔已保存，核對資料仍待讀回。" : operation.phase === "sending" ? "正在處理原檔，請勿重複上傳。" : "上傳仍待確認。請先查詢原結果，不要另建個案。"}</span></div> : null}
     {state.navigationBlocked && operation ? <p role="status">請先處理這次上傳，再切換個案或離開。完整重載無法保留此分頁的原操作。</p> : null}
     <div className="import-actions">
-      {operation ? <button type="button" className="button button--secondary" disabled={busy || !allowed} onClick={check}>確認上傳結果</button> : null}
+      {operation ? <button type="button" className="button button--secondary" disabled={busy || !canCheckOriginal} onClick={check}>確認上傳結果</button> : null}
       <button type="button" className={`button button--primary ${styles.primary}`} disabled={busy || !allowed || foreignPending || (!file && !operation?.result) ||
         Boolean(operation && !operation.result && checked !== operation.token)} onClick={upload}>
         {busy ? "處理中，請稍候…" : operation?.result ? "重新載入核對資料" : operation ? "繼續原上傳" : uploadLabel}

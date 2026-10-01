@@ -189,6 +189,8 @@
   background: var(--surface-subtle, #fff8ee);
 }
 
+.anthropometryMeasurements { margin: 0; }
+
 .measurements legend {
   padding-inline: .35rem;
   color: var(--text, #302d2a);
