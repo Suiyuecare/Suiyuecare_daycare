@@ -26,6 +26,7 @@ describe("canonical confirmation surface contrast", () => {
   });
   it("does not replace the Finance header's warm-orange primary background", () => {
     expect(css).toMatch(/\.topbar__actions \.button--primary\s*\{[^}]*background:\s*var\(--brand\)/u);
+    expect(css).toMatch(/\.topbar__actions \.button--primary\s*\{[^}]*color:\s*var\(--ink\)/u);
   });
   it("keeps cancel and discard intent readable above screen-local button defaults", () => {
     expect(css).toMatch(/\.core-dialog \.button--secondary\s*\{\s*background:\s*var\(--surface\);\s*color:\s*var\(--ink\);\s*\}/u);

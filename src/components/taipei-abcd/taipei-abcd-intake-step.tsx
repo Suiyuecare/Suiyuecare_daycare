@@ -182,24 +182,32 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
   }
   const suggestions = prefill.filter(p => taipeiFields(form).some(f => f.key === p.fieldKey && f.prefillAllowed) && (!answers[p.fieldKey] || answers[p.fieldKey].state === "missing"));
   return <section ref={editorRef} className={styles.workspace} aria-label="臺北市 A B C 收案表單" tabIndex={-1}>
-    <h3 data-governance-focus-anchor tabIndex={-1}>補齊個案資料與照顧評估</h3>
-    <div className={styles.notice}><p>115 年度臺北市表單 · 原稿 114.11 修訂。這裡保存逐欄草稿，不代表官方表單已發布、評估已完成或任何人已簽署。</p><p>D 表是小規模多機能臨時住宿紀錄，本機構純日照範圍不適用，不需填寫。</p></div>
+    <h3 data-governance-focus-anchor tabIndex={-1}>115 年度 A／B／C 表</h3>
+    <div className={styles.draftGate}><strong>僅存草稿</strong><span>尚未完成評估、正式發布或簽署</span></div>
+    <details className={styles.secondaryDetails}><summary>表單版本與適用範圍</summary><div className={styles.sectionBody}>
+      <p>臺北市表單，原稿 114.11 修訂；逐欄保存草稿不代表官方表單已發布。</p>
+      <p>D 表是小規模多機能臨時住宿紀錄，本機構純日照範圍不適用，不需填寫。</p>
+    </div></details>
     <div className={styles.tabs} role="group" aria-label="選擇表別">{(["A", "B", "C"] as const).map(x => <button type="button" key={x} aria-pressed={form === x} onClick={() => { if (x !== form) requestLocalChange({ kind: "form", value: x, scope: identity }); }} disabled={saving}>{x} 表 · {x === "A" ? "基本資料" : x === "B" ? "需求與照顧計畫" : "當月執行"}</button>)}</div>
     {form === "C" && <label>115 年度月份 <select value={month} disabled={saving} onChange={e => requestLocalChange({ kind: "month", value: Number(e.target.value), scope: identity })}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 月</option>)}</select></label>}
     {loading && <p role="status">正在載入此個案的 {form} 表……</p>}
     {error && <div className={styles.error} role="alert" id={errorId}><p>{error}</p><button type="button" disabled={saving || retryPending || reviewPending} onClick={() => requestLocalChange({ kind: "reload", scope: identity })}>重新載入</button></div>}
     {message && <p role="status">{message}</p>}
     {!loading && <>
-      <p>{snapshot?.latest ? `已存第 ${snapshot.latest.version} 版` : "尚無已存草稿"} · 已填 {progress.recorded} 項 · 不適用 {progress.notApplicable} 項 · 待核對 {progress.unconfirmed} 項 · 未填 {progress.missing} 項</p>
-      <p className={styles.muted}>未填欄位含條件式補充欄，不代表每一項都必填。最終完整性須由表單核准規則與負責人覆核，不能以比例判定收案通過。</p>
+      <div className={styles.progress} role="group" aria-label="填寫進度"><strong>{snapshot?.latest ? `已存草稿第 ${snapshot.latest.version} 版` : "尚無已存草稿"}</strong><div className={styles.progressCounts}>
+        <span>已填 <b>{progress.recorded}</b></span><span>不適用 <b>{progress.notApplicable}</b></span><span>待核對 <b>{progress.unconfirmed}</b></span><span>未填 <b>{progress.missing}</b></span>
+      </div></div>
+      <p className={styles.muted}>未填包含條件項；是否完成仍須依規則與負責人覆核。</p>
       {suggestions.length > 0 && <details><summary>可核對的來源建議：{suggestions.length} 項</summary><div className={styles.sectionBody}>{suggestions.map(s => <div key={s.fieldKey}><p>{taipeiFields(form).find(f => f.key === s.fieldKey)?.label} · 來源：{s.sourceLabel}</p><button type="button" disabled={inputDisabled} onClick={() => { const answer: TaipeiAnswer = { state: "unconfirmed", value: s.value, reason: null }; try { parseTaipeiAnswers(form, { [s.fieldKey]: answer }); changeAnswer(s.fieldKey, answer); } catch { setError("來源值與欄位格式不符，請人工核對後填寫。"); } }}>帶入為待核對</button></div>)}</div></details>}
       {form === "C" && <>
-        {snapshot?.latest && <section aria-label="C 表已保存版本來源"><h4>已保存第 {snapshot.latest.version} 版的來源</h4><MonthlySources sources={snapshot.latest.sourceSnapshot} saved /></section>}
-        {snapshot?.latest ? <details><summary>查看目前最新來源（不屬於已保存版本）</summary><MonthlySources sources={snapshot.currentSources} /></details> : <section aria-label="C 表目前最新來源"><h4>目前最新來源（尚未保存）</h4><MonthlySources sources={snapshot?.currentSources ?? null} /></section>}
+        <p className={styles.sourceGuard}>C 表只引用當月實際量測與已簽署照顧紀錄；CMS 與到站安排不算執行。</p>
+        {snapshot?.latest && <section aria-label="C 表已保存版本來源"><details className={styles.sourceDisclosure}><summary>已保存第 {snapshot.latest.version} 版的來源</summary><div className={styles.sectionBody}><MonthlySources sources={snapshot.latest.sourceSnapshot} saved /></div></details></section>}
+        {snapshot?.latest ? <details className={styles.sourceDisclosure}><summary>查看目前最新來源（不屬於已保存版本）</summary><div className={styles.sectionBody}><MonthlySources sources={snapshot.currentSources} /></div></details> : <section aria-label="C 表目前最新來源"><details className={styles.sourceDisclosure}><summary>查看當月實際來源（尚未保存）</summary><div className={styles.sectionBody}><MonthlySources sources={snapshot?.currentSources ?? null} /></div></details></section>}
       </>}
       {TAIPEI_SECTIONS[form].map((section, index) => <details key={section.code} open={index === 0}><summary>{section.code} · {section.title}</summary><div className={styles.sectionBody}>
-        <p className={styles.muted}>原表第 {section.sourcePages.join("、")} 頁{section.help ? ` · ${section.help}` : ""}</p>
+        {section.help ? <p className={styles.muted}>{section.help}</p> : null}
         <div className={styles.fields}>{section.fields.map(field => <AnswerInput key={field.key} field={field} answer={answers[field.key] ?? missing} disabled={inputDisabled} invalid={invalidField === field.key} errorId={errorId} onChange={next => changeAnswer(field.key, next)} />)}</div>
+        <details className={styles.secondaryDetails}><summary>原表出處</summary><p className={styles.sectionReference}>原表第 {section.sourcePages.join("、")} 頁</p></details>
       </div></details>)}
       {form === "B" && <div className={styles.notice}><p>草稿核對小計：營養 {totals.nutrition ?? "未填齊"}／14；SPPB {totals.sppb ?? "未填齊"}／12；跌倒因子 {totals.fallFactors ?? "未填齊"}／12；SPMSQ 錯誤 {totals.spmsqErrors ?? "未填齊"}／10。</p><p>小計不會產生診斷或照顧決策；未核對／不適用不當作 0 分。</p></div>}
       <div className={styles.toolbar}><button className={styles.primary} type="button" disabled={disabled || reviewPending} onClick={save}>{saving ? "儲存中……" : retryPending ? "以相同內容重試保存" : `儲存 ${form} 表草稿`}</button><span>{retryPending || reviewPending ? "原操作結果待確認，請先以相同內容重試" : dirty ? "尚有未存內容" : "僅保存草稿，不代替簽署"}</span></div>

@@ -97,6 +97,27 @@ describe("questionnaire independent drafts and version browsing", () => {
     expect(posts()).toHaveLength(0);
   });
 
+  it("keeps the selected client visible and makes the client switch an intentional disclosure", () => {
+    workspace();
+    const switcher = screen.getByText("更換個案").closest("details")!;
+    expect(switcher).not.toHaveAttribute("open");
+    expect(within(switcher.querySelector("summary")!).getByText("合成個案")).toBeVisible();
+    fireEvent.click(within(switcher).getByText("更換個案"));
+    expect(switcher).toHaveAttribute("open");
+    expect(within(switcher).getByRole("combobox", { name: "個案" })).toBeVisible();
+    expect(questionGroup(1)).toBeVisible();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("shows a retry for a failed initial read rather than a misleading scope-change warning", () => {
+    render(<QuestionnaireAssessmentsWorkspace assessorName="目前登入人員" canManage context={context} form={form}
+      loadError pageTitle={form.title} selectedClientId={clientId} snapshot={null} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("暫時無法載入");
+    expect(screen.getByRole("link", { name: "重新載入" })).toHaveAttribute("href", "?");
+    expect(screen.queryByText("評估資料需要重新確認")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+  });
+
   it.each(Object.values(QUESTIONNAIRE_FORMS))("keeps every full official prompt and answer option visible in $key", (selectedForm) => {
     const snapshot: QuestionnaireSnapshot = { ...defaultSnapshot(), formKey: selectedForm.key,
       clients: [{ ...defaultSnapshot().clients[0]!, latest: null, assessments: [], assessmentTotal: 0 }] };
@@ -492,7 +513,9 @@ describe("questionnaire independent drafts and version browsing", () => {
 
   it("never displays undefined version numbers or invites saving in an empty read-only demo", () => {
     const snapshot = defaultSnapshot(); workspace({ ...snapshot, demo: true, clients: [{ ...snapshot.clients[0]!, latest: null, assessments: [], assessmentTotal: 0 }] }, false);
-    expect(screen.getByText("僅供檢視")).toBeTruthy();
+    expect(screen.getByText("展示版")).toBeVisible();
+    expect(screen.getByText("不可保存／簽署")).toBeVisible();
+    expect(screen.getAllByText("尚未保存").length).toBeGreaterThan(0);
     expect(screen.queryByText(/vundefined/)).toBeNull(); expect(screen.queryByText(/請填寫下方量表保存/)).toBeNull();
   });
 });

@@ -116,7 +116,8 @@ describe("questionnaire readiness with the real workspace and authority shell", 
     vi.setSystemTime(Date.now() + 1);
     view.rerender(tree({ ...demoFixture, snapshot: { ...demoFixture.snapshot, generatedAt: new Date().toISOString() } }, demoActor, false));
     expect(screen.queryByText(/資料已有更新；本次填寫與原筆待確認操作已保留/u)).not.toBeInTheDocument();
-    expect(screen.getByText("展示用合成個案；不能寫入真實評估資料。")).toBeInTheDocument();
+    expect(screen.getByText("展示版")).toBeVisible();
+    expect(screen.getByText("不可保存／簽署")).toBeVisible();
     expect(network).not.toHaveBeenCalled();
   });
   it.each(["identical clone", "new saved baseline"])("preserves dirty answers and original revision target after SSR %s", async update => {

@@ -23,13 +23,6 @@ const ClientDocumentsWorkspace = dynamic(() => import("@/components/client-docum
 
 type ClientChoice = { id: string; displayName: string; clientCode: string };
 const stepIcons = [FileUp, UserRound, Bus, ClipboardList, FileCheck2];
-const stepDescriptions = [
-  "上傳 CMS 原檔並逐欄核對，或手動建檔。",
-  "補齊身分、聯絡與告知同意資料，再儲存。",
-  "確認每週到站、交通與接送安排。",
-  "填寫並核對 A／B／C 表；建檔不會自動完成評估。",
-  "補齊應備文件，逐份確認安全檢查與覆核狀態。",
-];
 export function IntakeWorkspace({ context, clients: initialClients, initialSnapshot, loadError, today, initialStep = 1, archiveConfigured = false }: {
   context: TenantContext; clients: ClientChoice[]; initialSnapshot: IntakeSnapshot | null; loadError: boolean; today: string; initialStep?: number; archiveConfigured?: boolean;
 }) {
@@ -154,12 +147,11 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
       </button></li>;
     })}</ol></nav>
     <section className={styles.stageSummary} aria-label="目前收案工作">
-      <p className={styles.stageLead}><strong className={styles.eyebrow}>第 {step + 1} 步／共 {INTAKE_STEPS.length} 步</strong><span>{stepDescriptions[step]}</span></p>
-      {snapshot && step !== 1 ? <div className={styles.savedMissing}>
-        <h3>已保存基本資料{missingItems.length ? ` · 待核對 ${missingItems.length} 項` : " · 基本欄位已提供"}</h3>
-        {missingItems.length ? <ul className={styles.missingItems}>{missingItems.map((item) => <li key={item}>{item}</li>)}</ul> : <p>評估、文件與正式收案仍需另行確認。</p>}
-        <button type="button" disabled={loading || saving || uploadPending} onClick={() => goTo(1)}>核對基本資料</button>
-      </div> : null}
+      <p className={styles.stageLead}><strong className={styles.eyebrow}>第 {step + 1} 步／共 {INTAKE_STEPS.length} 步</strong><span>{INTAKE_STEPS[step]}</span></p>
+      {snapshot && step !== 1 && missingItems.length ?
+        <button className={styles.stageAction} type="button" disabled={loading || saving || uploadPending} onClick={() => goTo(1)}>
+          基本資料待核對 {missingItems.length} 項 · 前往處理
+        </button> : null}
     </section>
     {error ? <div className={styles.error} role="alert"><p>{error}</p>{selectedId ? <button type="button" disabled={loading || uploadPending} onClick={() => readClient(selectedId)}>重試讀取此個案</button> : <button type="button" disabled={loading || uploadPending} onClick={() => window.location.reload()}>重新載入個案清單</button>}</div> : null}
     {loading ? <p role="status">正在讀取所選個案，請稍候…</p> : null}<div className={styles.panel} inert={loading} key={`${snapshot?.clientId ?? "new"}:${draftEpoch}`} ref={workPanel}>

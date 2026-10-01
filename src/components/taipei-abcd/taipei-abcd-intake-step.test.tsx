@@ -26,8 +26,17 @@ describe("Taipei intake draft UI", () => {
   });
   it("shows full A section inventory and no D/signature action", () => {
     render(<TaipeiAbcdIntakeStep {...ids} demo />);
-    expect(screen.getByText(/D 表是小規模多機能臨時住宿紀錄/)).toBeInTheDocument();
+    expect(screen.getByText("僅存草稿")).toBeVisible();
+    expect(screen.getByText("尚未完成評估、正式發布或簽署")).toBeVisible();
+    const scope = screen.getByText("表單版本與適用範圍").closest("details")!;
+    expect(scope).not.toHaveAttribute("open");
+    expect(within(scope).getByText(/D 表是小規模多機能臨時住宿紀錄/)).not.toBeVisible();
     expect(screen.getByText("A24 · 服務期待與目標")).toBeInTheDocument();
+    expect(screen.getByLabelText("案號內容")).toBeVisible();
+    const firstSection = screen.getByText("A0 · 案號、收案日期與照片").closest("details")!;
+    const originalPage = within(firstSection).getByText("原表出處").closest("details")!;
+    expect(originalPage).not.toHaveAttribute("open");
+    expect(within(originalPage).getByText("原表第 1 頁")).not.toBeVisible();
     expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeDisabled(); expect(fetchMock).not.toHaveBeenCalled();
   });
   it("loads before allowing save, then preserves exact idempotency key on uncertain retry", async () => {
@@ -91,8 +100,18 @@ describe("Taipei intake draft UI", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "C 表 · 當月執行" }));
     const saved = await screen.findByRole("region", { name: "C 表已保存版本來源" });
+    expect(screen.getByText("C 表只引用當月實際量測與已簽署照顧紀錄；CMS 與到站安排不算執行。")).toBeVisible();
+    expect(within(saved).getByText("已保存第 1 版的來源").closest("details")).not.toHaveAttribute("open");
     expect(within(saved).getByText("53 kg")).toBeInTheDocument(); expect(within(saved).queryByText("66 kg")).not.toBeInTheDocument();
-    expect(screen.getByText("查看目前最新來源（不屬於已保存版本）").closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(within(saved).getByText("已保存第 1 版的來源"));
+    fireEvent.click(within(saved).getByText(/C1 當月實際量測：1 筆/u));
+    expect(within(saved).getByText("53 kg")).toBeVisible();
+    const current = screen.getByText("查看目前最新來源（不屬於已保存版本）").closest("details")!;
+    expect(current).not.toHaveAttribute("open");
+    fireEvent.click(within(current).getByText("查看目前最新來源（不屬於已保存版本）"));
+    fireEvent.click(within(current).getByText(/C1 當月實際量測：1 筆/u));
+    expect(within(current).getByText("66 kg")).toBeVisible();
+    expect(within(current).queryByText("53 kg")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "儲存 C 表草稿" })).toBeDisabled();
     const model = taipeiExportModel({ draft, workflow, generatedAt: base.capturedAt, sourceRevision: "114.11", sourceSha256: TAIPEI_ABCD_TEMPLATE.sourceSha256, templateKey: TAIPEI_ABCD_TEMPLATE.key, organization: { organizationId: ids.organizationId, organizationName: "合成", branchId: ids.branchId, branchName: "合成" }, client: { clientId: ids.clientId, displayName: "合成", clientCode: null }, isElectronicSignature: false, isOfficialComplete: false, rendererVersion: "taipei-crosswalk-v1", fontAssetKey: "taipei-crosswalk-font-v1" }, draft.id, "b".repeat(64));
     const values = model.sections.flatMap(s => s.rows.map(r => r.value)).join(" ");

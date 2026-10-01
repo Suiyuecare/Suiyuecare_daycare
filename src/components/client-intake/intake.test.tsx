@@ -88,8 +88,14 @@ describe("intake usability and truthful writes", () => {
     expect(within(screen.getByRole("region", { name: "目前收案工作" })).queryByRole("heading")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "基本資料待核對" })).toHaveTextContent("身分識別資料");
     fireEvent.click(within(steps).getByRole("button", { name: /1\s*匯入與建檔/u }));
-    expect(screen.getByRole("region", { name: "目前收案工作" })).toHaveTextContent("已保存基本資料 · 待核對 5 項");
+    const currentWork = screen.getByRole("region", { name: "目前收案工作" });
+    expect(currentWork).toHaveTextContent("第 1 步／共 5 步");
+    expect(currentWork).toHaveTextContent("匯入與建檔");
+    expect(within(currentWork).queryByText("身分識別資料")).not.toBeInTheDocument();
     expect(within(steps).getByRole("button", { name: /2\s*基本資料.*待核對 5 項/u })).not.toHaveAttribute("aria-current");
+    fireEvent.click(within(currentWork).getByRole("button", { name: "基本資料待核對 5 項 · 前往處理" }));
+    expect(screen.getByRole("region", { name: "基本資料待核對" })).toHaveTextContent("身分識別資料");
+    expect(within(steps).getByRole("button", { name: /2\s*基本資料.*目前步驟/u })).toHaveAttribute("aria-current", "step");
     expect(fetcher).not.toHaveBeenCalled();
   });
   it("keeps routine account details collapsed while admission and archive limitations stay visible", () => {

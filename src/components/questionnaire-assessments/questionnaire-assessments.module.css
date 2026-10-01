@@ -3,12 +3,42 @@
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   overflow-wrap: anywhere;
-  gap: 1rem;
+  gap: .55rem;
 }
 
 .workspace > * { min-width: 0; }
 
 .workspace :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+
+.pageHeading { margin-bottom: 0; align-items: center; }
+.pageHeading h1 { font-size: clamp(1.5rem, 2.2vw, 2rem); }
+.selectedToolbar { display: flex; min-width: 0; align-items: flex-start; gap: .5rem; }
+.selectedToolbar > :global(.button) { min-height: 44px; flex: 0 0 auto; }
+.selectedClientPicker {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+  background: var(--surface);
+}
+.selectedClientPicker > summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .6rem .85rem;
+  cursor: pointer;
+  font-size: .9rem;
+  list-style: none;
+}
+.selectedClientPicker > summary::-webkit-details-marker { display: none; }
+.selectedClientPicker > summary > span:first-child { min-width: 0; color: var(--ink-muted); }
+.selectedClientPicker > summary strong { color: var(--ink); font-size: 1rem; overflow-wrap: anywhere; }
+.selectedClientPicker > summary > span:last-child { flex: 0 0 auto; color: var(--brand-strong); font-weight: 700; }
+.selectedClientPicker > summary:focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 2px; }
+.selectedClientPicker > :global(.client-selection-form) { padding: 0 .65rem .65rem; }
+.selectedClientPicker :global(.client-selection-card) { min-height: 108px; }
 
 .formPanel,
 .questionCard {
@@ -16,6 +46,8 @@
   border-radius: 10px;
   background: var(--surface, #fffdfa);
 }
+
+.questionHeading { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: .5rem; }
 
 .meta label {
   display: grid;
@@ -59,20 +91,27 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding-bottom: 1rem;
+  padding-bottom: .4rem;
   border-bottom: 1px solid var(--border, #eadbc9);
 }
 
 .formHeader h2 {
   margin: 0;
-  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  font-size: clamp(1.1rem, 1.8vw, 1.4rem);
 }
+
+.formIdentity { display: flex; min-width: 0; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: .2rem .65rem; }
+.instructionDetails { position: relative; min-width: 0; color: var(--brand-strong); font-size: .85rem; font-weight: 650; }
+.instructionDetails summary { display: flex; min-height: 44px; align-items: center; cursor: pointer; white-space: nowrap; }
+.instructionDetails[open] { flex-basis: 100%; }
+.instructionDetails p { margin: 0 0 .4rem; color: var(--ink-muted); font-weight: 400; }
 
 .formHeader p {
   max-width: 70ch;
-  margin: .45rem 0 0;
+  margin: .2rem 0 0;
   color: var(--text-muted, #74685d);
-  line-height: 1.55;
+  font-size: .88rem;
+  line-height: 1.4;
 }
 
 .formHeader .source {
@@ -86,9 +125,12 @@
 }
 
 .formStatus {
-  display: grid;
+  display: flex;
   flex: 0 0 auto;
-  gap: .4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .3rem .5rem;
 }
 
 .draftBadge {
@@ -109,9 +151,9 @@
 }
 
 .progress {
-  margin: 0 0 1rem;
-  border-block: 1px solid var(--line);
-  padding-block: .7rem;
+  margin: 0 0 .4rem;
+  border-bottom: 1px solid var(--line);
+  padding-block: .2rem .35rem;
   color: var(--ink);
   font-size: .95rem;
   line-height: 1.6;
@@ -121,7 +163,7 @@
   display: grid;
   grid-template-columns: minmax(0, .7fr) minmax(0, 1fr);
   gap: 1rem;
-  padding: 1rem 0;
+  padding: .4rem 0;
 }
 
 .assessor {
@@ -139,11 +181,11 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   min-width: 0;
-  gap: .75rem;
-  margin: 0 0 1rem;
+  gap: .5rem;
+  margin: 0 0 .65rem;
   border: 1px solid var(--border, #eadbc9);
   border-radius: var(--card-radius);
-  padding: 1rem;
+  padding: .7rem;
   background: var(--surface-subtle, #fff8ee);
 }
 
@@ -152,6 +194,14 @@
   color: var(--text, #302d2a);
   font-weight: 700;
 }
+
+.contextConditions {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.contextConditions label { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: .5rem; }
 
 .measurements label {
   display: grid;
@@ -233,6 +283,8 @@
 }
 
 .questionTitle {
+  min-width: 0;
+  flex: 1 1 auto;
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
@@ -290,6 +342,7 @@
 
 .questionActions {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
@@ -493,6 +546,14 @@
 .workspace :disabled { opacity: .7; }
 
 @media (max-width: 640px) {
+  .pageHeading { flex-direction: row; align-items: center; gap: .5rem; }
+  .pageHeading h1 { font-size: 1.4rem; }
+  .pageHeading :global(.page-heading__actions) { flex: 0 0 auto; }
+  .pageHeading :global(.page-heading__actions) :global(.button) { min-height: 44px; flex: 0 0 auto; padding-inline: .6rem; }
+  .selectedClientPicker > summary { font-size: .85rem; }
+  .formPanel { padding: .75rem; }
+  .questionCard { padding: .75rem; gap: .55rem; }
+
   .actions button { min-width: 0; max-width: 100%; }
 
   .mobileSaveActions {
@@ -528,14 +589,16 @@
     box-shadow: none;
   }
 
-  .selection,
-  .meta {
+  .selection {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .formHeader {
-    display: grid;
-  }
+  .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+  .assessorField small { display: none; }
+  .meta label small:not([role="alert"]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+
+  .formHeader { display: flex; }
+  .formStatus { flex: 0 0 105px; display: grid; justify-items: end; }
 
   .choiceGrid {
     grid-template-columns: minmax(0, 1fr);

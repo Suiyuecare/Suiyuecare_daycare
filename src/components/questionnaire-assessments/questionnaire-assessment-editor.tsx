@@ -66,6 +66,7 @@ function QuestionnaireEditor({
   assessorName,
   canManage,
   client,
+  demo,
   form,
   baseline,
   readOnly = false,
@@ -79,6 +80,7 @@ function QuestionnaireEditor({
   assessorName: string;
   canManage: boolean;
   client: QuestionnaireClient;
+  demo: boolean;
   form: QuestionnaireFormDefinition;
   baseline: QuestionnaireDraft | null;
   readOnly?: boolean;
@@ -282,13 +284,16 @@ function QuestionnaireEditor({
     </section> : null}
     <fieldset className={styles.editorFields} disabled={pending || retryPending || checking || committed || readOnly || reading || viewTransitionPending}>
     <div className={styles.formHeader}>
-      <div>
+      <div className={styles.formIdentity}>
         <h2>{form.title}</h2>
-        <p>{form.instructions}</p>
+        <details className={styles.instructionDetails}>
+          <summary>施測說明</summary>
+          <p>{form.instructions}</p>
+        </details>
       </div>
       <div className={styles.formStatus}>
-        <span className={styles.draftBadge}>{readOnly ? latest ? `查看草稿 v${latest.version}` : "僅供檢視" : latest ? `修訂草稿 v${latest.version}` : "新增草稿"}</span>
-        <span className={styles.formGate}>尚不可簽署</span>
+        <span className={styles.draftBadge}>{demo ? "展示版" : readOnly ? latest ? `查看草稿 v${latest.version}` : "僅供檢視" : latest ? `修訂草稿 v${latest.version}` : "新增草稿"}</span>
+        <span className={styles.formGate}>{demo ? "不可保存／簽署" : "尚不可簽署"}</span>
       </div>
     </div>
 
@@ -310,24 +315,24 @@ function QuestionnaireEditor({
           type="text"
           value={assessedOn}
         />
-        <small id={`${form.key}-date-hint`}>西元年－月－日，例如 2026-09-27。</small>
+        <small id={`${form.key}-date-hint`}>格式：YYYY-MM-DD</small>
         {dateError ? <small id={`${form.key}-date-error`} role="alert">{dateError}</small> : null}
       </label>
       <div className={styles.assessorField}>
-        <span>{readOnly ? "此版本記錄人員" : "本次記錄人員"}</span>
-        <span className={styles.assessor}>{readOnly ? latest?.authorDisplayName : assessorName}</span>
-        <small>{readOnly ? "顯示此草稿的原保存人員。" : "由目前登入人員保存；不代表已簽署。"}</small>
+        <span>{readOnly && latest ? "此版本記錄人員" : "本次記錄人員"}</span>
+        <span className={styles.assessor}>{readOnly ? latest?.authorDisplayName ?? "尚未保存" : assessorName}</span>
+        <small>{readOnly ? latest ? "顯示此草稿的原保存人員。" : "尚無已保存草稿。" : "由目前登入人員保存；不代表已簽署。"}</small>
       </div>
     </div>
 
-    <p className={styles.progress} aria-label="作答進度" aria-live="polite">已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</p>
+    <p className="sr-only" role="status" aria-label="作答進度" aria-live="polite">作答進度：已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</p>
 
     {suicideConcern ? <div className={styles.urgent} role="alert">
       安全提醒：此題有記錄到困擾。請依機構危機處理流程立即轉知護理／主管並陪同關懷；本系統不會自動通知或代替專業處置。
     </div> : null}
 
-    {form.contextFields?.length ? <fieldset className={styles.measurements}>
-      <legend>評估條件</legend>
+    {form.contextFields?.length ? <fieldset className={`${styles.measurements} ${styles.contextConditions}`}>
+      <legend className="sr-only">評估條件</legend>
       {form.contextFields.map(({ key, label, required, choices }) => <label key={key}>
         {label}{required ? "（計分必要）" : ""}
         <select
@@ -368,21 +373,23 @@ function QuestionnaireEditor({
         const promptId = `${questionIdPrefix}-${question.id}-prompt`;
         const helpId = `${questionIdPrefix}-${question.id}-help`;
         return <section className={styles.questionCard} key={question.id}>
-          <h3 className={styles.questionTitle} id={promptId}>{index + 1}. {question.prompt}</h3>
-          {question.helpText ? <p className={styles.questionHelp} id={helpId}>{question.helpText}</p> : null}
-          <div className={styles.questionActions}>
-            <span>{answer.state === "answered" ? "已作答" : answer.state === "not_applicable" ? "不適用" : "未填"}</span>
-            {answer.state !== "missing" ? <button
-              aria-label={`清除第 ${index + 1} 題答案`}
-              className="button button--quiet"
-              onClick={() => {
-                setAnswers((current) => ({ ...current, [question.id]: { state: "missing" } }));
-                clearReasonError(question.id);
-                markDirty();
-              }}
-              type="button"
-            >清除答案</button> : null}
+          <div className={styles.questionHeading}>
+            <h3 className={styles.questionTitle} id={promptId}>{index + 1}. {question.prompt}</h3>
+            <div className={styles.questionActions}>
+              <span>{answer.state === "answered" ? "已作答" : answer.state === "not_applicable" ? "不適用" : "未填"}</span>
+              {answer.state !== "missing" ? <button
+                aria-label={`清除第 ${index + 1} 題答案`}
+                className="button button--quiet"
+                onClick={() => {
+                  setAnswers((current) => ({ ...current, [question.id]: { state: "missing" } }));
+                  clearReasonError(question.id);
+                  markDirty();
+                }}
+                type="button"
+              >清除</button> : null}
+            </div>
           </div>
+          {question.helpText ? <p className={styles.questionHelp} id={helpId}>{question.helpText}</p> : null}
           <div className={styles.choiceGrid} role="radiogroup" aria-labelledby={promptId}
             aria-describedby={question.helpText ? helpId : undefined}>
             {question.choices.map((choice) => <label className={styles.choice} key={choice.value}>
@@ -432,6 +439,8 @@ function QuestionnaireEditor({
         </section>;
       })}
     </fieldset>
+
+    <p className={styles.progress}>已作答 {answeredCount}／{form.questions.length} 題 · 不適用 {notApplicableCount} 題 · 未填 {missingCount} 題</p>
 
     {form.allowQualitativeNotes ? <label className={styles.notes}>
       補充觀察與後續事項
@@ -485,8 +494,9 @@ function QuestionnaireEditor({
   </form>;
 }
 
-function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigationBlockChange, context, sourceKey, sourceAt }: {
+function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onNavigationBlockChange, context, sourceKey, sourceAt }: {
   assessorName: string; canManage: boolean; client: QuestionnaireClient; form: QuestionnaireFormDefinition;
+  demo: boolean;
   onNavigationBlockChange: (blocked: boolean) => void;
   context?: TenantContext; sourceKey: string; sourceAt: string;
 }) {
@@ -674,7 +684,7 @@ function QuestionnaireRecords({ assessorName, canManage, client, form, onNavigat
       {reloadKey || confirmedKey ? <button className="button button--secondary" disabled={reading} onClick={() => { void saved(reloadKey ?? confirmedKey!).catch(() => {}); }} type="button">重新讀取已保存紀錄</button> : null}
     </section> : null}
     {sourceReady ? <QuestionnaireEditor
-      assessorName={assessorName} baseline={baseline} canManage={canManage} client={client} form={form}
+      assessorName={assessorName} baseline={baseline} canManage={canManage} client={client} demo={demo} form={form}
       key={`${baseline?.versionId ?? "new"}-${readOnly ? "view" : "edit"}-${editorEpoch}`}
       onDirtyChange={setDirty} onLockChange={setLocked} onSaved={saved} readOnly={readOnly} reading={reading}
       scope={scope} sourceAt={sourceAt}
@@ -788,15 +798,15 @@ export function QuestionnaireAssessmentsWorkspace({
   const admitted = !context || sameOwner && !loadError && !!snapshot &&
     snapshot.formKey === form.key && (sameSource || admissibleUpdate) &&
     (!activeClientId || snapshot.clients.some(client => client.clientId === activeClientId));
-  if (context && !admitted) return <section className="empty-card core-care-state" role="alert">
-    <h1>評估資料需要重新確認</h1>
-    <p>登入或個案查閱範圍已變更，舊內容已隱藏。請使用上方「登出」，重新登入後回查原個案紀錄，再繼續作業。</p>
-    <p>登出或完整重新載入會清除本分頁的待確認內容；請先由主管協助核對已保存紀錄，不要重複新增。</p>
-  </section>;
   if (loadError || !snapshot) return <section className="empty-card core-care-state" role="alert">
     <h1>{pageTitle}暫時無法載入</h1>
     <p>正式個案清單未能確認；沒有切換到展示資料或擴大查閱範圍。</p>
     <a className="button button--secondary" href="?">重新載入</a>
+  </section>;
+  if (context && !admitted) return <section className="empty-card core-care-state" role="alert">
+    <h1>評估資料需要重新確認</h1>
+    <p>登入或個案查閱範圍已變更，舊內容已隱藏。請使用上方「登出」，重新登入後回查原個案紀錄，再繼續作業。</p>
+    <p>登出或完整重新載入會清除本分頁的待確認內容；請先由主管協助核對已保存紀錄，不要重複新增。</p>
   </section>;
 
   const chosenClient = activeClientId
@@ -814,8 +824,24 @@ export function QuestionnaireAssessmentsWorkspace({
     fall_risk_taipei_115: "fall-risk",
     nsi_determine: "nsi",
   }[form.key]}`;
+  const clientPicker = <form action={formRef} className="client-selection-form" method="get" noValidate key={activeClientId ?? "no-client"} onSubmit={(event) => {
+    if (navigationBlocked) event.preventDefault();
+  }}>
+    <ClientSelectionCard
+      id="questionnaire-client"
+      label="個案"
+      defaultValue={activeClientId ?? ""}
+      disabled={navigationBlocked}
+      placeholderDisabled
+      actionLabel={chosenClient ? "確認更換" : "選取個案"}
+      options={snapshot.clients.map((client) => ({
+        value: client.clientId,
+        label: `${client.displayName}${client.serviceStatus === "suspended" ? "・暫停服務" : ""}`,
+      }))}
+    />
+  </form>;
   return <section className={styles.workspace} aria-label={pageTitle}>
-    <header className="page-heading core-care-heading">
+    {chosenClient ? <h1 className="sr-only">{pageTitle}</h1> : <header className={`page-heading core-care-heading ${styles.pageHeading}`}>
       <div>
         <p className="eyebrow">評估量表・頁面 {{
           spmsq: 11,
@@ -829,36 +855,19 @@ export function QuestionnaireAssessmentsWorkspace({
           mna_sf: 36,
         }[form.key]}</p>
         <h1>{pageTitle}</h1>
-        <p className="page-heading__description">選個案後直接填表；未簽署的答案以版本草稿保存。</p>
+        <p className="page-heading__description">先選個案，再直接填寫量表。</p>
       </div>
-      {chosenClient && context && (context.demo || context.scopes.includes("clients.read")) ? (
-        <div className="page-heading__actions">
-          <NavigationLink className="button button--secondary" href={assessmentEntryHref(chosenClient.clientId)}
-            loadingLabel="評估量表" prefetch={false}>返回這位個案的評估清單</NavigationLink>
-        </div>
-      ) : null}
-    </header>
+    </header>}
 
-    {snapshot.demo ? <div className="callout" role="status">
-      展示用合成個案；不能寫入真實評估資料。
-    </div> : null}
-
-    <form action={formRef} className="client-selection-form" method="get" noValidate key={activeClientId ?? "no-client"} onSubmit={(event) => {
-      if (navigationBlocked) event.preventDefault();
-    }}>
-      <ClientSelectionCard
-        id="questionnaire-client"
-        label="個案"
-        defaultValue={activeClientId ?? ""}
-        disabled={navigationBlocked}
-        placeholderDisabled
-        actionLabel="選取個案"
-        options={snapshot.clients.map((client) => ({
-          value: client.clientId,
-          label: `${client.displayName}${client.serviceStatus === "suspended" ? "・暫停服務" : ""}`,
-        }))}
-      />
-    </form>
+    {chosenClient ? <div className={styles.selectedToolbar}>
+      <details className={styles.selectedClientPicker}>
+        <summary><span>個案 <strong>{chosenClient.displayName}</strong></span><span>更換個案</span></summary>
+        {clientPicker}
+      </details>
+      {context && (context.demo || context.scopes.includes("clients.read")) ? <NavigationLink
+        className="button button--secondary" href={assessmentEntryHref(chosenClient.clientId)}
+        loadingLabel="評估量表" prefetch={false} aria-label="返回這位個案的評估清單">換量表</NavigationLink> : null}
+    </div> : clientPicker}
 
     {navigationBlocked ? <p className={styles.message}>請先保存或取消本次修改，再切換個案。</p> : null}
     {activeClientId !== selectedClientId ? <p role="status">仍在處理原個案；請先保存或回查原筆，再切換個案。</p> : null}
@@ -866,6 +875,7 @@ export function QuestionnaireAssessmentsWorkspace({
       assessorName={assessorName}
       canManage={canManage}
       client={chosenClient}
+      demo={Boolean(snapshot.demo)}
       form={form}
       context={context}
       sourceKey={`${authority ?? "legacy"}-${view.epoch}-${admission?.revision ?? 0}`}

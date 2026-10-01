@@ -429,7 +429,7 @@ export function AppShell({
           <div className="topbar__context">
             <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>
             <span className="topbar__separator" aria-hidden="true">・</span>
-            <time className="topbar__clock" dateTime={taipeiClock ? `${taipeiClock}+08:00` : undefined} aria-label={taipeiClock ? `台北時間 ${taipeiClock}` : "台北時間載入中"}>{taipeiClock || "--:--:--"}</time>
+            <time className="topbar__clock" dateTime={taipeiClock ? `${taipeiClock}+08:00` : undefined}><span className="sr-only">台北時間 </span>{taipeiClock || "--:--:--"}</time>
           </div>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>

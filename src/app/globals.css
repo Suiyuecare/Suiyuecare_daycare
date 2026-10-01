@@ -329,7 +329,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .topbar__system, .topbar__divider, .topbar__mobile-logo { display: none; }
 .topbar__actions { grid-area: actions; display: flex; align-items: center; gap: 8px; }
 .topbar__actions .button { min-height: 38px; padding: 8px 14px; border-radius: 999px; color: var(--brand-strong); font-size: 13px; font-weight: 900; white-space: nowrap; }
-.topbar__actions .button--primary { border-color: var(--brand); background: var(--brand); color: #fff; box-shadow: none; }
+.topbar__actions .button--primary { border-color: var(--brand); background: var(--brand); color: var(--ink); box-shadow: none; }
 .topbar__actions .button--primary:hover:not(:disabled) { border-color: var(--brand-strong); background: var(--brand-strong); color: #fff; }
 .topbar__context { grid-area: status; display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 4px; }
 .topbar .notification-button { grid-area: bell; }
