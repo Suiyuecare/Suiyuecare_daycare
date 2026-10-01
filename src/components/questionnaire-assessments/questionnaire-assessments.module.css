@@ -105,6 +105,7 @@
 .instructionDetails summary { display: flex; min-height: 44px; align-items: center; cursor: pointer; white-space: nowrap; }
 .instructionDetails[open] { flex-basis: 100%; }
 .instructionDetails p { margin: 0 0 .4rem; color: var(--ink-muted); font-weight: 400; }
+.inlineProgress { align-self: center; color: var(--ink-muted); font-size: .85rem; font-weight: 700; white-space: nowrap; }
 
 .formHeader p {
   max-width: 70ch;
@@ -231,6 +232,8 @@
   color: var(--text-muted, #74685d);
   line-height: 1.5;
 }
+.measurements .measurementIssue { color: var(--danger); font-weight: 700; }
+.anthropometryMeasurements:focus { outline: 3px solid var(--brand-strong); outline-offset: 2px; }
 
 .notes {
   display: grid;

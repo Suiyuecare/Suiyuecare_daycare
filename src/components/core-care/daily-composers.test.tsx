@@ -111,10 +111,9 @@ function open(spec: typeof specs[number]) {
   fireEvent.change(within(dialog).getByLabelText(spec.time), { target: { value: `${date}T09:10` } });
   return { dialog, form, field };
 }
-function selectedClientControl(dialog: HTMLElement, kind: typeof specs[number]["kind"]): HTMLInputElement | HTMLSelectElement {
-  if (kind !== "diary") return within(dialog).getByLabelText("個案 *") as HTMLSelectElement;
+function selectedClientControl(dialog: HTMLElement): HTMLInputElement {
   const control = dialog.querySelector<HTMLInputElement>('input[name="client_id"]');
-  if (!control) throw new Error("Selected diary client is missing from the form");
+  if (!control) throw new Error("Selected client is missing from the form");
   return control;
 }
 function successfulResponse(spec: typeof specs[number], init: RequestInit) {
@@ -142,11 +141,11 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
     const { dialog, form } = open(spec);
-    expect(selectedClientControl(dialog, spec.kind)).toHaveValue(selectedClientId);
-    if (spec.kind === "diary") {
-      expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent("合成個案乙");
-      expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
-    }
+    expect(selectedClientControl(dialog)).toHaveValue(selectedClientId);
+    expect(new FormData(form).get("client_id")).toBe(selectedClientId);
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent("合成個案乙");
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent("SYN-02");
+    expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
     fireEvent.submit(form);
     await within(dialog).findByRole("alert");
     expect(fetchMock.mock.calls[0]![0]).toBe(spec.endpoint);
@@ -193,7 +192,7 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     expect(dialog).not.toHaveAttribute("open");
     expect(document.querySelectorAll("dialog[open]")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
-    expect(selectedClientControl(dialog, spec.kind)).toHaveValue(selectedClientId);
+    expect(selectedClientControl(dialog)).toHaveValue(selectedClientId);
     expect(field).toHaveValue(spec.kind === "vitals" ? null : "");
   });
   it("freezes the same body and key after an uncertain result, even on attempted edits", async () => {
@@ -344,13 +343,44 @@ describe.each(specs.filter((spec) => spec.kind !== "attendance"))("$kind forged 
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
     const { dialog, form } = open(spec);
-    const control = selectedClientControl(dialog, spec.kind);
+    const control = selectedClientControl(dialog);
     const unauthorized = "a9999999-9999-4999-8999-999999999999";
-    if (control instanceof HTMLSelectElement) control.add(new Option("合成未授權個案", unauthorized));
     control.value = unauthorized;
     fireEvent.submit(form);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("請重新選擇目前授權的個案");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(spec.kind === "vitals"
+      ? "已選個案不符" : "請重新選擇目前授權的個案");
+  });
+});
+
+describe.each(specs.filter((spec) => spec.kind !== "diary"))("$kind fixed selected-client context", (spec) => {
+  it("does not accept a different authorized client injected into the fixed form value", () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    mount(spec.kind);
+    const { dialog, form } = open(spec);
+    const fixed = selectedClientControl(dialog);
+    expect(fixed).toHaveAttribute("type", "hidden");
+    fixed.value = clients[0]!.id;
+    fireEvent.submit(form);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveFocus();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("已選個案不符");
+  });
+
+  it("stops an open editor when its selected client is no longer in the authorized snapshot", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId };
+    const renderComposer = (next: typeof props) => spec.kind === "attendance"
+      ? <AttendanceComposer {...next} /> : <VitalSignComposer {...next} />;
+    const view = render(renderComposer(props));
+    fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
+    const form = screen.getByRole("dialog").querySelector("form")!;
+    view.rerender(renderComposer({ ...props, clients: [clients[0]!] }));
+    expect(screen.getByRole("button", { name: spec.trigger })).toBeDisabled();
+    if (spec.kind === "attendance") expect(screen.getByRole("status")).toHaveTextContent("不會自動改為其他個案");
+    expect(document.querySelector("dialog[open]")).toBeNull();
+    fireEvent.submit(form);
+    await waitFor(() => expect(fetchMock).not.toHaveBeenCalled());
   });
 });
 
@@ -359,7 +389,7 @@ it("does not let a fixed diary selection be silently replaced by another authori
   vi.stubGlobal("fetch", fetchMock);
   mount("diary");
   const { dialog, form } = open(specs[2]);
-  const control = selectedClientControl(dialog, "diary");
+  const control = selectedClientControl(dialog);
   control.value = clients[0]!.id;
   fireEvent.submit(form);
   expect(fetchMock).not.toHaveBeenCalled();

@@ -111,8 +111,10 @@ describe("questionnaire independent drafts and version browsing", () => {
     const firstQuestion = questionGroup(1);
     const records = screen.getByRole("region", { name: "已保存的評估" });
     const progress = screen.getByLabelText("作答進度");
+    const visibleProgress = screen.getByText("已選 10／10 題");
     expect(firstQuestion.compareDocumentPosition(records) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(progress.compareDocumentPosition(firstQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(visibleProgress.compareDocumentPosition(firstQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("尚不可簽署", { exact: true })).toBeVisible();
     expect(screen.getByText("本次記錄人員")).toBeVisible();
     expect(screen.getByText("目前登入人員", { exact: true })).toBeVisible();
@@ -448,9 +450,14 @@ describe("questionnaire independent drafts and version browsing", () => {
     fireEvent.change(screen.getByLabelText("身高（公分）"), { target: { value: "160" } });
     fireEvent.change(screen.getByLabelText("體重（公斤）"), { target: { value: "48" } });
     fireEvent.click(screen.getByLabelText("BMI ≥ 23・3 分"));
-    expect(screen.getByRole("alert").textContent).toContain("實測值不符");
+    const measurements = screen.getByText("身體測量（MNA-SF）").closest("fieldset")!;
+    expect(within(measurements).getByRole("alert").textContent).toContain("實測值不符");
     expect(screen.getByText("計分預覽：尚未完整作答")).toBeTruthy();
-    fireEvent.click(button("保存本次評估")); expect(stubs.fetch).not.toHaveBeenCalled();
+    fireEvent.click(button("保存本次評估"));
+    expect(document.activeElement).toBe(measurements);
+    expect(screen.getByLabelText("身高（公分）")).toHaveValue(160);
+    expect(screen.getByLabelText("體重（公斤）")).toHaveValue(48);
+    expect(stubs.fetch).not.toHaveBeenCalled();
   });
 
   it("requires shared explicit discard before a Link can unmount a dirty draft, without native confirm", async () => {

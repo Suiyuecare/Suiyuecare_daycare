@@ -100,6 +100,7 @@ function QuestionnaireEditor({
   const [assessedOn, setAssessedOn] = useState(recovered?.assessedOn ?? latest?.assessedOn ?? taipeiToday());
   const [dateError, setDateError] = useState("");
   const dateField = useRef<HTMLInputElement | null>(null);
+  const measurementGroup = useRef<HTMLFieldSetElement | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [reasonErrors, setReasonErrors] = useState<Record<string, string>>({});
@@ -247,7 +248,12 @@ function QuestionnaireEditor({
         dateField.current?.focus();
         return;
       }
-      if (measurementIssue) { setMessage(measurementIssue); return; }
+      if (measurementIssue) {
+        setMessage("請核對 F 題的身體測量；已填答案保留，尚未送出。");
+        measurementGroup.current?.focus();
+        measurementGroup.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+        return;
+      }
       const errors: Record<string, string> = {};
       for (const { id } of form.questions) {
         const answer = answers[id];
@@ -290,6 +296,7 @@ function QuestionnaireEditor({
           <summary>施測說明</summary>
           <p>{form.instructions}</p>
         </details>
+        <span aria-hidden="true" className={styles.inlineProgress}>已選 {answeredCount + notApplicableCount}／{form.questions.length} 題</span>
       </div>
       <div className={styles.formStatus}>
         <span className={styles.draftBadge}>{demo ? "展示版" : readOnly ? latest ? `查看草稿 v${latest.version}` : "僅供檢視" : latest ? `修訂草稿 v${latest.version}` : "新增草稿"}</span>
@@ -357,7 +364,8 @@ function QuestionnaireEditor({
         const helpId = `${questionIdPrefix}-${question.id}-help`;
         return <Fragment key={question.id}>
           {form.key === "mna_sf" && question.id === "anthropometry" && form.measurementFields?.length ?
-            <fieldset className={`${styles.measurements} ${styles.anthropometryMeasurements}`}>
+            <fieldset aria-describedby={measurementIssue ? `${form.key}-measurement-error` : undefined}
+              className={`${styles.measurements} ${styles.anthropometryMeasurements}`} ref={measurementGroup} tabIndex={-1}>
               <legend>身體測量（MNA-SF）</legend>
               {form.measurementFields.map(({ key, label }) => <label key={key}>
                 {label}
@@ -372,6 +380,7 @@ function QuestionnaireEditor({
                 />
               </label>)}
               {bmi !== null ? <p>依輸入身高與體重計算 BMI：{bmi.toFixed(1)}。請確認 F 題選擇的區間相符；若無法取得 BMI，改輸入小腿圍並選擇小腿圍選項。</p> : <p>輸入可取得的身高與體重；若無法取得 BMI，請改填小腿圍並依 F 題指示作答。</p>}
+              {measurementIssue ? <p className={styles.measurementIssue} id={`${form.key}-measurement-error`} role="alert">{measurementIssue}</p> : null}
             </fieldset> : null}
           <section className={styles.questionCard}>
           <div className={styles.questionHeading}>
@@ -464,7 +473,6 @@ function QuestionnaireEditor({
       {scorePreview.status === "complete" && scorePreview.classification
         ? <span>{scorePreview.classification.label}</span> : null}
       <small>篩檢分數需由人員判讀。</small>
-      {measurementIssue ? <p role="alert">{measurementIssue}</p> : null}
       {scorePreview.rule?.reviewRequired || !scorePreview.rule?.activatedAt ? <p className={styles.formGate}>僅供草稿核對，正式計分尚未啟用</p> : null}
     </section> : null}
     <details className={styles.ruleNotice}>

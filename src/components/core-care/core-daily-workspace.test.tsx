@@ -69,15 +69,10 @@ describe("daily care selected-client handoff and source boundaries", () => {
     expect(screen.getByRole("button", { name: trigger }).closest(".core-client-continuation")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: trigger }));
     const dialog = screen.getByRole("dialog", { name: title });
-    if (page === 6) {
-      expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent(selected.displayName);
-      expect(dialog.querySelector('input[name="client_id"]')).toHaveValue(selected.clientId);
-      expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
-    } else {
-      const clientInput = within(dialog).getByLabelText("個案 *");
-      expect(clientInput).toHaveValue(selected.clientId);
-      expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
-    }
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent(selected.displayName);
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent(selected.clientCode);
+    expect(dialog.querySelector('input[name="client_id"]')).toHaveValue(selected.clientId);
+    expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
   });
   it.each([46, 3, 6])("requires selection in the continuation before opening page %s composer", (page) => {
     render(workspace(page));

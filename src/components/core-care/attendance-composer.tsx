@@ -110,6 +110,7 @@ export function AttendanceComposer({
 }) {
   const router = useRouter();
   const trigger = useRef<HTMLButtonElement>(null);
+  const fixedClientSummary = useRef<HTMLDivElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
   const validation = useDailyFormValidation();
@@ -126,7 +127,8 @@ export function AttendanceComposer({
     onDiscard() { setEditorOpen(false); if (!attempt.current()) resetForOpen(); },
   });
   const offline = useOfflineCareForm({ kind: "attendance", serviceDate, enabled, demo,
-    allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
+    allowedClientIds: clients.map((client) => client.id), fixedClientId: selectedClientId,
+    formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const eligibleClients = useMemo(
     () => clients.filter((client) => allowedEvents(client).length > 0),
     [clients],
@@ -134,6 +136,7 @@ export function AttendanceComposer({
   const [clientId, setClientId] = useState(selectedClientId ?? "");
   const selectedClient =
     eligibleClients.find((client) => client.id === clientId);
+  const fixedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const unavailableSelection = selectedClientId !== undefined && !eligibleClients.some((client) => client.id === selectedClientId);
   const effectiveClientId = selectedClient?.id ?? "";
   const availableEvents = selectedClient ? allowedEvents(selectedClient) : [];
@@ -202,6 +205,16 @@ export function AttendanceComposer({
     }
     if (prior && !clients.some((client) => client.id === prior.body.client_id)) {
       setError("原出勤個案不在目前名單；請回到原個案確認上一筆結果，未改用其他個案。");
+      return;
+    }
+    if (prior && selectedClientId !== undefined && prior.body.client_id !== selectedClientId) {
+      setError("原出勤個案與目前選定個案不符；請回到原個案確認上一筆結果。");
+      return;
+    }
+    if (!prior && selectedClientId !== undefined && (unavailableSelection || effectiveClientId !== selectedClientId ||
+      new FormData(event.currentTarget).get("client_id") !== selectedClientId)) {
+      validation.validate(event.currentTarget, { client_id: "已選個案不符，請返回今日工作重新選擇；尚未送出出勤。" });
+      fixedClientSummary.current?.focus();
       return;
     }
     if (!prior && !validation.validate(event.currentTarget)) return;
@@ -319,7 +332,7 @@ export function AttendanceComposer({
           <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => {
-              setClientId(values.client_id ?? "");
+              setClientId(selectedClientId ?? values.client_id ?? "");
               setEventKind((values.event_kind ?? "check_in") as AttendanceEventKind);
               setOccurredAt(values.occurred_at ?? ""); setReason(values.reason ?? ""); draft.changed();
             }} />
@@ -329,7 +342,13 @@ export function AttendanceComposer({
                 超過伺服器時間 15 分鐘會自動視為補登，須具補登權限、最近 15 分鐘重新驗證並填寫理由。
               </span>
             </div>
-            <label className="field">
+            {selectedClientId !== undefined ? <div className={styles.selectedClient} role="group" aria-label="已選定個案"
+              aria-describedby={validation.errors.client_id ? validation.errorId("client_id") : undefined}
+              ref={fixedClientSummary} tabIndex={-1}>
+              <span>個案</span><strong>{fixedClient?.name ?? "個案範圍已變更"}</strong>{fixedClient ? <small>{fixedClient.code}</small> : null}
+              <input type="hidden" name="client_id" value={selectedClientId} />
+              <DailyFieldError validation={validation} name="client_id" />
+            </div> : <label className="field">
               <span id={validation.labelId("client_id")}>個案 *</span>
               <select
                 name="client_id"
@@ -355,7 +374,7 @@ export function AttendanceComposer({
                 ))}
               </select>
               <DailyFieldError validation={validation} name="client_id" />
-            </label>
+            </label>}
             <label className="field">
               <span id={validation.labelId("event_kind")}>出勤動作 *</span>
               <select

@@ -399,6 +399,17 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .today-client__shift { color: var(--ink-muted); font-size: 14px; }
 .today-client__action.button--primary { background: var(--brand-strong); color: white; }
 .today-toolbar > .filter-search { min-width: 0; flex: 1 1 240px; }
+@media (min-width: 1181px) {
+  /* Keep the first assigned client in view without hiding any filter. */
+  .today-counters { gap: 8px; margin-bottom: 12px; }
+  .today-counter { min-height: 52px; padding: 8px 12px; }
+  .today-counter > strong { grid-row: auto; font-size: 1.25rem; }
+  .today-counter > small { display: none; }
+  .today-filter-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 12px 18px; }
+  .today-filter-controls > .today-toolbar { display: contents; }
+  .today-filter-controls > .today-toolbar > .field { flex: 0 0 150px; margin: 0; }
+  .today-filter-controls > .today-toolbar > .filter-search { min-width: 240px; flex: 1 1 240px; }
+}
 .case-center-quick-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
 .case-center-quick-filters a { display: inline-flex; min-height: 44px; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
 .case-center-quick-filters a[aria-current="page"] { border-color: var(--brand-strong); background: var(--brand-soft); }
@@ -433,7 +444,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 }
 @media (max-width: 760px) {
   .today-context-bar { display: none; }
-  .today-heading { gap: 8px; margin-bottom: 12px; }
+  .today-heading { gap: 8px; margin-bottom: 8px; }
   .today-heading .page-heading__description { display: none; }
   .today-heading h1 { font-size: 25px; }
   .today-mobile-filter-toggle { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--ink); font-weight: 800; }
@@ -441,14 +452,14 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-mobile-filter-toggle strong { margin-left: auto; font-size: 1.15rem; white-space: nowrap; }
   .today-mobile-filter-toggle span:last-child { color: var(--brand-strong); }
   .today-counters.today-filters--collapsed, .today-filter-controls.today-filters--collapsed { display: none; }
-  .today-list-panel > .panel__header { min-height: 48px; padding: 10px 16px; }
+  .today-list-panel > .panel__header { min-height: 44px; padding: 8px 16px; }
   .today-panel-ready-note { display: none; }
   .today-result:not(.today-result--restricted) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .today-counters { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: thin; gap: 8px; margin-bottom: 12px; padding-bottom: 4px; }
   .today-counter { flex: 0 0 min(38vw, 150px); scroll-snap-align: start; min-height: 64px; padding: 10px 12px; gap: 4px; }
   .today-counter > strong { font-size: 1.5rem; }
   .today-counter > span { font-size: .9rem; }
-  .today-client { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 18px 16px; }
+  .today-client { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 16px; }
   .today-client__status { grid-column: auto; grid-row: auto; gap: 8px; }
   .today-client__action { width: 100%; }
   .today-toolbar { padding-inline: 16px; }

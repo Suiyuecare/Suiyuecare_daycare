@@ -66,6 +66,7 @@ export function VitalSignComposer({
 }) {
   const router = useRouter();
   const trigger = useRef<HTMLButtonElement>(null);
+  const fixedClientSummary = useRef<HTMLDivElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
   const validation = useDailyFormValidation();
@@ -85,8 +86,10 @@ export function VitalSignComposer({
     },
   });
   const offline = useOfflineCareForm({ kind: "vital-sign", serviceDate, enabled, demo,
-    allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
+    allowedClientIds: clients.map((client) => client.id), fixedClientId: selectedClientId,
+    formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
+  const fixedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -124,6 +127,15 @@ export function VitalSignComposer({
     }
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
+    if (selectedClientId !== undefined && (!prior && (unavailableSelection || clientId !== selectedClientId) ||
+      prior && prior.body.client_id !== selectedClientId)) {
+      if (!prior) {
+        setError(null);
+        validation.validate(form, { client_id: "已選個案不符，請返回今日工作重新選擇；尚未送出量測。" });
+        fixedClientSummary.current?.focus();
+      } else setError("原量測個案與目前選定個案不符；請回到原個案確認上一筆結果。");
+      return;
+    }
     if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
       if (!prior) { setError(null); validation.validate(form, { client_id: "請重新選擇目前授權的個案；尚未送出量測。" }); }
       else setError("請重新選擇目前授權的個案；尚未送出量測。");
@@ -268,7 +280,13 @@ export function VitalSignComposer({
                 至少填一項；血壓須成對填寫。技術範圍只防止明顯輸入錯誤，不代表醫療判讀或診斷。
               </span>
             </div>
-            <label className="field">
+            {selectedClientId !== undefined ? <div className={styles.selectedClient} role="group" aria-label="已選定個案"
+              aria-describedby={validation.errors.client_id ? validation.errorId("client_id") : undefined}
+              ref={fixedClientSummary} tabIndex={-1}>
+              <span>個案</span><strong>{fixedClient?.name ?? "個案範圍已變更"}</strong>{fixedClient ? <small>{fixedClient.code}</small> : null}
+              <input type="hidden" name="client_id" value={selectedClientId} />
+              <DailyFieldError validation={validation} name="client_id" />
+            </div> : <label className="field">
               <span id={validation.labelId("client_id")}>個案 *</span>
               <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required {...validation.field("client_id")}>
                 <option value="">請選擇個案</option>
@@ -279,7 +297,7 @@ export function VitalSignComposer({
                 ))}
               </select>
               <DailyFieldError validation={validation} name="client_id" />
-            </label>
+            </label>}
             <label className="field">
               <span id={validation.labelId("measured_at")}>量測日期與時間 *</span>
               <input
