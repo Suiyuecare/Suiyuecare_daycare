@@ -747,6 +747,7 @@ export default async function StaffCatalogPage({
         workScopeKey={workScopeKey}
         canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
+        canWriteRoster={!context.demo && ["staff_scheduling.manage", "clients.read", "clients.view_all"].every((scope) => context.scopes.includes(scope))}
         loadError={loadError}
         serviceDate={serviceDate}
         snapshot={snapshot}

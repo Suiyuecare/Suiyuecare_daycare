@@ -64,7 +64,8 @@ describe("assessment entry workspace", () => {
     render(<AssessmentEntryWorkspace
       clients={[client]} error={false} pages={pages} selectedClientId={client.id}
     />);
-    expect(screen.getByText("合成測試個案")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "合成測試個案的評估表" })).toBeVisible();
+    expect(screen.getByText("SYN-001")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
     expect(screen.getByText("保存與簽署依您的個案分工與表單權限；結果仍須專業判讀。")).not.toBeVisible();
     fireEvent.click(screen.getByText("填寫前須知"));
@@ -100,6 +101,16 @@ describe("assessment entry workspace", () => {
     expect(screen.getByText("SPMSQ・10 題")).toBeVisible();
   });
 
+  it("focuses the selected client's form list after the explicit start navigation", () => {
+    window.history.replaceState(null, "", "/app/assessments#assessment-forms");
+    try {
+      render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages} selectedClientId={client.id} />);
+      expect(screen.getByRole("region", { name: "合成測試個案的評估表" })).toHaveFocus();
+    } finally {
+      window.history.replaceState(null, "", "/app/assessments");
+    }
+  });
+
   it("shows a short actionable error instead of an empty-looking page", () => {
     render(<AssessmentEntryWorkspace clients={[]} error={true} pages={[]} selectedClientId={null} />);
     const alert = screen.getByRole("alert");
@@ -115,7 +126,7 @@ describe("assessment entry workspace", () => {
       selectedClientId={null} selectionRejected />);
     expect(screen.getByRole("alert")).toHaveTextContent("這位個案目前無法選取");
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue("");
-    expect(screen.queryByRole("heading", { name: "開始評估" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "合成測試個案的評估表" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
   });
 
@@ -136,7 +147,7 @@ describe("assessment entry workspace", () => {
     const picker = screen.getByRole("combobox", { name: "個案" });
     expect(screen.getByRole("link", { name: /SPMSQ 評估/u })).toHaveAttribute("href", `/app/staff/assessments/spmsq?client=${client.id}`);
     fireEvent.change(picker, { target: { value: other.id } });
-    expect(screen.getByRole("status")).toHaveTextContent("請按「開始」切換個案");
+    expect(screen.getByRole("status")).toHaveTextContent("請按「查看表單」切換個案");
     expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
     fireEvent.change(picker, { target: { value: client.id } });
     expect(screen.getByRole("link", { name: /SPMSQ 評估/u })).toHaveAttribute("href", `/app/staff/assessments/spmsq?client=${client.id}`);
@@ -145,10 +156,10 @@ describe("assessment entry workspace", () => {
   it("requires a selection before opening a form", () => {
     render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages} selectedClientId={null} />);
     const form = screen.getByRole("combobox", { name: "個案" }).closest("form");
-    expect(form).toHaveAttribute("action", "/app/assessments");
+    expect(form).toHaveAttribute("action", "/app/assessments#assessment-forms");
     expect(form).toHaveAttribute("method", "get");
     expect(form).toHaveAttribute("novalidate");
-    expect(screen.getByRole("button", { name: "開始" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "查看表單" })).toBeEnabled();
     expect(fireEvent.submit(form!)).toBe(false);
     expect(screen.getByRole("alert")).toHaveTextContent("請先選擇個案");
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveAttribute("aria-invalid", "true");
@@ -162,7 +173,7 @@ describe("assessment entry workspace", () => {
 
   it("does not offer a fake start action when no authorized clients are available", () => {
     render(<AssessmentEntryWorkspace clients={[]} error={false} pages={pages} selectedClientId={null} />);
-    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "查看表單" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("目前沒有可查看的個案");
   });
 
@@ -182,7 +193,7 @@ describe("assessment entry workspace", () => {
     expect(within(picker).getAllByRole("option")).toHaveLength(3);
     expect(within(picker).getByRole("option", { name: /原選取（不符搜尋）/u })).toHaveValue(roster[0]!.id);
     expect(picker).toHaveValue(roster[0]!.id);
-    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "查看表單" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
 
     fireEvent.change(picker, { target: { value: roster[499]!.id } });
@@ -192,7 +203,7 @@ describe("assessment entry workspace", () => {
     expect(search).toHaveValue("");
     expect(picker).toHaveValue(roster[499]!.id);
     expect(within(picker).getAllByRole("option")).toHaveLength(501);
-    expect(screen.getByRole("button", { name: "開始" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "查看表單" })).toBeEnabled();
   });
 
   it("clears hidden search state and rejects a draft client removed from the authorized roster", () => {
@@ -214,7 +225,7 @@ describe("assessment entry workspace", () => {
     expect(screen.queryByRole("searchbox", { name: "搜尋個案" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue("");
     expect(within(screen.getByRole("combobox", { name: "個案" })).getAllByRole("option")).toHaveLength(11);
-    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "查看表單" })).toBeDisabled();
     expect(fireEvent.submit(screen.getByRole("combobox", { name: "個案" }).closest("form")!)).toBe(false);
     expect(screen.getByRole("alert")).toHaveTextContent("目前無法選取");
   });

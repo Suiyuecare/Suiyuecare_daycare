@@ -15,8 +15,52 @@ import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navi
 type PendingOperation = { input: RosterInput; body: string; hadUnknown: boolean };
 const eligibilityLabel = (row: CareRosterAssignment) => row.serviceEligibility === "not_admitted" ? "未正式收案" : "當日不在服務期間";
 
-export function RosterComposer({ roster, clients, serviceDate }: {
-  roster: CareRosterSnapshot; clients: DailyCareSnapshot["clients"]; serviceDate: string;
+/** Read-only shortcut; the existing composer remains mounted below the daily list. */
+export function RosterExceptionEntry({ blockedCount, unassignedCount, canOpenComposer, previewOnly = false }: {
+  blockedCount: number; unassignedCount: number; canOpenComposer: boolean; previewOnly?: boolean;
+}) {
+  function openException(sectionId: string) {
+    const composer = document.getElementById("today-roster-composer");
+    if (!(composer instanceof HTMLDetailsElement)) return;
+    composer.open = true;
+    const section = document.getElementById(sectionId);
+    const target = section instanceof HTMLElement ? section : composer.querySelector<HTMLElement>("summary");
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
+  if (!blockedCount && !unassignedCount) return null;
+  return <section className={styles.exceptionEntry} aria-label="主管分工待處理">
+    <strong>分工待處理</strong>
+    {blockedCount > 0 && (canOpenComposer ? <button className="button button--secondary" type="button" onClick={() => openException("today-roster-blocked")}>不適用待核對 {blockedCount} 班</button>
+      : <span>不適用待核對 {blockedCount} 班</span>)}
+    {unassignedCount > 0 && (canOpenComposer ? <button className="button button--secondary" type="button" onClick={() => openException("today-roster-unassigned")}>待指派 {unassignedCount} 班</button>
+      : <span>待指派 {unassignedCount} 班</span>)}
+    {previewOnly ? <small>合成展示・不寫入</small> : !canOpenComposer ? <small>請由具排班權限的主管處理。</small> : null}
+  </section>;
+}
+
+export function RosterComposer({ roster, clients, serviceDate, canWriteRoster, authorityKey }: {
+  roster?: CareRosterSnapshot; clients: DailyCareSnapshot["clients"]; serviceDate: string;
+  canWriteRoster: boolean; authorityKey?: string;
+}) {
+  const sourceUnavailable = !roster || roster.status === "unavailable";
+  const sourceReady = Boolean(roster?.manager && (roster.status === "ready" || roster.status === "empty"));
+  const [cached, setCached] = useState(() => ({ observed: roster, retained: sourceReady ? roster : undefined }));
+  if (cached.observed !== roster) {
+    // Retain a draft only through an unknown read. An authoritative nonmanager
+    // snapshot must drop previously visible client details immediately.
+    setCached({ observed: roster, retained: sourceReady ? roster : sourceUnavailable ? cached.retained : undefined });
+  }
+  const editorRoster = sourceReady ? roster : sourceUnavailable ? cached.retained : undefined;
+  if (!editorRoster || (!canWriteRoster && !editorRoster.demo)) return null;
+  return <RosterEditor roster={editorRoster} liveRoster={roster} sourceReady={sourceReady}
+    canWriteRoster={canWriteRoster} authorityKey={authorityKey} clients={clients} serviceDate={serviceDate} />;
+}
+
+function RosterEditor({ roster, liveRoster, sourceReady, canWriteRoster, authorityKey, clients, serviceDate }: {
+  roster: CareRosterSnapshot; liveRoster?: CareRosterSnapshot; sourceReady: boolean;
+  canWriteRoster: boolean; authorityKey?: string;
+  clients: DailyCareSnapshot["clients"]; serviceDate: string;
 }) {
   const router = useRouter();
   const [clientId, setClientId] = useState("");
@@ -33,18 +77,29 @@ export function RosterComposer({ roster, clients, serviceDate }: {
   const [savedReceipt, setSavedReceipt] = useState<RosterReceipt | null>(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const [refreshAttempt, setRefreshAttempt] = useState(0);
-  const readBack = confirmed && savedReceipt && serviceDate === savedReceipt.serviceDate && !roster.demo && roster.manager
-    ? roster.assignments.find((row) => row.id === savedReceipt.id && row.clientId === savedReceipt.clientId
+  const [focusRequest, setFocusRequest] = useState<{ id: string } | null>(null);
+  const focusedRequest = useRef<typeof focusRequest>(null);
+  const readBack = sourceReady && confirmed && savedReceipt && serviceDate === savedReceipt.serviceDate && !roster.demo && liveRoster?.manager
+    ? liveRoster.assignments.find((row) => row.id === savedReceipt.id && row.clientId === savedReceipt.clientId
       && row.shift === savedReceipt.shift && row.version === savedReceipt.version) ?? null : null;
   const awaitingReadBack = confirmed && !readBack;
   const currentPrevious = readBack && readBack.clientId === clientId && readBack.shift === shift ? readBack : previous;
-  const currentSource = useRef({ roster, serviceDate });
-  useLayoutEffect(() => { currentSource.current = { roster, serviceDate }; });
+  const currentSource = useRef({ roster: liveRoster, serviceDate });
+  const clientSelectRef = useRef<HTMLSelectElement>(null);
+  useLayoutEffect(() => { currentSource.current = { roster: liveRoster, serviceDate }; });
   const draftGuard = useCoreDraftGuard({
-    scopeKey: `roster:${serviceDate}:${roster.manager}:${roster.demo}`,
+    scopeKey: `roster:${serviceDate}:${authorityKey ?? "direct"}`,
     isBlocked: () => busy || Boolean(operation?.hadUnknown),
     onDiscard: () => { setPrevious(null); setMessage(""); },
   });
+  useEffect(() => {
+    if (!focusRequest || focusedRequest.current === focusRequest || draftGuard.open || previous?.id !== focusRequest.id) return;
+    // The discard dialog must finish closing/restoring focus before we move
+    // keyboard users into the already-selected editor.
+    clientSelectRef.current?.focus({ preventScroll: true });
+    clientSelectRef.current?.scrollIntoView?.({ block: "nearest" });
+    focusedRequest.current = focusRequest;
+  }, [focusRequest, draftGuard.open, previous]);
   const mounted = useRef(true);
   const lock = useRef(false);
   const operationLease = useRef<(() => void) | null>(null);
@@ -97,29 +152,41 @@ export function RosterComposer({ roster, clients, serviceDate }: {
       setMessage(confirmed ? "每日分工已確認儲存，但最新清單尚未讀回。請讀取最新分工清單，不要重送本筆。" : "清單未能重新載入，請稍後再人工核對；不要直接重送分工。");
     }
   }
-  if (!roster.manager) return null;
-  const locked = busy || refreshPending || Boolean(operation?.hadUnknown) || needsReload || awaitingReadBack;
+  const canEdit = sourceReady && (canWriteRoster || roster.demo);
+  const locked = !canEdit || busy || refreshPending || Boolean(operation?.hadUnknown) || needsReload || awaitingReadBack;
   const blocked = currentPrevious && !currentPrevious.isServiceEligible;
   const cannotCreate = Boolean(clientId && !currentPrevious && !clients.some((client) => client.clientId === clientId));
-  const blockedAssignments = roster.assignments.filter((row) => row.state === "scheduled" && !row.isServiceEligible);
+  const blockedAssignments = sourceReady && roster.status === "ready" ? roster.assignments.filter((row) => row.state === "scheduled" && !row.isServiceEligible) : [];
+  const unassignedAssignments = sourceReady && roster.status === "ready" ? roster.assignments.filter((row) => row.state === "scheduled" && row.isServiceEligible && !row.staffUserId) : [];
   const choices = new Map(clients.map((client) => [client.clientId, { id: client.clientId, displayName: client.displayName, clientCode: client.clientCode }]));
   for (const row of blockedAssignments) if (!choices.has(row.clientId) && row.clientIdentity) {
     choices.set(row.clientId, { id: row.clientId, ...row.clientIdentity });
   }
   function selectAssignment(row: CareRosterAssignment) {
     if (locked || !choices.has(row.clientId)) return;
+    if (currentPrevious?.id === row.id && currentPrevious.version === row.version && clientId === row.clientId && shift === row.shift) {
+      clientSelectRef.current?.focus({ preventScroll: true });
+      clientSelectRef.current?.scrollIntoView?.({ block: "nearest" });
+      return;
+    }
     draftGuard.requestDiscard(() => {
       const source = currentSource.current;
-      if (!mounted.current || !source.roster.manager || source.serviceDate !== serviceDate ||
+      if (!mounted.current || !source.roster?.manager || source.roster.status !== "ready" || source.serviceDate !== serviceDate ||
           !source.roster.assignments.some((current) => current.id === row.id && current.version === row.version)) {
         setMessage("分工來源已更新，請重新選擇要處理的個案。"); return;
       }
       setClientId(row.clientId); setShift(row.shift); setPrevious(row); setMessage(""); setNeedsReauth(false);
+      setFocusRequest({ id: row.id });
     });
   }
-  return <><details className={`panel today-management ${styles.composer}`} id="today-roster-composer"><summary>主管：安排／調整每日照顧分工</summary>
+  return <><details className={`panel today-management ${styles.composer}`} id="today-roster-composer"><summary>
+    <span className={styles.summaryLine}><strong>主管每日分工</strong><span>{!sourceReady ? "來源待更新・草稿保留" : blockedAssignments.length || unassignedAssignments.length
+      ? [blockedAssignments.length ? `不適用待核對 ${blockedAssignments.length} 班` : null,
+        unassignedAssignments.length ? `待指派 ${unassignedAssignments.length} 班` : null].filter(Boolean).join("・") : "安排／調整分工"}</span></span>
+  </summary>
+    {!sourceReady && <p role="status">每日分工暫時無法確認，已保留未送草稿；請更新清單後再核對，現在不能儲存。</p>}
     <p>已核准的主管 Google 帳號可依已確認的照顧計畫安排上午／下午工作。儲存時重新核對分支、主管權限與人員的個案授權；分工不取代人員資格與工時排班審核。</p>
-    {blockedAssignments.length > 0 && <section className={styles.blocked} aria-label="不適用服務的既有分工">
+    {blockedAssignments.length > 0 && <section className={styles.blocked} id="today-roster-blocked" tabIndex={-1} aria-label="不適用服務的既有分工">
       <h3>先處理不適用的既有分工</h3><p>以下分工仍保留原安排，沒有自動取消；不列入今日待辦，也不顯示照顧紀錄。請核對個案後，填寫理由取消安排。</p>
       <ul>{blockedAssignments.map((row) => {
         const identity = choices.get(row.clientId);
@@ -130,9 +197,20 @@ export function RosterComposer({ roster, clients, serviceDate }: {
             : <p>請先由管理員確認個案查閱權限；不可僅憑分工代號取消。</p>}</li>;
       })}</ul>
     </section>}
+    {unassignedAssignments.length > 0 && <section className={styles.unassigned} id="today-roster-unassigned" tabIndex={-1} aria-label="待指派的既有分工">
+      <h3>待指派班別</h3><p>這些班別已有安排，但尚未指定負責人；請選擇原分工核對後儲存。</p>
+      <ul>{unassignedAssignments.map((row) => {
+        const identity = choices.get(row.clientId);
+        return <li key={row.id}><div><strong>{identity ? `${identity.displayName}（${identity.clientCode}）` : "個案識別暫無法確認"}</strong>
+          <p>{row.serviceDate}・{row.shift === "morning" ? "上午" : "下午"}・尚未指派負責人</p></div>
+          {identity ? <button className="button button--secondary" type="button" disabled={locked} onClick={() => selectAssignment(row)}
+            aria-label={`指派 ${identity.displayName} ${row.shift === "morning" ? "上午" : "下午"}分工的負責人`}>選擇負責人</button>
+            : <p>請先由管理員確認個案查閱權限；不可僅憑分工代號指派。</p>}</li>;
+      })}</ul>
+    </section>}
     <form data-core-care-draft noValidate onChange={() => draftGuard.changed()} onSubmit={async (event) => {
       event.preventDefault();
-      if (lock.current || refreshPending || awaitingReadBack || needsReload || roster.demo || !clientId || cannotCreate) return;
+      if (lock.current || !sourceReady || !canWriteRoster || refreshPending || awaitingReadBack || needsReload || roster.demo || !clientId || cannotCreate) return;
       let pending = operation;
       if (pending && pending.input.serviceDate !== serviceDate) {
         setMessage("目前日期與尚待確認的原分工不同；請先回原日期核對，不可在新日期重送。"); return;
@@ -188,7 +266,7 @@ export function RosterComposer({ roster, clients, serviceDate }: {
       finally { lock.current = false; if (mounted.current) { draftGuard.finish(); setBusy(false); } }
     }}>
       <div className="form-grid">
-        <label className="field"><span>個案</span><select required value={clientId} disabled={locked} onChange={(e) => {
+        <label className="field"><span>個案</span><select ref={clientSelectRef} required value={clientId} disabled={locked} onChange={(e) => {
           e.stopPropagation();
           if (locked) return;
           const nextClientId = e.target.value;
@@ -196,8 +274,8 @@ export function RosterComposer({ roster, clients, serviceDate }: {
           draftGuard.requestDiscard(() => {
             if (!mounted.current) return;
             const source = currentSource.current;
-            const latest = source.roster.assignments.find((row) => row.clientId === nextClientId && row.shift === shift) ?? null;
-            if (!source.roster.manager || source.serviceDate !== serviceDate || latest?.id !== expected?.id || latest?.version !== expected?.version) {
+            const latest = source.roster?.assignments.find((row) => row.clientId === nextClientId && row.shift === shift) ?? null;
+            if (!source.roster?.manager || source.roster.status !== "ready" || source.serviceDate !== serviceDate || latest?.id !== expected?.id || latest?.version !== expected?.version) {
               setMessage("分工來源已更新，請重新選擇要處理的個案。"); return;
             }
             setClientId(nextClientId);
@@ -213,8 +291,8 @@ export function RosterComposer({ roster, clients, serviceDate }: {
           draftGuard.requestDiscard(() => {
             if (!mounted.current) return;
             const source = currentSource.current;
-            const latest = source.roster.assignments.find((row) => row.clientId === clientId && row.shift === nextShift) ?? null;
-            if (!source.roster.manager || source.serviceDate !== serviceDate || latest?.id !== expected?.id || latest?.version !== expected?.version) {
+            const latest = source.roster?.assignments.find((row) => row.clientId === clientId && row.shift === nextShift) ?? null;
+            if (!source.roster?.manager || source.roster.status !== "ready" || source.serviceDate !== serviceDate || latest?.id !== expected?.id || latest?.version !== expected?.version) {
               setMessage("分工來源已更新，請重新選擇要處理的班別。"); return;
             }
             setShift(nextShift);
@@ -233,7 +311,7 @@ export function RosterComposer({ roster, clients, serviceDate }: {
         <label className="field"><span>安排依據／異動理由</span><input name="sourceNote" minLength={3} maxLength={300} required defaultValue={currentPrevious?.sourceNote ?? ""} placeholder="例如：已核准計畫日期、工作需要；異動請說明" /></label>
         <label className="checkbox-field"><input type="checkbox" name="approved" required />我已確認照顧計畫、個案需要及人員安排；不是直接採用自動建議。</label>
       </fieldset>
-      <button className="button button--primary" type="submit" disabled={busy || refreshPending || roster.demo || !clientId || needsReload || awaitingReadBack || cannotCreate}>{busy ? "儲存中…" : roster.demo ? "合成展示，不寫入資料" : operation?.hadUnknown ? "以原內容重試確認" : "確認並儲存分工"}</button>
+      <button className="button button--primary" type="submit" disabled={!sourceReady || !canWriteRoster || busy || refreshPending || roster.demo || !clientId || needsReload || awaitingReadBack || cannotCreate}>{busy ? "儲存中…" : roster.demo ? "合成展示，不寫入資料" : operation?.hadUnknown ? "以原內容重試確認" : "確認並儲存分工"}</button>
       {(message || readBack) && <p role="status">{readBack ? "已讀取最新分工，可繼續安排下一筆。" : message}</p>}
       {(needsReload || awaitingReadBack) && <button className="button button--secondary" type="button" disabled={refreshPending} onClick={() => {
         if (awaitingReadBack) refreshSavedRoster();

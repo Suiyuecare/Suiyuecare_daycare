@@ -2,13 +2,13 @@
 .clientSearch { display: grid; gap: 4px; margin-bottom: 10px; }
 .clientSearch > :first-child { min-width: 0; }
 .searchStatus { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }
-.results { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--card-radius); background: white; }
-.selected { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-.selected > span, .selected small { color: var(--ink-muted); font-size: 13px; }
-.selected strong { font-size: 17px; }
-.sectionTitle { display: flex; align-items: center; gap: 8px; color: var(--brand-strong); }
+.results { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--card-radius); background: white; scroll-margin-top: 16px; }
+.results:focus { outline: none; }
+.results:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: 3px; }
+.sectionTitle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--brand-strong); }
 .sectionTitle svg { width: 18px; height: 18px; }
-.sectionTitle h2 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 700; }
+.sectionTitle h2 { min-width: 0; overflow-wrap: anywhere; margin: 0; color: var(--ink); font-size: 17px; font-weight: 700; }
+.clientCode { min-width: 0; overflow-wrap: anywhere; color: var(--ink-muted); font-size: 13px; font-weight: 600; }
 .groupTitle { margin: 4px 0 8px; color: var(--ink-muted); font-size: 13px; font-weight: 750; }
 .moreForms { border-top: 1px solid var(--line); padding-top: 10px; }
 .moreForms > summary, .guidance > summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 700; }
@@ -19,7 +19,7 @@
 .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
 .cards a { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: var(--control-radius); background: #fffdfa; padding: 10px 12px; font-size: 14px; font-weight: 650; }
 .cards a > span { display: grid; gap: 3px; }
-.cards a small { color: var(--ink-muted); font-size: 11px; font-weight: 500; }
+.cards a small { color: var(--ink-muted); font-size: 13px; font-weight: 500; line-height: 1.4; }
 .cards a:hover { border-color: var(--brand); background: var(--surface-warm); color: var(--brand-strong); }
 .cards svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--brand-strong); }
 .prompt, .empty { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }

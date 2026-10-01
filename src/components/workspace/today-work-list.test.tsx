@@ -196,7 +196,7 @@ describe("TodayWorkList", () => {
 
   it("gives an authorized manager a direct next step when no daily assignment exists", () => {
     const roster: CareRosterSnapshot = { status: "empty", manager: true, demo: false, staffOptions: [], assignments: [] };
-    render(<><TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />
+    render(<><TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} canOpenRosterComposer />
       <details id="today-roster-composer"><summary>主管：安排／調整每日照顧分工</summary><input aria-label="分工測試欄位" /></details></>);
     fireEvent.click(screen.getByRole("button", { name: "安排今日分工" }));
     expect(document.getElementById("today-roster-composer")).toHaveAttribute("open");

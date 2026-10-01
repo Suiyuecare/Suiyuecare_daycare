@@ -56,18 +56,17 @@ export function AssessmentEntryWorkspace({
 
   return <div className={styles.workspace}>
     <header className="page-heading">
-      <div><p className="eyebrow">評估工作入口</p><h1>先選個案</h1></div>
+      <div><p className="eyebrow">評估工作入口</p><h1>{selectedClient ? "選擇評估表" : "先選個案"}</h1></div>
     </header>
     <AssessmentClientPicker clients={clients.map(({ id, displayName, clientCode }) => ({ id, displayName, clientCode }))}
       key={`${selectedClient?.id ?? "none"}:${clients.map((client) => client.id).join(",")}`}
       selectedClientId={selectedClient?.id ?? null}>
     {selectionRejected ? <p className={styles.rejected} role="alert">這位個案目前無法選取。請從可查看的名單重新選擇。</p> : null}
     {clients.length === 0 ? <div className={styles.empty} role="status">目前沒有可查看的個案。</div> : null}
-    {selectedClient ? <section aria-labelledby="assessment-shortcuts-title" className={styles.results}>
-      <div className={styles.selected}><span>目前個案</span><strong>{selectedClient.displayName}</strong>
-        <small>{selectedClient.clientCode}</small></div>
+    {selectedClient ? <section aria-labelledby="assessment-shortcuts-title" className={styles.results} id="assessment-forms" tabIndex={-1}>
       <div className={styles.sectionTitle}><ClipboardList aria-hidden="true" />
-        <h2 id="assessment-shortcuts-title">開始評估</h2></div>
+        <h2 id="assessment-shortcuts-title">{selectedClient.displayName}的評估表</h2>
+        <span className={styles.clientCode}>{selectedClient.clientCode}</span></div>
       {pages.length ? <>
         {candidateDrafts.length ? <section aria-label="題目式量表">
           <h3 className={styles.groupTitle}>{demo ? "展示量表（不可保存）" : "題目式量表"}</h3>

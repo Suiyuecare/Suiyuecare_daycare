@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ClientSelectionCard } from "@/components/clients/client-selection-card";
 import { SearchField } from "@/components/ui/search-field";
 
@@ -35,6 +35,13 @@ export function AssessmentClientPicker({ clients, selectedClientId, children }: 
   const selectedOutsideSearch = Boolean(normalizedQuery && draftClient &&
     !matchingClients.some((client) => client.id === draftClient.id));
 
+  useEffect(() => {
+    if (!selected || window.location.hash !== "#assessment-forms" || document.activeElement !== document.body) return;
+    const target = document.getElementById("assessment-forms");
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: "start" });
+  }, [selected]);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     const value = selectRef.current?.value ?? "";
     if (value && value === validDraftId && clients.some((client) => client.id === value) && !selectedOutsideSearch) return;
@@ -51,16 +58,16 @@ export function AssessmentClientPicker({ clients, selectedClientId, children }: 
       {matchingClients.length ? `找到 ${matchingClients.length} 位個案` : "找不到符合的個案，請調整搜尋。"}
     </p> : null}
   </div> : null}
-  <form action="/app/assessments" className="client-selection-form" method="get" noValidate onSubmit={submit}>
+  <form action="/app/assessments#assessment-forms" className="client-selection-form" method="get" noValidate onSubmit={submit}>
     <ClientSelectionCard id="assessment-client" label="個案" options={visibleClients.map((client) => ({
       value: client.id, label: `${selectedOutsideSearch && client.id === draftClient?.id ? "原選取（不符搜尋）・" : ""}${client.displayName} · ${client.clientCode}`,
     }))} placeholder="選擇個案" placeholderDisabled value={validDraftId}
       disabled={!clients.length}
       onValueChange={(value) => { setDraftClientId(value); setError(null); }}
-      actionLabel="開始" actionDisabled={!clients.length || selectedOutsideSearch || Boolean(draftClientId && !draftClient)} error={error} selectRef={selectRef} />
+      actionLabel="查看表單" actionDisabled={!clients.length || selectedOutsideSearch || Boolean(draftClientId && !draftClient)} error={error} selectRef={selectRef} />
   </form>
     {changingClient || selectedOutsideSearch ? <p className={styles.prompt} role="status">
-      {changingClient ? "請按「開始」切換個案；原個案表單已暫時隱藏。" : "請選取搜尋結果，或清除搜尋返回原個案。"}
+      {changingClient ? "請按「查看表單」切換個案；原個案表單已暫時隱藏。" : "請選取搜尋結果，或清除搜尋返回原個案。"}
     </p> : children}
   </>;
 }

@@ -56,9 +56,9 @@ function shortWorkStatus(row: TodayWorkRow) {
   return { measurements: measurementStatus, diary: diaryStatus };
 }
 
-export function TodayWorkList({ rows, serviceDate, access, roster, scopeKey }: {
+export function TodayWorkList({ rows, serviceDate, access, roster, scopeKey, canOpenRosterComposer = false }: {
   rows: readonly TodayWorkRow[]; serviceDate: string; access: DailyCareSnapshot["sourceAccess"];
-  roster?: CareRosterSnapshot; scopeKey?: string;
+  roster?: CareRosterSnapshot; scopeKey?: string; canOpenRosterComposer?: boolean;
 }) {
   const memoryScope = scopeKey ? todayWorkViewScope(scopeKey, serviceDate, access, roster) : undefined;
   const [viewState, setViewState] = useState(() => ({ scope: memoryScope,
@@ -222,7 +222,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster, scopeKey }: {
       </ul>
       {!shown.length && !filterRestricted && <div className="today-empty"><h3>{roster?.status === "empty" ? "今天尚未有已確認分工" : search ? "找不到符合條件的個案" : filter === "all" ? "目前沒有可查閱的在案個案" : "此清單目前沒有待處理個案"}</h3>
         <p>{roster?.status === "empty" ? roster.manager ? "請先確認收案及今日分工；空白不代表工作已完成。" : "請向主管確認今天的工作安排；空白不代表工作已完成。" : search ? "試試其他姓名或代碼，或清除搜尋查看名單。" : "這只代表本清單的結果，其他照顧工作仍請依當日安排確認。"}</p>
-        {roster?.status === "empty" && roster.manager ? <button className="button button--primary" onClick={openRosterComposer} type="button">安排今日分工</button> : null}
+        {roster?.status === "empty" && roster.manager && canOpenRosterComposer ? <button className="button button--primary" onClick={openRosterComposer} type="button">安排今日分工</button> : null}
         {roster?.status !== "empty" && (search || filter !== "all") && <button className="button button--secondary" type="button" onClick={showAllClients}>{rosterReady ? "查看全部當班個案" : "查看全部在案個案"}</button>}</div>}
       {pageCount > 1 && <nav className="today-pagination" aria-label="今日個案分頁"><button className="button button--secondary" type="button" disabled={currentPage === 1} onClick={() => changeView({ page: currentPage - 1 })}>上一頁</button><span>第 {currentPage} / {pageCount} 頁</span><button className="button button--secondary" type="button" disabled={currentPage === pageCount} onClick={() => changeView({ page: currentPage + 1 })}>下一頁</button></nav>}
     </div>
