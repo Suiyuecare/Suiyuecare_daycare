@@ -103,8 +103,15 @@ try {
       metadata jsonb,created_at timestamptz not null default clock_timestamp(),updated_at timestamptz not null default clock_timestamp(),unique(bucket_id,name));
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;
     grant all on storage.objects to anon,authenticated,service_role;`);
-  const migrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 153, "This evidence requires the exact current 153-migration baseline");
+  const allMigrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
+  assert.equal(allMigrations.length, 158, "Current repository must contain the complete 158-migration chain");
+  assert.deepEqual(allMigrations.slice(153), [
+    "20260928033352_abcd_selected_client_option.sql", "20260928044255_abcd_operation_recovery.sql",
+    "20260928045335_abcd_routine_draft_aal1.sql", "20260928050459_abcd_assessment_client_search.sql",
+    "20261001173654_care_diary_shift_time_guard.sql",
+  ]);
+  const migrations = allMigrations.slice(0, 153);
+  assert.equal(migrations.length, 153, "This evidence requires the frozen 153-migration baseline");
   assert.equal(migrations.at(-1), "20260927171515_import_upload_operation_locator.sql");
   for (const name of migrations) {
     const source = await readFile(join(root, "supabase/migrations", name), "utf8");

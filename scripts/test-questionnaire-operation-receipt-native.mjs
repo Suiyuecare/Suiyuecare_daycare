@@ -1,4 +1,4 @@
-// Exact deployment migrations; Unix-socket-only PG17.11+, synthetic actual
+// Frozen first-153 migrations; Unix-socket-only PG17.11+, synthetic actual
 // Google admission. This is candidate-read evidence, never clinical approval.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -91,7 +91,14 @@ try {
   run(join(binaries, "pg_ctl"), ["-D", data, "-l", join(runtime, "server.log"), "-o", "-k " + runtime + " -p " + env.PGPORT + " -c listen_addresses='' -c statement_timeout=20000", "-w", "start"]);
   started = true; sql(bootstrapSql);
   sql("create schema storage;create table storage.buckets(id text primary key,name text not null,public boolean not null default false,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null references storage.buckets(id),name text not null);alter table storage.objects enable row level security;");
-  const migrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
+  const allMigrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
+  assert.equal(allMigrations.length, 158, "Current repository must contain the complete 158-migration chain");
+  assert.deepEqual(allMigrations.slice(153), [
+    "20260928033352_abcd_selected_client_option.sql", "20260928044255_abcd_operation_recovery.sql",
+    "20260928045335_abcd_routine_draft_aal1.sql", "20260928050459_abcd_assessment_client_search.sql",
+    "20261001173654_care_diary_shift_time_guard.sql",
+  ]);
+  const migrations = allMigrations.slice(0, 153);
   assert.equal(migrations.length, 153); assert.equal(migrations.at(-1), "20260927171515_import_upload_operation_locator.sql");
   const identity = () => sql("select jsonb_build_object('catalog',(select jsonb_agg(jsonb_build_object('hash',catalog_hash,'canonical',canonical_json) order by form_key) from private.questionnaire_rule_catalog),'validation',(select jsonb_agg(canonical_json order by form_key) from private.questionnaire_validation_catalog),'bundles',(select jsonb_agg(canonical_json order by form_key) from private.questionnaire_readiness_catalog),'authority',md5(pg_get_functiondef('private.questionnaire_assessment_authority(uuid,uuid,uuid,text,text)'::regprocedure)),'writer',md5(pg_get_functiondef('public.mutate_questionnaire_assessment(uuid,uuid,jsonb,uuid)'::regprocedure)),'core',md5(pg_get_functiondef('private.mutate_questionnaire_assessment_core_v1(uuid,uuid,jsonb,uuid)'::regprocedure)),'activations',(select count(*) from private.questionnaire_rule_activations),'retirements',(select count(*) from private.questionnaire_rule_retirements));").trim();
   let beforeUpgrade;

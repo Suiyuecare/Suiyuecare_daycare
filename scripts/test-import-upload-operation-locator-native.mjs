@@ -94,7 +94,14 @@ try{
   metadata jsonb,created_at timestamptz not null default clock_timestamp(),updated_at timestamptz not null default clock_timestamp(),unique(bucket_id,name));
   alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;
   grant all on storage.objects to anon,authenticated,service_role;`);
- const names=(await readdir(join(root,"supabase/migrations"))).filter(n=>n.endsWith(".sql")).sort();
+ const allNames=(await readdir(join(root,"supabase/migrations"))).filter(n=>n.endsWith(".sql")).sort();
+ assert.equal(allNames.length,158,"Current repository must contain the complete 158-migration chain");
+ assert.deepEqual(allNames.slice(153),[
+  "20260928033352_abcd_selected_client_option.sql","20260928044255_abcd_operation_recovery.sql",
+  "20260928045335_abcd_routine_draft_aal1.sql","20260928050459_abcd_assessment_client_search.sql",
+  "20261001173654_care_diary_shift_time_guard.sql",
+ ]);
+ const names=allNames.slice(0,153);
  assert.equal(names.length,153);assert.equal(names.at(-1),"20260927171515_import_upload_operation_locator.sql");
  const catalogs=()=>JSON.parse(sql(`select jsonb_build_object(
   'relations',(select jsonb_agg(jsonb_build_object('oid',c.oid,'acl',c.relacl,'rls',c.relrowsecurity,'force',c.relforcerowsecurity)order by c.oid)

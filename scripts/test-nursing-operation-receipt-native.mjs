@@ -1,4 +1,4 @@
-// Exact current migrations; real synthetic Google/session/AMR admission. No
+// Frozen first-153 migration evidence; real synthetic Google/session/AMR admission. No
 // hosted connection, predicate replacement, clinical replay or external network.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -96,8 +96,15 @@ try {
   sql(`create schema storage;create table storage.buckets(id text primary key,name text not null,public boolean not null default false,file_size_limit bigint,allowed_mime_types text[]);
     create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null references storage.buckets(id),name text not null);
     alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated,service_role;grant all on storage.objects to anon,authenticated,service_role;`);
-  const migrations = (await readdir(join(root, "supabase/migrations"))).filter((name) => name.endsWith(".sql")).sort();
-  assert.equal(migrations.length, 153, "This receipt regression requires the current 153-migration evidence baseline");
+  const allMigrations = (await readdir(join(root, "supabase/migrations"))).filter((name) => name.endsWith(".sql")).sort();
+  assert.equal(allMigrations.length, 158, "Current repository must contain the complete 158-migration chain");
+  assert.deepEqual(allMigrations.slice(153), [
+    "20260928033352_abcd_selected_client_option.sql", "20260928044255_abcd_operation_recovery.sql",
+    "20260928045335_abcd_routine_draft_aal1.sql", "20260928050459_abcd_assessment_client_search.sql",
+    "20261001173654_care_diary_shift_time_guard.sql",
+  ]);
+  const migrations = allMigrations.slice(0, 153);
+  assert.equal(migrations.length, 153, "This receipt regression requires the frozen 153-migration evidence baseline");
   assert.equal(migrations.at(-1), "20260927171515_import_upload_operation_locator.sql");
   assert.ok(migrations.includes(requiredMigration), "The original nursing receipt migration must remain in the exact baseline");
   evidence.migrations = [];
