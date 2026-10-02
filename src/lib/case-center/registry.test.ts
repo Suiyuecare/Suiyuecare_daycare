@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   eq: vi.fn(),
   lte: vi.fn(),
+  or: vi.fn(),
   order: vi.fn(),
   range: vi.fn(),
   returns: vi.fn(),
@@ -44,6 +45,7 @@ beforeEach(() => {
   const query = {
     eq: mocks.eq,
     lte: mocks.lte,
+    or: mocks.or,
     order: mocks.order,
     range: mocks.range,
     returns: mocks.returns,
@@ -51,6 +53,7 @@ beforeEach(() => {
   mocks.select.mockReturnValue(query);
   mocks.eq.mockReturnValue(query);
   mocks.lte.mockReturnValue(query);
+  mocks.or.mockReturnValue(query);
   mocks.order.mockReturnValue(query);
   mocks.range.mockReturnValue(query);
   mocks.returns.mockResolvedValue({
@@ -77,9 +80,41 @@ describe("case-center assignment paging", () => {
     expect(mocks.directory).toHaveBeenCalledWith(expect.anything(), context, "case_center");
     expect(mocks.from).toHaveBeenCalledWith("client_assignments");
     expect(mocks.eq).toHaveBeenCalledWith("assignee_user_id", userId);
+    expect(mocks.eq).toHaveBeenCalledWith("organization_id", context.organizationId);
+    expect(mocks.eq).toHaveBeenCalledWith("branch_id", context.branchId);
+    expect(mocks.or).toHaveBeenCalledWith(expect.stringMatching(/^ends_at\.is\.null,ends_at\.gt\.\d{4}-\d{2}-\d{2}T/));
     expect(mocks.order.mock.calls).toEqual([["client_id"], ["id"]]);
     expect(result.clients).toHaveLength(1);
     expect(result.clients[0]?.responsibility.people[0]?.userId).toBe(userId);
+  });
+
+  it("excludes assignments ending exactly at the snapshot instant while keeping later and open-ended rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-03T02:00:00.000Z"));
+    try {
+      const rows = [
+        { id: "a", assignee_user_id: "a0000000-0000-4000-8000-000000000002", ends_at: "2026-10-03T02:00:00.000Z" },
+        { id: "b", assignee_user_id: userId, ends_at: "2026-10-03T02:00:00.001Z" },
+        { id: "c", assignee_user_id: "a0000000-0000-4000-8000-000000000003", ends_at: null },
+      ].map((row) => ({ ...row, assignment_kind: "daily_care", client_id: clientId, starts_at: "2026-01-01T00:00:00Z" }));
+      // The mock returns an expired row too, proving the application-side
+      // boundary remains effective even if a remote query misbehaves.
+      mocks.returns.mockResolvedValue({ data: rows, count: rows.length, error: null });
+
+      const result = await loadCaseCenterSnapshot({ ...context, scopes: [...context.scopes, "clients.assign"] }, parseCaseCenterFilters({ date: "2026-10-03" }));
+
+      expect(mocks.lte).toHaveBeenCalledWith("starts_at", "2026-10-03T02:00:00.000Z");
+      expect(mocks.or).toHaveBeenCalledWith("ends_at.is.null,ends_at.gt.2026-10-03T02:00:00.000Z");
+      const visiblePeople = result.clients[0]?.responsibility.people.map((person) => person.userId);
+      expect(visiblePeople).toHaveLength(2);
+      expect(visiblePeople).toEqual(expect.arrayContaining([
+        userId,
+        "a0000000-0000-4000-8000-000000000003",
+      ]));
+      expect(visiblePeople).not.toContain("a0000000-0000-4000-8000-000000000002");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fetches 1,001 assignments sharing one client ID across a stable page boundary", async () => {

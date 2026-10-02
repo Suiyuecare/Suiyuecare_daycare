@@ -42,7 +42,11 @@ async function loadAllAssignmentRows(
       )
       .eq("organization_id", context.organizationId)
       .eq("branch_id", context.branchId)
-      .lte("starts_at", generatedAt);
+      .lte("starts_at", generatedAt)
+      // generatedAt is a server-generated ISO instant, never a client filter.
+      // Exclude historical assignments before exact count/paging; retain the
+      // post-read check below as a fail-closed projection boundary.
+      .or(`ends_at.is.null,ends_at.gt.${generatedAt}`);
     if (assignmentAccess === "self_only") {
       query = query.eq("assignee_user_id", context.userId);
     }
