@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { getPageBySlug } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
+import type { QuestionnaireResumeSummary } from "@/lib/questionnaire-assessments/resume-summary";
+import type { QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 
 import { AssessmentEntryWorkspace } from "./assessment-entry-workspace";
 import { AssessmentClientPicker } from "./assessment-client-picker";
@@ -47,6 +49,17 @@ const pages = [
   "staff/professional-care/mna",
   "staff/service-management/nursing-assessment",
 ].map((slug) => getPageBySlug(slug)!);
+const questionnaireKeys: readonly QuestionnaireFormKey[] = [
+  "spmsq", "gds_15", "fall_risk_taipei_115", "nsi_determine", "barthel_adl",
+  "lawton_iadl", "eat10_swallowing", "bsrs5", "mna_sf",
+];
+const assessmentKey = "c2600000-0000-4000-8000-000000000001";
+const versionId = "c3600000-0000-4000-8000-000000000001";
+const summary = (latest: QuestionnaireResumeSummary["forms"][number]["latest"] = null): QuestionnaireResumeSummary => ({
+  clientId: client.id,
+  generatedAt: "2026-10-02T01:32:00Z",
+  forms: questionnaireKeys.map((formKey) => ({ formKey, latest: formKey === "spmsq" ? latest : null })),
+});
 afterEach(() => { cleanup(); });
 
 describe("assessment entry workspace", () => {
@@ -98,7 +111,75 @@ describe("assessment entry workspace", () => {
     ]) expect(cards.some((card) => card.getAttribute("href") === `/app/${slug}?client=${encodeURIComponent(client.id)}`)).toBe(true);
     expect(screen.queryByRole("heading", { name: "登錄評估結果" })).not.toBeInTheDocument();
     expect(secondaryGroups[0]!.querySelector("summary")).toHaveTextContent("人工觀察草稿 1");
-    expect(screen.getByText("SPMSQ・10 題")).toBeVisible();
+    expect(screen.getByRole("link", { name: /SPMSQ 評估.*草稿狀態無法確認.*開啟量表/u })).toBeVisible();
+  });
+
+  it("continues the exact saved draft with a Taiwan-time status instead of guessing from assessment date", () => {
+    const latest = { assessmentKey, versionId, version: 3, assessedOn: "2026-09-15",
+      savedAt: "2026-10-02T01:30:00Z", recordState: "draft" as const };
+    render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={client.id} resume={summary(latest)} manageableFormKeys={["spmsq", "gds_15"]} />);
+    const savedLink = screen.getByRole("link", { name: /SPMSQ 評估.*草稿.*最近保存.*接續填寫/u });
+    expect(savedLink).toHaveAttribute("href", `/app/staff/assessments/spmsq?client=${client.id}&assessment=${assessmentKey}&version=${versionId}`);
+    expect(savedLink).toHaveTextContent(/最近保存.*10\/02.*09:30/u);
+    expect(screen.getByText(/資料截至.*10\/02.*09:32/u)).toBeVisible();
+    expect(screen.getByRole("link", { name: /GDS 老人憂鬱量表.*尚無已保存草稿.*開始填寫/u }))
+      .toHaveAttribute("href", `/app/staff/assessments/gds?client=${client.id}`);
+    expect(screen.queryByText("草稿狀態暫時無法確認。可開啟量表核對。")).not.toBeInTheDocument();
+  });
+
+  it("offers read-only access without promising that the user can continue editing", () => {
+    const latest = { assessmentKey, versionId, version: 1, assessedOn: "2026-09-15",
+      savedAt: "2026-10-02T01:30:00Z", recordState: "draft" as const };
+    render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={client.id} resume={summary(latest)} manageableFormKeys={[]} />);
+    expect(screen.getByRole("link", { name: /SPMSQ 評估.*查看草稿/u })).toHaveAttribute("href",
+      `/app/staff/assessments/spmsq?client=${client.id}&assessment=${assessmentKey}&version=${versionId}`);
+    expect(screen.queryByRole("link", { name: /接續填寫/u })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /GDS 老人憂鬱量表.*開啟量表/u })).toBeVisible();
+  });
+
+  it("never calls a failed or omitted metadata result an empty draft list", () => {
+    const previouslyLoaded = summary({ assessmentKey, versionId, version: 1, assessedOn: "2026-09-15",
+      savedAt: "2026-10-02T01:30:00Z", recordState: "draft" });
+    const { rerender } = render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={client.id} resume={previouslyLoaded} resumeError />);
+    expect(screen.getByText("草稿狀態暫時無法確認。可開啟量表核對。")).toBeVisible();
+    expect(screen.getByRole("link", { name: /SPMSQ 評估.*草稿狀態無法確認.*開啟量表/u }))
+      .toHaveAttribute("href", `/app/staff/assessments/spmsq?client=${client.id}`);
+    expect(screen.queryByText("尚無已保存草稿")).not.toBeInTheDocument();
+
+    rerender(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={client.id} resume={{ ...summary(), forms: summary().forms.slice(1) }} />);
+    expect(screen.getByRole("link", { name: /SPMSQ 評估.*草稿狀態無法確認.*開啟量表/u })).toBeVisible();
+    expect(screen.getByRole("link", { name: /GDS 老人憂鬱量表.*尚無已保存草稿/u })).toBeVisible();
+
+    rerender(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={client.id} resume={{ ...summary(), clientId: "c1600000-0000-4000-8000-000000000002" }} />);
+    expect(screen.getByText("草稿狀態暫時無法確認。可開啟量表核對。")).toBeVisible();
+    expect(screen.queryByText("尚無已保存草稿")).not.toBeInTheDocument();
+  });
+
+  it("shows demo forms without attaching real draft identifiers or a save action", () => {
+    const latest = { assessmentKey, versionId, version: 1, assessedOn: "2026-09-15",
+      savedAt: "2026-10-02T01:30:00Z", recordState: "draft" as const };
+    render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages}
+      selectedClientId={client.id} demo resume={summary(latest)} manageableFormKeys={["spmsq"]} />);
+    const link = screen.getByRole("link", { name: /SPMSQ 評估.*展示資料不可保存.*查看量表/u });
+    expect(link).toHaveAttribute("href", `/app/staff/assessments/spmsq?client=${client.id}`);
+    expect(link.getAttribute("href")).not.toContain("assessment=");
+    expect(screen.queryByText(/最近保存/u)).not.toBeInTheDocument();
+    expect(screen.getByText("展示資料僅供試看；不可保存或簽署。")).toBeVisible();
+  });
+
+  it("does not render a form that was removed from the authorized page catalog", () => {
+    render(<AssessmentEntryWorkspace clients={[client]} error={false}
+      pages={pages.filter((page) => page.number !== 11)} selectedClientId={client.id}
+      resume={summary({ assessmentKey, versionId, version: 1, assessedOn: "2026-09-15",
+        savedAt: "2026-10-02T01:30:00Z", recordState: "draft" })}
+      manageableFormKeys={["spmsq"]} />);
+    expect(screen.queryByRole("link", { name: /SPMSQ 評估/u })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /GDS 老人憂鬱量表/u })).toBeVisible();
   });
 
   it("focuses the selected client's form list after the explicit start navigation", () => {

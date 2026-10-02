@@ -85,7 +85,7 @@ import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
 import { buildDemoQuestionnaireSnapshot } from "@/lib/questionnaire-assessments/demo-snapshot";
 import { buildDemoCaseDirectory } from "@/lib/clients/demo-case-directory";
 import { authorizedAssessmentEntryPages } from "@/lib/assessment-entry/selection";
-import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
+import { loadQuestionnaireResumeDraft, loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
 import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { StaffTrainingWorkspace } from "@/components/staff-training/staff-training-workspace";
 import { StaffCertificatesWorkspace } from "@/components/staff-certificates/staff-certificates-workspace";
@@ -1136,8 +1136,16 @@ export default async function StaffCatalogPage({
     const requestedClient = typeof query.client === "string" ? query.client : "";
     const validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
       ? requestedClient.toLowerCase() : null;
-    const invalidFilters = Boolean(requestedClient && !validClientId) ||
-      Object.keys(query).some((key) => key !== "client");
+    const resumeRequested = query.assessment !== undefined || query.version !== undefined;
+    const requestedAssessment = typeof query.assessment === "string" ? query.assessment : "";
+    const requestedVersion = typeof query.version === "string" ? query.version : "";
+    const validAssessmentKey = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedAssessment)
+      ? requestedAssessment.toLowerCase() : null;
+    const validVersionId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedVersion)
+      ? requestedVersion.toLowerCase() : null;
+    const invalidFilters = Boolean(query.client !== undefined && !validClientId) ||
+      Object.keys(query).some((key) => !["client", "assessment", "version"].includes(key)) ||
+      (resumeRequested && (!validClientId || !validAssessmentKey || !validVersionId || context.demo));
     const prefix = formKey === "spmsq"
       ? "questionnaire_cognition"
       : formKey === "barthel_adl" || formKey === "lawton_iadl"
@@ -1153,6 +1161,7 @@ export default async function StaffCatalogPage({
       context.scopes.includes(`${prefix}.read`) && context.scopes.includes(`${prefix}.manage`);
     let snapshot: QuestionnaireSnapshot | null = null;
     let loadError = invalidFilters;
+    let resumeStale = false;
     if (context.demo) {
       snapshot = buildDemoQuestionnaireSnapshot(
         formKey, buildDemoCaseDirectory(), validClientId, new Date().toISOString(),
@@ -1160,11 +1169,25 @@ export default async function StaffCatalogPage({
     } else if (!invalidFilters) {
       try {
         snapshot = await loadQuestionnaireSnapshot(context, formKey, validClientId);
+        if (resumeRequested && validClientId && validAssessmentKey && validVersionId) {
+          if (!snapshot.clients.some((client) => client.clientId === validClientId)) throw new QuestionnaireSnapshotError();
+          const draft = await loadQuestionnaireResumeDraft(context, formKey, validClientId, validAssessmentKey, validVersionId);
+          if (!draft) resumeStale = true;
+          else snapshot = {
+            ...snapshot,
+            clients: snapshot.clients.map((client) => client.clientId === validClientId ? { ...client, latest: draft } : client),
+          };
+        }
       } catch (error) {
         if (!(error instanceof QuestionnaireSnapshotError)) throw error;
         loadError = true;
       }
     }
+    if (resumeStale) return <section className="empty-card core-care-state" role="alert">
+      <h1>草稿已有更新</h1>
+      <p>這份連結所指的版本不是最新草稿。請回到評估清單，重新選擇後再填寫；系統沒有開啟其他紀錄。</p>
+      <Link className="button button--secondary" href={`/app/assessments?client=${encodeURIComponent(validClientId!)}`}>返回這位個案的評估清單</Link>
+    </section>;
     return <QuestionnaireAssessmentsWorkspace
       assessorName={context.displayName}
       canManage={canManage}

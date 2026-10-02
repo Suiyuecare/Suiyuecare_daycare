@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { staffPages } from "@/lib/catalog";
 import type { TenantContext } from "@/lib/domain/types";
-import { assessmentEntryHref, authorizedAssessmentEntryPages, isAssessmentClientSelectable, selectedAssessmentClientId } from "./selection";
+import { assessmentEntryHref, assessmentQuestionnaireFormKey, authorizedAssessmentEntryPages, isAssessmentClientSelectable, manageableAssessmentFormKeys, selectedAssessmentClientId } from "./selection";
 
 const clientId = "c1600000-0000-4000-8000-000000000001";
 const access = (scopes: TenantContext["scopes"]) => ({ demo: false, scopes });
@@ -35,5 +35,17 @@ describe("assessment work entry", () => {
   it("only offers demo forms that share the entry's synthetic client IDs", () => {
     expect(authorizedAssessmentEntryPages({ demo: true, scopes: [] }, staffPages)
       .map((page) => page.number)).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 36]);
+  });
+
+  it("distinguishes forms that can be edited from read-only forms", () => {
+    const actor = access(["clients.read", "questionnaire_cognition.read", "questionnaire_cognition.manage",
+      "questionnaire_emotion.read"]);
+    const pages = authorizedAssessmentEntryPages(actor, staffPages);
+    expect(manageableAssessmentFormKeys(actor, pages)).toEqual(["spmsq"]);
+    expect(manageableAssessmentFormKeys({ ...actor, demo: true }, pages)).toEqual([]);
+    expect(manageableAssessmentFormKeys(access(["questionnaire_cognition.manage"]), pages)).toEqual([]);
+    expect(assessmentQuestionnaireFormKey(11)).toBe("spmsq");
+    expect(assessmentQuestionnaireFormKey(36)).toBe("mna_sf");
+    expect(assessmentQuestionnaireFormKey(35)).toBeNull();
   });
 });

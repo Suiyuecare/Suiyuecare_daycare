@@ -8,7 +8,9 @@ import { ClientMasterSnapshotError, loadClientMasterSnapshot } from "@/lib/clien
 import { buildDemoCaseDirectory } from "@/lib/clients/demo-case-directory";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
 import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
-import { authorizedAssessmentEntryPages, isAssessmentClientSelectable, selectedAssessmentClientId } from "@/lib/assessment-entry/selection";
+import { authorizedAssessmentEntryPages, isAssessmentClientSelectable, manageableAssessmentFormKeys, selectedAssessmentClientId } from "@/lib/assessment-entry/selection";
+import { loadQuestionnaireResumeSummary, QuestionnaireResumeSummaryError } from "@/lib/questionnaire-assessments/resume-summary";
+import type { QuestionnaireResumeSummary } from "@/lib/questionnaire-assessments/resume-summary";
 
 export const metadata: Metadata = { title: "評估工作入口" };
 export const dynamic = "force-dynamic";
@@ -42,12 +44,26 @@ export default async function AssessmentEntryPage({ searchParams }: {
   }
 
   const selectedClientId = selectedAssessmentClientId(query.client, clients);
+  let resume: QuestionnaireResumeSummary | null = null;
+  let resumeError = false;
+  if (selectedClientId && !context.demo && !loadError &&
+    pages.some((page) => [11, 12, 13, 14, 15, 16, 17, 18, 36].includes(page.number))) {
+    try {
+      resume = await loadQuestionnaireResumeSummary(context, selectedClientId);
+    } catch (error) {
+      if (!(error instanceof QuestionnaireResumeSummaryError)) throw error;
+      resumeError = true;
+    }
+  }
 
   return <AssessmentEntryWorkspace
     demo={context.demo}
     clients={clients}
     error={loadError}
     pages={pages}
+    manageableFormKeys={manageableAssessmentFormKeys(context, pages)}
+    resume={resume}
+    resumeError={resumeError}
     selectedClientId={selectedClientId}
     selectionRejected={query.client !== undefined && query.client !== "" && selectedClientId === null}
   />;

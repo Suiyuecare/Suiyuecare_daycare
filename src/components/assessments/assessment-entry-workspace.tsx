@@ -2,11 +2,23 @@ import { ArrowRight, ClipboardList, FileWarning } from "lucide-react";
 import Link from "next/link";
 
 import { NavigationLink } from "@/components/app/navigation-link";
+import { assessmentQuestionnaireFormKey } from "@/lib/assessment-entry/selection";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
+import type { QuestionnaireResumeSummary } from "@/lib/questionnaire-assessments/resume-summary";
+import type { QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import { AssessmentClientPicker } from "./assessment-client-picker";
 
 import styles from "./assessment-entry-workspace.module.css";
+
+function taipeiSavedAt(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(date);
+}
 
 export function AssessmentEntryWorkspace({
   clients,
@@ -15,6 +27,9 @@ export function AssessmentEntryWorkspace({
   selectedClientId,
   selectionRejected = false,
   demo = false,
+  resume,
+  resumeError = false,
+  manageableFormKeys = [],
 }: {
   clients: readonly Pick<ClientMasterItem, "id" | "displayName" | "clientCode">[];
   error: boolean;
@@ -22,6 +37,9 @@ export function AssessmentEntryWorkspace({
   selectedClientId: string | null;
   selectionRejected?: boolean;
   demo?: boolean;
+  resume?: QuestionnaireResumeSummary | null;
+  resumeError?: boolean;
+  manageableFormKeys?: readonly QuestionnaireFormKey[];
 }) {
   if (error) return <section className="empty-card" role="alert">
     <span className="empty-card__icon empty-card__icon--warning"><FileWarning aria-hidden="true" /></span>
@@ -33,25 +51,37 @@ export function AssessmentEntryWorkspace({
   const selectedClient = selectedClientId
     ? clients.find((client) => client.id === selectedClientId) ?? null
     : null;
-  const candidateDraftNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 36]);
-  const candidateDrafts = pages.filter((page) => candidateDraftNumbers.has(page.number));
+  const candidateDrafts = pages.filter((page) => assessmentQuestionnaireFormKey(page.number) !== null);
   const observationDrafts = pages.filter((page) => [35].includes(page.number));
   const manualRecords = pages.filter((page) =>
-    !candidateDraftNumbers.has(page.number) && ![14, 35].includes(page.number));
+    assessmentQuestionnaireFormKey(page.number) === null && page.number !== 35);
 
-  function candidateDescription(number: number) {
-    const labels: Record<number, string> = {
-      11: "SPMSQ・10 題",
-      12: "GDS-15・15 題",
-      13: "臺北市 B12 跌倒風險・12 項",
-      14: "NSI DETERMINE・10 題",
-      15: "Barthel ADL・10 項",
-      16: "IADL・8 領域",
-      17: "EAT-10 吞嚥篩檢・10 題",
-      18: "BSRS-5 心情溫度計・含安全關懷題",
-      36: "MNA-SF・6 題",
+  const verifiedResume = !demo && selectedClient !== null && !resumeError && resume?.clientId === selectedClient.id &&
+    taipeiSavedAt(resume.generatedAt)
+    ? resume : null;
+  const resumeUnavailable = !demo && selectedClient !== null && !verifiedResume;
+
+  function candidatePresentation(page: PageCatalogEntry) {
+    const formKey = assessmentQuestionnaireFormKey(page.number)!;
+    const basicHref = `/app/${page.slug}?${new URLSearchParams({ client: selectedClient!.id })}`;
+    if (demo) return { href: basicHref, status: "展示資料不可保存", action: "查看量表" };
+    const matches = verifiedResume?.forms.filter((item) => item.formKey === formKey) ?? [];
+    if (matches.length !== 1) return { href: basicHref, status: "草稿狀態無法確認", action: "開啟量表" };
+    const canManage = manageableFormKeys.includes(formKey);
+    const latest = matches[0]!.latest;
+    if (!latest) return { href: basicHref, status: "尚無已保存草稿", action: canManage ? "開始填寫" : "開啟量表" };
+    const savedAt = taipeiSavedAt(latest.savedAt);
+    if (!savedAt) return { href: basicHref, status: "草稿狀態無法確認", action: "開啟量表" };
+    const params = new URLSearchParams({
+      client: selectedClient!.id,
+      assessment: latest.assessmentKey,
+      version: latest.versionId,
+    });
+    return {
+      href: `/app/${page.slug}?${params}`,
+      status: `草稿 · 最近保存 ${savedAt}`,
+      action: canManage ? "接續填寫" : "查看草稿",
     };
-    return labels[number] ?? "可填寫草稿；正式簽署仍須人工覆核";
   }
 
   return <div className={styles.workspace}>
@@ -70,12 +100,19 @@ export function AssessmentEntryWorkspace({
       {pages.length ? <>
         {candidateDrafts.length ? <section aria-label="題目式量表">
           <h3 className={styles.groupTitle}>{demo ? "展示量表（不可保存）" : "題目式量表"}</h3>
-          <ul className={styles.cards}>{candidateDrafts.map((page) => <li key={page.slug}>
-            <NavigationLink href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`} loadingLabel={page.title} prefetch={false}>
-              <span>{page.title}<small>{candidateDescription(page.number)}</small></span>
-              <ArrowRight aria-hidden="true" />
-            </NavigationLink>
-          </li>)}</ul>
+          {verifiedResume ? <p className={styles.resumeAsOf}>資料截至 {taipeiSavedAt(verifiedResume.generatedAt)}</p> : null}
+          {resumeUnavailable ? <p className={styles.resumeUnavailable} role="status">草稿狀態暫時無法確認。可開啟量表核對。</p> : null}
+          <ul className={styles.cards}>{candidateDrafts.map((page) => {
+            const entry = candidatePresentation(page);
+            return <li key={page.slug}>
+              <NavigationLink href={entry.href} loadingLabel={page.title} prefetch={false}>
+                <span className={styles.cardMain}><strong>{page.title}</strong><small>{entry.status}</small>
+                  {page.number === 18 ? <small>含安全關懷題</small> : null}</span>
+                <span className={styles.cardAction}>{entry.action}</span>
+                <ArrowRight aria-hidden="true" />
+              </NavigationLink>
+            </li>;
+          })}</ul>
         </section> : null}
         {observationDrafts.length ? <details className={styles.moreForms}>
           <summary>人工觀察草稿 <span>{observationDrafts.length}</span></summary>
