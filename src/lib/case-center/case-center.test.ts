@@ -48,6 +48,7 @@ function assignment(
   assigneeUserId = currentUserId,
 ): CaseCenterAssignmentRow {
   return {
+    id: `${clientId.slice(0, 8)}-0000-4000-8000-${assigneeUserId.slice(-12)}`,
     client_id: clientId,
     assignee_user_id: assigneeUserId,
     assignment_kind: "daily_care",

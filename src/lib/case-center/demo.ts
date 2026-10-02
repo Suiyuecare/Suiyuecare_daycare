@@ -46,6 +46,7 @@ export function buildDemoCaseCenterSnapshot(
     const rows = [];
     if (index % 2 === 0) {
       rows.push({
+        id: `${client.id.slice(0, 8)}-0000-4000-8000-000000000001`,
         client_id: client.id,
         assignee_user_id: currentUserId,
         assignment_kind: "daily_care",
@@ -55,6 +56,7 @@ export function buildDemoCaseCenterSnapshot(
     }
     if (index % 3 === 0) {
       rows.push({
+        id: `${client.id.slice(0, 8)}-0000-4000-8000-000000000002`,
         client_id: client.id,
         assignee_user_id: secondUserId,
         assignment_kind: "case_management",

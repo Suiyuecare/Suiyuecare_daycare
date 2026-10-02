@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   canAccess: vi.fn(),
   daily: vi.fn(),
   roster: vi.fn(),
+  expected: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/context", () => ({ requireTenantContext: mocks.context }));
@@ -18,6 +19,9 @@ vi.mock("@/lib/core-care/snapshot", () => ({
 }));
 vi.mock("@/lib/care-roster/snapshot", () => ({
   loadCareRosterSnapshot: mocks.roster,
+}));
+vi.mock("@/lib/client-weekly/daily-projection-loader", () => ({
+  loadDailyExpectedClients: mocks.expected,
 }));
 vi.mock("@/components/app/staff-access-denied", () => ({
   StaffAccessDenied: () => null,
@@ -63,6 +67,7 @@ beforeEach(() => {
   mocks.canAccess.mockReturnValue(true);
   mocks.daily.mockResolvedValue({ marker: "daily-snapshot" });
   mocks.roster.mockResolvedValue({ marker: "roster-snapshot" });
+  mocks.expected.mockResolvedValue({ status: "demo", serviceDate });
 });
 
 describe("dedicated dashboard route", () => {
@@ -83,6 +88,7 @@ describe("dedicated dashboard route", () => {
     expect(mocks.context).toHaveBeenCalledExactlyOnceWith("staff");
     expect(mocks.daily).not.toHaveBeenCalled();
     expect(mocks.roster).not.toHaveBeenCalled();
+    expect(mocks.expected).not.toHaveBeenCalled();
   });
 
   it("passes the authenticated context and requested date through to both loaders and widgets", async () => {
@@ -91,6 +97,7 @@ describe("dedicated dashboard route", () => {
 
     expect(mocks.daily).toHaveBeenCalledExactlyOnceWith(context, serviceDate);
     expect(mocks.roster).toHaveBeenCalledExactlyOnceWith(context, serviceDate);
+    expect(mocks.expected).toHaveBeenCalledExactlyOnceWith(context, serviceDate);
     expect(workspace.type).toBe(DashboardWorkspace);
     expect(workspace.props).toMatchObject({
       canOpenReadiness: true,
@@ -101,7 +108,25 @@ describe("dedicated dashboard route", () => {
       roster: { marker: "roster-snapshot" },
     });
     expect(expectedClients.props.children.type).toBe(DailyExpectedClients);
-    expect(expectedClients.props.children.props).toEqual({ context, serviceDate });
+    expect(expectedClients.props.children.props).toEqual({
+      context,
+      serviceDate,
+      statePromise: mocks.expected.mock.results[0]?.value,
+    });
+  });
+
+  it("starts the expected-client panel while the main daily snapshot is still pending", async () => {
+    let resolveDaily!: (value: unknown) => void;
+    mocks.daily.mockReturnValue(new Promise((resolve) => { resolveDaily = resolve; }));
+
+    const pendingPage = DashboardPage(props());
+    await vi.waitFor(() => {
+      expect(mocks.daily).toHaveBeenCalledOnce();
+      expect(mocks.expected).toHaveBeenCalledOnce();
+      expect(mocks.roster).toHaveBeenCalledOnce();
+    });
+    resolveDaily({ marker: "daily-snapshot" });
+    await pendingPage;
   });
 
   it("does not expose management actions without their separate role and scope", async () => {
