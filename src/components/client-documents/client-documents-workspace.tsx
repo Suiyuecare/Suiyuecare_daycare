@@ -7,11 +7,24 @@ import { DocumentHistoryPanel } from "./document-history-panel";
 type Props = { clientId: string; canManage: boolean; demo?: boolean; today: string; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void };
 const LABELS = { missing: "待補件", scanning: "等待上傳完成／安全檢查", needs_review: "待人工覆核", reviewed: "文件已覆核", needs_replacement: "需要補正／換檔", not_applicable: "已確認不適用", restricted: "無此類附件檢視權限" };
 type ApiBody = { status?: string; data?: unknown; errors?: { message?: string }[] };
+class DocumentRequestError extends Error { constructor(message: string, readonly status: number) { super(message); } }
 async function api(url: string, options?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...options, signal: options?.signal ?? AbortSignal.timeout(25000) });
   const body = await response.json() as ApiBody;
-  if (!response.ok || body.status !== "ok") throw new Error(body.errors?.[0]?.message ?? "附件操作尚未確認，請重試。");
+  if (!response.ok || body.status !== "ok") throw new DocumentRequestError(body.errors?.[0]?.message ?? "附件操作尚未確認，請重試。", response.status);
   return body.data;
+}
+function selectedFileError(file: File): string | null {
+  if (!file.size || file.size > MAX_DOCUMENT_BYTES) return "檔案需大於 0 且不超過 4MB，請重新選檔。";
+  const extension = file.name.toLowerCase().split(".").pop();
+  const expected = extension === "pdf" ? "application/pdf" : extension === "jpg" || extension === "jpeg" ? "image/jpeg" : extension === "png" ? "image/png" : null;
+  if (!expected || file.type !== expected) return "只接受 PDF、JPEG 或 PNG，且副檔名須與檔案格式一致。";
+  return null;
+}
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 async function read(clientId: string, signal?: AbortSignal) {
   const data = await api(`/api/client-documents?client=${encodeURIComponent(clientId)}`, { signal }) as { snapshot?: unknown; uploadConfigured?: boolean };
@@ -31,6 +44,10 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
   const [historyDirty, setHistoryDirty] = useState(false);
   const [summaryStale, setSummaryStale] = useState(false);
   const [files, setFiles] = useState<Partial<Record<DocumentCategory, File>>>({});
+  const [fileErrors, setFileErrors] = useState<Partial<Record<DocumentCategory, string>>>({});
+  const [uploadUncertain, setUploadUncertain] = useState<Partial<Record<DocumentCategory, boolean>>>({});
+  const [uploadNeedsRefresh, setUploadNeedsRefresh] = useState<Partial<Record<DocumentCategory, boolean>>>({});
+  const [uploadStage, setUploadStage] = useState<"sending" | "verifying" | null>(null);
   const [details, setDetails] = useState<Partial<Record<DocumentCategory, Partial<Record<"documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string>>>>>({});
   const [reasons, setReasons] = useState<Partial<Record<DocumentCategory, string>>>({});
   const [decisions, setDecisions] = useState<Partial<Record<DocumentCategory, "reviewed" | "needs_replacement" | "not_applicable">>>({});
@@ -50,28 +67,53 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     return () => { controller.abort(); clearTimeout(timer); };
   }, [clientId, demo]);
   useEffect(() => { if (!download) return; const timer = setTimeout(() => setDownload(null), 55000); return () => clearTimeout(timer); }, [download]);
-  async function refresh() { const data = await read(clientId); if (mounted.current) { setSnapshot(data.snapshot); setConfigured(data.uploadConfigured); setSummaryStale(false); } return data.snapshot; }
+  async function refresh() {
+    const data = await read(clientId);
+    if (mounted.current) {
+      const changed = new Set(data.snapshot.rows.filter((row) => {
+        const previous = snapshot?.rows.find((item) => item.category === row.category);
+        return Boolean(files[row.category] && previous && previous.documentVersion !== row.documentVersion);
+      }).map((row) => row.category));
+      setSnapshot(data.snapshot); setConfigured(data.uploadConfigured); setSummaryStale(false);
+      setUploadNeedsRefresh({});
+      if (changed.size) {
+        // A newer version may be our timed-out write or another user's work.
+        // Never reinterpret the retained file as a request for yet another version.
+        setFiles((current) => Object.fromEntries(Object.entries(current).filter(([category]) => !changed.has(category as DocumentCategory))));
+        setFileErrors((current) => Object.fromEntries(Object.entries(current).filter(([category]) => !changed.has(category as DocumentCategory))));
+        setUploadUncertain((current) => Object.fromEntries(Object.entries(current).filter(([category]) => !changed.has(category as DocumentCategory))));
+        setError("附件清單已有新版本；請先核對內容。為避免重複上傳，待送檔案已清除；如仍需新增，請重新選檔。");
+      }
+    }
+    return data.snapshot;
+  }
   async function retryRead() { if (locked.current || historyDirty || demo) return; setLoading(true); setError(""); try { await refresh(); } catch { setError("附件清單仍無法取得，請稍後重試。"); } finally { setLoading(false); } }
   async function execute(row: DocumentRow, action: "upload" | "review" | "download") {
     if (locked.current || historyDirty || summaryStale || demo || !snapshot) return;
     locked.current = true; callbacks.current.onBusy?.(true); setBusy(row.category); setError(""); setMessage(""); setDownload(null);
+    let uploadStarted = false;
     try {
       if (action === "upload") {
-        const file = files[row.category]; if (!file || file.size === 0 || file.size > MAX_DOCUMENT_BYTES) throw new Error("請選擇不超過 4MB 的 PDF、JPEG 或 PNG。");
+        const file = files[row.category]; if (!file) throw new Error("請選擇 PDF、JPEG 或 PNG 檔案。");
+        const invalidFile = selectedFileError(file); if (invalidFile) { setFileErrors((current) => ({ ...current, [row.category]: invalidFile })); throw new Error(invalidFile); }
         const metadata = { documentLabel: details[row.category]?.documentLabel ?? DOCUMENT_LABELS[row.category], provider: details[row.category]?.provider ?? "", documentDate: details[row.category]?.documentDate ?? "", validUntil: details[row.category]?.validUntil ?? "", periodFrom: details[row.category]?.periodFrom ?? "", periodTo: details[row.category]?.periodTo ?? "" };
         const fingerprint = `upload:${row.category}:${row.documentVersion}:${file.name}:${file.size}:${file.lastModified}:${JSON.stringify(metadata)}`;
         const form = new FormData(); form.set("clientId", clientId); form.set("category", row.category); form.set("expectedDocumentVersion", String(row.documentVersion)); form.set("idempotency_key", operationKey(fingerprint)); form.set("file", file);
         for (const [key, value] of Object.entries(metadata)) form.set(key, value);
+        uploadStarted = true; setUploadStage("sending");
         const data = await api("/api/client-documents", { method: "POST", headers: { "x-client-document-action": "upload" }, body: form }) as { receipt?: unknown };
         const receipt = documentReceiptSchema.parse(data.receipt);
         if (receipt.clientId !== clientId || receipt.category !== row.category || receipt.version !== row.documentVersion + 1) throw new Error("附件回條不一致，請以原操作重試。");
         // Do not advance the visible base version until the mutation receipt is
         // verified. Otherwise an uncertain read would turn Retry into a new upload.
+        setUploadStage("verifying");
         const verified = await read(clientId);
         const latest = verified.snapshot.rows.find((item) => item.category === row.category);
         if (latest?.documentId !== receipt.id || latest.documentVersion !== receipt.version || latest.scanStatus !== receipt.scanStatus) throw new Error("已取得上傳回條，但讀回狀態有差異；請重新載入核對。");
         setSnapshot(verified.snapshot); setConfigured(verified.uploadConfigured);
         keys.current.delete(fingerprint); setFiles((value) => { const next = { ...value }; delete next[row.category]; return next; });
+        setUploadUncertain((current) => ({ ...current, [row.category]: false }));
+        setUploadNeedsRefresh((current) => ({ ...current, [row.category]: false }));
         setDetails((value) => { const next = { ...value }; delete next[row.category]; return next; });
         setMessage(receipt.scanStatus === "clean" ? "附件已儲存、通過安全檢查並重新讀回，請繼續人工覆核。" : "附件已隔離，安全檢查未通過；禁止下載，請提供新檔案。");
       } else if (action === "review") {
@@ -96,8 +138,22 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
         if (url.protocol !== "https:" || !url.hostname.endsWith(".supabase.co") || !url.pathname.startsWith("/storage/v1/object/sign/client-intake-documents/") || data.documentId !== row.documentId || data.version !== row.documentVersion || data.expiresSeconds !== 60) throw new Error("下載回條不符合安全限制，請重試。");
         setDownload({ category: row.category, url: url.href }); setMessage("下載已留下稽核紀錄；此連結只在一分鐘內有效，請勿轉傳。");
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "附件操作尚未確認；原檔與輸入均保留，請重試。"); }
-    finally { locked.current = false; if (mounted.current) { callbacks.current.onBusy?.(false); setBusy(null); } }
+    } catch (reason) {
+      const knownRejection = reason instanceof DocumentRequestError && reason.status >= 400 && reason.status < 500 && ![408, 409, 425, 429].includes(reason.status);
+      if (action === "upload" && uploadStarted && reason instanceof DocumentRequestError && reason.status === 409) {
+        setUploadUncertain((current) => ({ ...current, [row.category]: true }));
+        setUploadNeedsRefresh((current) => ({ ...current, [row.category]: true }));
+        setError("附件版本或狀態可能已變更；檔案與輸入已保留。請先重新載入附件清單核對，暫勿重傳。");
+      } else if (action === "upload" && uploadStarted && !knownRejection) {
+        setUploadUncertain((current) => ({ ...current, [row.category]: true }));
+        const detail = reason instanceof Error && !(reason instanceof DOMException) && !(reason instanceof TypeError) && !(reason instanceof SyntaxError) ? ` ${reason.message}` : "";
+        setError(`本次上傳結果尚未確認；檔案與輸入已保留。請用原操作重試核對，勿先改選新檔。${detail}`);
+      } else {
+        if (action === "upload" && knownRejection) setUploadUncertain((current) => ({ ...current, [row.category]: false }));
+        setError(reason instanceof Error ? reason.message : "附件操作尚未確認；原檔與輸入均保留，請重試。");
+      }
+    }
+    finally { locked.current = false; if (mounted.current) { callbacks.current.onBusy?.(false); setBusy(null); setUploadStage(null); } }
   }
   return <section className={styles.workspace} aria-label="個案附件與補件">
     <div><h2>個案附件與補件</h2><p>分別上傳身分證、藥袋、用藥計畫、歷史給藥紀錄及體檢資料。每份附件先安全檢查，再由授權人員覆核。</p><p>藥袋與歷史文件不會自動變成有效醫囑，也不算本中心已給藥。</p></div>
@@ -121,6 +177,7 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     <div className={styles.grid}>{!summaryStale && snapshot?.rows.map((row) => {
       const permitted = canManage && row.canManage && !demo;
       const disabled = busy !== null || loading || historyBusy || historyDirty;
+      const selectedFile = files[row.category];
       return <article className={styles.card} key={row.category} aria-label={DOCUMENT_LABELS[row.category]}>
         <h3>{DOCUMENT_LABELS[row.category]}</h3><p className={styles.status}>{LABELS[row.status]}</p>
         {row.accessible ? <>
@@ -130,18 +187,21 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
           {row.documentDisposition === "inactive" ? <p>此份文件已停用，請至逐份文件清單確認；原檔保留。</p> : null}
           {row.documentHistoricalOnly ? <p>最新文件僅供歷史查考，不作目前使用依據。</p> : null}
           <details><summary>新增{DOCUMENT_LABELS[row.category]}／上傳新版本</summary>
-          <form onSubmit={(event) => { event.preventDefault(); void execute(row, "upload"); }}>
+          <form noValidate onSubmit={(event) => { event.preventDefault(); void execute(row, "upload"); }}>
             <p>新增文件會保留既有原檔。不同藥袋請分別命名，例如「早午餐藥袋」、「晚餐藥袋」。</p>
             <div className={styles.metadata}>{([
               ["documentLabel", "文件名稱", "text"], ["provider", "院所／開立單位", "text"], ["documentDate", "文件日期", "date"], ["validUntil", "有效期限", "date"],
               ...(row.category.startsWith("medication_") ? [["periodFrom", "用藥／歷史紀錄起日", "date"], ["periodTo", "用藥／歷史紀錄迄日", "date"]] : []),
-            ] as ["documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string, string][]).map(([key, label, type]) => <label key={key}>{DOCUMENT_LABELS[row.category]}{label}<input type={type} maxLength={type === "text" ? 120 : undefined} disabled={disabled || !permitted || !configured} value={details[row.category]?.[key] ?? (key === "documentLabel" ? DOCUMENT_LABELS[row.category] : "")} onChange={(event) => { callbacks.current.onDirty?.(true); setDetails((current) => ({ ...current, [row.category]: { ...current[row.category], [key]: event.target.value } })); }} /></label>)}</div>
+            ] as ["documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string, string][]).map(([key, label, type]) => <label key={key}>{DOCUMENT_LABELS[row.category]}{label}<input type={type} maxLength={type === "text" ? 120 : undefined} disabled={disabled || !permitted || !configured || Boolean(uploadUncertain[row.category])} value={details[row.category]?.[key] ?? (key === "documentLabel" ? DOCUMENT_LABELS[row.category] : "")} onChange={(event) => { callbacks.current.onDirty?.(true); setDetails((current) => ({ ...current, [row.category]: { ...current[row.category], [key]: event.target.value } })); }} /></label>)}</div>
             <p>未知日期可留空；填寫用藥期間時，起日及迄日須一起提供。</p>
-            <label>{DOCUMENT_LABELS[row.category]}檔案（上限 4MB）<input key={`${row.category}-${row.documentVersion}`} type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || !permitted || !configured} onChange={(event) => { const file = event.target.files?.[0]; if (file) callbacks.current.onDirty?.(true); setFiles((current) => ({ ...current, [row.category]: file })); }} /></label>
-            <button type="submit" disabled={disabled || !permitted || !configured || !files[row.category]}>{busy === row.category ? "處理中…" : row.documentVersion ? "新增文件／新版本" : "上傳附件"}</button>
+            <label>{DOCUMENT_LABELS[row.category]}檔案（上限 4MB）<input key={`${row.category}-${row.documentVersion}`} type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || !permitted || !configured || Boolean(uploadUncertain[row.category])} aria-invalid={Boolean(fileErrors[row.category])} aria-describedby={fileErrors[row.category] ? `document-file-error-${row.category}` : undefined} onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; callbacks.current.onDirty?.(true); setError(""); setFiles((current) => ({ ...current, [row.category]: file })); setFileErrors((current) => ({ ...current, [row.category]: selectedFileError(file) ?? undefined })); }} /></label>
+            {selectedFile ? <p className={styles.fileSelection}>{selectedFile.name} · {formatFileSize(selectedFile.size)}</p> : null}
+            {fileErrors[row.category] ? <p id={`document-file-error-${row.category}`} role="alert" className={styles.fileError}>{fileErrors[row.category]}</p> : null}
+            {busy === row.category && uploadStage ? <p role="status" className={styles.operationStatus}>{uploadStage === "sending" ? "正在上傳並安全檢查；請留在此頁。" : "正在核對已保存的附件狀態…"}</p> : null}
+            <button className={styles.uploadButton} type="submit" aria-busy={busy === row.category && uploadStage !== null} disabled={disabled || !permitted || !configured || !files[row.category] || Boolean(fileErrors[row.category]) || Boolean(uploadNeedsRefresh[row.category])}>{busy === row.category && uploadStage ? "處理中…" : uploadNeedsRefresh[row.category] ? "先重新載入核對" : uploadUncertain[row.category] ? "重試確認原次上傳" : row.documentVersion ? "新增文件／新版本" : "上傳附件"}</button>
           </form></details>
           <details><summary>{DOCUMENT_LABELS[row.category]}最新文件處置／本案不適用</summary>
-          <form onSubmit={(event) => { event.preventDefault(); void execute(row, "review"); }}>
+          <form noValidate onSubmit={(event) => { event.preventDefault(); void execute(row, "review"); }}>
             <label>{DOCUMENT_LABELS[row.category]}處置<select value={decisions[row.category] ?? "reviewed"} disabled={disabled || !permitted} onChange={(event) => { callbacks.current.onDirty?.(true); setDecisions({ ...decisions, [row.category]: event.target.value as "reviewed" | "needs_replacement" | "not_applicable" }); }}>
               <option value="reviewed" disabled={row.scanStatus !== "clean"}>文件內容已核對</option><option value="needs_replacement" disabled={row.scanStatus !== "clean"}>請補正／換檔</option><option value="not_applicable">本案不適用（須理由）</option>
             </select></label>

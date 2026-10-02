@@ -122,7 +122,18 @@ export const getTenantContext = cache(
         .limit(1)
         .returns<Array<{ id: string; name: string }>>();
     }
-    let branchResult = await findBranch(requestedBranchId);
+    // Both reads are scoped to the membership already admitted above. Running
+    // them together removes one network wait without moving the login gate,
+    // MFA check, or membership selection ahead of authorization.
+    const [initialBranchResult, organizationResult] = await Promise.all([
+      findBranch(requestedBranchId),
+      supabase
+        .from("organizations")
+        .select("name")
+        .eq("id", membership.organization_id)
+        .maybeSingle<{ name: string }>(),
+    ]);
+    let branchResult = initialBranchResult;
     if (
       !branchResult.error &&
       !branchResult.data?.length &&
@@ -134,11 +145,7 @@ export const getTenantContext = cache(
     if (branchResult.error || !branchResult.data?.length) return null;
     const branch = branchResult.data[0]!;
 
-    const { data: organization, error: organizationError } = await supabase
-      .from("organizations")
-      .select("name")
-      .eq("id", membership.organization_id)
-      .maybeSingle<{ name: string }>();
+    const { data: organization, error: organizationError } = organizationResult;
     if (organizationError || !organization) return null;
 
     const roles = membership.role_keys ?? [];

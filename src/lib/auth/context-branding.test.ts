@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  demo: vi.fn(), preview: vi.fn(), client: vi.fn(), getUser: vi.fn(), aal: vi.fn(), from: vi.fn(), rpc: vi.fn(),
+  demo: vi.fn(), preview: vi.fn(), client: vi.fn(), getUser: vi.fn(), aal: vi.fn(), from: vi.fn(), rpc: vi.fn(), cookieGet: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/env", () => ({ isDemoMode: mocks.demo, isSyntheticPreviewMode: mocks.preview }));
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: mocks.client }));
-vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: mocks.cookieGet }) }));
 vi.mock("next/navigation", () => ({ redirect: (path: string) => { throw new Error(`REDIRECT:${path}`); } }));
 
 import { demoBranding } from "@/lib/config/branding";
@@ -15,6 +15,12 @@ import { getTenantContext, hasRecentAal2, requireTenantContext } from "./context
 const ORG = "58000000-0000-4000-8000-000000000901";
 const BRANCH = "58000000-0000-4000-8000-000000000902";
 const USER = "58000000-0000-4000-8000-000000000903";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 function setDatabaseNames(organization: { name: string } | null = { name: "另一間授權合成機構" }) {
   const queries = new Map<string, { eq: ReturnType<typeof vi.fn> }>();
@@ -42,6 +48,7 @@ beforeEach(() => {
   mocks.getUser.mockResolvedValue({ data: { user: { id: USER } }, error: null });
   mocks.aal.mockResolvedValue({ data: { currentLevel: "aal2" } });
   mocks.rpc.mockResolvedValue({ data: true, error: null });
+  mocks.cookieGet.mockReturnValue(undefined);
   mocks.client.mockResolvedValue({
     auth: { getUser: mocks.getUser, mfa: { getAuthenticatorAssuranceLevel: mocks.aal } },
     from: mocks.from,
@@ -93,6 +100,84 @@ describe("branding cannot replace authenticated tenant identity", () => {
   it("does not substitute a pilot name for a missing organization", async () => {
     setDatabaseNames(null);
     expect(await getTenantContext("staff")).toBeNull();
+  });
+
+  it("starts organization lookup while the admitted branch lookup is still pending", async () => {
+    const branch = deferred<{ data: { id: string; name: string }[]; error: null }>();
+    let organizationStarted = false;
+    mocks.from.mockImplementation((table: string) => ({
+      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+      returns: vi.fn().mockImplementation(() => table === "branches" ? branch.promise : Promise.resolve({ data: [{ organization_id: ORG, branch_id: BRANCH, display_name: "合成使用者", role_keys: ["branch_supervisor"], scopes: ["branch:read"] }], error: null })),
+      maybeSingle: vi.fn().mockImplementation(() => { organizationStarted = true; return Promise.resolve({ data: { name: "合成機構" }, error: null }); }),
+    }));
+
+    const resultPromise = getTenantContext("staff");
+    await vi.waitFor(() => expect(organizationStarted).toBe(true));
+    branch.resolve({ data: [{ id: BRANCH, name: "合成分支" }], error: null });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      organizationId: ORG, branchId: BRANCH, organizationName: "合成機構", branchName: "合成分支",
+      assuranceLevel: "aal2", roles: ["branch_supervisor"], scopes: ["branch:read"],
+    });
+  });
+
+  it("still denies access when the parallel branch lookup fails", async () => {
+    mocks.from.mockImplementation((table: string) => ({
+      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+      returns: vi.fn().mockResolvedValue(table === "branches"
+        ? { data: null, error: { code: "PGRST000" } }
+        : { data: [{ organization_id: ORG, branch_id: BRANCH, display_name: "合成使用者", role_keys: ["branch_supervisor"], scopes: ["branch:read"] }], error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { name: "合成機構" }, error: null }),
+    }));
+
+    await expect(getTenantContext("staff")).resolves.toBeNull();
+  });
+
+  it("falls back only within the selected organization for an organization-wide membership", async () => {
+    const requestedBranch = "58000000-0000-4000-8000-000000000904";
+    mocks.cookieGet.mockImplementation((name: string) => name === "daycare_branch" ? { value: requestedBranch } : undefined);
+    const branchFilters: Array<Array<[string, string | boolean]>> = [];
+    mocks.from.mockImplementation((table: string) => {
+      const filters: Array<[string, string | boolean]> = [];
+      const builder = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockImplementation((key: string, value: string | boolean) => { filters.push([key, value]); return builder; }),
+        order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+        returns: vi.fn().mockImplementation(() => {
+          if (table === "active_memberships") return Promise.resolve({ data: [{ organization_id: ORG, branch_id: null, display_name: "合成使用者", role_keys: ["organization_admin"], scopes: ["branch:read"] }], error: null });
+          branchFilters.push(filters);
+          return Promise.resolve({ data: branchFilters.length === 1 ? [] : [{ id: BRANCH, name: "合成分支" }], error: null });
+        }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: { name: "合成機構" }, error: null }),
+      };
+      return builder;
+    });
+
+    await expect(getTenantContext("staff")).resolves.toMatchObject({ organizationId: ORG, branchId: BRANCH });
+    expect(branchFilters).toHaveLength(2);
+    expect(branchFilters[0]).toEqual(expect.arrayContaining([["organization_id", ORG], ["id", requestedBranch], ["is_active", true]]));
+    expect(branchFilters[1]).toEqual(expect.arrayContaining([["organization_id", ORG], ["is_active", true]]));
+    expect(branchFilters[1]).not.toContainEqual(["id", requestedBranch]);
+  });
+
+  it("does not switch an exact branch membership to another branch", async () => {
+    mocks.cookieGet.mockImplementation((name: string) => name === "daycare_branch" ? { value: BRANCH } : undefined);
+    let branchReads = 0;
+    mocks.from.mockImplementation((table: string) => ({
+      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+      returns: vi.fn().mockImplementation(() => {
+        if (table === "active_memberships") return Promise.resolve({ data: [{ organization_id: ORG, branch_id: BRANCH, display_name: "合成使用者", role_keys: ["branch_supervisor"], scopes: ["branch:read"] }], error: null });
+        branchReads += 1;
+        return Promise.resolve({ data: [], error: null });
+      }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { name: "合成機構" }, error: null }),
+    }));
+
+    await expect(getTenantContext("staff")).resolves.toBeNull();
+    expect(branchReads).toBe(1);
   });
 
   it("does not supply pilot or demo data when the backend is unconfigured", async () => {
