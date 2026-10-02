@@ -54,6 +54,41 @@ const moduleIcons = {
   "family-portal": BookOpenCheck,
 } as const;
 
+// Keep the shared entry points stable. The third slot is a familiar task for
+// the person's approved role, selected only from server-filtered navigation.
+// Clinical responsibilities take precedence over a concurrent director role;
+// the complete authorized catalog remains available under More.
+const mobileRolePriorities = [
+  ["nurse", [7, 51, 3]],
+  ["case_manager_social_worker", [29, 28, 43]],
+  ["care_worker", [3, 6, 46]],
+  ["transport_driver", [48, 47]],
+  ["professional", [40, 41, 37]],
+  ["finance_claims", [64, 49]],
+  ["branch_director", [54, 63]],
+  ["branch_supervisor", [54, 63]],
+  ["organization_manager", [54, 63]],
+  ["platform_ops", [83]],
+] as const;
+const mobileFallbackPriorities = [3, 6, 46, 54, 29, 7, 48, 64, 49, 40, 41, 83] as const;
+const mobileShortLabels: Record<number, string> = {
+  1: "今日", 2: "個案", 3: "量測", 6: "日誌", 7: "用藥", 28: "社評", 29: "社工",
+  37: "照會", 40: "物治", 41: "職治", 43: "溝通", 46: "出勤", 47: "趟次", 48: "接送",
+  49: "申報", 51: "護評", 54: "彙整", 63: "排班", 64: "帳務", 83: "稽核",
+};
+
+function mobilePrimaryPages(navigation: readonly NavigationGroup[], roles: TenantContext["roles"]) {
+  const pages = new Map(navigation.flatMap((group) => group.pages).map((page) => [page.number, page]));
+  const priorities = [1, 2,
+    ...mobileRolePriorities.filter(([role]) => roles.includes(role)).flatMap(([, numbers]) => numbers),
+    ...mobileFallbackPriorities,
+  ];
+  return [...new Set(priorities)].flatMap((number) => {
+    const page = pages.get(number);
+    return page ? [page] : [];
+  }).slice(0, 3);
+}
+
 export function AppShell({
   context,
   navigation,
@@ -88,7 +123,8 @@ export function AppShell({
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
-  const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const mobilePages = mobilePrimaryPages(navigation, context.roles);
+  const mobileCurrentInMore = !mobilePages.some((page) => pathname === `/app/${page.slug}`);
   const [groupRoute, setGroupRoute] = useState(pathname);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
@@ -367,14 +403,16 @@ export function AppShell({
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
         {mobilePages.map((page) => {
           const Icon = moduleIcons[page.moduleId];
-          const label = page.number === 1 ? "今日" : page.number === 2 ? "個案" : "量測";
+          const label = mobileShortLabels[page.number] ?? page.title;
           const contextual = page.number === 3 && currentDailyNavigation;
           return <NavigationLink href={contextual ? dailyWorkflowHref(3, contextual.serviceDate, contextual.clientId, contextual.shift) : `/app/${page.slug}`}
             aria-label={contextual ? "目前個案的生命徵象紀錄" : page.title} title={page.title}
             aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title}
-            prefetch={contextual ? false : undefined} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
+            prefetch={contextual || page.number > 3 ? false : undefined} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
         })}
-        <button type="button" aria-label="更多功能" aria-expanded={menuOpen} onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
+        <button type="button" aria-label={mobileCurrentInMore ? "更多功能，目前頁面在選單中" : "更多功能"}
+          aria-expanded={menuOpen} data-current={mobileCurrentInMore ? "true" : undefined}
+          onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
       </nav>
     </div>
     </DailyNavigationRegistrationContext.Provider>

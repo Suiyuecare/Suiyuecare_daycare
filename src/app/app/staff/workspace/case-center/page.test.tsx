@@ -98,6 +98,7 @@ describe("dedicated case-center route", () => {
       snapshot: { page: 1, marker: "case-snapshot" },
       canOpenIntake: false,
       allowedDailyPages: [],
+      allowedContinuationPages: [],
       canViewSummary: false,
       page: { number: 2, slug: "staff/workspace/case-center" },
     });
@@ -120,7 +121,15 @@ describe("dedicated case-center route", () => {
 
     expect(result.props.canOpenIntake).toBe(true);
     expect(result.props.allowedDailyPages).toEqual([3, 6, 46]);
+    expect(result.props.allowedContinuationPages).toEqual([]);
     expect(result.props.canViewSummary).toBe(true);
+  });
+
+  it("exposes continuation pages only from the current employee's permissions", async () => {
+    mocks.context.mockResolvedValue({ ...context, scopes: ["clients.read", "medications.read", "social_work_records.read"] });
+    const result = await CaseCenterPage(props());
+    expect(result.props.allowedDailyPages).toEqual([]);
+    expect(result.props.allowedContinuationPages).toEqual([7, 8, 28]);
   });
 
   it("redirects an out-of-range page while preserving parsed filters", async () => {

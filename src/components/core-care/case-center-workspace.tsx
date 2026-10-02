@@ -70,6 +70,17 @@ function clientSummaryHref(client: CaseCenterClient, date: string) {
   return `/app/staff/service-management/daily-summary?${params.toString()}`;
 }
 
+const continuationPages = [
+  { number: 7, label: "用藥紀錄", slug: "staff/daily-care/medication-records", daily: true },
+  { number: 28, label: "心理社會評估", slug: "staff/social-work/psychosocial-assessment", daily: false },
+  { number: 8, label: "用藥計畫", slug: "staff/daily-care/medication-plans", daily: false },
+] as const;
+
+function clientContinuationHref(slug: string, clientId: string, date?: string) {
+  const params = new URLSearchParams(date ? { date, client: clientId } : { client: clientId });
+  return `/app/${slug}?${params.toString()}`;
+}
+
 function canStartClientWork(client: CaseCenterClient, date: string) {
   return (
     client.lifecycleStatus === "active" &&
@@ -105,15 +116,27 @@ function ClientWorkActions({
   date,
   canOpenAttendance,
   canViewSummary,
+  allowedContinuationPages,
+  previewMode = false,
   demoOnly = false,
 }: {
   client: CaseCenterClient;
   date: string;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
+  allowedContinuationPages: readonly number[];
+  previewMode?: boolean;
   demoOnly?: boolean;
 }) {
   const canStart = canOpenAttendance && canStartClientWork(client, date);
+  // These links only carry the selected stable ID. Every destination still
+  // rechecks the employee's scope and this client's assignment on the server.
+  const options = previewMode ? [] : continuationPages.filter((entry) =>
+    allowedContinuationPages.includes(entry.number) &&
+    (!entry.daily || canStartClientWork(client, date)),
+  );
+  const primaryOption = !canStart ? options[0] : undefined;
+  const moreOptions = canStart ? options : options.slice(1);
   return (
     <div className="case-center-actions">
       {canStart ? (
@@ -127,9 +150,34 @@ function ClientWorkActions({
         >
           開始當日工作<ArrowRight aria-hidden="true" />
         </NavigationLink>
+      ) : primaryOption ? (
+        <NavigationLink
+          aria-label={`開啟 ${client.displayName} 的${primaryOption.label}`}
+          className="button button--primary"
+          data-case-client-id={client.id}
+          href={clientContinuationHref(primaryOption.slug, client.id, primaryOption.daily ? date : undefined)}
+          loadingLabel={primaryOption.label}
+          prefetch={false}
+        >
+          {primaryOption.label}<ArrowRight aria-hidden="true" />
+        </NavigationLink>
       ) : (
         <p className="case-center-action-note">{demoOnly ? "僅供清單展示，無當日紀錄。" : clientWorkNote(client, date)}</p>
       )}
+      {moreOptions.length ? <details className="case-center-next-work">
+        <summary>其他工作 <ChevronDown aria-hidden="true" /></summary>
+        <div>
+          {moreOptions.map((entry) => <NavigationLink
+            aria-label={`開啟 ${client.displayName} 的${entry.label}`}
+            className="button button--secondary"
+            data-case-client-id={client.id}
+            href={clientContinuationHref(entry.slug, client.id, entry.daily ? date : undefined)}
+            key={entry.number}
+            loadingLabel={entry.label}
+            prefetch={false}
+          >{entry.label}</NavigationLink>)}
+        </div>
+      </details> : null}
       {!canStart && canViewSummary && (
         <NavigationLink
           aria-label={`查看 ${client.displayName} 的當日紀錄（${formatDate(date)}）`}
@@ -157,6 +205,7 @@ export function CaseCenterWorkspace({
   filters,
   loadError = false,
   allowedDailyPages = [],
+  allowedContinuationPages = [],
   canViewSummary = false,
 }: {
   page: PageCatalogEntry;
@@ -164,6 +213,7 @@ export function CaseCenterWorkspace({
   filters: CaseCenterFilters;
   loadError?: boolean;
   allowedDailyPages?: readonly number[];
+  allowedContinuationPages?: readonly number[];
   canOpenIntake?: boolean;
   canViewSummary?: boolean;
 }) {
@@ -235,9 +285,7 @@ export function CaseCenterWorkspace({
         <div>
           <p className="eyebrow">日常照顧</p>
           <h1>{page.title}</h1>
-          <p className="page-heading__description">
-            先選擇個案，再接續當日的出勤、量測與照顧日誌。
-          </p>
+          <p className="page-heading__description">選好個案，直接接續有權限的工作。</p>
           <p className="data-table__secondary">服務日期：{formatDate(filters.date)}</p>
         </div>
         <IntakeEntryLink allowed={canOpenIntake} />
@@ -402,6 +450,8 @@ export function CaseCenterWorkspace({
                       <td>
                         <ClientWorkActions
                           canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
+                          allowedContinuationPages={allowedContinuationPages}
+                          previewMode={snapshot.demo}
                           canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}
                           client={client}
                           date={filters.date}
@@ -423,6 +473,8 @@ export function CaseCenterWorkspace({
                   </div>
                   <ClientWorkActions
                     canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
+                    allowedContinuationPages={allowedContinuationPages}
+                    previewMode={snapshot.demo}
                     canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}
                     client={client}
                     date={filters.date}
