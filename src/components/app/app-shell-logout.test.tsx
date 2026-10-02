@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import type { TenantContext } from "@/lib/domain/types";
-import { getNavigationGroups } from "@/lib/catalog";
+import { filterNavigationByAccess, getNavigationGroups } from "@/lib/catalog";
 const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), pendingSocialWork: vi.fn(), observeSocialWork: vi.fn(), pendingPsychosocial: vi.fn(), observePsychosocial: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname, useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
@@ -340,6 +340,42 @@ describe("staff shell logout privacy", () => {
     const sidebar = screen.getByLabelText("主要功能");
     const entrances = new Set([...sidebar.querySelectorAll("a")].map((link) => link.getAttribute("href")));
     for (const page of navigation.flatMap((group) => group.pages)) expect(entrances.has(`/app/${page.slug}`)).toBe(true);
+  });
+  it("uses authorized role-specific mobile links with visible text in their accessible names", () => {
+    const careWorker = { ...actor, scopes: ["clients.read", "attendance.read", "health.read"] };
+    const navigation = filterNavigationByAccess(getNavigationGroups("staff"), careWorker);
+    const shell = render(<AppShell context={careWorker} navigation={navigation}><p>合成工作頁</p></AppShell>);
+    const mobile = screen.getByRole("navigation", { name: "常用功能" });
+    expect(mobile.querySelectorAll("a")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: "今日：首頁／工作儀表板" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "出勤：出勤管理" })).toHaveAttribute("href", "/app/staff/service-management/attendance");
+    expect(screen.getByRole("link", { name: "量測：生命徵象紀錄" })).toHaveAttribute("href", "/app/staff/daily-care/vital-signs");
+    mocks.pathname = "/app/staff/service-management/attendance";
+    shell.rerender(<AppShell context={careWorker} navigation={navigation}><p>合成工作頁</p></AppShell>);
+    expect(screen.getByRole("link", { name: "出勤：出勤管理" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "今日：首頁／工作儀表板" })).not.toHaveAttribute("aria-current");
+  });
+  it("removes revoked work shortcuts when the authority context changes", () => {
+    const careWorker = { ...actor, scopes: ["clients.read", "attendance.read", "health.read"] };
+    const shell = render(<AppShell context={careWorker} navigation={filterNavigationByAccess(getNavigationGroups("staff"), careWorker)}><p>合成工作頁</p></AppShell>);
+    expect(screen.getByRole("link", { name: "出勤：出勤管理" })).toBeInTheDocument();
+    const reduced = { ...careWorker, scopes: ["clients.read"] };
+    shell.rerender(<AppShell context={reduced} navigation={filterNavigationByAccess(getNavigationGroups("staff"), reduced)}><p>合成工作頁</p></AppShell>);
+    const mobile = screen.getByRole("navigation", { name: "常用功能" });
+    expect(mobile.querySelectorAll("a")).toHaveLength(2);
+    expect(screen.queryByRole("link", { name: "出勤：出勤管理" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "個案：個案中心" })).toBeInTheDocument();
+  });
+  it("opens the mobile drawer from More and restores focus on Escape", async () => {
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    render(<AppShell context={actor} navigation={filterNavigationByAccess(getNavigationGroups("staff"), actor)}><p>合成工作頁</p></AppShell>);
+    const opener = screen.getByRole("button", { name: "更多功能" });
+    fireEvent.click(opener);
+    expect(opener).toHaveAttribute("aria-expanded", "true");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉功能選單" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    expect(opener).toHaveAttribute("aria-expanded", "false");
   });
   it("opens the active module on deep links and does not invent unauthorized shortcuts", () => {
     const navigation = getNavigationGroups().filter((group) => group.id === "daily-care");

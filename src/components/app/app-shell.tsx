@@ -47,6 +47,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
 import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { getMobileQuickLinks } from "@/lib/navigation/mobile-quick-links";
 import { clearUnsavedChangesOnLogout, requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavigationLink } from "./navigation-link";
@@ -98,7 +99,7 @@ export function AppShell({
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
-  const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const mobileQuickLinks = getMobileQuickLinks(context, navigation, showStoreOverview);
   const assessmentShortcut = availablePages.find((page) => page.moduleId === "assessments");
   const summaryShortcut = availablePages.find((page) => page.number === 54);
   const [groupRoute, setGroupRoute] = useState(pathname);
@@ -442,10 +443,14 @@ export function AppShell({
         <main className="main-stage" id="main-content" tabIndex={-1}>{children}</main>
       </div>
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
-        {mobilePages.map((page) => {
-          const Icon = moduleIcons[page.moduleId];
-          const label = page.number === 1 ? "今日" : page.number === 2 ? "個案" : "量測";
-          return <NavigationLink href={`/app/${page.slug}`} aria-label={page.title} title={page.title} aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
+        {mobileQuickLinks.map((link) => {
+          const href = link.kind === "catalog" ? `/app/${link.page.slug}` : link.href;
+          const title = link.kind === "catalog" ? link.page.title : link.title;
+          const Icon = link.kind === "catalog" ? moduleIcons[link.page.moduleId] : Building2;
+          return <NavigationLink href={href} aria-label={`${link.label}：${title}`} title={title}
+            aria-current={pathname === href ? "page" : undefined} loadingLabel={title} key={href}>
+            <Icon aria-hidden="true" /><span>{link.label}</span>
+          </NavigationLink>;
         })}
         <button type="button" aria-label="更多功能" aria-expanded={menuOpen} onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
       </nav>
