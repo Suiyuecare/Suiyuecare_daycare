@@ -85,13 +85,25 @@ function QuestionnaireEditor({
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   const answeredCount = Object.values(answers).filter((answer) => answer.state === "answered").length;
   const notApplicableCount = Object.values(answers).filter((answer) => answer.state === "not_applicable").length;
+  const pendingReasonQuestions = form.questions.filter((question) => {
+    const answer = answers[question.id];
+    return answer?.state === "not_applicable" && !answer.reason.trim();
+  });
+  const pendingReasonCount = pendingReasonQuestions.length;
   const missingCount = form.questions.length - answeredCount - notApplicableCount;
-  const firstMissingIndex = form.questions.findIndex((question) => answers[question.id]?.state === "missing");
+  const firstUnfinishedIndex = form.questions.findIndex((question) => {
+    const answer = answers[question.id];
+    return !answer || answer.state === "missing" ||
+      (answer.state === "not_applicable" && !answer.reason.trim());
+  });
+  const firstUnfinishedQuestion = form.questions[firstUnfinishedIndex];
+  const firstUnfinishedAnswer = firstUnfinishedQuestion ? answers[firstUnfinishedQuestion.id] : null;
   const requiredContextFields = form.contextFields?.filter((field) => field.required) ?? [];
   const pendingContextFields = requiredContextFields.filter((field) => !context[field.key]?.trim());
   const pendingContextLabel = pendingContextFields.map((field) => field.label).join("、");
   const progressTotal = form.questions.length + requiredContextFields.length;
-  const progressValue = answeredCount + notApplicableCount + requiredContextFields.length - pendingContextFields.length;
+  const progressValue = answeredCount + notApplicableCount - pendingReasonCount +
+    requiredContextFields.length - pendingContextFields.length;
   const allowsNotApplicable = form.key === "barthel_adl" || form.key === "lawton_iadl";
   const suicideAnswer = form.key === "bsrs5" ? answers.bsrs_suicide : null;
   const suicideConcern = suicideAnswer?.state === "answered" && Number(suicideAnswer.value) > 0;
@@ -126,6 +138,12 @@ function QuestionnaireEditor({
     const question = document.getElementById(`${form.key}-${questionId}`);
     question?.focus();
     question?.scrollIntoView?.({ block: "start" });
+  }
+
+  function focusReason(questionId: string) {
+    const reason = document.getElementById(`na-reason-${form.key}-${questionId}`);
+    reason?.focus();
+    reason?.scrollIntoView?.({ block: "center" });
   }
 
   function focusContextField(fieldKey: string) {
@@ -203,7 +221,7 @@ function QuestionnaireEditor({
         const questionNumber = form.questions.indexOf(invalidReason) + 1;
         setReasonErrorQuestionId(invalidReason.id);
         setMessage(`請填寫第 ${questionNumber} 題的不適用原因。`);
-        document.getElementById(`na-reason-${form.key}-${invalidReason.id}`)?.focus();
+        focusReason(invalidReason.id);
         return;
       }
       setPending(true);
@@ -243,7 +261,7 @@ function QuestionnaireEditor({
         <span>填寫進度 {progressValue}／{progressTotal} 項</span>
       </div>
       <progress aria-label={`${form.title}題目與計分條件進度`} max={progressTotal} value={progressValue} />
-      <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
+      <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
     </div>
     {!canManage ? <p className={styles.readOnly} role="status">只有檢視權限；無法編輯或保存草稿。</p> : null}
 
@@ -305,7 +323,7 @@ function QuestionnaireEditor({
           <section className={styles.questionCard} id={`${form.key}-${question.id}`} tabIndex={-1}>
           <div className={styles.questionHeading}>
             <h3 className={styles.questionTitle} id={questionTitleId}>{index + 1}. {question.prompt}</h3>
-            <span className={styles.questionState}>{answer.state === "answered" ? "已答" : answer.state === "not_applicable" ? "不適用" : "待答"}</span>
+            <span className={styles.questionState}>{answer.state === "answered" ? "已答" : answer.state === "not_applicable" ? answer.reason.trim() ? "不適用" : "不適用・待補原因" : "待答"}</span>
           </div>
           {question.helpText ? <p className={styles.questionHelp} id={questionHelpId}>{question.helpText}</p> : null}
           {question.id === "bsrs_suicide" && suicideConcern ? <div className={styles.urgent} ref={suicideAlert} role="alert">
@@ -345,11 +363,16 @@ function QuestionnaireEditor({
 
     <div className={styles.review}>
       <div><strong>{missingCount
-        ? `還有 ${missingCount} 題待答${pendingContextFields.length ? `，並待補${pendingContextLabel}` : ""}`
-        : pendingContextFields.length ? `題目已處理，待補${pendingContextLabel}` : "目前沒有待補項目"}</strong>
+        ? `還有 ${missingCount} 題待答${pendingReasonCount ? `，並待補 ${pendingReasonCount} 題不適用原因` : ""}${pendingContextFields.length ? `，並待補${pendingContextLabel}` : ""}`
+        : pendingReasonCount
+          ? `題目已處理，待補 ${pendingReasonCount} 題不適用原因${pendingContextFields.length ? `，並待補${pendingContextLabel}` : ""}`
+          : pendingContextFields.length ? `題目已處理，待補${pendingContextLabel}` : "目前沒有待補項目"}</strong>
         <span>可隨時保存草稿；保存不代表簽署或專業判讀。</span></div>
-      {firstMissingIndex >= 0 ? <button className="button button--secondary" onClick={() => focusQuestion(form.questions[firstMissingIndex].id)} type="button">
-        前往第 {firstMissingIndex + 1} 題
+      {firstUnfinishedQuestion ? <button className="button button--secondary" onClick={() => {
+        if (firstUnfinishedAnswer?.state === "not_applicable") focusReason(firstUnfinishedQuestion.id);
+        else focusQuestion(firstUnfinishedQuestion.id);
+      }} type="button">
+        前往第 {firstUnfinishedIndex + 1} 題{firstUnfinishedAnswer?.state === "not_applicable" ? "不適用原因" : ""}
       </button> : pendingContextFields.length ? <button className="button button--secondary" onClick={() => focusContextField(pendingContextFields[0].key)} type="button">
         前往{pendingContextFields[0].label}
       </button> : null}
@@ -391,7 +414,7 @@ function QuestionnaireEditor({
     </section> : null}
 
     <div className={styles.actions}>
-      <span>待答 {missingCount} 題{pendingContextFields.length ? `・待補 ${pendingContextFields.length} 項計分條件` : ""}・僅保存草稿</span>
+      <span>待答 {missingCount} 題{pendingReasonCount ? `・待補 ${pendingReasonCount} 題不適用原因` : ""}{pendingContextFields.length ? `・待補 ${pendingContextFields.length} 項計分條件` : ""}・僅保存草稿</span>
       <button className="button button--primary" disabled={!canManage || pending} type="submit">
         {pending ? "保存中…" : latest ? "保存為新版本" : "保存草稿"}
       </button>

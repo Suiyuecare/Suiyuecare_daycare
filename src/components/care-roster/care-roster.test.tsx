@@ -23,6 +23,9 @@ describe("careworker roster interface", () => {
   it("shows my assignments and separate shift tasks without manager controls", () => {
     render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} roster={roster} serviceDate={snapshot.serviceDate} access={snapshot.sourceAccess} />);
     expect(screen.getByRole("heading", { name: "我的當班個案" })).toBeVisible();
+    const schedule = screen.getByText("體溫：尚待記錄").closest("details")!;
+    expect(schedule).not.toHaveAttribute("open");
+    fireEvent.click(schedule.querySelector("summary")!);
     expect(screen.getByText("體溫：尚待記錄")).toBeVisible();
     expect(screen.queryByText("只看待指派")).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "班別" }), { target: { value: "morning" } });

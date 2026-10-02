@@ -5,7 +5,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { StaffAccessDenied } from "@/components/app/staff-access-denied";
-import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
 import { OpeningReadinessWorkspace } from "@/components/opening-readiness/opening-readiness-workspace";
@@ -25,7 +24,6 @@ import { loadDataInventorySnapshot } from "@/lib/data-inventory/snapshot";
 import type { DataInventorySnapshot } from "@/lib/data-inventory/types";
 import { defaultIntegrationsAuditFilters, parseIntegrationsAuditQuery } from "@/lib/integrations-audit/query";
 import { IntegrationsAuditSnapshotError, loadIntegrationsAuditSnapshot } from "@/lib/integrations-audit/snapshot";
-import { CoreDailyWorkspace } from "@/components/core-care/core-daily-workspace";
 import { ClientMasterWorkspace } from "@/components/clients/client-master-workspace";
 import { ClientLifecycleWorkspace } from "@/components/clients/client-lifecycle-workspace";
 import { ClientServicePlanWorkspace } from "@/components/client-service-plan-workflow/client-service-plan-workspace";
@@ -114,11 +112,6 @@ import {
 } from "@/lib/catalog";
 import { buildDemoRecords } from "@/lib/demo/fixtures";
 import { parseServiceDate } from "@/lib/core-care/date";
-import { filterDailyCareSnapshotByClient } from "@/lib/core-care/projection";
-import { loadCoreDailyPageInputs } from "@/lib/core-care/daily-page-inputs";
-import { isCoreDailyPage } from "@/lib/core-care/types";
-import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
-import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
 import { env, isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
 import {
   filterBloodGlucoseSnapshot,
@@ -663,7 +656,7 @@ import {
 
 export function generateStaticParams() {
   return staffPages
-    .filter((page) => page.number !== 1 && page.number !== 2)
+    .filter((page) => ![1, 2, 3, 6, 46].includes(page.number))
     .map((page) => ({ slug: page.slug.split("/") }));
 }
 
@@ -1389,43 +1382,6 @@ export default async function StaffCatalogPage({
     return <DailyServiceSummaryWorkspace canExport={canExport}
       filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
       page={page} snapshot={snapshot} />;
-  }
-
-  if (isCoreDailyPage(page)) {
-    const { serviceDate, selectedClientId, selectedShift, invalid } = parseDailyWorkSelection(query);
-    if (invalid) return <section className="empty-card core-care-state" role="alert">
-      <h1>請重新選擇個案、日期與班別</h1>
-      <p>連結中的個案、日期或班別格式不正確，系統沒有替您選擇其他個案或班別。</p>
-      <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
-    </section>;
-    const pageInputs = await loadCoreDailyPageInputs(context, serviceDate, page.number);
-    let snapshot = pageInputs.snapshot;
-    const { canWriteRoutine, canReadDiary, loadError } = pageInputs;
-    if (snapshot && selectedClientId) {
-      snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
-    }
-    const selectedDailyClient = selectedClientId
-      ? snapshot?.clients.find((client) => client.clientId === selectedClientId)
-      : undefined;
-    return (
-      <CoreDailyWorkspace
-        clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
-          ? <CareReminderCard clientId={selectedClientId} context={context} /> : undefined}
-        diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && selectedDailyClient
-          ? <CareDiaryLifecycle clientId={selectedClientId} clientName={selectedDailyClient.displayName} clientCode={selectedDailyClient.clientCode} serviceDate={serviceDate} selectedShift={selectedShift} readEnabled={canReadDiary} enabled={canWriteRoutine}
-            canRevise={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.write")}
-            canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
-        canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
-        canWrite={canWriteRoutine}
-        loadError={loadError}
-        moduleTitle={getModule(page.moduleId).title}
-        page={page}
-        serviceDate={serviceDate}
-        selectedClientId={selectedClientId}
-        selectedShift={selectedShift}
-        snapshot={snapshot}
-      />
-    );
   }
 
   if (page.number === 47) {

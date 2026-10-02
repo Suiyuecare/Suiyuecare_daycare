@@ -109,6 +109,45 @@ describe("shared questionnaire assessment editor", () => {
     expect(screen.getByText("目前沒有待補項目")).toBeVisible();
   });
 
+  it.each(["barthel_adl", "lawton_iadl"] as const)(
+    "keeps %s incomplete until a not-applicable reason is filled, and guides focus to it",
+    (formKey) => {
+      const form = QUESTIONNAIRE_FORMS[formKey];
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      render(workspace(formKey));
+      const first = document.getElementById(`${formKey}-${form.questions[0].id}`)!;
+      fireEvent.click(within(first).getByRole("button", { name: "此題不適用" }));
+      for (const question of form.questions.slice(1)) {
+        fireEvent.click(within(document.getElementById(`${formKey}-${question.id}`)!).getAllByRole("radio")[0]);
+      }
+
+      const progress = screen.getByRole("progressbar");
+      const reason = within(first).getByRole("textbox", { name: "不適用原因（必填）" });
+      expect(progress).toHaveAttribute("value", String(form.questions.length - 1));
+      expect(within(first).getByText("不適用・待補原因")).toBeVisible();
+      expect(screen.getByText("題目已處理，待補 1 題不適用原因")).toBeVisible();
+      expect(screen.getByText(/待補不適用原因 1 題/u)).toBeVisible();
+      expect(screen.queryByText("目前沒有待補項目")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "前往第 1 題不適用原因" }));
+      expect(reason).toHaveFocus();
+
+      fireEvent.change(reason, { target: { value: "   " } });
+      expect(progress).toHaveAttribute("value", String(form.questions.length - 1));
+      fireEvent.change(reason, { target: { value: "本次情況無法適用該項" } });
+      expect(progress).toHaveAttribute("value", String(form.questions.length));
+      expect(within(first).getByText("不適用")).toBeVisible();
+      expect(screen.getByText("目前沒有待補項目")).toBeVisible();
+
+      fireEvent.change(reason, { target: { value: "" } });
+      expect(progress).toHaveAttribute("value", String(form.questions.length - 1));
+      fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(reason).toHaveFocus();
+      expect(reason).toHaveAttribute("aria-invalid", "true");
+    },
+  );
+
   it("requires an explanation for a supported not-applicable answer before saving one draft", async () => {
     const form = QUESTIONNAIRE_FORMS.barthel_adl;
     const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
