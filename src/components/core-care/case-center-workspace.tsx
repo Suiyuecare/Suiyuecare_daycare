@@ -4,18 +4,19 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
-  Search,
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
+import Form from "next/form";
 import Link from "next/link";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { IntakeEntryLink } from "@/components/client-intake/intake-entry-link";
 
+import { CaseCenterSearchField, CaseCenterSubmitButton } from "@/components/core-care/case-center-filter-controls";
 import { CaseCenterHistory } from "@/components/core-care/case-center-history";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
-import { caseCenterHref } from "@/lib/case-center/query";
+import { CASE_CENTER_PATH, caseCenterHref } from "@/lib/case-center/query";
 import { caseCenterServiceStatus } from "@/lib/case-center/projection";
 import type {
   CaseCenterClient,
@@ -294,73 +295,64 @@ export function CaseCenterWorkspace({
           </div>
         </div>
 
-        <form className="filter-bar case-center-filters" method="get">
-          <input name="date" type="hidden" value={filters.date} />
-          <div className="case-center-search-row">
-            <label className="filter-search">
-              <Search aria-hidden="true" />
-              <span className="sr-only">搜尋個案代碼或姓名</span>
-              <input
-                autoComplete="off"
-                defaultValue={filters.query}
-                maxLength={120}
-                name="q"
-                placeholder="搜尋個案代碼或姓名…"
-                type="search"
-              />
-            </label>
-            <button className="button button--primary" type="submit">搜尋</button>
-          </div>
-          <details className="case-center-advanced-filters">
-            <summary>
-              <span className="case-center-filter-label--closed">展開篩選</span>
-              <span className="case-center-filter-label--open">收合篩選</span>
-              <span className="case-center-filter-summary">
-                {activeFilterLabels.length ? `已套用：${activeFilterLabels.join("、")}` : "未設定進階條件"}
-              </span>
-              <ChevronDown aria-hidden="true" />
-            </summary>
-            <div className="case-center-filter-options">
-              <label className="field case-center-filter-field">
-                <span>生命週期</span>
-                <select defaultValue={filters.lifecycle} name="lifecycle">
-                  {Object.entries(lifecycleLabels).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field case-center-filter-field">
-                <span>服務狀態</span>
-                <select defaultValue={filters.service} name="service">
-                  {Object.entries(serviceLabels).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field case-center-filter-field">
-                <span>負責人</span>
-                <select defaultValue={responsibleValue} name="responsible">
-                  <option value="all">全部可見指派</option>
-                  {currentUser && <option value="me">{currentUser.label}</option>}
-                  {snapshot.responsibleOptions
-                    .filter((person) => !person.currentUser)
-                    .map((person) => (
-                      <option key={person.userId} value={person.userId}>{person.label}</option>
-                    ))}
-                  {selectedResponsibleMissing && (
-                    <option value={filters.responsible}>
-                      人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
-                    </option>
-                  )}
-                </select>
-              </label>
-              <div className="case-center-filter-actions">
-                <button className="button button--primary" type="submit">套用篩選</button>
-                <Link className="button button--secondary" href={clearHref}>清除</Link>
-              </div>
+        <div key={caseCenterHref(filters)}>
+          <Form action={`${CASE_CENTER_PATH}#case-center-list`} className="filter-bar case-center-filters" noValidate prefetch={false} scroll={false}>
+            <input name="date" type="hidden" value={filters.date} />
+            <div className="case-center-search-row">
+              <CaseCenterSearchField clearHref={caseCenterHref({ ...filters, query: "", page: 1 })} query={filters.query} />
+              <CaseCenterSubmitButton label="搜尋" recovery />
             </div>
-          </details>
-        </form>
+            <details className="case-center-advanced-filters">
+              <summary>
+                <span className="case-center-filter-label--closed">展開篩選</span>
+                <span className="case-center-filter-label--open">收合篩選</span>
+                <span className="case-center-filter-summary">
+                  {activeFilterLabels.length ? `已套用：${activeFilterLabels.join("、")}` : "未設定進階條件"}
+                </span>
+                <ChevronDown aria-hidden="true" />
+              </summary>
+              <div className="case-center-filter-options">
+                <label className="field case-center-filter-field">
+                  <span>生命週期</span>
+                  <select defaultValue={filters.lifecycle} name="lifecycle">
+                    {Object.entries(lifecycleLabels).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field case-center-filter-field">
+                  <span>服務狀態</span>
+                  <select defaultValue={filters.service} name="service">
+                    {Object.entries(serviceLabels).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field case-center-filter-field">
+                  <span>負責人</span>
+                  <select defaultValue={responsibleValue} name="responsible">
+                    <option value="all">全部可見指派</option>
+                    {currentUser && <option value="me">{currentUser.label}</option>}
+                    {snapshot.responsibleOptions
+                      .filter((person) => !person.currentUser)
+                      .map((person) => (
+                        <option key={person.userId} value={person.userId}>{person.label}</option>
+                      ))}
+                    {selectedResponsibleMissing && (
+                      <option value={filters.responsible}>
+                        人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
+                      </option>
+                    )}
+                  </select>
+                </label>
+                <div className="case-center-filter-actions">
+                  <CaseCenterSubmitButton label="套用篩選" />
+                  <Link className="button button--secondary" href={clearHref} prefetch={false}>清除</Link>
+                </div>
+              </div>
+            </details>
+          </Form>
+        </div>
 
         {snapshot.access.responsibleFilterRestricted ? (
           <div className="panel__body">
@@ -371,6 +363,7 @@ export function CaseCenterWorkspace({
               <Link
                 className="button button--secondary"
                 href={caseCenterHref({ ...filters, responsible: "all", page: 1 })}
+                prefetch={false}
               >
                 清除責任人篩選
               </Link>
@@ -450,7 +443,7 @@ export function CaseCenterWorkspace({
               <UsersRound aria-hidden="true" />
               <h2>沒有符合條件的個案</h2>
               <p>請調整姓名、個案代碼或篩選條件，再試一次。</p>
-              <Link className="button button--secondary" href={clearHref}>清除篩選</Link>
+              <Link className="button button--secondary" href={clearHref} prefetch={false}>清除篩選</Link>
             </section>
           </div>
         )}
@@ -458,13 +451,13 @@ export function CaseCenterWorkspace({
         {!snapshot.access.responsibleFilterRestricted && snapshot.pageCount > 1 && (
           <nav aria-label="個案清單分頁" className="pagination case-center-pagination">
             {snapshot.page > 1 ? (
-              <Link className="button button--secondary" href={`${paginationHref(filters, snapshot.page - 1)}#case-center-list`}>
+              <Link className="button button--secondary" href={`${paginationHref(filters, snapshot.page - 1)}#case-center-list`} prefetch={false}>
                 <ChevronLeft aria-hidden="true" />上一頁
               </Link>
             ) : <span aria-hidden="true" />}
             <span aria-live="polite">第 {snapshot.page} 頁，共 {snapshot.pageCount} 頁</span>
             {snapshot.page < snapshot.pageCount ? (
-              <Link className="button button--secondary" href={`${paginationHref(filters, snapshot.page + 1)}#case-center-list`}>
+              <Link className="button button--secondary" href={`${paginationHref(filters, snapshot.page + 1)}#case-center-list`} prefetch={false}>
                 下一頁<ChevronRight aria-hidden="true" />
               </Link>
             ) : <span aria-hidden="true" />}

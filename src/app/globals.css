@@ -484,8 +484,18 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding: 14px 18px; color: var(--ink-muted); font-size: .78rem; font-weight: 800; }
 .pagination > :last-child { justify-self: end; }
 .case-center-filters { display: grid; gap: 10px; }
-.case-center-search-row { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.case-center-search-row { position: relative; display: flex; min-width: 0; align-items: center; gap: 9px; }
 .case-center-search-row .filter-search { min-width: 0; flex: 1; }
+.case-center-search input { padding-right: 48px; }
+.case-center-search[data-enhanced="true"] input::-webkit-search-cancel-button { display: none; }
+.case-center-search__clear { position: absolute; top: 0; right: 0; display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: var(--control-radius); background: transparent; color: var(--ink-muted); cursor: pointer; }
+.case-center-search__clear:hover { background: var(--brand-soft); color: var(--brand-strong); }
+.case-center-search__clear svg { position: static; width: 18px; height: 18px; transform: none; color: currentColor; }
+.case-center-submit { position: relative; gap: 7px; white-space: nowrap; }
+.case-center-submit__spinner { width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; opacity: 0; }
+.case-center-submit__spinner[data-pending="true"] { opacity: 1; animation: spin 800ms linear infinite; }
+.case-center-retry { position: absolute; top: 0; right: 0; width: 83px; min-height: 44px; animation: case-center-retry-reveal 120ms ease-out 8s both; }
+@keyframes case-center-retry-reveal { from { opacity: 0; visibility: hidden; } to { opacity: 1; visibility: visible; } }
 .case-center-advanced-filters { min-width: 0; }
 .case-center-advanced-filters summary { display: flex; min-height: 44px; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); padding: 8px 12px; color: var(--ink); cursor: pointer; font-size: .875rem; font-weight: 800; list-style: none; }
 .case-center-advanced-filters summary::-webkit-details-marker { display: none; }

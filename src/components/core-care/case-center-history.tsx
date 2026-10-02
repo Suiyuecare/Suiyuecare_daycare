@@ -73,6 +73,10 @@ export function CaseCenterHistory({ readyKey = "" }: { readyKey?: string }) {
                 linkBounds.bottom > stageBounds.bottom - bottomInset) {
               matchingLink.scrollIntoView?.({ block: "nearest" });
             }
+          } else if (window.location.hash === "#case-center-search") {
+            const search = scroller.querySelector<HTMLInputElement>("#case-center-search");
+            search?.focus({ preventScroll: true });
+            search?.scrollIntoView?.({ block: "nearest" });
           } else if (window.location.hash === "#case-center-list") {
             const listHeading = scroller.querySelector<HTMLElement>("#case-center-list");
             listHeading?.focus({ preventScroll: true });
