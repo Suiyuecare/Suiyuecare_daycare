@@ -276,7 +276,7 @@ export function CaseCenterWorkspace({
       <section className="panel case-center-panel">
         <div className="panel__header">
           <div className="panel__title">
-            <h2>個案工作清單</h2>
+            <h2 id="case-center-list" tabIndex={-1}>個案工作清單</h2>
             <p aria-live="polite">
               第 {snapshot.page} / {snapshot.pageCount} 頁，共 {snapshot.total} 位符合條件
             </p>
@@ -430,13 +430,13 @@ export function CaseCenterWorkspace({
         {!snapshot.access.responsibleFilterRestricted && snapshot.pageCount > 1 && (
           <nav aria-label="個案清單分頁" className="pagination case-center-pagination">
             {snapshot.page > 1 ? (
-              <Link className="button button--secondary" href={paginationHref(filters, snapshot.page - 1)}>
+              <Link className="button button--secondary" href={`${paginationHref(filters, snapshot.page - 1)}#case-center-list`}>
                 <ChevronLeft aria-hidden="true" />上一頁
               </Link>
             ) : <span aria-hidden="true" />}
             <span aria-live="polite">第 {snapshot.page} 頁，共 {snapshot.pageCount} 頁</span>
             {snapshot.page < snapshot.pageCount ? (
-              <Link className="button button--secondary" href={paginationHref(filters, snapshot.page + 1)}>
+              <Link className="button button--secondary" href={`${paginationHref(filters, snapshot.page + 1)}#case-center-list`}>
                 下一頁<ChevronRight aria-hidden="true" />
               </Link>
             ) : <span aria-hidden="true" />}

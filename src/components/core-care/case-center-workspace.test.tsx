@@ -193,8 +193,8 @@ describe("case center filters and readable fallback states", () => {
     expect((screen.getByLabelText("服務狀態") as HTMLSelectElement).value).toBe("serving");
     expect((screen.getByLabelText("負責人") as HTMLSelectElement).value).toBe("me");
     expect(container.querySelector<HTMLInputElement>('input[name="date"]')?.value).toBe(serviceDate);
-    expect(screen.getByRole("link", { name: "下一頁" }).getAttribute("href")).toBe(caseCenterHref({ ...selected, page: 3 }));
-    expect(screen.getByRole("link", { name: "上一頁" }).getAttribute("href")).toBe(caseCenterHref({ ...selected, page: 1 }));
+    expect(screen.getByRole("link", { name: "下一頁" }).getAttribute("href")).toBe(`${caseCenterHref({ ...selected, page: 3 })}#case-center-list`);
+    expect(screen.getByRole("link", { name: "上一頁" }).getAttribute("href")).toBe(`${caseCenterHref({ ...selected, page: 1 })}#case-center-list`);
     expect(screen.getByRole("link", { name: "清除" }).getAttribute("href")).toBe(caseCenterHref(filters()));
   });
 
@@ -222,6 +222,15 @@ describe("case center filters and readable fallback states", () => {
 });
 
 describe("case center return history", () => {
+  it("focuses the new list heading after pagination without requiring a pointer", () => {
+    const selected = filters({ page: 2 });
+    window.history.replaceState({ __NA: true }, "", `${caseCenterHref(selected)}#case-center-list`);
+    renderInStage(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot({ page: 2, pageCount: 2 })} />);
+    flushFrame();
+    flushFrame();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "個案工作清單" }));
+  });
+
   it.each(["click", "Enter"])("saves the client and scroll before %s without losing existing Next history state", (activation) => {
     const selected = filters({ query: "SYN", page: 2 });
     window.history.replaceState({ __NA: true, preserved: "existing-router-state" }, "", caseCenterHref(selected));
