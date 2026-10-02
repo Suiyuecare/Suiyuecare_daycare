@@ -91,6 +91,7 @@ describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, 
     expect(result.type).toBe(CoreDailyWorkspace);
     expect(result.props).toMatchObject({
       page: { number }, serviceDate, selectedClientId, selectedShift: "morning",
+      validatedScope: { organizationId: context.organizationId, branchId: context.branchId, userId: context.userId },
       canWrite: true, loadError: false, snapshot: { clients: [{ clientId: selectedClientId }] },
     });
     expect(result.props.snapshot.clients).toHaveLength(1);

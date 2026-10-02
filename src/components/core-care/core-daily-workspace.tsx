@@ -13,6 +13,7 @@ import { AttendanceComposer } from "@/components/core-care/attendance-composer";
 import { CareDiaryComposer } from "@/components/core-care/care-diary-composer";
 import { VitalSignComposer } from "@/components/core-care/vital-sign-composer";
 import { ClientContinuation } from "@/components/core-care/client-continuation";
+import type { DailyNavigationScope } from "@/components/app/daily-navigation-context";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
@@ -169,6 +170,7 @@ export function CoreDailyWorkspace({
   serviceDate,
   selectedClientId,
   selectedShift,
+  validatedScope,
   canWrite,
   snapshot,
   loadError = false,
@@ -181,6 +183,7 @@ export function CoreDailyWorkspace({
   serviceDate: string;
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
+  validatedScope?: DailyNavigationScope;
   canWrite: boolean;
   snapshot: DailyCareSnapshot | null;
   loadError?: boolean;
@@ -252,7 +255,8 @@ export function CoreDailyWorkspace({
       ) : snapshot ? (
         <>
           <ClientContinuation key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "none"}`} page={workflowPage}
-            clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate} sourceAccess={snapshot.sourceAccess} action={composer} />
+            clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate}
+            validatedScope={validatedScope} sourceAccess={snapshot.sourceAccess} action={composer} />
           {selectedClient && pageSourceAllowed ? clientAttention : null}
           {selectedClient && page.number === 6 && pageSourceAllowed && selectedSourceAllowed ? diaryLifecycle : null}
           <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>更新於 {generatedAt}；週表、單日調整與實到共同決定本日名單。請假、未到或未排服務不列照顧待填；既有紀錄仍保留。缺少安排時列待確認，當班項目請看「今日工作」。</span></div>

@@ -73,17 +73,22 @@ export const getTenantContext = cache(
     // Staff use the pinned CEO or individually approved Google identity gate.
     // Family admission is not expanded by the staff rollout. Missing policy
     // never falls back to an email/domain or JavaScript role check.
-    try {
-      const { data: allowed, error } = await supabase.rpc(
+    // These preflights depend only on the authenticated user, not on one
+    // another. Both may start after getUser, but no tenant data is queried
+    // until the database-owned admission decision is confirmed true.
+    const [admission, assurance] = await Promise.allSettled([
+      Promise.resolve().then(() => supabase.rpc(
         audience === "staff" ? "is_staff_login_allowed" : "is_executive_login_allowed",
-      );
-      if (error || allowed !== true) return null;
-    } catch {
-      return null;
-    }
-
-    const { data: aalData } =
-      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      )),
+      Promise.resolve().then(() => supabase.auth.mfa.getAuthenticatorAssuranceLevel()),
+    ]);
+    if (
+      admission.status !== "fulfilled" ||
+      admission.value.error ||
+      admission.value.data !== true
+    ) return null;
+    if (assurance.status === "rejected") throw assurance.reason;
+    const { data: aalData } = assurance.value;
 
     const cookieStore = await cookies();
     const selectedOrganizationId = cookieStore.get("daycare_organization")?.value;

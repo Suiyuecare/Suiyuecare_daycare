@@ -18,8 +18,9 @@ const USER = "58000000-0000-4000-8000-000000000903";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function setDatabaseNames(organization: { name: string } | null = { name: "另一間授權合成機構" }) {
@@ -95,6 +96,86 @@ describe("branding cannot replace authenticated tenant identity", () => {
     expect(queries.get("branches")!.eq).toHaveBeenCalledWith("organization_id", ORG);
     expect(queries.get("branches")!.eq).toHaveBeenCalledWith("id", BRANCH);
     expect(queries.get("organizations")!.eq).toHaveBeenCalledWith("id", ORG);
+  });
+
+  it("does not start admission or assurance before getUser verifies a session", async () => {
+    const identity = deferred<{ data: { user: { id: string } }; error: null }>();
+    mocks.getUser.mockReturnValue(identity.promise);
+
+    const result = getTenantContext("staff");
+    await Promise.resolve();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.aal).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+
+    identity.resolve({ data: { user: { id: USER } }, error: null });
+    await expect(result).resolves.toMatchObject({ userId: USER, assuranceLevel: "aal2" });
+  });
+
+  it("starts both preflights together but waits for admission before tenant reads", async () => {
+    const admission = deferred<{ data: true; error: null }>();
+    const assurance = deferred<{ data: { currentLevel: "aal2" } }>();
+    mocks.rpc.mockReturnValue(admission.promise);
+    mocks.aal.mockReturnValue(assurance.promise);
+
+    const result = getTenantContext("staff");
+    await vi.waitFor(() => {
+      expect(mocks.rpc).toHaveBeenCalledWith("is_staff_login_allowed");
+      expect(mocks.aal).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.from).not.toHaveBeenCalled();
+
+    assurance.resolve({ data: { currentLevel: "aal2" } });
+    await Promise.resolve();
+    expect(mocks.from).not.toHaveBeenCalled();
+
+    admission.resolve({ data: true, error: null });
+    await expect(result).resolves.toMatchObject({ userId: USER, assuranceLevel: "aal2" });
+    expect(mocks.from).toHaveBeenCalledWith("active_memberships");
+  });
+
+  it("finishes two equal-duration preflights in one wait window", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.rpc.mockImplementation(() => new Promise((resolve) => {
+        setTimeout(() => resolve({ data: true, error: null }), 50);
+      }));
+      mocks.aal.mockImplementation(() => new Promise((resolve) => {
+        setTimeout(() => resolve({ data: { currentLevel: "aal2" } }), 50);
+      }));
+
+      const result = getTenantContext("staff");
+      await vi.advanceTimersByTimeAsync(49);
+      expect(mocks.from).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toMatchObject({ userId: USER, assuranceLevel: "aal2" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps denial and policy errors closed even if assurance succeeds", async () => {
+    const denied = deferred<{ data: false; error: null }>();
+    mocks.rpc.mockReturnValueOnce(denied.promise);
+    const deniedResult = getTenantContext("staff");
+    await vi.waitFor(() => expect(mocks.aal).toHaveBeenCalledTimes(1));
+    denied.resolve({ data: false, error: null });
+    await expect(deniedResult).resolves.toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+
+    const failed = deferred<{ data: true; error: null }>();
+    mocks.rpc.mockReturnValueOnce(failed.promise);
+    const failedResult = getTenantContext("staff");
+    failed.reject(new Error("private policy detail"));
+    await expect(failedResult).resolves.toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("does not query tenant data when assurance itself fails after admission", async () => {
+    mocks.aal.mockRejectedValue(new Error("assurance unavailable"));
+    await expect(getTenantContext("staff")).rejects.toThrow("assurance unavailable");
+    expect(mocks.rpc).toHaveBeenCalledWith("is_staff_login_allowed");
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("does not substitute a pilot name for a missing organization", async () => {

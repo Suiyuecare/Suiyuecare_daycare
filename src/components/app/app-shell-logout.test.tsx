@@ -5,7 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { TenantContext } from "@/lib/domain/types";
 import { getNavigationGroups } from "@/lib/catalog";
 const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
-vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname, useRouter: () => router }; });
+vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname,
+  useSearchParams: () => new URLSearchParams(), useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));

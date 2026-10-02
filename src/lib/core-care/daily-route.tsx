@@ -70,6 +70,7 @@ export async function renderCoreDailyRoute(
     serviceDate={serviceDate}
     selectedClientId={selectedClientId}
     selectedShift={selectedShift}
+    validatedScope={{ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }}
     snapshot={snapshot}
   />;
 }
