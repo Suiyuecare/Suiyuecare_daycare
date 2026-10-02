@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill, type StatusPillTone } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type {
   DailyServiceSummaryFilters,
@@ -26,20 +26,21 @@ function metric(value: number | null, suffix = "人") {
   return value === null ? "未知" : `${value} ${suffix}`;
 }
 
-function cellStatus(cell: DailySummaryCell) {
-  if (cell.accessStatus === "not_authorized") return "未授權・未知";
-  if (cell.accessStatus === "not_configured") return "未配置・未知";
-  if (cell.evidenceStatus === "no_record") return "已查詢・無紀錄";
-  if ((cell.exceptionCount ?? 0) > 0) return `有 ${cell.exceptionCount} 項例外`;
-  if ((cell.pendingCount ?? 0) > 0) return `${cell.pendingCount} 筆待完成`;
-  return `${cell.recordCount} 筆紀錄`;
+function cellStatus(cell: DailySummaryCell): { label: string; tone: StatusPillTone } {
+  if (cell.accessStatus === "not_authorized") return { label: "未授權・未知", tone: "neutral" };
+  if (cell.accessStatus === "not_configured") return { label: "未配置・未知", tone: "neutral" };
+  if (cell.evidenceStatus === "no_record") return { label: "已查詢・無紀錄", tone: "neutral" };
+  if ((cell.exceptionCount ?? 0) > 0) return { label: `有 ${cell.exceptionCount} 項例外`, tone: "danger" };
+  if ((cell.pendingCount ?? 0) > 0) return { label: `${cell.pendingCount} 筆待完成`, tone: "warning" };
+  return { label: `${cell.recordCount} 筆紀錄`, tone: "neutral" };
 }
 
 function CellEvidence({ cell, clientName }: {
   cell: DailySummaryCell; clientName: string;
 }) {
+  const status = cellStatus(cell);
   return <div className={styles.cell}>
-    <StatusPill status={cellStatus(cell)} />
+    <StatusPill status={status.label} tone={status.tone} />
     <span className={styles.cellText}>{cell.statusText}</span>
     <Link aria-label={`查看 ${clientName} 的${cell.sourceLabel}來源`}
       className={styles.drilldown} href={cell.sourceHref}>

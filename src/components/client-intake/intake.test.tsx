@@ -2,17 +2,141 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+const routerReplace = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", async (importOriginal) => ({ ...await importOriginal<typeof import("next/navigation")>(), useRouter: () => ({ replace: routerReplace }) }));
 import { IntakeProfileForm } from "./intake-profile-form";
 import { CmsIntakeStep } from "./cms-intake-step";
 import { emptyIntakeProfile } from "@/lib/client-intake/model";
 import { IntakeWorkspace } from "./intake-workspace";
 const id = "c1600000-0000-4000-8000-000000000001";
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); routerReplace.mockReset(); });
 describe("intake usability and truthful writes", () => {
+  const newCaseContext = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
+  it.each([
+    { reason: "封存未配置", archiveConfigured: false, scopes: [...newCaseContext.scopes, "imports.manage"] },
+    { reason: "沒有匯入權限", archiveConfigured: true, scopes: newCaseContext.scopes },
+    { reason: "只有匯入但沒有核准權限", archiveConfigured: true, scopes: [...newCaseContext.scopes, "imports.manage"] },
+  ])("$reason 時直接提供手動建檔", ({ archiveConfigured, scopes }) => {
+    render(<IntakeWorkspace context={{ ...newCaseContext, scopes }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={archiveConfigured} />);
+    expect(screen.getByRole("heading", { name: "手動建立待收案個案" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled();
+    expect(screen.getByRole("navigation", { name: "收案流程" }).querySelector("button[aria-expanded=false]")).toHaveTextContent("第 2／5 步：基本資料");
+    expect(screen.getByRole("status")).toHaveTextContent("CMS 匯入需由具權限人員在服務就緒後核對");
+  });
+  it("keeps the CMS route available to an authorized new-case importer", () => {
+    render(<IntakeWorkspace context={{ ...newCaseContext, scopes: [...newCaseContext.scopes, "imports.manage", "imports.approve"] }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+    expect(screen.getByRole("heading", { name: "匯入 CMS 資料" })).toBeVisible();
+    expect(screen.getByLabelText(/CMS HTML/)).toBeEnabled();
+    expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled();
+  });
+  it("returns from an existing case to a blank manual form when CMS is unavailable", () => {
+    const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成既有個案", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null };
+    render(<IntakeWorkspace context={newCaseContext} clients={[{ id, displayName: "合成既有個案", clientCode: "TEST-001" }]} initialSnapshot={snapshot} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("目前處理的個案"), { target: { value: "" } });
+    expect(screen.getByRole("heading", { name: "手動建立待收案個案" })).toBeVisible();
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled();
+  });
+  it("keeps staging available without implying a cross-person handoff", () => {
+    render(<CmsIntakeStep current={null} canImport canApprove={false} archiveConfigured demo={false} onSaved={vi.fn()} onManual={vi.fn()} onDirty={vi.fn()} />);
+    expect(screen.getByLabelText(/CMS HTML/)).toBeEnabled();
+    expect(screen.getByText(/您可在此分頁上傳並預覽，但不會建立跨人交接待辦/)).toBeVisible();
+    expect(screen.getByText(/正式建檔請由具匯入與核准權限的人員自行選檔並完成逐欄核對/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "手動建立待收案個案" })).toBeEnabled();
+  });
+  it.each(["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"])("explains missing %s creation scope without blaming CMS permission", (missingScope) => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const scopes = [...newCaseContext.scopes, "imports.manage", "imports.approve"].filter((scope) => scope !== missingScope);
+    render(<IntakeWorkspace context={{ ...newCaseContext, scopes }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
+    expect(screen.getByRole("button", { name: "手動建立待收案個案" })).toBeDisabled();
+    expect(screen.getAllByText(/此帳號沒有建立新個案的權限；請選擇已授權的既有個案/)[0]).toBeVisible();
+    expect(screen.queryByText(/您尚未取得 CMS 匯入權限/)).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("names a genuine missing CMS import scope while leaving manual creation available", () => {
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
+    expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /1\s*匯入與建檔/ }));
+    expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
+    expect(screen.getByText(/您尚未取得 CMS 匯入權限/)).toBeVisible();
+  });
+  it("keeps mobile progress choices and the full permission explanation reachable", () => {
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    const progress = screen.getByRole("button", { name: /第 2／5 步：基本資料/ });
+    expect(progress).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(progress);
+    expect(progress).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: /1\s*匯入與建檔/ }));
+    expect(progress).toHaveAttribute("aria-expanded", "false");
+    expect(progress).toHaveFocus();
+    expect(progress).toHaveTextContent("第 1／5 步：匯入與建檔");
+    const details = screen.getByText("資料與權限說明").closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("資料與權限說明"));
+    expect(details).toHaveAttribute("open");
+    expect(details).toHaveTextContent("此頁不會自動核准收案");
+  });
+  it("guards a real history Back, retains a canceled draft, and clears it before Forward after discard", async () => {
+    window.history.replaceState({ prior: true }, "", "/app/staff/workspace/case-center");
+    window.history.pushState({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: { synthetic: true } }, "", "/app/client-intake");
+    const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.stubGlobal("confirm", confirm);
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    const marker = window.history.state.__daycareIntakeUnsavedGuard;
+    expect(window.history.state.__NA).toBe(true);
+    expect(JSON.stringify(window.history.state)).not.toContain("合成未儲存名字");
+    window.history.back();
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(window.location.pathname).toBe("/app/client-intake");
+    expect(window.history.state.__daycareIntakeUnsavedGuard).toBe(marker);
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+    window.history.back();
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/staff/workspace/case-center"));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+    window.history.forward();
+    await waitFor(() => expect(window.location.pathname).toBe("/app/client-intake"));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+  });
+  it("replaces the sentinel when an internal link is confirmed, without retaining the draft", async () => {
+    window.history.replaceState({ __NA: true }, "", "/app/client-intake");
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("confirm", confirm);
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    fireEvent.click(screen.getByRole("link", { name: "個案中心" }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(routerReplace).toHaveBeenCalledWith("/app/staff/workspace/case-center");
+    expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined();
+    expect(window.history.state.__NA).toBe(true);
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+  });
+  it("collapses the guard before a saved client changes the URL and preserves Next history state", async () => {
+    window.history.replaceState({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: { synthetic: true } }, "", "/app/client-intake");
+    const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成已存個案", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: { clientId: id, persisted: true } }))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot }));
+    vi.stubGlobal("fetch", fetch);
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成已存個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    await waitFor(() => expect(window.location.search).toBe(`?client=${id}`));
+    expect(window.history.state.__NA).toBe(true);
+    expect(window.history.state.__PRIVATE_NEXTJS_INTERNALS_TREE).toEqual({ synthetic: true });
+    expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it("does not offer unknown-case CMS staging to assigned-only staff", () => {
     const context = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.manage", "clients.demographics.read", "imports.manage", "imports.approve"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
     const { rerender } = render(<IntakeWorkspace context={context} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
     expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
+    expect(screen.getByRole("button", { name: "手動建立待收案個案" })).toBeDisabled();
     expect(screen.getByText(/一般建檔、CMS 核對與每週安排/)).toHaveTextContent("不另要求驗證器");
     rerender(<IntakeWorkspace context={{ ...context, scopes: [...context.scopes, "clients.view_all"] }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured />);
     expect(screen.getByLabelText(/CMS HTML/)).toBeEnabled();
@@ -25,16 +149,59 @@ describe("intake usability and truthful writes", () => {
   it("explains missing CMS archive configuration before file selection and leaves manual intake available", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); const onManual = vi.fn();
     render(<CmsIntakeStep current={null} canImport canApprove demo={false} archiveConfigured={false} onSaved={vi.fn()} onManual={onManual} onDirty={vi.fn()} />);
-    expect(screen.getByRole("status")).toHaveTextContent("HTML 匯入暫停；請保留原檔，可先手動建檔");
+    expect(screen.getByRole("status")).toHaveTextContent("HTML 匯入暫停；請保留原檔。可先手動建檔。");
     expect(screen.getByLabelText(/CMS HTML/)).toBeDisabled();
     expect(screen.getByRole("button", { name: "上傳並核對資料" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "沒有 CMS 檔？手動建檔" }));
+    fireEvent.click(screen.getByRole("button", { name: "手動建立待收案個案" }));
     expect(onManual).toHaveBeenCalledOnce(); expect(fetch).not.toHaveBeenCalled();
   });
   it("labels missing information as missing, not complete", () => {
     render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
     expect(screen.getByText(/目前仍待核對/)).toHaveTextContent("可聯繫的關係人"); expect(screen.getByLabelText("告知同意狀態")).toHaveValue("pending");
     fireEvent.click(screen.getByRole("button", { name: "＋新增聯絡人" })); expect(screen.getByLabelText("聯絡人姓名")).toBeVisible();
+  });
+  it("uses its own validation and focuses the first missing required field", async () => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    const submit = screen.getByRole("button", { name: "建立待收案個案" });
+    expect(submit.closest("form")).toHaveAttribute("novalidate");
+    fireEvent.click(submit);
+    expect(screen.getByRole("alert")).toHaveTextContent("姓名／顯示稱呼");
+    await waitFor(() => expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveFocus());
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    { field: "出生日期", value: "1899-12-31", hint: "出生日期不得早於 1900-01-01" },
+    { field: "出生日期", value: "2026-09-15", hint: "出生日期不得晚於台北今日（2026-09-14）" },
+    { field: "確認日期", value: "2026-09-15", hint: "同意確認日期不得晚於台北今日（2026-09-14）" },
+  ])("rejects $field $value before the request and focuses the date", async ({ field, value, hint }) => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成測試個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
+    if (field === "確認日期") fireEvent.change(screen.getByLabelText("告知同意狀態"), { target: { value: "confirmed" } });
+    fireEvent.change(screen.getByLabelText(field), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    const dateInput = screen.getByLabelText(new RegExp(field));
+    expect(screen.getByRole("alert")).toHaveTextContent(hint);
+    expect(dateInput).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(dateInput.getAttribute("aria-describedby") ?? "")).toHaveTextContent(hint);
+    await waitFor(() => expect(dateInput).toHaveFocus());
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("allows the database date boundaries including 1900-01-01 and Taipei today", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ status: "ok", data: { clientId: id, persisted: true } }));
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("fetch", fetch);
+    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成測試個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
+    fireEvent.change(screen.getByLabelText("出生日期"), { target: { value: "1900-01-01" } });
+    fireEvent.change(screen.getByLabelText("告知同意狀態"), { target: { value: "confirmed" } });
+    fireEvent.change(screen.getByLabelText("確認日期"), { target: { value: "2026-09-14" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(id));
+    expect(fetch).toHaveBeenCalledOnce();
   });
   it("retains fields and idempotency key when an uncertain request is retried", async () => {
     const fetch = vi.fn().mockRejectedValueOnce(new Error("連線中斷"))
