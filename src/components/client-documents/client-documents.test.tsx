@@ -3,22 +3,73 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClientDocumentsWorkspace } from "./client-documents-workspace";
-import { DOCUMENT_CATEGORIES } from "@/lib/client-documents/schema";
+import { DOCUMENT_CATEGORIES, DOCUMENT_LABELS } from "@/lib/client-documents/schema";
 const props = { clientId: "c1600000-0000-4000-8000-000000000001", today: "2026-09-14", canManage: true };
 function expandForms() { for (const element of document.querySelectorAll("details")) element.open = true; }
 function liveRead() { return { status: "ok", data: { uploadConfigured: true, snapshot: { clientId: props.clientId, generatedAt: "2026-09-14T00:00:00Z", rows: DOCUMENT_CATEGORIES.map((category) => ({ category, accessible: true, canManage: true, documentId: null, documentVersion: 0, reviewVersion: 0, status: "missing", scanStatus: null, canDownload: false, mimeType: null, fileSizeBytes: null, reservedAt: null, reviewReason: null })), history: [], historyTruncated: false } } }; }
+function showCategory(label: string) {
+  const article = screen.getByRole("article", { name: label });
+  const expand = within(article).queryByRole("button", { name: `查看${label}處置` });
+  if (expand) fireEvent.click(expand);
+  expect(within(article).getByRole("button", { name: `收起${label}處置` })).toHaveAttribute("aria-expanded", "true");
+  return article;
+}
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("private document intake UI", () => {
   it("shows six independent categories, no synthetic persistence or fake downloads", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     render(<ClientDocumentsWorkspace {...props} demo />);
-    expandForms();
     expect(screen.getAllByRole("article")).toHaveLength(6);
+    for (const category of DOCUMENT_CATEGORIES) {
+      expect(screen.getByRole("article", { name: DOCUMENT_LABELS[category] })).toHaveTextContent("待補件");
+    }
+    showCategory("身分證正面");
+    expandForms();
     expect(screen.getAllByText("待補件")).toHaveLength(6);
-    expect(screen.getAllByRole("button", { name: "上傳附件" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
-    expect(screen.getAllByRole("button", { name: "取得安全下載連結" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "上傳附件" })).toBeDisabled();
+    expect(screen.queryAllByRole("button", { name: "取得安全下載連結" })).toHaveLength(0);
     expect(screen.getByText(/藥袋與歷史文件不會自動變成有效醫囑/)).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps one category editor visible and history after the six status rows without fetching on toggles", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(liveRead())); vi.stubGlobal("fetch", fetch);
+    render(<ClientDocumentsWorkspace {...props} />);
+    await screen.findByRole("article", { name: "身分證正面" });
+    const categories = DOCUMENT_CATEGORIES.map((category) => screen.getByRole("article", { name: DOCUMENT_LABELS[category] }));
+    expect(categories).toHaveLength(6);
+    for (const article of categories) expect(article).toHaveTextContent("待補件");
+    const history = screen.getByRole("region", { name: "逐份文件與歷史" });
+    expect(categories[5].compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const identity = showCategory("身分證正面");
+    expandForms();
+    expect(screen.getByLabelText("身分證正面檔案（上限 4MB）")).toBeVisible();
+    expect(screen.getByLabelText("體檢資料檔案（上限 4MB）")).not.toBeVisible();
+    expect(screen.queryAllByRole("button", { name: "取得安全下載連結" })).toHaveLength(0);
+    fireEvent.click(within(identity).getByRole("button", { name: "收起身分證正面處置" }));
+    expect(within(identity).getByRole("button", { name: "查看身分證正面處置" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("身分證正面檔案（上限 4MB）")).not.toBeVisible();
+    showCategory("體檢資料");
+    expect(screen.getByLabelText("體檢資料檔案（上限 4MB）")).toBeVisible();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("preserves another category's selected file and metadata when switching editors", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(liveRead())); vi.stubGlobal("fetch", fetch);
+    render(<ClientDocumentsWorkspace {...props} />);
+    await screen.findByRole("article", { name: "身分證正面" });
+    showCategory("身分證正面"); expandForms();
+    const file = new File(["synthetic"], "synthetic.png", { type: "image/png" });
+    const input = screen.getByLabelText("身分證正面檔案（上限 4MB）") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("身分證正面院所／開立單位"), { target: { value: "合成開立單位" } });
+    fireEvent.change(input, { target: { files: [file] } });
+    showCategory("體檢資料");
+    expect(input).not.toBeVisible();
+    showCategory("身分證正面");
+    expect(screen.getByLabelText("身分證正面院所／開立單位")).toHaveValue("合成開立單位");
+    expect(screen.getByLabelText("身分證正面檔案（上限 4MB）")).toBe(input);
+    expect(input.files?.[0]).toBe(file);
+    expect(screen.getByText(/已選：synthetic\.png/)).toBeVisible();
+    expect(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "上傳附件" })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("does not mistake a backend failure for all six files missing", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: "error" }, { status: 503 })));
@@ -59,15 +110,18 @@ describe("private document intake UI", () => {
     const previous = liveRead(); previous.data.uploadConfigured = false;
     await act(async () => { resolve(Response.json(previous)); });
     expect(screen.queryByText(/安全檢查服務尚未完成設定/)).not.toBeInTheDocument();
+    showCategory("身分證正面"); expandForms();
     expect(screen.getByLabelText("身分證正面檔案（上限 4MB）")).toBeEnabled();
   });
   it("keeps an invalid success uncertain and explicitly replays only the original form and key", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockResolvedValue(Response.json({ status: "ok", data: { receipt: { persisted: true } } }));
     vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
-    await screen.findByRole("article", { name: "身分證正面" }); expandForms();
+    await screen.findByRole("article", { name: "身分證正面" }); showCategory("身分證正面"); expandForms();
     fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })] } });
     fireEvent.click(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "上傳附件" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("上傳回條尚未確認");
+    const originalAttempt = screen.getByText(/原次上傳仍待確認，原檔與輸入已保留在此畫面/);
+    expect(originalAttempt.compareDocumentPosition(screen.getByRole("article", { name: "身分證正面" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByLabelText("體檢資料院所／開立單位")).toBeDisabled();
     expect(screen.getByRole("button", { name: "重新載入附件清單" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "重試原次上傳" }));
@@ -80,7 +134,7 @@ describe("private document intake UI", () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockResolvedValueOnce(Response.json({ status: "error", errors: [{ code: "INVALID_DOCUMENT_FORM", message: "合成欄位錯誤" }] }, { status: 400 }))
       .mockResolvedValueOnce(Response.json({ status: "ok", data: { receipt: {} } })).mockResolvedValueOnce(Response.json({ status: "error", errors: [{ code: "INVALID_DOCUMENT_FORM", message: "合成欄位錯誤" }] }, { status: 400 }));
     vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
-    await screen.findByRole("article", { name: "身分證正面" }); expandForms();
+    await screen.findByRole("article", { name: "身分證正面" }); showCategory("身分證正面"); expandForms();
     fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })] } });
     const upload = () => fireEvent.click(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "上傳附件" }));
     upload(); expect(await screen.findByRole("alert")).toHaveTextContent("合成欄位錯誤");
@@ -99,7 +153,7 @@ describe("private document intake UI", () => {
     const download = { status: "ok", data: { documentId, version: 1, expiresSeconds: 60, url: `https://synthetic.supabase.co/storage/v1/object/sign/client-intake-documents/a1600000-0000-4000-8000-000000000001/${props.clientId}/${documentId}?token=synthetic` } };
     const fetch = vi.fn().mockResolvedValueOnce(Response.json(initial)).mockImplementation(async () => Response.json(download));
     vi.stubGlobal("fetch", fetch); render(<ClientDocumentsWorkspace {...props} />);
-    await screen.findByRole("article", { name: "身分證正面" }); vi.useFakeTimers();
+    await screen.findByRole("article", { name: "身分證正面" }); showCategory("身分證正面"); vi.useFakeTimers();
     await act(async () => { fireEvent.click(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "取得安全下載連結" })); });
     expect(screen.getByRole("link", { name: /下載 身分證正面/ })).toHaveAttribute("referrerpolicy", "no-referrer");
     await act(async () => { await vi.advanceTimersByTimeAsync(55_000); });
@@ -114,8 +168,8 @@ describe("private document intake UI", () => {
     const onDirty = vi.fn(); const onBusy = vi.fn();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockResolvedValueOnce(Response.json({ status: "error", errors: [{ message: "測試用上傳中斷" }] }, { status: 503 })));
     render(<ClientDocumentsWorkspace {...props} onDirty={onDirty} onBusy={onBusy} />);
-    await waitFor(() => expect(screen.getByLabelText("身分證正面文件名稱")).toBeEnabled());
-    expandForms();
+    await screen.findByRole("article", { name: "身分證正面" }); showCategory("身分證正面"); expandForms();
+    expect(screen.getByLabelText("身分證正面文件名稱")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("身分證正面院所／開立單位"), { target: { value: "合成開立單位" } });
     expect(onDirty).toHaveBeenLastCalledWith(true);
     fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })] } });
@@ -135,8 +189,8 @@ describe("private document intake UI", () => {
     const onBusy = vi.fn(); let resolve: (response: Response) => void = () => {};
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json(liveRead())).mockImplementationOnce(() => new Promise<Response>((complete) => { resolve = complete; })));
     const { unmount } = render(<ClientDocumentsWorkspace {...props} onBusy={onBusy} />);
-    await waitFor(() => expect(screen.getByLabelText("身分證正面文件名稱")).toBeEnabled());
-    expandForms();
+    await screen.findByRole("article", { name: "身分證正面" }); showCategory("身分證正面"); expandForms();
+    expect(screen.getByLabelText("身分證正面文件名稱")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })] } });
     fireEvent.click(screen.getAllByRole("button", { name: "上傳附件" })[0]);
     expect(onBusy).toHaveBeenLastCalledWith(true);
@@ -154,10 +208,11 @@ describe("private document intake UI", () => {
       .mockResolvedValueOnce(Response.json(readWithVersion(1)));
     vi.stubGlobal("fetch", fetch); const onDirty = vi.fn();
     render(<ClientDocumentsWorkspace {...props} onDirty={onDirty} />);
-    await waitFor(() => expect(screen.getByLabelText("身分證正面文件名稱")).toBeEnabled());
-    expandForms();
+    await screen.findByRole("article", { name: "身分證正面" }); showCategory("體檢資料"); expandForms();
+    expect(screen.getByLabelText("體檢資料文件名稱")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("體檢資料院所／開立單位"), { target: { value: "合成醫院留待補件" } });
     fireEvent.change(screen.getByLabelText("體檢資料檔案（上限 4MB）"), { target: { files: [new File(["synthetic-health"], "synthetic-health.png", { type: "image/png" })] } });
+    showCategory("身分證正面");
     fireEvent.change(screen.getByLabelText("身分證正面檔案（上限 4MB）"), { target: { files: [new File(["synthetic-id"], "synthetic-id.png", { type: "image/png" })] } });
     const identity = within(screen.getByRole("article", { name: "身分證正面" }));
     fireEvent.click(identity.getByRole("button", { name: "上傳附件" }));
@@ -168,6 +223,7 @@ describe("private document intake UI", () => {
     await screen.findByText(/附件已儲存、通過安全檢查並重新讀回/);
     expect(fetch.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
     expect(fetch.mock.calls[3][0]).toContain("?client=");
+    showCategory("體檢資料");
     expect(screen.getByLabelText("體檢資料院所／開立單位")).toHaveValue("合成醫院留待補件");
     expect(within(screen.getByRole("article", { name: "體檢資料" })).getByRole("button", { name: "上傳附件" })).toBeEnabled();
     expect(onDirty).toHaveBeenLastCalledWith(true);
@@ -183,7 +239,8 @@ describe("private document intake UI", () => {
       .mockResolvedValueOnce(Response.json(verified));
     vi.stubGlobal("fetch", fetch);
     render(<ClientDocumentsWorkspace {...props} />);
-    await waitFor(() => expect(screen.getByLabelText("藥袋處置")).toBeEnabled()); expandForms();
+    await screen.findByRole("article", { name: "藥袋" }); showCategory("藥袋"); expandForms();
+    expect(screen.getByLabelText("藥袋處置")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("藥袋處置"), { target: { value: "not_applicable" } });
     fireEvent.change(screen.getByLabelText("藥袋覆核／不適用理由"), { target: { value: "類別獨立註記" } });
     fireEvent.click(within(screen.getByRole("article", { name: "藥袋" })).getByRole("button", { name: "儲存文件處置" }));

@@ -1,8 +1,16 @@
 .workspace { display: grid; gap: 1rem; color: var(--ink); min-width: 0; }
 .workspace h2,.workspace h3 { margin: 0 0 .5rem; }
 .workspace p { margin: .4rem 0; line-height: 1.7; overflow-wrap: anywhere; }
-.grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
-.card { border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); padding: 1rem; min-width: 0; display: grid; align-content: start; gap: .8rem; }
+.grid { display: grid; grid-template-columns: minmax(0,1fr); gap: .5rem; }
+.card { border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); min-width: 0; }
+.workspace .categoryHeading { margin: 0; font-size: 1rem; }
+.workspace .categoryTrigger { display: flex; align-items: center; gap: .75rem; width: 100%; min-height: 60px; padding: .75rem 1rem; border: 0; border-radius: 0; background: var(--surface); color: var(--ink); text-align: left; }
+.categoryName { min-width: 0; flex: 1; font-weight: 700; overflow-wrap: anywhere; }
+.workspace .categoryTrigger .status { min-width: 0; flex: 0 1 auto; padding: .25rem .5rem; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface-soft); color: var(--ink); font-size: .875rem; text-align: center; overflow-wrap: anywhere; }
+.chevron { flex: 0 0 auto; font-size: 1.25rem; line-height: 1; }
+.categoryBody { display: grid; gap: .8rem; padding: .9rem 1rem 1rem; border-top: 1px solid var(--line); }
+.categoryBody[hidden] { display: none; }
+.selectedFile { color: var(--ink-muted); font-size: .875rem; }
 .card form { display: grid; gap: .7rem; border-top: 1px solid var(--line); padding-top: .9rem; }
 .workspace label { display: grid; gap: .45rem; min-width: 0; }
 .workspace :is(input,select,textarea) { min-height: 44px; width: 100%; min-width: 0; max-width: 100%; padding: .7rem; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--ink); font-size: 16px; }
@@ -27,4 +35,3 @@
 .workspace .confirmation input { width: 44px; height: 44px; padding: 0; }
 @media(max-width: 560px) { .historyControls { grid-template-columns: minmax(0,1fr); } .historyActions > * { width: 100%; } }
 @media(max-width: 560px) { .metadata { grid-template-columns: minmax(0,1fr); } }
-@media(max-width: 820px) { .grid { grid-template-columns: minmax(0,1fr); } }

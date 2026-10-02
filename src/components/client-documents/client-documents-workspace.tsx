@@ -35,6 +35,7 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
   const [expiredDownload, setExpiredDownload] = useState<DocumentCategory | null>(null);
   const [stage, setStage] = useState("");
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
+  const [activeCategory, setActiveCategory] = useState<DocumentCategory | null>(null);
   const uploadRef = useRef<PendingUpload | null>(null);
   const controller = useRef<AbortController | null>(null);
   const generation = useRef(0);
@@ -155,7 +156,7 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     finally { if (current()) { locked.current = false; callbacks.current.onBusy?.(false); setBusy(null); setStage(""); } }
   }
   return <section className={styles.workspace} aria-label="個案附件與補件" aria-busy={busy !== null || loading}>
-    <div><h2>個案附件與補件</h2><p>分別上傳身分證、藥袋、用藥計畫、歷史給藥紀錄及體檢資料。每份附件先安全檢查，再由授權人員覆核。</p><p>藥袋與歷史文件不會自動變成有效醫囑，也不算本中心已給藥。</p></div>
+    <div><h2>個案附件與補件</h2><p>藥袋與歷史文件不會自動變成有效醫囑，也不算本中心已給藥。</p></div>
     {demo ? <p className={styles.notice}>合成示範：目前顯示六類待補件；不讀取、不上傳任何真實個案附件。</p> : !configured && !loading ? <p className={styles.notice}>附件安全檢查服務尚未完成設定，目前不能上傳。請先保管原檔，交由管理員完成設定後再補件。</p> : null}
     {loading ? <p role="status">正在讀取附件清單…</p> : null}
     {stage ? <p role="status">{stage}</p> : null}
@@ -164,24 +165,22 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     {!demo ? <button type="button" disabled={busy !== null || loading || historyBusy || historyDirty || Boolean(pendingUpload && !pendingUpload.receipt)} onClick={() => void retryRead()}>{pendingUpload?.receipt ? "核對已上傳附件（不重送）" : "重新載入附件清單"}</button> : null}
     {pendingUpload && !pendingUpload.receipt ? <><p className={styles.notice}>原次上傳仍待確認，原檔與輸入已保留在此畫面。請使用原操作重試；離開或完整重新載入不會保留原操作，需先核對文件紀錄。</p><button type="button" disabled={busy !== null || loading || historyBusy || historyDirty} onClick={() => void execute(pendingUpload.row, "upload")}>重試原次上傳</button></> : null}
     {!snapshot && !loading ? <p>尚未取得附件清單，不能判定是否已完成補件。</p> : null}
-    {snapshot ? <DocumentHistoryPanel clientId={clientId} canManage={canManage} demo={demo} disabled={busy !== null || loading || Boolean(pendingUpload)} today={today}
-      onBusy={(value) => { if (!mounted.current) return; locked.current = value; setHistoryBusy(value); callbacks.current.onBusy?.(value); }}
-      onDirty={(value) => { if (!mounted.current) return; setHistoryDirty(value); if (value) callbacks.current.onDirty?.(true); }}
-      onChanged={async () => {
-        if (!mounted.current) return;
-        setSummaryStale(true); setDownload(null);
-        try { await refresh(); }
-        catch (failure) { if (mounted.current) setError("逐份處置已儲存，但補件摘要尚未更新。已收起舊摘要，請重新載入附件清單；不必再儲存同一處置。"); throw failure; }
-      }} /> : null}
-    <p>以下是各類最新文件的補件狀態，不代表所有藥袋都已覆核。需要處理特定文件，請使用上方「逐份文件與歷史」。</p>
     {summaryStale ? <p role="status">補件摘要待更新，暫不提供舊版本操作。</p> : null}
     <div className={styles.grid}>{!summaryStale && snapshot?.rows.map((row) => {
       const permitted = canManage && row.canManage && !demo;
       const disabled = busy !== null || loading || historyBusy || historyDirty || Boolean(pendingUpload);
+      const expanded = activeCategory === row.category;
+      const panelId = `client-document-${clientId}-${row.category}`;
       return <article className={styles.card} key={row.category} aria-label={DOCUMENT_LABELS[row.category]}>
-        <h3>{DOCUMENT_LABELS[row.category]}</h3><p className={styles.status}>{LABELS[row.status]}</p>
+        <h3 className={styles.categoryHeading}><button type="button" className={styles.categoryTrigger} aria-label={`${expanded ? "收起" : "查看"}${DOCUMENT_LABELS[row.category]}處置`}
+          aria-expanded={expanded} aria-controls={panelId} aria-describedby={`${panelId}-status`} onClick={() => setActiveCategory(expanded ? null : row.category)}>
+          <span className={styles.categoryName}>{DOCUMENT_LABELS[row.category]}</span>
+          <span className={styles.status} id={`${panelId}-status`}>{LABELS[row.status]}</span>
+          <span className={styles.chevron} aria-hidden="true">{expanded ? "−" : "＋"}</span>
+        </button></h3>
+        <div id={panelId} className={styles.categoryBody} hidden={!expanded}>
         {row.accessible ? <>
-          <p>文件第 {row.documentVersion} 版／覆核第 {row.reviewVersion} 版</p>
+          {row.documentId || row.reviewVersion > 0 ? <p>{row.documentId ? `文件第 ${row.documentVersion} 版` : "尚無文件"}／覆核第 {row.reviewVersion} 版</p> : null}
           {row.documentReviewReason ? <p>此份文件處置理由：{row.documentReviewReason}</p> : null}
           {row.reviewReason ? <p>類別覆核／不適用註記：{row.reviewReason}</p> : null}
           {row.documentDisposition === "inactive" ? <p>此份文件已停用，請至逐份文件清單確認；原檔保留。</p> : null}
@@ -195,6 +194,7 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
             ] as ["documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string, string][]).map(([key, label, type]) => <label key={key}>{DOCUMENT_LABELS[row.category]}{label}<input type={type} maxLength={type === "text" ? 120 : undefined} disabled={disabled || !permitted || !configured} value={details[row.category]?.[key] ?? (key === "documentLabel" ? DOCUMENT_LABELS[row.category] : "")} onChange={(event) => { callbacks.current.onDirty?.(true); setDetails((current) => ({ ...current, [row.category]: { ...current[row.category], [key]: event.target.value } })); }} /></label>)}</div>
             <p>未知日期可留空；填寫用藥期間時，起日及迄日須一起提供。</p>
             <label>{DOCUMENT_LABELS[row.category]}檔案（上限 4MB）<input key={`${row.category}-${row.documentVersion}`} type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || !permitted || !configured} onChange={(event) => { const file = event.target.files?.[0]; if (file) callbacks.current.onDirty?.(true); setFiles((current) => ({ ...current, [row.category]: file })); }} /></label>
+            {files[row.category] ? <p className={styles.selectedFile}>已選：{files[row.category]?.name} · {Math.ceil((files[row.category]?.size ?? 0) / 1024)} KB</p> : null}
             <button type="submit" disabled={disabled || !permitted || !configured || !files[row.category]}>{busy === row.category ? "處理中…" : row.documentVersion ? "新增文件／新版本" : "上傳附件"}</button>
           </form></details>
           <details><summary>{DOCUMENT_LABELS[row.category]}最新文件處置／本案不適用</summary>
@@ -205,13 +205,23 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
             <label>{DOCUMENT_LABELS[row.category]}覆核／不適用理由<textarea className="resize-none" minLength={3} maxLength={300} required disabled={disabled || !permitted} value={reasons[row.category] ?? ""} onChange={(event) => { callbacks.current.onDirty?.(true); setReasons({ ...reasons, [row.category]: event.target.value }); }} /></label>
             <button type="submit" disabled={disabled || !permitted || (row.scanStatus !== "clean" && decisions[row.category] !== "not_applicable")}>儲存文件處置</button>
           </form></details>
-          <button type="button" disabled={disabled || !row.canDownload || demo} onClick={() => void execute(row, "download")}>{expiredDownload === row.category || download?.category === row.category ? "更新安全下載連結" : "取得安全下載連結"}</button>
+          {row.canDownload && row.documentId ? <button type="button" disabled={disabled || demo} onClick={() => void execute(row, "download")}>{expiredDownload === row.category || download?.category === row.category ? "更新安全下載連結" : "取得安全下載連結"}</button> : null}
           {download?.category === row.category ? <a href={download.url} rel="noreferrer" referrerPolicy="no-referrer" download onClick={(event) => { if (Date.now() >= download.expiresAt) { event.preventDefault(); setDownload(null); setExpiredDownload(row.category); } }}>下載 {DOCUMENT_LABELS[row.category]}（短效連結，請立即下載）</a> : null}
           {expiredDownload === row.category ? <p role="status">下載連結已到期，請更新安全下載連結；不會重新上傳文件。</p> : null}
           {!row.canDownload && row.documentId ? <p>目前無法下載，請確認安全檢查狀態及下載權限。</p> : null}
         </> : <p>這類文件包含敏感資料；請由具備對應職務授權的人員處理。</p>}
+        </div>
       </article>;
     })}</div>
+    {snapshot ? <DocumentHistoryPanel clientId={clientId} canManage={canManage} demo={demo} disabled={busy !== null || loading || Boolean(pendingUpload)} today={today}
+      onBusy={(value) => { if (!mounted.current) return; locked.current = value; setHistoryBusy(value); callbacks.current.onBusy?.(value); }}
+      onDirty={(value) => { if (!mounted.current) return; setHistoryDirty(value); if (value) callbacks.current.onDirty?.(true); }}
+      onChanged={async () => {
+        if (!mounted.current) return;
+        setSummaryStale(true); setDownload(null);
+        try { await refresh(); }
+        catch (failure) { if (mounted.current) setError("逐份處置已儲存，但補件摘要尚未更新。已收起舊摘要，請重新載入附件清單；不必再儲存同一處置。"); throw failure; }
+      }} /> : null}
     <p>附件不提供網頁內預覽；請使用安全下載連結，並依機構規範保管下載檔案。</p>
     {snapshot?.historyTruncated ? <p className={styles.notice}>最新文件摘要未包含全部歷史；請使用「逐份文件與歷史」分頁查閱較早文件。</p> : null}
   </section>;
