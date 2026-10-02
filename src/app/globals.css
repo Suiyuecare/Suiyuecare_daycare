@@ -359,6 +359,9 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .metric-card__value span { color: var(--ink-muted); font-size: .76rem; font-weight: 700; }
 .metric-card__foot { margin: 8px 0 0; color: var(--ink-faint); font-size: .72rem; line-height: 1.45; }
 .today-heading { align-items: center; margin-bottom: 20px; }
+.today-find-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.today-find-row > .filter-search { flex: 0 1 420px; min-width: 0; }
+.today-mobile-active-scope { display: none; }
 .today-mobile-filter-toggle { display: none; }
 .today-counters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .today-counter { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; text-align: left; padding: 10px 14px; min-height: 64px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); cursor: pointer; }
@@ -398,7 +401,6 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .today-client__details { grid-column: 1 / -1; border-top: 1px solid var(--line); }
 .today-client__shift { color: var(--ink-muted); font-size: 14px; }
 .today-client__action.button--primary { background: var(--brand-strong); color: white; }
-.today-toolbar > .filter-search { min-width: 0; flex: 1 1 240px; }
 @media (min-width: 1181px) {
   /* Keep the first assigned client in view without hiding any filter. */
   .today-counters { gap: 8px; margin-bottom: 12px; }
@@ -408,7 +410,6 @@ textarea:focus-visible, [tabindex]:focus-visible {
   .today-filter-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 12px 18px; }
   .today-filter-controls > .today-toolbar { display: contents; }
   .today-filter-controls > .today-toolbar > .field { flex: 0 0 150px; margin: 0; }
-  .today-filter-controls > .today-toolbar > .filter-search { min-width: 240px; flex: 1 1 240px; }
 }
 .case-center-quick-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
 .case-center-quick-filters a { display: inline-flex; min-height: 44px; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); }
@@ -447,10 +448,12 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-heading { gap: 8px; margin-bottom: 8px; }
   .today-heading .page-heading__description { display: none; }
   .today-heading h1 { font-size: 25px; }
-  .today-mobile-filter-toggle { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--ink); font-weight: 800; }
-  .today-mobile-filter-toggle span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .today-mobile-filter-toggle strong { margin-left: auto; font-size: 1.15rem; white-space: nowrap; }
-  .today-mobile-filter-toggle span:last-child { color: var(--brand-strong); }
+  .today-find-row { gap: 8px; margin-bottom: 10px; }
+  .today-find-row > .filter-search { flex: 1 1 auto; min-width: 0; }
+  .today-mobile-filter-toggle { display: flex; flex: 0 0 auto; min-height: 44px; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); color: var(--ink); font-weight: 800; }
+  .today-mobile-filter-toggle strong { min-width: 18px; color: var(--brand-strong); text-align: center; }
+  .today-mobile-filter-toggle[aria-expanded="true"] { border-color: var(--brand-strong); background: var(--brand-soft); }
+  .today-mobile-active-scope { display: block; margin: -2px 2px 8px; color: var(--ink-muted); font-size: .875rem; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
   .today-counters.today-filters--collapsed, .today-filter-controls.today-filters--collapsed { display: none; }
   .today-list-panel > .panel__header { min-height: 44px; padding: 8px 16px; }
   .today-panel-ready-note { display: none; }
@@ -459,7 +462,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-counter { flex: 0 0 min(38vw, 150px); scroll-snap-align: start; min-height: 64px; padding: 10px 12px; gap: 4px; }
   .today-counter > strong { font-size: 1.5rem; }
   .today-counter > span { font-size: .9rem; }
-  .today-client { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 16px; }
+  .today-client { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 16px; scroll-margin-top: 12px; }
   .today-client__status { grid-column: auto; grid-row: auto; gap: 8px; }
   .today-client__action { width: 100%; }
   .today-toolbar { padding-inline: 16px; }

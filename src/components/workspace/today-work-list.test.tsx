@@ -78,12 +78,36 @@ describe("TodayWorkList", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(container.querySelector("#today-filter-counters")).toHaveClass("today-filters--collapsed");
     expect(container.querySelector("#today-filter-controls")).toHaveClass("today-filters--collapsed");
+    const search = screen.getByRole("searchbox", { name: "搜尋今日個案姓名或代碼" });
+    expect(search.closest("#today-filter-controls")).toBeNull();
+    expect(search.closest(".today-find-row")).not.toBeNull();
+    expect(container.querySelectorAll(".today-client")).toHaveLength(5);
+    fireEvent.change(search, { target: { value: rows[0]!.code } });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelectorAll(".today-client")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋今日個案姓名或代碼" }));
     expect(container.querySelectorAll(".today-client")).toHaveLength(5);
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(container.querySelectorAll(".today-client")).toHaveLength(2);
+    expect(container.querySelector(".today-mobile-active-scope")).toHaveTextContent("尚無量測・2 位");
+  });
+
+  it("moves focus to the first newly shown client after explicit pagination", () => {
+    const many = Array.from({ length: 45 }, (_, index) => ({ ...rows[0]!,
+      id: `a2111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
+      code: `SYN-${String(index).padStart(3, "0")}` }));
+    const { container } = render(<TodayWorkList rows={many} serviceDate={date} access={snapshot.sourceAccess} />);
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    const firstSecondPage = container.querySelector<HTMLElement>(".today-client-list > li:first-child")!;
+    expect(firstSecondPage).toHaveTextContent("SYN-020");
+    expect(firstSecondPage).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("第 2 / 3 頁");
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    expect(container.querySelector(".today-client-list > li:first-child")).toHaveTextContent("SYN-040");
+    expect(container.querySelector(".today-client-list > li:first-child")).toHaveFocus();
   });
 
   it("keeps attendance date-level while carrying the sole confirmed shift into later work", () => {

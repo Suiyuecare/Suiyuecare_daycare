@@ -117,28 +117,32 @@ function ClientWorkActions({
   return (
     <div className="case-center-actions">
       {canStart ? (
-        <a
+        <NavigationLink
           aria-label={`開始 ${client.displayName} 的當日工作（${formatDate(date)}）`}
           className="button button--primary"
           data-case-client-id={client.id}
           href={dailyWorkflowHref(46, date, client.id)}
+          loadingLabel="當日工作"
+          prefetch={false}
         >
           開始當日工作<ArrowRight aria-hidden="true" />
-        </a>
+        </NavigationLink>
       ) : (
         <p className="case-center-action-note">{demoOutsideDailyRoster && canStartClientWork(client, date)
           ? "所選日期沒有可接續的照顧工作，可查看紀錄或評估。"
           : clientWorkNote(client, date)}</p>
       )}
       {!canStart && canViewSummary && (
-        <a
+        <NavigationLink
           aria-label={`查看 ${client.displayName} 的當日紀錄（${formatDate(date)}）`}
           className="button button--secondary"
           data-case-client-id={client.id}
           href={clientSummaryHref(client, date)}
+          loadingLabel="當日紀錄"
+          prefetch={false}
         >
           查看當日紀錄
-        </a>
+        </NavigationLink>
       )}
       {canOpenAssessments && isAssessmentClientSelectable(client.lifecycleStatus) ? (
         <NavigationLink
