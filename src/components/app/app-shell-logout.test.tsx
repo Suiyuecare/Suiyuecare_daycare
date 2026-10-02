@@ -4,7 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import type { TenantContext } from "@/lib/domain/types";
 import { filterNavigationByAccess, getNavigationGroups } from "@/lib/catalog";
-const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), pendingSocialWork: vi.fn(), observeSocialWork: vi.fn(), pendingPsychosocial: vi.fn(), observePsychosocial: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), pendingClaims: vi.fn(), pendingBody: vi.fn(), pendingNursing: vi.fn(), observeNursing: vi.fn(), pendingAnnouncements: vi.fn(), observeAnnouncements: vi.fn(), pendingReferrals: vi.fn(), observeReferrals: vi.fn(), pendingSocialWork: vi.fn(), observeSocialWork: vi.fn(), pendingPsychosocial: vi.fn(), observePsychosocial: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn(), branchRender: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname, useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
 vi.mock("@/lib/service-management/claim-validation-pending", () => ({ clearClaimValidationPendingOnLogout: mocks.pendingClaims }));
@@ -31,7 +31,7 @@ vi.mock("@/lib/psychosocial-assessments/pending", () => ({ clearPsychosocialAsse
     context.demo, [...context.roles].sort(), [...context.scopes].sort(), context.assuranceLevel]) }));
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));
-vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
+vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => { mocks.branchRender(); return <span>合成分支選單</span>; } }));
 let AppShell: typeof import("./app-shell").AppShell;
 let uploadJournal: typeof import("@/lib/imports/upload-pending");
 let intakeJournal: typeof import("@/lib/client-intake/write-pending");
@@ -229,6 +229,25 @@ describe("staff shell logout privacy", () => {
     expect(mocks.pendingPsychosocial).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+  it("updates only the clock while the shell and branch navigation remain idle", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T04:00:00.000Z"));
+    try {
+      render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
+      const clock = screen.getByText(/台北時間/u).closest("time")!;
+      const firstTime = clock.textContent;
+      expect(firstTime).toContain("12:00:00");
+      const navigationRenders = mocks.branchRender.mock.calls.length;
+      expect(navigationRenders).toBeGreaterThan(0);
+      act(() => vi.advanceTimersByTime(3000));
+      expect(clock.textContent).toContain("12:00:03");
+      expect(clock.textContent).not.toBe(firstTime);
+      expect(mocks.branchRender).toHaveBeenCalledTimes(navigationRenders);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
   });
   it("immediately removes the whole sensitive shell and still signs out after cache failure", async () => {
     mocks.clear.mockRejectedValue(new Error("blocked"));

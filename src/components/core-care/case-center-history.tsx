@@ -4,9 +4,13 @@ import { ArrowRight } from "lucide-react";
 import { useEffect } from "react";
 
 type CaseCenterHistoryState = {
-  caseCenterScrollY?: unknown;
+  caseCenterScrollTop?: unknown;
   caseCenterFocusClientId?: unknown;
 };
+
+function caseCenterScroller() {
+  return document.querySelector<HTMLElement>(".main-stage");
+}
 
 function clientLink(target: EventTarget | null) {
   return target instanceof Element
@@ -15,21 +19,25 @@ function clientLink(target: EventTarget | null) {
 }
 
 function savePosition(link?: HTMLElement | null) {
+  const scroller = caseCenterScroller();
+  if (!scroller) return;
   const state = (window.history.state ?? {}) as Record<string, unknown>;
   const clientId = link?.dataset.caseClientId;
-  const scrollY = Math.max(0, Math.round(window.scrollY));
-  if (state.caseCenterScrollY === scrollY && (!clientId || state.caseCenterFocusClientId === clientId)) return;
+  const scrollTop = Math.max(0, Math.round(scroller.scrollTop));
+  if (state.caseCenterScrollTop === scrollTop && (!clientId || state.caseCenterFocusClientId === clientId)) return;
   window.history.replaceState(
     {
       ...state,
-      caseCenterScrollY: scrollY,
+      caseCenterScrollTop: scrollTop,
       ...(clientId ? { caseCenterFocusClientId: clientId } : {}),
     },
     "",
   );
 }
 
-export function CaseCenterHistory() {
+export function CaseCenterHistory({ readyKey = "" }: { readyKey?: string }) {
+  // App Router may deliver the new authorized list after popstate; restore
+  // against the rendered list, never the outgoing page's DOM.
   useEffect(() => {
     let firstFrame = 0;
     let secondFrame = 0;
@@ -37,10 +45,10 @@ export function CaseCenterHistory() {
       window.cancelAnimationFrame(firstFrame);
       window.cancelAnimationFrame(secondFrame);
       const state = (window.history.state ?? {}) as CaseCenterHistoryState;
-      const scrollY =
-        typeof state.caseCenterScrollY === "number" &&
-        Number.isFinite(state.caseCenterScrollY)
-          ? Math.max(0, state.caseCenterScrollY)
+      const scrollTop =
+        typeof state.caseCenterScrollTop === "number" &&
+        Number.isFinite(state.caseCenterScrollTop)
+          ? Math.max(0, state.caseCenterScrollTop)
           : null;
       const focusClientId =
         typeof state.caseCenterFocusClientId === "string"
@@ -48,20 +56,25 @@ export function CaseCenterHistory() {
           : null;
       firstFrame = window.requestAnimationFrame(() => {
         secondFrame = window.requestAnimationFrame(() => {
-          if (scrollY !== null) {
-            window.scrollTo({ top: scrollY, behavior: "auto" });
-          }
-          if (focusClientId) {
-            const matchingLink = [
-              ...document.querySelectorAll<HTMLElement>(
-                "[data-case-client-id]",
-              ),
-            ].find(
-              (element) =>
-                element.dataset.caseClientId === focusClientId &&
-                element.getClientRects().length > 0,
-            );
-            matchingLink?.focus({ preventScroll: true });
+          const scroller = caseCenterScroller();
+          if (!scroller) return;
+          const matchingLink = focusClientId
+            ? [...scroller.querySelectorAll<HTMLElement>("[data-case-client-id]")].find((element) =>
+                element.dataset.caseClientId === focusClientId && element.getClientRects().length > 0)
+            : null;
+          // A changed assignment or filter must not land on an unrelated row.
+          if (scrollTop !== null) scroller.scrollTop = focusClientId && !matchingLink ? 0 : scrollTop;
+          if (matchingLink) {
+            matchingLink.focus({ preventScroll: true });
+            const linkBounds = matchingLink.getBoundingClientRect();
+            const stageBounds = scroller.getBoundingClientRect();
+            const stageStyle = window.getComputedStyle(scroller);
+            const topInset = Number.parseFloat(stageStyle.scrollPaddingTop) || 0;
+            const bottomInset = Number.parseFloat(stageStyle.scrollPaddingBottom) || 0;
+            if (linkBounds.top < stageBounds.top + topInset ||
+                linkBounds.bottom > stageBounds.bottom - bottomInset) {
+              matchingLink.scrollIntoView?.({ block: "nearest" });
+            }
           }
         });
       });
@@ -80,7 +93,6 @@ export function CaseCenterHistory() {
     document.addEventListener("keydown", captureKeyboard, true);
     window.addEventListener("pagehide", capturePageHide);
     window.addEventListener("pageshow", restorePosition);
-    window.addEventListener("popstate", restorePosition);
     return () => {
       window.cancelAnimationFrame(firstFrame);
       window.cancelAnimationFrame(secondFrame);
@@ -88,10 +100,11 @@ export function CaseCenterHistory() {
       document.removeEventListener("keydown", captureKeyboard, true);
       window.removeEventListener("pagehide", capturePageHide);
       window.removeEventListener("pageshow", restorePosition);
-      window.removeEventListener("popstate", restorePosition);
-      savePosition(clientLink(document.activeElement));
+      // React may remove the old list and reset its scroller before this
+      // cleanup runs. The link activation/pagehide has already saved the
+      // position; overwriting it here would lose the return target.
     };
-  }, []);
+  }, [readyKey]);
 
   return null;
 }

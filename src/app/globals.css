@@ -568,7 +568,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 .core-care-card-grid dt { color: var(--ink-faint); font-size: .72rem; font-weight: 800; }
 .core-care-card-grid dd { margin: 4px 0 0; font-size: .82rem; font-weight: 800; }
 .core-composer { display: grid; justify-items: end; gap: 6px; }
-.core-composer__notice { max-width: 360px; margin: 0; color: var(--success); font-size: .74rem; font-weight: 800; text-align: right; }
+.core-composer__notice { max-width: 360px; margin: 0; color: var(--success); font-size: .875rem; line-height: 1.5; font-weight: 700; text-align: right; }
 .core-dialog { width: min(calc(100% - 28px), 620px); max-height: min(calc(100% - 28px), 820px); margin: auto; border: 0; border-radius: var(--radius-lg); background: transparent; padding: 0; box-shadow: var(--shadow-md); }
 .core-dialog::backdrop { background: rgba(49, 34, 23, .48); backdrop-filter: blur(4px); }
 .core-dialog__surface { display: flex; max-height: min(calc(100vh - 28px), 820px); flex-direction: column; overflow: hidden; border-radius: var(--radius-lg); background: var(--surface); }
@@ -741,8 +741,9 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-heading .page-heading__actions .button { flex: 0 0 auto; padding-inline: 10px; }
   .today-heading .eyebrow { margin-bottom: 2px; font-size: .72rem; }
   .core-care-heading { align-items: stretch; }
-  .core-date-filter { align-items: stretch; flex-direction: column; }
-  .core-date-filter .field { min-width: 0; }
+  .core-date-filter { align-items: flex-end; flex-direction: row; }
+  .core-date-filter .field { flex: 1 1 auto; min-width: 0; }
+  .core-date-filter .button { flex: 0 0 auto; padding-inline: 12px; }
   .core-composer { justify-items: stretch; }
   .core-composer__notice { max-width: none; text-align: left; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -766,6 +767,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 }
 
 @media (max-width: 430px) {
+  .core-care-heading { gap: 8px; margin-bottom: 16px; }
   .vital-inputs { grid-template-columns: 1fr; }
   .context-bar { overflow: hidden; white-space: nowrap; }
   .metric-grid { grid-template-columns: 1fr 1fr; }

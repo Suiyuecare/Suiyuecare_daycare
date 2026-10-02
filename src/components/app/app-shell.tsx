@@ -51,6 +51,7 @@ import { getMobileQuickLinks } from "@/lib/navigation/mobile-quick-links";
 import { clearUnsavedChangesOnLogout, requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavigationLink } from "./navigation-link";
+import { TaipeiClock } from "./taipei-clock";
 
 const moduleIcons = {
   workspace: LayoutDashboard,
@@ -85,7 +86,6 @@ export function AppShell({
   const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [taipeiClock, setTaipeiClock] = useState("");
   const logoutRunning = useRef(false);
   const refreshLease = useRef<(() => void) | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
@@ -170,15 +170,6 @@ export function AppShell({
   useEffect(() => () => {
     refreshLease.current?.();
     refreshLease.current = null;
-  }, []);
-
-  useEffect(() => {
-    const updateClock = () => setTaipeiClock(new Intl.DateTimeFormat("zh-TW", {
-      timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    }).format(new Date()));
-    updateClock();
-    const interval = window.setInterval(updateClock, 1000);
-    return () => window.clearInterval(interval);
   }, []);
 
   // Derive a newly active module during navigation without an effect-driven flash.
@@ -436,7 +427,7 @@ export function AppShell({
           <div className="topbar__context">
             <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>
             <span className="topbar__separator" aria-hidden="true">・</span>
-            <time className="topbar__clock" dateTime={taipeiClock ? `${taipeiClock}+08:00` : undefined}><span className="sr-only">台北時間 </span>{taipeiClock || "--:--:--"}</time>
+            <TaipeiClock />
           </div>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>

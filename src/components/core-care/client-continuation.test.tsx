@@ -44,6 +44,17 @@ describe("select once and continue the authorized daily workflow", () => {
     expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/service-management/attendance?date=2026-09-10");
     expect(screen.getByRole("link", { name: "此個案的機構自訂表單" })).toHaveAttribute("href", `/app/client-forms?client=${second.clientId}`);
   });
+  it("puts the current task before step navigation, while keeping the next steps available", () => {
+    const openTask = vi.fn();
+    const { rerender } = render(continuation({ selectedClientId: second.clientId,
+      action: <button type="button" onClick={openTask}>登錄出勤</button> }));
+    const action = screen.getByRole("button", { name: "登錄出勤" });
+    const steps = screen.getByRole("navigation", { name: "個案照顧三步驟" });
+    expect(action.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(steps).getAllByRole("link")).toHaveLength(3);
+    rerender(continuation({ action: <button type="button" onClick={openTask}>登錄出勤</button> }));
+    expect(screen.queryByRole("button", { name: "登錄出勤" })).not.toBeInTheDocument();
+  });
   it("continues from an eligible selected client to assessment only when the server offered the entry", () => {
     const { rerender } = render(continuation({ selectedClientId: second.clientId, canOpenAssessments: true }));
     expect(screen.getByRole("link", { name: "評估這位個案" })).toHaveAttribute("href", `/app/assessments?client=${second.clientId}`);

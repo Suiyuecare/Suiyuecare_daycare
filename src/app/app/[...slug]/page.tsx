@@ -9,6 +9,7 @@ import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
 import { todayWorkAuthoritySignature } from "@/lib/workspace/today-work-memory";
 import { QuestionnaireRuleWorkspace } from "@/components/questionnaire-rule-governance/questionnaire-rule-workspace";
 import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
+import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
 import { OpeningReadinessWorkspace } from "@/components/opening-readiness/opening-readiness-workspace";
@@ -773,6 +774,7 @@ export default async function StaffCatalogPage({
     return (
       <CaseCenterWorkspace
         canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
+        demoDailyClientIds={context.demo ? buildDemoDailySnapshot(filters.date).clients.map((client) => client.clientId) : undefined}
         allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
         canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
         canOpenAssessments={authorizedAssessmentEntryPages(context, staffPages).length > 0}

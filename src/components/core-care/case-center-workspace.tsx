@@ -104,14 +104,16 @@ function ClientWorkActions({
   canOpenAttendance,
   canViewSummary,
   canOpenAssessments,
+  demoOutsideDailyRoster,
 }: {
   client: CaseCenterClient;
   date: string;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
   canOpenAssessments: boolean;
+  demoOutsideDailyRoster: boolean;
 }) {
-  const canStart = canOpenAttendance && canStartClientWork(client, date);
+  const canStart = canOpenAttendance && !demoOutsideDailyRoster && canStartClientWork(client, date);
   return (
     <div className="case-center-actions">
       {canStart ? (
@@ -124,7 +126,9 @@ function ClientWorkActions({
           開始當日工作<ArrowRight aria-hidden="true" />
         </a>
       ) : (
-        <p className="case-center-action-note">{clientWorkNote(client, date)}</p>
+        <p className="case-center-action-note">{demoOutsideDailyRoster && canStartClientWork(client, date)
+          ? "所選日期沒有可接續的照顧工作，可查看紀錄或評估。"
+          : clientWorkNote(client, date)}</p>
       )}
       {!canStart && canViewSummary && (
         <a
@@ -165,6 +169,7 @@ export function CaseCenterWorkspace({
   allowedDailyPages = [],
   canViewSummary = false,
   canOpenAssessments = false,
+  demoDailyClientIds,
 }: {
   page: PageCatalogEntry;
   snapshot: CaseCenterSnapshot | null;
@@ -174,6 +179,7 @@ export function CaseCenterWorkspace({
   canOpenIntake?: boolean;
   canViewSummary?: boolean;
   canOpenAssessments?: boolean;
+  demoDailyClientIds?: readonly string[];
 }) {
   if (loadError || !snapshot) {
     return (
@@ -216,7 +222,7 @@ export function CaseCenterWorkspace({
 
   return (
     <>
-      <CaseCenterHistory />
+      <CaseCenterHistory readyKey={`${caseCenterHref(filters)}:${snapshot.generatedAt}:${snapshot.clients.map((client) => client.id).join(",")}`} />
       <nav aria-label="所在位置" className="context-bar">
         <span>工作台</span>
         <ChevronRight aria-hidden="true" />
@@ -360,6 +366,7 @@ export function CaseCenterWorkspace({
                           canOpenAttendance={canOpenAttendance}
                           canViewSummary={canViewSummary}
                           canOpenAssessments={canOpenAssessments}
+                          demoOutsideDailyRoster={snapshot.demo && !demoDailyClientIds?.includes(client.id)}
                           client={client}
                           date={filters.date}
                         />
@@ -386,6 +393,7 @@ export function CaseCenterWorkspace({
                     canOpenAttendance={canOpenAttendance}
                     canViewSummary={canViewSummary}
                     canOpenAssessments={canOpenAssessments}
+                    demoOutsideDailyRoster={snapshot.demo && !demoDailyClientIds?.includes(client.id)}
                     client={client}
                     date={filters.date}
                   />

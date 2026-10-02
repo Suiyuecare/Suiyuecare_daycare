@@ -236,7 +236,7 @@ export function CoreDailyWorkspace({
         <div>
           <p className="eyebrow">每日照顧工作</p>
           <h1>{page.title}</h1>
-          <p className="page-heading__description">先確認個案與日期，再接續出勤、量測和照顧日誌。</p>
+          {!selectedClient ? <p className="page-heading__description">先確認個案與日期，再接續出勤、量測和照顧日誌。</p> : null}
         </div>
         <CoreDateFilter key={serviceDate} serviceDate={serviceDate} selectedClientId={selectedClient?.clientId} selectedShift={selectedShift} />
       </header>
