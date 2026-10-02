@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import type { NavigationGroup } from "@/lib/catalog";
@@ -35,8 +35,10 @@ import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
 import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { BranchSwitcher } from "./branch-switcher";
+import { DailyNavigationRegistrationContext, type ValidatedDailySelection } from "./daily-navigation-context";
 import { NavigationLink } from "./navigation-link";
 import { TaipeiClock } from "./taipei-clock";
+import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 
 const moduleIcons = {
   workspace: LayoutDashboard,
@@ -64,11 +66,13 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [compactNavigation, setCompactNavigation] = useState(false);
   const [logoutState, setLogoutState] = useState<"idle" | "working" | "attention">("idle");
   const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
+  const [dailyNavigation, setDailyNavigation] = useState<(ValidatedDailySelection & { registration: symbol }) | null>(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const logoutRunning = useRef(false);
@@ -97,6 +101,24 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : activePage?.title ?? appBranding.applicationName;
+  const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
+    if (selection.scope.organizationId !== context.organizationId ||
+        selection.scope.branchId !== context.branchId ||
+        selection.scope.userId !== context.userId) return () => {};
+    const registration = Symbol("daily-navigation");
+    setDailyNavigation({ ...selection, registration });
+    return () => setDailyNavigation((current) => current?.registration === registration ? null : current);
+  }, [context.organizationId, context.branchId, context.userId]);
+  const currentDailyNavigation = dailyNavigation &&
+    dailyNavigation.scope.organizationId === context.organizationId &&
+    dailyNavigation.scope.branchId === context.branchId &&
+    dailyNavigation.scope.userId === context.userId &&
+    searchParams.getAll("date").length === 1 && searchParams.get("date") === dailyNavigation.serviceDate &&
+    searchParams.getAll("client").length === 1 && searchParams.get("client") === dailyNavigation.clientId &&
+    (dailyNavigation.shift ? searchParams.getAll("shift").length === 1 && searchParams.get("shift") === dailyNavigation.shift
+      : searchParams.getAll("shift").length === 0) &&
+    pathname === dailyWorkflowHref(dailyNavigation.page, dailyNavigation.serviceDate, dailyNavigation.clientId, dailyNavigation.shift).split("?")[0]
+      ? dailyNavigation : null;
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -182,6 +204,7 @@ export function AppShell({
   }, [compactNavigation, menuOpen]);
 
   async function logout() {
+    setDailyNavigation(null);
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       document.dispatchEvent(new Event("daycare:session-ending"));
       router.replace("/login");
@@ -243,6 +266,7 @@ export function AppShell({
   </main>;
 
   return (
+    <DailyNavigationRegistrationContext.Provider value={registerDailyNavigation}>
     <div className="app-shell">
       <button
         aria-label="關閉選單"
@@ -344,10 +368,15 @@ export function AppShell({
         {mobilePages.map((page) => {
           const Icon = moduleIcons[page.moduleId];
           const label = page.number === 1 ? "今日" : page.number === 2 ? "個案" : "量測";
-          return <NavigationLink href={`/app/${page.slug}`} aria-label={page.title} title={page.title} aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
+          const contextual = page.number === 3 && currentDailyNavigation;
+          return <NavigationLink href={contextual ? dailyWorkflowHref(3, contextual.serviceDate, contextual.clientId, contextual.shift) : `/app/${page.slug}`}
+            aria-label={contextual ? "目前個案的生命徵象紀錄" : page.title} title={page.title}
+            aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title}
+            prefetch={contextual ? false : undefined} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
         })}
         <button type="button" aria-label="更多功能" aria-expanded={menuOpen} onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
       </nav>
     </div>
+    </DailyNavigationRegistrationContext.Provider>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
+import { DailyNavigationRegistrationContext, type DailyNavigationScope } from "@/components/app/daily-navigation-context";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { DAILY_WORKFLOW_STEPS, dailyWorkflowHref, type DailyWorkflowPage, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
 import type { DailyCareSnapshot, DailyClientSummary } from "@/lib/core-care/types";
@@ -76,11 +77,12 @@ function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?:
       : client.careDiary.status === "draft" ? "已有草稿・未簽署" : "待簽署";
 }
 
-export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action }: {
+export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, validatedScope, clients, sourceAccess, action }: {
   page: DailyWorkflowPage;
   serviceDate: string;
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
+  validatedScope?: DailyNavigationScope;
   clients: readonly DailyClientSummary[];
   sourceAccess: DailyCareSnapshot["sourceAccess"];
   action?: ReactNode;
@@ -90,6 +92,20 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
   const allowedClients = sourceAccess.clients ? clients : [];
   const selected = allowedClients.find((client) => client.clientId === selectedClientId);
   const chosen = allowedClients.find((client) => client.clientId === choice);
+  const registerDailyNavigation = useContext(DailyNavigationRegistrationContext);
+  const pageSource = page === 3 ? "measurements" : page === 6 ? "careDiaries" : "attendance";
+  const registerClientId = sourceAccess[pageSource] && sourceAccess.measurements &&
+    selected?.sourceAccess?.[pageSource] !== false && selected?.sourceAccess?.measurements !== false
+      ? selected?.clientId : undefined;
+  const organizationId = validatedScope?.organizationId;
+  const branchId = validatedScope?.branchId;
+  const userId = validatedScope?.userId;
+
+  useEffect(() => {
+    if (!registerDailyNavigation || !registerClientId || !organizationId || !branchId || !userId) return;
+    return registerDailyNavigation({ page, serviceDate, clientId: registerClientId, shift: selectedShift,
+      scope: { organizationId, branchId, userId } });
+  }, [registerDailyNavigation, registerClientId, page, serviceDate, selectedShift, organizationId, branchId, userId]);
 
   if (!sourceAccess.clients) return <section className="callout core-care-callout" role="status">
     <p>目前沒有個案名單查看權限。請聯絡主管確認授權；這不表示今天沒有個案。</p>
