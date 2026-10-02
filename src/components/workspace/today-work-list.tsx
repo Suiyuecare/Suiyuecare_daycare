@@ -104,20 +104,26 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
       </div>
       <p className="today-result" role="status" ref={resultStatus} tabIndex={-1}>{filterRestricted
         ? `目前沒有「${selectedFilter?.label}」查閱權限，請切換清單範圍或聯絡管理員。`
-        : `${filter === "all" ? rosterReady ? "全部當班" : "全部在案" : filter === "pending" ? "待處理" : selectedFilter?.label}：${filtered.length} 位${search ? "（搜尋結果）" : ""}。第 ${currentPage} / ${pageCount} 頁，每位個案只列一次。`}</p>
+        : `${filter === "all" ? rosterReady ? "全部當班" : "全部在案" : filter === "pending" ? "待處理" : selectedFilter?.label}：${filtered.length} 位${search ? "（搜尋結果）" : ""}${pageCount > 1 ? `・第 ${currentPage} / ${pageCount} 頁` : ""}`}</p>
       <ul className="today-client-list" id="today-client-list">
-        {shown.map((row, index) => { const action = todayWorkAction(row, filter); return <li className="today-client" key={row.id} ref={index === 0 ? firstRow : undefined} tabIndex={-1}>
+        {shown.map((row, index) => { const action = todayWorkAction(row, filter);
+          const plannedShifts = row.plannedShifts?.filter((slot) => shift === "all" || slot.shift === shift);
+          const unassignedShifts = plannedShifts?.filter((slot) => !slot.staffUserId).length ?? 0;
+          return <li className="today-client" key={row.id} ref={index === 0 ? firstRow : undefined} tabIndex={-1}>
           <div className="today-client__identity"><span className="avatar" aria-hidden="true">{row.name.slice(0, 1)}</span><div><h3>{row.name}</h3><small>{row.code}</small></div>
             {row.tasks.includes("attention") && <span className="today-attention">需留意</span>}</div>
           <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{row.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{row.diary}</dd></div></dl>
-          {row.plannedShifts && <div className={styles.slots}>{row.plannedShifts.filter((slot) => shift === "all" || slot.shift === shift).map((slot) => <section key={slot.id} aria-label={`${slot.shift === "morning" ? "上午" : "下午"}照顧安排`}>
-            <h4>{slot.shift === "morning" ? "上午" : "下午"}・{slot.staffName ?? "待指派負責人"}</h4>
-            <ul>{slot.tasks.map((task) => <li key={task.kind}>{ROSTER_TASK_LABELS[task.kind]}：{task.status === "recorded" ? task.kind === "care_diary" ? "已簽署" : "已有本班紀錄" : task.status === "restricted" ? "無查閱權限" : "尚待記錄"}{task.evidenceAt && <time dateTime={task.evidenceAt}>（{new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(task.evidenceAt))}）</time>}</li>)}</ul>
-            {!slot.tasks.length && <p>尚未安排記錄項目，請主管確認。</p>}
-          </section>)}</div>}
           {action.page ? <NavigationLink className="button button--secondary today-client__action" loadingLabel={action.label}
             href={dailyWorkflowHref(action.page, serviceDate, row.id, shift === "all" ? undefined : shift)} aria-label={`${row.name}（${row.code}）：${shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}${action.label}`}>{shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
             : <p>請聯絡管理員確認工作權限。</p>}
+          {plannedShifts && plannedShifts.length > 0 && <details className="today-client__schedule">
+            <summary>照顧安排 <span>{plannedShifts.map((slot) => slot.shift === "morning" ? "上午" : "下午").join("、")}{unassignedShifts > 0 ? `・${unassignedShifts} 班待指派` : ""}</span></summary>
+            <div className={styles.slots}>{plannedShifts.map((slot) => <section key={slot.id} aria-label={`${slot.shift === "morning" ? "上午" : "下午"}照顧安排`}>
+              <h4>{slot.shift === "morning" ? "上午" : "下午"}・{slot.staffName ?? "待指派負責人"}</h4>
+              <ul>{slot.tasks.map((task) => <li key={task.kind}>{ROSTER_TASK_LABELS[task.kind]}：{task.status === "recorded" ? task.kind === "care_diary" ? "已簽署" : "已有本班紀錄" : task.status === "restricted" ? "無查閱權限" : "尚待記錄"}{task.evidenceAt && <time dateTime={task.evidenceAt}>（{new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(task.evidenceAt))}）</time>}</li>)}</ul>
+              {!slot.tasks.length && <p>尚未安排記錄項目，請主管確認。</p>}
+            </section>)}</div>
+          </details>}
         </li>; })}
       </ul>
       {!shown.length && !filterRestricted && <div className="today-empty"><h3>{search ? "找不到符合條件的個案" : filter === "all" ? "目前沒有可查閱的在案個案" : "此清單目前沒有待處理個案"}</h3>

@@ -1,6 +1,7 @@
 import { TriangleAlert } from "lucide-react";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { buildTodayWorkRows } from "@/lib/core-care/today-work";
+import { taipeiToday } from "@/lib/core-care/date";
 import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { DashboardAutoRefresh } from "./dashboard-auto-refresh";
 import { TodayWorkList } from "./today-work-list";
@@ -25,21 +26,18 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = 
         href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink> : null}
     </section>;
   }
-  const dayLabel = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "long", day: "numeric", weekday: "long" })
+  const dayLabel = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", weekday: "short" })
     .format(new Date(`${serviceDate}T12:00:00+08:00`));
   const updated = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
     .format(new Date(snapshot.generatedAt));
   return <>
-    <nav aria-label="所在位置" className="context-bar"><span>工作台</span><span aria-hidden="true">／</span><span aria-current="page" className="context-bar__crumb">今日工作</span></nav>
     <header className="page-heading today-heading">
-      <div><p className="eyebrow">{dayLabel}・更新於 {updated}{snapshot.demo ? "・合成示範" : ""}</p>
-        <h1>今天的照顧工作，一眼掌握。</h1>
-        <p className="page-heading__description">先找個案，再接續出勤、量測與照顧日誌。</p></div>
+      <div><p className="eyebrow"><time dateTime={serviceDate}>{dayLabel}</time>・更新 {updated}{snapshot.demo ? "・合成示範" : ""}</p>
+        <h1>{serviceDate === taipeiToday() ? "今日工作" : "照顧工作"}</h1></div>
       <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
     </header>
-    {canOpenReadiness ? <p className="callout"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
-      href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink>
-      <span>帳號、個案、當班安排還沒建齊？從準備清單找到下一步。</span></p> : null}
+    {canOpenReadiness ? <p className="today-readiness-entry"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
+      href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink></p> : null}
     <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} />
     {roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
     <footer className="today-footer">

@@ -38,7 +38,10 @@ beforeEach(() => {
   mocks.load.mockImplementation(async (scope) => [...(mocks.records.get(scopeKey(scope))?.values() ?? [])]);
   mocks.save.mockImplementation(async (scope, item) => {
     const items = mocks.records.get(scopeKey(scope)) ?? new Map();
-    items.set(item.id, { ...item, createdAt: item.createdAt ?? new Date().toISOString(), expiresAt: item.expiresAt ?? new Date(Date.now() + 86_400_000).toISOString() });
+    const existing = items.get(item.id) as { createdAt?: string; expiresAt?: string } | undefined;
+    const createdAt = item.createdAt ?? existing?.createdAt ?? new Date().toISOString();
+    const expiresAt = item.expiresAt ?? existing?.expiresAt ?? new Date(Date.parse(createdAt) + 86_400_000).toISOString();
+    items.set(item.id, { ...item, createdAt, expiresAt });
     mocks.records.set(scopeKey(scope), items);
   });
   mocks.remove.mockImplementation(async (scope, id) => { mocks.records.get(scopeKey(scope))?.delete(id); });

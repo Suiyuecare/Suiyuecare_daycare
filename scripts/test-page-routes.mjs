@@ -5,7 +5,7 @@ const baseUrl = new URL(process.env.ROUTE_SMOKE_BASE_URL ?? "http://127.0.0.1:30
 const matrixPath = resolve(process.cwd(), "docs/R0_PAGE_ACCEPTANCE_MATRIX.md");
 const matrix = await readFile(matrixPath, "utf8");
 const routeHeadingOverrides = new Map([
-  [1, "今天的照顧工作，一眼掌握。"],
+  [1, "今日工作"],
   [17, "吞嚥評估"],
   [84, "今天一切平安，下午會再更新返家時間。"],
 ]);

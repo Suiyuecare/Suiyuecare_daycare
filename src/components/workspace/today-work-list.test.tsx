@@ -72,6 +72,29 @@ describe("TodayWorkList", () => {
     expect(screen.queryByRole("region", { name: "上午照顧安排" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("1 位");
   });
+  it("puts the next action before expandable shift details without hiding an unassigned shift", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: true, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `assignment-${shift}`, clientId: snapshot.clients[0]!.clientId,
+        staffUserId: shift === "morning" ? null : "assigned-staff",
+        staffName: shift === "morning" ? null : "合成照服員",
+        serviceDate: date, shift, version: 1, state: "scheduled", isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+        tasks: [{ kind: "care_diary" as const, status: "pending" as const, evidenceAt: null }],
+      })) };
+    const { container } = render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    const card = container.querySelector(".today-client")!;
+    const action = card.querySelector(".today-client__action")!;
+    const details = card.querySelector(".today-client__schedule")!;
+    const summary = details.querySelector("summary")!;
+    expect(action.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(details).not.toHaveAttribute("open");
+    expect(summary).toHaveTextContent("上午、下午・1 班待指派");
+    expect(within(card as HTMLElement).getByText("需留意")).toBeVisible();
+    fireEvent.click(summary);
+    expect(details).toHaveAttribute("open");
+    expect(within(details as HTMLElement).getByText("上午・待指派負責人")).toBeVisible();
+    expect(within(details as HTMLElement).getByText("下午・合成照服員")).toBeVisible();
+  });
   it("takes the user from a matching count to the same people and correct selected-client URL", () => {
     render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
