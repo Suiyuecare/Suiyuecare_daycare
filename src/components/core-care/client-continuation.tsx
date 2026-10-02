@@ -124,7 +124,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
     <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate)} loadingLabel="個案選擇" prefetch={false}>重新選擇個案</NavigationLink>
   </section>;
 
-  return <section className="panel core-client-continuation" aria-labelledby={`${selectId}-heading`}>
+  return <section className={`panel core-client-continuation${selected ? " core-client-continuation--selected" : ""}`} aria-labelledby={`${selectId}-heading`}>
     <div className="panel__header">
       <div className="panel__title"><h2 id={`${selectId}-heading`}>{selected ? `${selected.displayName}的接續工作` : "先選定個案，再接續記錄"}</h2>
         <p>{serviceDate}（臺北時間）{shiftLabel ? ` · 目前班別：${shiftLabel}${page === 46 ? "（出勤按當日）" : ""}` : page === 46 ? " · 出勤按當日" : ""}{selected ? ` · ${selected.clientCode}` : " · 出勤、量測、日誌沿用同一位個案與日期"}</p></div>

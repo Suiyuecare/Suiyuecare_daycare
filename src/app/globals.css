@@ -427,7 +427,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .core-workflow-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; list-style: none; margin: 16px 0 0; padding: 0; }
 .core-workflow-steps .button { width: 100%; height: 100%; min-height: 64px; display: flex; flex-direction: column; border-radius: 14px; text-align: center; }
 .core-workflow-steps small { font-size: .75rem; line-height: 1.5; }
-.core-workflow-steps [aria-current="step"] { background: var(--brand-soft); color: var(--brand-strong); border-color: var(--brand-strong); box-shadow: none; }
+.core-workflow-steps [aria-current="step"] { background: var(--brand-soft); color: var(--ink); border-color: var(--brand-strong); box-shadow: none; }
 .core-dialog__fields { border: 0; margin: 0; min-width: 0; }
 .core-client-continuation + .core-care-callout { font-size: .85rem; }
 details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer; }
@@ -744,6 +744,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-heading .eyebrow { margin-bottom: 2px; font-size: .72rem; }
   .core-care-heading { align-items: stretch; }
   .core-care-context--selected, .core-care-heading--selected .eyebrow { display: none; }
+  .core-client-continuation--selected > .panel__header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 10px 12px; }
   .synthetic-preview-banner { margin-bottom: 8px; padding: 8px 12px; font-size: .875rem; line-height: 1.35; }
   .synthetic-preview-banner p { margin-top: 2px; }
   .core-date-filter { align-items: flex-end; flex-direction: row; }

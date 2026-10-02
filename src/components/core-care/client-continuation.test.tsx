@@ -29,6 +29,7 @@ function continuation(overrides: Partial<ComponentProps<typeof ClientContinuatio
 describe("select once and continue the authorized daily workflow", () => {
   it("requires an explicit choice and carries the second person into the current page", () => {
     render(continuation());
+    expect(screen.getByRole("heading", { name: "先選定個案，再接續記錄" }).closest(".core-client-continuation")).not.toHaveClass("core-client-continuation--selected");
     expect(screen.getByRole("combobox", { name: "選擇個案" })).toHaveValue("");
     expect(screen.queryByRole("link", { name: "選定這位個案" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "選擇個案" }), { target: { value: second.clientId } });
@@ -37,6 +38,7 @@ describe("select once and continue the authorized daily workflow", () => {
   it("preserves the selected person/date through all three steps and changing person", () => {
     render(continuation({ selectedClientId: second.clientId }));
     expect(screen.getByRole("heading", { name: `${second.displayName}的接續工作` })).toBeVisible();
+    expect(screen.getByRole("heading", { name: `${second.displayName}的接續工作` }).closest(".core-client-continuation")).toHaveClass("core-client-continuation--selected");
     const steps = within(screen.getByRole("navigation", { name: "個案照顧三步驟" })).getAllByRole("link");
     expect(steps).toHaveLength(3);
     for (const link of steps) expect(link.getAttribute("href")).toContain(`?date=2026-09-10&client=${second.clientId}`);
