@@ -152,6 +152,19 @@ function QuestionnaireEditor({
     field?.scrollIntoView?.({ block: "center" });
   }
 
+  function focusNextUnfinished() {
+    if (firstUnfinishedQuestion) {
+      if (firstUnfinishedAnswer?.state === "not_applicable") focusReason(firstUnfinishedQuestion.id);
+      else focusQuestion(firstUnfinishedQuestion.id);
+    } else if (pendingContextFields.length) {
+      focusContextField(pendingContextFields[0].key);
+    }
+  }
+
+  const nextUnfinishedLabel = firstUnfinishedQuestion
+    ? `第 ${firstUnfinishedIndex + 1} 題${firstUnfinishedAnswer?.state === "not_applicable" ? "不適用原因" : ""}`
+    : pendingContextFields.length ? pendingContextFields[0].label : null;
+
   async function save() {
     const idempotencyKey = operationKey.current ?? crypto.randomUUID();
     operationKey.current = idempotencyKey;
@@ -258,7 +271,10 @@ function QuestionnaireEditor({
     <div className={styles.progress}>
       <div className={styles.progressText}>
         <strong>{client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
-        <span>填寫進度 {progressValue}／{progressTotal} 項</span>
+        {canManage && nextUnfinishedLabel ? <button aria-label={`從進度前往${nextUnfinishedLabel}`}
+          className={styles.progressJump} disabled={pending} onClick={focusNextUnfinished} type="button">
+          待補 {progressTotal - progressValue} <span aria-hidden="true">↓</span>
+        </button> : <span>填寫進度 {progressValue}／{progressTotal} 項</span>}
       </div>
       <progress aria-label={`${form.title}題目與計分條件進度`} max={progressTotal} value={progressValue} />
       <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
@@ -368,12 +384,9 @@ function QuestionnaireEditor({
           ? `題目已處理，待補 ${pendingReasonCount} 題不適用原因${pendingContextFields.length ? `，並待補${pendingContextLabel}` : ""}`
           : pendingContextFields.length ? `題目已處理，待補${pendingContextLabel}` : "目前沒有待補項目"}</strong>
         <span>可隨時保存草稿；保存不代表簽署或專業判讀。</span></div>
-      {firstUnfinishedQuestion ? <button className="button button--secondary" onClick={() => {
-        if (firstUnfinishedAnswer?.state === "not_applicable") focusReason(firstUnfinishedQuestion.id);
-        else focusQuestion(firstUnfinishedQuestion.id);
-      }} type="button">
+      {firstUnfinishedQuestion ? <button className="button button--secondary" onClick={focusNextUnfinished} type="button">
         前往第 {firstUnfinishedIndex + 1} 題{firstUnfinishedAnswer?.state === "not_applicable" ? "不適用原因" : ""}
-      </button> : pendingContextFields.length ? <button className="button button--secondary" onClick={() => focusContextField(pendingContextFields[0].key)} type="button">
+      </button> : pendingContextFields.length ? <button className="button button--secondary" onClick={focusNextUnfinished} type="button">
         前往{pendingContextFields[0].label}
       </button> : null}
     </div>

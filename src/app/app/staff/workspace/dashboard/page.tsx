@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { createHash } from "node:crypto";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
@@ -34,6 +35,9 @@ export default async function DashboardPage({
 
   const context = await requireTenantContext("staff");
   if (!canAccessCatalogPage(context, page)) return <StaffAccessDenied />;
+  const resumeScopeKey = createHash("sha256")
+    .update(JSON.stringify([context.organizationId, context.branchId, context.userId]))
+    .digest("hex");
 
   const query = await searchParams;
   const serviceDate = parseServiceDate(
@@ -61,6 +65,7 @@ export default async function DashboardPage({
         serviceDate={serviceDate}
         snapshot={snapshot}
         roster={await rosterPromise}
+        resumeScopeKey={resumeScopeKey}
       />
       <Suspense fallback={<DailyExpectedClientsLoading />}>
         <DailyExpectedClients context={context} serviceDate={serviceDate} statePromise={expectedClientsPromise} />

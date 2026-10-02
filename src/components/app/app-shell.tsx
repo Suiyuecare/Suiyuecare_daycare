@@ -183,12 +183,14 @@ export function AppShell({
 
   async function logout() {
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
+      document.dispatchEvent(new Event("daycare:session-ending"));
       router.replace("/login");
       router.refresh();
       return;
     }
     if (logoutRunning.current) return;
     logoutRunning.current = true;
+    document.dispatchEvent(new Event("daycare:session-ending"));
     // Remove the entire patient/employee shell immediately, before network or
     // IndexedDB work. A failed cleanup never restores the old sensitive view.
     setMenuOpen(false); setLogoutState("working"); setLogoutResult(null);

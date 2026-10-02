@@ -76,8 +76,11 @@ describe("staff shell logout privacy", () => {
     expect(screen.getByRole("button", { name: "重試清理並登出" })).toBeEnabled();
   });
   it("redirects only once all three cleanup confirmations succeed", async () => {
+    const clearEphemeral = vi.fn();
+    document.addEventListener("daycare:session-ending", clearEphemeral, { once: true });
     render(<AppShell context={actor} navigation={[]}><p>合成個案</p></AppShell>);
     fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
+    expect(clearEphemeral).toHaveBeenCalledOnce();
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
     expect(mocks.refresh).toHaveBeenCalledOnce();
   });

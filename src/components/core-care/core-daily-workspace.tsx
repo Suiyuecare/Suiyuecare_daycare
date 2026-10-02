@@ -225,10 +225,10 @@ export function CoreDailyWorkspace({
 
   return (
     <>
-      <nav aria-label="所在位置" className="context-bar">
+      <nav aria-label="所在位置" className={`context-bar${selectedClient ? " core-care-context-bar--selected" : ""}`}>
         <span>工作台</span><ChevronRight aria-hidden="true" /><span>{moduleTitle}</span><ChevronRight aria-hidden="true" /><span aria-current="page" className="context-bar__crumb">{page.title}</span>
       </nav>
-      <header className="page-heading core-care-heading">
+      <header className={`page-heading core-care-heading${selectedClient ? " core-care-heading--selected" : ""}`}>
         <div>
           <p className="eyebrow">每日照顧工作</p>
           <h1>{page.title}</h1>

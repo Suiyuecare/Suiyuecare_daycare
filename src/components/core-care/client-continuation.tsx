@@ -100,7 +100,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
     <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate, undefined, selectedShift)} loadingLabel="個案選擇" prefetch={false}>重新選擇個案</NavigationLink>
   </section>;
 
-  return <section className="panel core-client-continuation" aria-labelledby={`${selectId}-heading`}>
+  return <section className={`panel core-client-continuation${selected ? " core-client-continuation--selected" : ""}`} aria-labelledby={`${selectId}-heading`}>
     <div className="panel__header">
       <div className="panel__title"><h2 id={`${selectId}-heading`}>{selected ? `${selected.displayName}的接續工作` : "先選定個案，再接續記錄"}</h2>
         <p>{serviceDate}（臺北時間）{selectedShift ? ` · ${{ morning: "上午", afternoon: "下午", full_day: "全日" }[selectedShift]}` : ""}{selected ? ` · ${selected.clientCode}` : " · 出勤、量測、日誌沿用同一位個案與日期"}</p></div>
@@ -115,6 +115,7 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
         {chosen ? <NavigationLink className="button button--primary" href={dailyWorkflowHref(page, serviceDate, chosen.clientId, selectedShift)} loadingLabel={`${chosen.displayName}的工作清單`} prefetch={false}>選定這位個案</NavigationLink>
           : <button className="button button--primary" type="button" disabled>請先選擇個案</button>}
       </div> : <p>這個日期沒有可存取個案。請確認服務日期、分支與個案指派。</p> : null}
+      {selected ? action : null}
       <nav aria-label="個案照顧三步驟"><ol className="core-workflow-steps">
         {DAILY_WORKFLOW_STEPS.map((step, index) => <li key={step.page}>
           {selected && sourceAccess[step.source] && selected.sourceAccess?.[step.source] !== false ? <NavigationLink
@@ -127,7 +128,6 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
           </span>}
         </li>)}
       </ol></nav>
-      {selected ? action : null}
       {selected && sourceAccess.careDiaries && selected.sourceAccess?.careDiaries !== false ? <NavigationLink
         className="button button--secondary" href={`/app/client-forms?client=${selected.clientId}`} loadingLabel="個案表單填答" prefetch={false}>
         此個案的機構自訂表單

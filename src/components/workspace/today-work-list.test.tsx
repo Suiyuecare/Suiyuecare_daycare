@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
@@ -10,7 +10,8 @@ import { TodayWorkList } from "./today-work-list";
 import { DashboardWorkspace } from "./dashboard-workspace";
 
 vi.mock("@/components/app/navigation-link", () => ({
-  NavigationLink: ({ loadingLabel, ...props }: ComponentProps<"a"> & { loadingLabel: string }) => <a {...props} data-loading-label={loadingLabel} />,
+  NavigationLink: ({ loadingLabel, onClick, ...props }: ComponentProps<"a"> & { loadingLabel: string }) => <a {...props} data-loading-label={loadingLabel}
+    onClick={(event) => { onClick?.(event); event.preventDefault(); }} />,
 }));
 vi.mock("./dashboard-auto-refresh", () => ({ DashboardAutoRefresh: () => <button>立即更新</button> }));
 afterEach(cleanup);
@@ -155,6 +156,131 @@ describe("TodayWorkList", () => {
     }
   });
 
+  it("restores a same-actor search and task filter after returning without putting the query in history or Web Storage", async () => {
+    window.history.replaceState({ __NA: true, preservedRouterState: "router" }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const props = { rows, serviceDate: date, access: snapshot.sourceAccess, resumeScopeKey: "actor-a:branch-a" };
+    const storageWrite = vi.spyOn(Storage.prototype, "setItem");
+    const first = render(<TodayWorkList {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    fireEvent.click(screen.getByRole("link", { name: /黃O生.*前往量測/ }));
+    const historyState = window.history.state;
+    expect(historyState).toMatchObject({ __NA: true, preservedRouterState: "router", __daycareTodayResume: expect.any(String) });
+    expect(JSON.stringify(historyState)).not.toContain("HX-023");
+    expect(JSON.stringify(historyState)).not.toContain(rows[2]?.id);
+    expect(storageWrite).not.toHaveBeenCalled();
+    first.unmount();
+
+    render(<TodayWorkList {...props} />);
+    await waitFor(() => expect(screen.getByRole("searchbox")).toHaveValue("HX-023"));
+    expect(screen.getByRole("status")).toHaveTextContent("尚無量測：1 位（搜尋結果）");
+    expect(screen.getByRole("link", { name: /黃O生.*前往量測/ })).toBeVisible();
+    storageWrite.mockRestore();
+  });
+
+  it("clamps restored pagination when the reauthorized list shrinks", async () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const many = Array.from({ length: 45 }, (_, index) => ({ ...rows[0]!, id: `a1111111-1111-4111-8111-${String(index).padStart(12, "0")}`, code: `TEST-${index}` }));
+    const props = { serviceDate: date, access: snapshot.sourceAccess, resumeScopeKey: "actor-b:branch-a" };
+    const first = render(<TodayWorkList {...props} rows={many} />);
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    fireEvent.click(screen.getByRole("link", { name: /TEST-40/ }));
+    first.unmount();
+
+    render(<TodayWorkList {...props} rows={many.slice(0, 23)} />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("第 2 / 2 頁"));
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.queryByText("TEST-40")).not.toBeInTheDocument();
+  });
+
+  it("restores the same service-day shift and unassigned-only choice", async () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const roster: CareRosterSnapshot = { status: "ready", manager: true, demo: true, staffOptions: [],
+      assignments: [snapshot.clients[0]!, snapshot.clients[1]!].map((client, index) => ({
+        id: `assignment-${index}`, clientId: client.clientId, staffUserId: index === 0 ? null : "assigned-staff",
+        staffName: index === 0 ? null : "合成照服員", serviceDate: date, shift: "afternoon" as const,
+        version: 1, state: "scheduled" as const, isServiceEligible: true, serviceEligibility: "eligible" as const,
+        sourceNote: "合成測試", tasks: [{ kind: "care_diary" as const, status: "pending" as const, evidenceAt: null }],
+      })) };
+    const props = { rows: buildTodayWorkRows(snapshot, roster), roster, serviceDate: date, access: snapshot.sourceAccess,
+      resumeScopeKey: "actor-shift:branch-a" };
+    const first = render(<TodayWorkList {...props} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "班別" }), { target: { value: "afternoon" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "只看待指派" }));
+    expect(screen.getByRole("status")).toHaveTextContent("全部當班：1 位");
+    fireEvent.click(screen.getByRole("link", { name: /陳O華.*下午/ }));
+    first.unmount();
+
+    render(<TodayWorkList {...props} />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "班別" })).toHaveValue("afternoon"));
+    expect(screen.getByRole("checkbox", { name: "只看待指派" })).toBeChecked();
+    expect(screen.getByRole("status")).toHaveTextContent("全部當班：1 位");
+    expect(screen.getByRole("link", { name: /陳O華.*下午/ })).toHaveAttribute("href", expect.stringContaining("shift=afternoon"));
+  });
+
+  it("never carries an in-memory search into another actor or branch, even if the visible clients overlap", () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const common = { rows, serviceDate: date, access: snapshot.sourceAccess };
+    const first = render(<TodayWorkList {...common} resumeScopeKey="actor-c:branch-a" />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    first.unmount();
+
+    render(<TodayWorkList {...common} resumeScopeKey="actor-d:branch-b" />);
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
+    expect(JSON.stringify(window.history.state)).not.toContain("HX-023");
+  });
+
+  it("erases a saved search after ten minutes when the tab becomes visible again", async () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const props = { rows, serviceDate: date, access: snapshot.sourceAccess, resumeScopeKey: "actor-expiry:branch-a" };
+    const first = render(<TodayWorkList {...props} />);
+    await waitFor(() => expect(window.history.state.__daycareTodayResume).toEqual(expect.any(String)));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    first.unmount();
+
+    const future = Date.now() + 10 * 60_000 + 1;
+    const now = vi.spyOn(Date, "now").mockReturnValue(future);
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      render(<TodayWorkList {...props} />);
+      expect(screen.getByRole("searchbox")).toHaveValue("");
+      expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("erases the in-memory search immediately when logout begins", () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const props = { rows, serviceDate: date, access: snapshot.sourceAccess, resumeScopeKey: "actor-logout:branch-a" };
+    const first = render(<TodayWorkList {...props} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    first.unmount();
+
+    document.dispatchEvent(new Event("daycare:session-ending"));
+    render(<TodayWorkList {...props} />);
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
+    expect(JSON.stringify(window.history.state)).not.toContain("HX-023");
+  });
+
+  it("keeps a restored restricted filter safely empty when that source permission is revoked", async () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const scope = "actor-e:branch-a";
+    const first = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} resumeScopeKey={scope} />);
+    fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
+    fireEvent.click(screen.getByRole("link", { name: /黃O生.*前往量測/ }));
+    first.unmount();
+
+    const access = { ...snapshot.sourceAccess, measurements: false };
+    render(<TodayWorkList rows={buildTodayWorkRows({ ...snapshot, sourceAccess: access })} serviceDate={date} access={access} resumeScopeKey={scope} />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("目前沒有「尚無量測」查閱權限"));
+    expect(screen.queryByRole("link", { name: /前往量測/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("此清單目前沒有待處理個案")).not.toBeInTheDocument();
+  });
+
   it("uses a restricted state instead of zero when a source is unavailable", () => {
     const access = { ...snapshot.sourceAccess, measurements: false };
     render(<TodayWorkList rows={buildTodayWorkRows({ ...snapshot, sourceAccess: access })} serviceDate={date} access={access} />);
@@ -182,6 +308,14 @@ describe("TodayWorkList", () => {
 });
 
 describe("dashboard frontline / management boundary", () => {
+  it("remounts the work list with blank search when the active branch changes", () => {
+    const { rerender } = render(<DashboardWorkspace snapshot={snapshot} serviceDate={date} resumeScopeKey="actor-branch-test:branch-a" />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    expect(screen.getByRole("searchbox")).toHaveValue("HX-023");
+    rerender(<DashboardWorkspace snapshot={snapshot} serviceDate={date} resumeScopeKey="actor-branch-test:branch-b" />);
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
+  });
   it("shows the preparation entrance only when the server explicitly enables it, including errors", () => {
     const { rerender } = render(<DashboardWorkspace snapshot={snapshot} serviceDate={date} />);
     expect(screen.queryByRole("link", { name: "主管：檢查開站缺項" })).not.toBeInTheDocument();
