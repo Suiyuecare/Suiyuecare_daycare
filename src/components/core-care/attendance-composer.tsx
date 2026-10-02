@@ -11,6 +11,9 @@ import { useCoreDraftGuard } from "./client-continuation";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { dailyWorkflowHref, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
+import { NavigationLink } from "@/components/app/navigation-link";
+import { taipeiServiceDateOf } from "@/lib/core-care/date";
 
 type AttendanceRequest = { client_id: string; event_kind: AttendanceEventKind; occurred_at: string; reason?: string };
 
@@ -96,12 +99,14 @@ export function AttendanceComposer({
   enabled,
   demo,
   selectedClientId,
+  selectedShift,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
   enabled: boolean;
   demo: boolean;
   selectedClientId?: string;
+  selectedShift?: DailyWorkflowShift;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -135,6 +140,8 @@ export function AttendanceComposer({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticePending, setNoticePending] = useState(false);
+  const [nextClientId, setNextClientId] = useState<string | null>(null);
   const isBackfill = isBackfillCandidate(occurredAt);
 
   function resetForOpen() {
@@ -147,6 +154,8 @@ export function AttendanceComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    setNoticePending(false);
+    setNextClientId(null);
   }
 
   function open(event: MouseEvent<HTMLButtonElement>) {
@@ -159,7 +168,7 @@ export function AttendanceComposer({
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆出勤結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    if (attempt.current()) { dialog.current?.close(); setNoticePending(true); setNotice("上一筆出勤結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
     if (!draft.discard()) return;
     dialog.current?.close();
   }
@@ -191,6 +200,8 @@ export function AttendanceComposer({
       };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
         draft.saved(); dialog.current?.close();
+        setNextClientId(null);
+        setNoticePending(true);
         setNotice("出勤已保存在裝置等待送出；尚未確認儲存到系統。若已超過補登期限，會保留給您確認。");
         return;
       }
@@ -213,14 +224,19 @@ export function AttendanceComposer({
       });
       await offline.saved();
       attempt.confirmed();
+      const savedDate = taipeiServiceDateOf(frozen.body.occurred_at);
 
       draft.saved();
       dialog.current?.close();
       setNotice(
         demo
           ? `展示${eventLabels[effectiveEventKind]}已通過相同驗證；展示資料不會永久保存。`
-          : `${selectedClient?.name ?? "此個案"}${eventLabels[frozen.body.event_kind]}已儲存${isBackfill ? "並標記為補登" : ""}。可接續上方量測步驟。`,
+          : savedDate !== serviceDate
+            ? `${selectedClient?.name ?? "此個案"}${eventLabels[frozen.body.event_kind]}已儲存於 ${savedDate ?? "其他服務日"}，與畫面所選日期不同；請先切換服務日再接續。`
+            : `${selectedClient?.name ?? "此個案"}${eventLabels[frozen.body.event_kind]}已儲存${isBackfill ? "並標記為補登" : ""}。${frozen.body.event_kind === "check_in" ? "可接續量測。" : "請核對當日狀態。"}`,
       );
+      setNoticePending(false);
+      setNextClientId(!demo && frozen.body.event_kind === "check_in" && savedDate === serviceDate ? frozen.body.client_id : null);
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (submitError) {
@@ -257,11 +273,9 @@ export function AttendanceComposer({
         <ClipboardCheck aria-hidden="true" />登錄出勤
       </button>
       {unavailableSelection ? <p role="status">指定個案目前無可用出勤動作；不會自動改為其他個案。</p> : null}
-      {notice ? (
-        <p className="core-composer__notice" role="status">
-          {notice}
-        </p>
-      ) : null}
+      {notice ? <div className="core-composer__result"><p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p>
+        {nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(3, serviceDate, nextClientId, selectedShift)} loadingLabel="量測" prefetch={false}>接著量測</NavigationLink> : null}
+      </div> : null}
       <dialog
         aria-labelledby="attendance-dialog-title"
         className="core-dialog"

@@ -65,9 +65,10 @@ function attendanceDuration(client: DailyClientSummary) {
   return `${Math.floor(minutes / 60)} 小時 ${minutes % 60} 分`;
 }
 
-function diaryLabel(client: DailyClientSummary) {
+function diaryLabel(client: DailyClientSummary, selectedShift?: DailyWorkflowShift) {
   if (client.sourceAccess?.careDiaries === false) return "無查閱權限";
   if (!client.careDiary) return client.applicability?.care === "not_expected" ? "不列入待填" : client.applicability?.care === "unknown" ? "適用性待確認" : "尚無日誌";
+  if (selectedShift) return client.careDiary.hasAbnormalFlag ? "需留意・當日最新，班別待核對" : "當日有日誌・班別待核對";
   if (client.careDiary.hasAbnormalFlag) return "需留意";
   return {
     draft: "草稿",
@@ -120,7 +121,7 @@ function metricsForPage(page: PageCatalogEntry, snapshot: DailyCareSnapshot): Me
   ];
 }
 
-function VitalCells({ client }: { client: DailyClientSummary }) {
+function VitalCells({ client, selectedShift }: { client: DailyClientSummary; selectedShift?: DailyWorkflowShift }) {
   const vital = client.vitalSigns;
   return (
     <>
@@ -129,13 +130,13 @@ function VitalCells({ client }: { client: DailyClientSummary }) {
       <td>{vital?.temperature == null ? "—" : vital.temperature.toFixed(1)}</td>
       <td>{vital?.oxygenSaturation ?? "—"}</td>
       <td>{formatTime(vital?.measuredAt ?? null)}</td>
-      <td><StatusPill status={vitalLabel(client)} /></td>
+      <td><StatusPill status={vitalLabel(client, selectedShift)} /></td>
     </>
   );
 }
 
-function vitalLabel(client: DailyClientSummary) {
-  return client.sourceAccess?.measurements === false ? "無查閱權限" : client.vitalSigns ? "已有量測" : client.applicability?.care === "not_expected" ? "不列入待填" : client.applicability?.care === "unknown" ? "適用性待確認" : "尚無量測";
+function vitalLabel(client: DailyClientSummary, selectedShift?: DailyWorkflowShift) {
+  return client.sourceAccess?.measurements === false ? "無查閱權限" : client.vitalSigns ? selectedShift ? "當日有量測・班別待核對" : "已有量測" : client.applicability?.care === "not_expected" ? "不列入待填" : client.applicability?.care === "unknown" ? "適用性待確認" : "尚無量測";
 }
 
 function applicabilityLabel(client: DailyClientSummary) {
@@ -143,12 +144,12 @@ function applicabilityLabel(client: DailyClientSummary) {
   return labels[client.applicability?.reason ?? "unknown"];
 }
 
-function DesktopRows({ page, clients, sourceAccess }: { page: PageCatalogEntry; clients: readonly DailyClientSummary[]; sourceAccess: DailyCareSnapshot["sourceAccess"] }) {
+function DesktopRows({ page, clients, sourceAccess, selectedShift }: { page: PageCatalogEntry; clients: readonly DailyClientSummary[]; sourceAccess: DailyCareSnapshot["sourceAccess"]; selectedShift?: DailyWorkflowShift }) {
   return clients.map((client) => (
     <tr key={client.clientId}>
       <td><span className="data-table__primary"><span className="avatar" aria-hidden="true">{client.displayName.slice(0, 1)}</span><span>{client.displayName}<small className="data-table__secondary">{client.clientCode} · {applicabilityLabel(client)}</small></span></span></td>
-      {page.number === 3 ? <VitalCells client={client} /> : null}
-      {page.number === 6 ? <><td>{formatTime(client.careDiary?.occurredAt ?? null)}</td><td><StatusPill status={diaryLabel(client)} /></td><td>{client.careDiary ? client.careDiary.hasAbnormalFlag ? "是，待處理" : "未標記異常" : "尚無日誌"}</td><td>{client.careDiary?.status === "signed" ? "已簽署" : "—"}</td></> : null}
+      {page.number === 3 ? <VitalCells client={client} selectedShift={selectedShift} /> : null}
+      {page.number === 6 ? <><td>{formatTime(client.careDiary?.occurredAt ?? null)}</td><td><StatusPill status={diaryLabel(client, selectedShift)} /></td><td>{client.careDiary ? client.careDiary.hasAbnormalFlag ? "是，待處理" : "未標記異常" : "尚無日誌"}</td><td>{selectedShift && client.careDiary ? "班別待核對" : client.careDiary?.status === "signed" ? "已簽署" : "—"}</td></> : null}
       {page.number === 46 ? <><td>{formatTime(client.attendance?.checkedInAt ?? null)}</td><td>{formatTime(client.attendance?.checkedOutAt ?? null)}</td><td>{attendanceDuration(client)}</td><td>{attendanceSourceLabel(client.attendance?.source)}</td><td><StatusPill status={attendanceLabel(client)} /></td></> : null}
       {page.number === 54 ? <><td>{sourceAccess.attendance ? attendanceLabel(client) : "無查閱權限"}</td><td>{sourceAccess.measurements ? client.vitalSigns ? "已有量測" : "尚無量測" : "無查閱權限"}</td><td>{sourceAccess.careDiaries ? diaryLabel(client) : "無查閱權限"}</td><td>{sourceAccess.serviceEvents ? `${client.completedServiceCount} 筆` : "無查閱權限"}</td><td>{Object.values(sourceAccess).every(Boolean) ? `${client.sourceCoverage}/4` : "部分來源未授權"}</td></> : null}
     </tr>
@@ -204,7 +205,7 @@ export function CoreDailyWorkspace({
       ? snapshot.sourceAccess.careDiaries : page.number === 46 ? snapshot.sourceAccess.attendance
         : Object.values(snapshot.sourceAccess).every(Boolean)
   );
-  const metrics = snapshot && pageSourceAllowed && !invalidSelection && !selectedClient ? metricsForPage(page, snapshot) : [];
+  const metrics = snapshot && pageSourceAllowed && !invalidSelection && !selectedClient && !selectedShift ? metricsForPage(page, snapshot) : [];
   const generatedAt = snapshot ? formatTime(snapshot.generatedAt) : "—";
   const composerClients = selectedClient ? [{
     id: selectedClient.clientId, name: selectedClient.displayName, code: selectedClient.clientCode,
@@ -215,11 +216,11 @@ export function CoreDailyWorkspace({
   const selectedSourceAllowed = selectedClient?.sourceAccess?.[page.number === 3 ? "measurements" : page.number === 6 ? "careDiaries" : "attendance"] !== false;
   const composer = snapshot && selectedClient && selectedClient.applicability?.eligible !== false && pageSourceAllowed && selectedSourceAllowed ? (
     page.number === 3 ? <VitalSignComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-      serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} />
+      serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} />
       : page.number === 6 ? <CareDiaryComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
         serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} />
         : page.number === 46 ? <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-          serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} /> : null
+          serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} /> : null
   ) : null;
 
   return (
@@ -269,18 +270,18 @@ export function CoreDailyWorkspace({
 
           {!invalidSelection && pageSourceAllowed ? <section className="panel">
             <div className="panel__header">
-              <div className="panel__title"><h2>{selectedClient ? `${selectedClient.displayName}的${page.number === 3 ? "量測" : page.number === 6 ? "日誌" : "出勤"}紀錄` : "當日個案工作清單"}</h2><p>{snapshot.serviceDate} · {recordClients.length} 位{selectedClient ? "已選定" : "可存取"}個案{selectedShift ? " · 下方為當日紀錄，班別完成狀態請回今日工作確認" : ""}</p></div>
+              <div className="panel__title"><h2>{selectedClient ? `${selectedClient.displayName}的${page.number === 3 ? "量測" : page.number === 6 ? "日誌" : "出勤"}紀錄` : "當日個案工作清單"}</h2><p>{snapshot.serviceDate} · {recordClients.length} 位{selectedClient ? "已選定" : "可存取"}個案{selectedShift ? " · 下方是當日摘要，不代表所選班別完成" : ""}</p></div>
               {!selectedClient ? <p>請先在上方選定個案，再新增紀錄。</p> : null}
             </div>
             {recordClients.length ? (
               <>
                 <div className="table-wrap core-care-table">
-                  <table className="data-table"><thead><tr>{tableHeadings(page).map((heading) => <th key={heading} scope="col">{heading}</th>)}</tr></thead><tbody><DesktopRows clients={recordClients} page={page} sourceAccess={snapshot.sourceAccess} /></tbody></table>
+                  <table className="data-table"><thead><tr>{tableHeadings(page).map((heading) => <th key={heading} scope="col">{heading}</th>)}</tr></thead><tbody><DesktopRows clients={recordClients} page={page} sourceAccess={snapshot.sourceAccess} selectedShift={selectedShift} /></tbody></table>
                 </div>
                 <div className="mobile-records core-care-mobile">
                   {recordClients.map((client) => (
                     <article className="record-card" key={client.clientId}>
-                      <div className="record-card__top"><div><h3>{client.displayName}</h3><span className="data-table__secondary">{client.clientCode} · {applicabilityLabel(client)}</span></div><StatusPill status={page.number === 46 ? attendanceLabel(client) : page.number === 6 ? diaryLabel(client) : vitalLabel(client)} /></div>
+                      <div className="record-card__top"><div><h3>{client.displayName}</h3><span className="data-table__secondary">{client.clientCode} · {applicabilityLabel(client)}</span></div><StatusPill status={page.number === 46 ? attendanceLabel(client) : page.number === 6 ? diaryLabel(client, selectedShift) : vitalLabel(client, selectedShift)} /></div>
                       {page.number === 46 ? (
                         <dl className="core-care-card-grid">
                           <div><dt>簽到</dt><dd>{formatTime(client.attendance?.checkedInAt ?? null)}</dd></div>
@@ -300,7 +301,7 @@ export function CoreDailyWorkspace({
                         <dl className="core-care-card-grid">
                           <div><dt>簽到</dt><dd>{snapshot.sourceAccess.attendance ? formatTime(client.attendance?.checkedInAt ?? null) : "無查閱權限"}</dd></div>
                           <div><dt>最近量測</dt><dd>{snapshot.sourceAccess.measurements ? formatTime(client.vitalSigns?.measuredAt ?? null) : "無查閱權限"}</dd></div>
-                          <div><dt>照顧日誌</dt><dd>{diaryLabel(client)}</dd></div>
+                          <div><dt>照顧日誌</dt><dd>{diaryLabel(client, selectedShift)}</dd></div>
                           <div><dt>完成服務</dt><dd>{snapshot.sourceAccess.serviceEvents ? `${client.completedServiceCount} 筆` : "無查閱權限"}</dd></div>
                         </dl>
                       )}

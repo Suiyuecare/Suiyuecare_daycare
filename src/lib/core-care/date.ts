@@ -1,5 +1,15 @@
 const SERVICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 
+/** Exact calendar day in Taipei for a persisted instant; null is never treated as today. */
+export function taipeiServiceDateOf(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date).map(({ type, value: part }) => [type, part]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 /** Explicit separators avoid Node/browser ICU whitespace hydration differences. */
 export function formatCareTaipeiTime(value: string) {
   const date = new Date(value);

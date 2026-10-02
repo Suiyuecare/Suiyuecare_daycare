@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AttendanceComposer } from "./attendance-composer";
 import { VitalSignComposer } from "./vital-sign-composer";
 import { CareDiaryComposer } from "./care-diary-composer";
+import { taipeiServiceDateOf } from "@/lib/core-care/date";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 beforeAll(() => {
@@ -69,10 +70,47 @@ function successfulResponse(spec: typeof specs[number], init: RequestInit) {
     data: { replayed: false, persisted: true, demo: false, operation: {
       id: "d2222222-2222-4222-8222-222222222222", attendanceId: "d3333333-3333-4333-8333-333333333333",
       clientId: body.client_id, eventKind: body.event_kind, occurredAt: body.occurred_at,
-      serviceDate: date, status: "present", checkedInAt: body.occurred_at, checkedOutAt: null, source: "staff_backfill",
+      serviceDate: taipeiServiceDateOf(body.occurred_at), status: "present", checkedInAt: body.occurred_at, checkedOutAt: null, source: "staff_backfill",
     } },
   }), { status: 201 });
 }
+
+describe.each(specs.filter((spec) => spec.kind !== "diary"))("$kind next action", (spec) => {
+  it("appears only after a confirmed persisted receipt and keeps the person, day and shift", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => Promise.resolve(successfulResponse(spec, init)));
+    vi.stubGlobal("fetch", fetchMock);
+    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId, selectedShift: "morning" as const };
+    render(spec.kind === "attendance" ? <AttendanceComposer {...props} /> : <VitalSignComposer {...props} />);
+    expect(screen.queryByRole("link", { name: /接著/u })).not.toBeInTheDocument();
+    const { form } = open(spec); fireEvent.submit(form);
+    const next = await screen.findByRole("link", { name: spec.kind === "attendance" ? "接著量測" : "接著寫日誌" });
+    expect(next).toHaveAttribute("href", expect.stringContaining(`client=${selectedClientId}`));
+    expect(next).toHaveAttribute("href", expect.stringContaining(`date=${date}`));
+    expect(next).toHaveAttribute("href", expect.stringContaining("shift=morning"));
+    expect(next).toHaveAttribute("href", expect.stringContaining(spec.kind === "attendance" ? "/vital-signs" : "/care-diary"));
+  });
+
+  it("does not offer the next action for an unconfirmed write", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 503 })));
+    mount(spec.kind);
+    const { dialog, form } = open(spec); fireEvent.submit(form);
+    await within(dialog).findByRole("alert");
+    expect(screen.queryByRole("link", { name: /接著/u })).not.toBeInTheDocument();
+  });
+
+  it("does not carry a backdated write into the currently selected service day", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => Promise.resolve(successfulResponse(spec, init)));
+    vi.stubGlobal("fetch", fetchMock);
+    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId, selectedShift: "morning" as const };
+    render(spec.kind === "attendance" ? <AttendanceComposer {...props} /> : <VitalSignComposer {...props} />);
+    const { dialog, form } = open(spec);
+    fireEvent.change(within(dialog).getByLabelText(spec.time), { target: { value: "2026-09-11T09:10" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+    expect(screen.getByRole("status")).toHaveTextContent("2026-09-11");
+    expect(screen.queryByRole("link", { name: /接著/u })).not.toBeInTheDocument();
+  });
+});
 
 describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
   it("preserves the exact selected person and date in the API payload", async () => {

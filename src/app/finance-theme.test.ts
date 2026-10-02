@@ -38,6 +38,18 @@ describe("Finance production theme contract (5f6820a, verified 2026-09-24)", () 
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]+\.module-loading__bar b \{ animation: none;/u);
   });
 
+  it("keeps route-change feedback in a small corner instead of blanketing the old page", () => {
+    const transition = css.match(/\.module-loading--transition \{([^}]*)\}/u)?.[1];
+    expect(transition).toContain("position: fixed;");
+    expect(transition).toContain("width: min(300px,");
+    expect(transition).toContain("background: transparent;");
+    expect(transition).toContain("pointer-events: none;");
+    expect(transition).not.toMatch(/\binset:/u);
+    expect(css).toContain(".module-loading--transition .module-loading__bar { height: 3px;");
+    expect(css).toContain(".module-loading--transition { top: calc(var(--header-height) + 8px);");
+    expect(css).toContain("body:has(.family-shell) .module-loading--transition { top: 80px;");
+  });
+
   it("uses the current production rectangular controls and cards, not the superseded pill theme", () => {
     expect(css).toContain("--control-radius: 10px;");
     expect(css).toContain("--card-radius: 10px;");

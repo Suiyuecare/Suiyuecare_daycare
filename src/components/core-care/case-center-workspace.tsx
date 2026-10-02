@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -201,6 +202,16 @@ export function CaseCenterWorkspace({
     responsible: "all",
     page: 1,
   });
+  const activeFilterLabels = [
+    filters.lifecycle !== "all" ? lifecycleLabels[filters.lifecycle] : null,
+    filters.service !== "all" ? serviceLabels[filters.service] : null,
+    filters.responsible !== "all"
+      ? responsibleValue === "me"
+        ? currentUser?.label ?? "我"
+        : snapshot.responsibleOptions.find((person) => person.userId === filters.responsible)?.label
+          ?? `人員代碼 ${filters.responsible.slice(-6).toUpperCase()}（受限）`
+      : null,
+  ].filter((label): label is string => Boolean(label));
   // The demo directory intentionally has more people than its six runnable
   // daily-care fixtures. Never advertise a dead-end action for the extras.
   const demoDailyIds = snapshot.demo
@@ -285,53 +296,70 @@ export function CaseCenterWorkspace({
 
         <form className="filter-bar case-center-filters" method="get">
           <input name="date" type="hidden" value={filters.date} />
-          <label className="filter-search">
-            <Search aria-hidden="true" />
-            <span className="sr-only">搜尋個案代碼或姓名</span>
-            <input
-              autoComplete="off"
-              defaultValue={filters.query}
-              maxLength={120}
-              name="q"
-              placeholder="搜尋個案代碼或姓名…"
-              type="search"
-            />
-          </label>
-          <label className="field case-center-filter-field">
-            <span>生命週期</span>
-            <select defaultValue={filters.lifecycle} name="lifecycle">
-              {Object.entries(lifecycleLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field case-center-filter-field">
-            <span>服務狀態</span>
-            <select defaultValue={filters.service} name="service">
-              {Object.entries(serviceLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field case-center-filter-field">
-            <span>負責人</span>
-            <select defaultValue={responsibleValue} name="responsible">
-              <option value="all">全部可見指派</option>
-              {currentUser && <option value="me">{currentUser.label}</option>}
-              {snapshot.responsibleOptions
-                .filter((person) => !person.currentUser)
-                .map((person) => (
-                  <option key={person.userId} value={person.userId}>{person.label}</option>
-                ))}
-              {selectedResponsibleMissing && (
-                <option value={filters.responsible}>
-                  人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
-                </option>
-              )}
-            </select>
-          </label>
-          <button className="button button--primary" type="submit">套用篩選</button>
-          <Link className="button button--secondary" href={clearHref}>清除</Link>
+          <div className="case-center-search-row">
+            <label className="filter-search">
+              <Search aria-hidden="true" />
+              <span className="sr-only">搜尋個案代碼或姓名</span>
+              <input
+                autoComplete="off"
+                defaultValue={filters.query}
+                maxLength={120}
+                name="q"
+                placeholder="搜尋個案代碼或姓名…"
+                type="search"
+              />
+            </label>
+            <button className="button button--primary" type="submit">搜尋</button>
+          </div>
+          <details className="case-center-advanced-filters">
+            <summary>
+              <span className="case-center-filter-label--closed">展開篩選</span>
+              <span className="case-center-filter-label--open">收合篩選</span>
+              <span className="case-center-filter-summary">
+                {activeFilterLabels.length ? `已套用：${activeFilterLabels.join("、")}` : "未設定進階條件"}
+              </span>
+              <ChevronDown aria-hidden="true" />
+            </summary>
+            <div className="case-center-filter-options">
+              <label className="field case-center-filter-field">
+                <span>生命週期</span>
+                <select defaultValue={filters.lifecycle} name="lifecycle">
+                  {Object.entries(lifecycleLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field case-center-filter-field">
+                <span>服務狀態</span>
+                <select defaultValue={filters.service} name="service">
+                  {Object.entries(serviceLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field case-center-filter-field">
+                <span>負責人</span>
+                <select defaultValue={responsibleValue} name="responsible">
+                  <option value="all">全部可見指派</option>
+                  {currentUser && <option value="me">{currentUser.label}</option>}
+                  {snapshot.responsibleOptions
+                    .filter((person) => !person.currentUser)
+                    .map((person) => (
+                      <option key={person.userId} value={person.userId}>{person.label}</option>
+                    ))}
+                  {selectedResponsibleMissing && (
+                    <option value={filters.responsible}>
+                      人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
+                    </option>
+                  )}
+                </select>
+              </label>
+              <div className="case-center-filter-actions">
+                <button className="button button--primary" type="submit">套用篩選</button>
+                <Link className="button button--secondary" href={clearHref}>清除</Link>
+              </div>
+            </div>
+          </details>
         </form>
 
         {snapshot.access.responsibleFilterRestricted ? (

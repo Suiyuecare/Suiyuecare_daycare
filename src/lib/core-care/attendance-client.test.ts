@@ -44,4 +44,9 @@ describe("attendance browser success contract", () => {
     expect(() => parseAttendanceSuccess(wrap({ operation: { ...operation, status: "leave" }, replayed: false, persisted: true, demo: false }), 201, expected)).toThrow(AttendanceClientContractError);
     expect(() => parseAttendanceSuccess(wrap({ operation, replayed: false, persisted: true, demo: false, injected: true }), 201, expected)).toThrow(AttendanceClientContractError);
   });
+
+  it("rejects a receipt whose service date differs from the saved Taipei event date", () => {
+    const wrongDate = { ...operation, serviceDate: "2026-09-02" };
+    expect(() => parseAttendanceSuccess(wrap({ operation: wrongDate, replayed: false, persisted: true, demo: false }), 201, expected)).toThrow(AttendanceClientContractError);
+  });
 });

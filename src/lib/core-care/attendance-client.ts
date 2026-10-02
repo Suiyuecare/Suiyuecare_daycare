@@ -2,6 +2,7 @@ import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { z } from "zod";
 
 import { ATTENDANCE_EVENT_KINDS, type AttendanceEventKind } from "./attendance-constants";
+import { taipeiServiceDateOf } from "./date";
 
 const uuid = z.string().uuid().transform((value) => value.toLowerCase());
 const timestamp = z.string().refine(
@@ -88,6 +89,7 @@ export function parseAttendanceSuccess(
   if (!data.demo) {
     const persisted = data.operation;
     if (
+      persisted.serviceDate !== taipeiServiceDateOf(expected.occurredAt) ||
       persisted.status !== expectedStatus ||
       (expected.eventKind === "check_in" &&
         (persisted.checkedInAt !== occurredAt.data || persisted.checkedOutAt !== null)) ||

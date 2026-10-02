@@ -1489,6 +1489,9 @@ export default async function StaffCatalogPage({
     if (snapshot && selectedClientId) {
       snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
     }
+    const selectedDailyClient = selectedClientId
+      ? snapshot?.clients.find((client) => client.clientId === selectedClientId)
+      : undefined;
     const writePermission = page.number === 3 ? "health.write" : page.number === 6
       ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
     const [canWriteRoutine, canReadDiary] = await Promise.all([
@@ -1499,8 +1502,8 @@ export default async function StaffCatalogPage({
       <CoreDailyWorkspace
         clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
           ? <CareReminderCard clientId={selectedClientId} context={context} /> : undefined}
-        diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
-          ? <CareDiaryLifecycle clientId={selectedClientId} readEnabled={canReadDiary} enabled={canWriteRoutine}
+        diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && selectedDailyClient
+          ? <CareDiaryLifecycle clientId={selectedClientId} clientName={selectedDailyClient.displayName} clientCode={selectedDailyClient.clientCode} serviceDate={serviceDate} selectedShift={selectedShift} readEnabled={canReadDiary} enabled={canWriteRoutine}
             canRevise={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.write")}
             canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}

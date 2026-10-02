@@ -43,6 +43,21 @@ describe("ModuleLoading accessible indeterminate state", () => {
     expect(screen.getByRole("status").classList.contains("module-loading--transition")).toBe(false);
   });
 
+  it("keeps route-change feedback compact without changing the initial loader", () => {
+    const { container, rerender } = render(<ModuleLoading title="正在載入個案中心" transition />);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("正在載入個案中心");
+    expect(container.querySelector(".module-loading__logo, .module-loading__card > span")).toBeNull();
+    const progress = screen.getByRole("progressbar", { name: "頁面載入中" });
+    expect(progress.hasAttribute("aria-valuenow")).toBe(false);
+    expect(progress.hasAttribute("aria-valuetext")).toBe(false);
+
+    rerender(<ModuleLoading />);
+    expect(container.querySelector(".module-loading__logo")).not.toBeNull();
+    expect(container.querySelector(".module-loading__card > span")).not.toBeNull();
+    expect(screen.getByRole("progressbar", { name: "系統功能載入中" })).toBeTruthy();
+  });
+
   it("uses a decorative local logo rather than remote or identity-bearing content", () => {
     const { container } = render(<ModuleLoading />);
     const logo = container.querySelector("img");

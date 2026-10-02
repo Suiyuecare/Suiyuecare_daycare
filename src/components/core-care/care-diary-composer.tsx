@@ -12,6 +12,7 @@ import { DiaryObservationsFields } from "./diary-observations";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { notifyConfirmedDiaryDraft } from "@/lib/core-care/diary-draft-event";
 import type { CareDiaryFields } from "@/lib/care-diary/schema";
 import { isDailyWorkflowShift, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
 
@@ -69,6 +70,7 @@ export function CareDiaryComposer({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticePending, setNoticePending] = useState(false);
   const [draftSession, setDraftSession] = useState(0);
   const [restoredObservations, setRestoredObservations] = useState<Record<string, string>>();
   const offline = useOfflineCareForm({ kind: "care-note", serviceDate, enabled, demo, allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
@@ -83,12 +85,13 @@ export function CareDiaryComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    setNoticePending(false);
     dialog.current?.showModal();
   }
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆日誌結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    if (attempt.current()) { dialog.current?.close(); setNoticePending(true); setNotice("上一筆日誌結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
     if (!draft.discard()) return;
     dialog.current?.close();
   }
@@ -124,6 +127,7 @@ export function CareDiaryComposer({
         };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
         draft.saved(); dialog.current?.close();
+        setNoticePending(true);
         setNotice("已保存在裝置等待送出；尚未確認儲存到系統。");
         return;
       }
@@ -135,7 +139,7 @@ export function CareDiaryComposer({
       });
       if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
       const raw: unknown = await response.json().catch(() => null);
-      parseDiaryWriteReceipt(raw, response.status, demo);
+      const receipt = parseDiaryWriteReceipt(raw, response.status, demo);
       await offline.saved();
       attempt.confirmed();
       form.reset();
@@ -144,10 +148,14 @@ export function CareDiaryComposer({
       setNotice(
         demo
           ? "展示草稿已通過欄位與重送檢查；展示資料不會永久保存。"
-          : "照顧日誌草稿已儲存；尚未簽署，不會計為正式完成。",
+          : "系統已回覆草稿儲存；請查看下方讀回結果，尚未簽署。",
       );
+      setNoticePending(!demo);
       idempotencyKey.current = crypto.randomUUID();
-      if (!demo) router.refresh();
+      if (!demo) {
+        notifyConfirmedDiaryDraft({ clientId: frozen.body.client_id, recordId: receipt.record.id, version: receipt.record.version });
+        router.refresh();
+      }
     } catch (caught) {
       const uncertain = attempt.failed();
       if (uncertain) await offline.retainUnconfirmed(uncertain.body);
@@ -173,7 +181,7 @@ export function CareDiaryComposer({
       </button>
       {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
       {invalidShift ? <p role="alert">指定班別無效，請返回今日工作重新選擇；不會自動改成全日。</p> : null}
-      {notice ? <p className="core-composer__notice" role="status">{notice}</p> : null}
+      {notice ? <p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p> : null}
       <dialog
         aria-labelledby="care-diary-dialog-title"
         className="core-dialog"

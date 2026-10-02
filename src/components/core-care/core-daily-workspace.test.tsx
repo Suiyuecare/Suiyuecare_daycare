@@ -90,6 +90,18 @@ describe("daily care selected-client handoff and source boundaries", () => {
     fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
     expect(within(screen.getByRole("dialog")).getByLabelText("班別 *")).toHaveValue("afternoon");
   });
+  it("does not mark the selected shift complete from a different shift's daily signature", () => {
+    const client = { ...selected, careDiary: {
+      id: "c2222222-2222-4222-8222-222222222222", status: "signed" as const,
+      occurredAt: "2026-09-10T14:25:00+08:00", hasAbnormalFlag: false,
+    } };
+    const { container } = render(workspace(6, { selectedClientId: client.clientId, selectedShift: "morning", snapshot: { ...snapshot, clients: [client] } }));
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("當日有日誌・班別待核對")).toBeVisible();
+    expect(within(table).queryByText("已完成")).not.toBeInTheDocument();
+    expect(container.querySelector(".core-care-mobile .status-pill")).toHaveTextContent("班別待核對");
+    expect(screen.queryByRole("region", { name: "本頁摘要" })).not.toBeInTheDocument();
+  });
   it("retains shift when recovering a failed load", () => {
     render(workspace(6, { selectedClientId: selected.clientId, selectedShift: "morning", snapshot: null, loadError: true }));
     expect(screen.getByRole("link", { name: "重新載入" }).getAttribute("href")).toContain("&shift=morning");

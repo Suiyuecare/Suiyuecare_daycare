@@ -1,23 +1,119 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CareDiaryLifecycle } from "./care-diary-lifecycle";
 import type { DiaryRecord } from "@/lib/care-diary/schema";
+import { notifyConfirmedDiaryDraft } from "@/lib/core-care/diary-draft-event";
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const id = "b0100000-0000-4000-8000-000000000001";
 const nextId = "b0100000-0000-4000-8000-000000000002";
 const record: DiaryRecord = { id, record_key: id, version: 1, client_id: id, status: "draft", occurred_at: "2026-09-12T01:00:00Z", fields: { shift: "morning", care_item: "本次照顧", note: "合成觀察", abnormal: false }, previous_version_id: null, correction_reason: null, signed_at: null, signed_by: null, content_hash: null, created_by: id, created_at: "2026-09-12T01:05:00Z", correction_source_id: null };
 function snapshot(row = record) { return new Response(JSON.stringify({ requestId: id, status: "ok", errors: [], data: { records: [row], history: [], persisted: true, demo: false } })); }
+function snapshotRows(rows: DiaryRecord[]) { return new Response(JSON.stringify({ requestId: id, status: "ok", errors: [], data: { records: rows, history: [], persisted: true, demo: false } })); }
 function response(row: unknown) { return new Response(JSON.stringify({ requestId: id, status: "ok", errors: [], data: { record: row, persisted: true, demo: false, replayed: false } }), { status: 201 }); }
-function mount() { return render(<CareDiaryLifecycle clientId={id} enabled canSign demo={false} />); }
+function mount() { return render(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" enabled canSign demo={false} />); }
+function confirmAction() {
+  const dialog = screen.getByRole("alertdialog");
+  const confirm = within(dialog).getByRole("button", { name: /^確認/u });
+  fireEvent.click(confirm);
+}
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
+});
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-beforeEach(() => { refresh.mockReset(); vi.spyOn(window, "confirm").mockReturnValue(true); });
+beforeEach(() => { refresh.mockReset(); });
 describe("care diary completion UI", () => {
+  it("shows an app-owned, contextual confirmation and sends nothing on cancel or Escape", async () => {
+    const fetch = vi.fn().mockResolvedValue(snapshot()); vi.stubGlobal("fetch", fetch);
+    render(<CareDiaryLifecycle clientId={id} clientName="合成測試個案" clientCode="TEST-001" serviceDate="2026-09-12" enabled canSign demo={false} />);
+    const trigger = await screen.findByRole("button", { name: "提交已儲存版本" });
+    trigger.focus(); fireEvent.click(trigger);
+    const dialog = screen.getByRole("alertdialog", { name: /提交照顧日誌・個案/u });
+    expect(dialog).toHaveTextContent("個案 合成測試個案（TEST-001）");
+    expect(dialog).toHaveTextContent(id);
+    expect(dialog).toHaveTextContent("本次照顧");
+    expect(dialog).toHaveTextContent("2026/09/12 09:00:00");
+    expect(dialog).toHaveTextContent("第 1 版");
+    expect(dialog).toHaveTextContent("尚須具權限的人員核對並簽署");
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "取消，返回紀錄" }));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消，返回紀錄" }));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    fireEvent.click(trigger);
+    const reopened = screen.getByRole("alertdialog");
+    const escape = new Event("cancel", { cancelable: true });
+    expect(reopened.dispatchEvent(escape)).toBe(false);
+    expect(reopened.hasAttribute("open")).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+  it("confirms a signed-record correction with its reason and exact version before any mutation", async () => {
+    const signed: DiaryRecord = { ...record, status: "signed", signed_at: "2026-09-12T02:00:00Z", signed_by: id, content_hash: "a".repeat(64) };
+    const rejection = new Response(JSON.stringify({ requestId: id, status: "error", data: null, errors: [{ code: "DIARY_ACTION_REJECTED", message: "請重新核對" }] }), { status: 422 });
+    const fetch = vi.fn().mockResolvedValueOnce(snapshot(signed)).mockResolvedValueOnce(rejection);
+    vi.stubGlobal("fetch", fetch); mount();
+    const reason = await screen.findByLabelText("更正理由");
+    fireEvent.change(reason, { target: { value: "補正當日觀察" } });
+    fireEvent.submit(reason.closest("form")!);
+    const dialog = screen.getByRole("alertdialog", { name: /建立更正草稿・個案/u });
+    expect(dialog).toHaveTextContent("理由：補正當日觀察");
+    expect(dialog).toHaveTextContent("第 1 版・正式完成");
+    expect(dialog).toHaveTextContent("原簽署版本將完整保留");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    confirmAction();
+    await screen.findByRole("alert");
+    expect(JSON.parse(String((fetch.mock.calls[1]![1] as RequestInit).body))).toEqual({ action: "correct", base_version: 1, reason: "補正當日觀察" });
+  });
+  it("shows only the selected Taipei service day and shift in the active group", async () => {
+    const afternoon: DiaryRecord = { ...record, id: nextId, record_key: nextId, occurred_at: "2026-09-12T05:00:00Z", fields: { ...record.fields, shift: "afternoon", care_item: "其他班別" } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(snapshotRows([record, afternoon])));
+    render(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" selectedShift="morning" enabled canSign demo={false} />);
+    expect(await screen.findByRole("region", { name: "2026-09-12 上午日誌" })).toHaveTextContent("本次照顧");
+    expect(screen.getByRole("region", { name: "2026-09-12 上午日誌" })).not.toHaveTextContent("其他班別");
+    expect(screen.getByText("其他日期／班別紀錄（1）")).toBeVisible();
+  });
+
+  it("reads back a newly confirmed draft and focuses it only after the matching server row appears", async () => {
+    const newDraft: DiaryRecord = { ...record, id: nextId, record_key: nextId, fields: { ...record.fields, care_item: "新草稿", note: "新草稿內容" } };
+    const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(snapshotRows([record, newDraft]));
+    vi.stubGlobal("fetch", fetch);
+    mount(); await screen.findByText("合成觀察");
+    act(() => notifyConfirmedDiaryDraft({ clientId: id, recordId: nextId, version: 1 }));
+    expect(await screen.findByText("新草稿內容")).toBeVisible();
+    expect(screen.getByText("已讀回新草稿。請確認內容，再提交與簽署。")).toBeVisible();
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("id", `care-diary-${nextId}`));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not claim a new draft if the readback is stale", async () => {
+    const fetch = vi.fn().mockResolvedValue(snapshot()); vi.stubGlobal("fetch", fetch);
+    mount(); await screen.findByText("合成觀察");
+    act(() => notifyConfirmedDiaryDraft({ clientId: id, recordId: nextId, version: 1 }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("尚未重新讀回這個版本");
+    expect(screen.queryByText("已讀回新草稿。請確認內容，再提交與簽署。")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("identifies a draft that another worker has already advanced instead of calling it a different shift", async () => {
+    const successorId = "b0100000-0000-4000-8000-000000000003";
+    const successor: DiaryRecord = { ...record, id: successorId, record_key: nextId, version: 2, status: "submitted", previous_version_id: nextId, fields: { ...record.fields, care_item: "已更新草稿" } };
+    const after = new Response(JSON.stringify({ requestId: id, status: "ok", errors: [], data: {
+      records: [record, successor], history: [{ id: nextId, record_key: nextId, version: 1, status: "draft", correction_reason: null }], persisted: true, demo: false,
+    } }));
+    const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(after);
+    vi.stubGlobal("fetch", fetch);
+    mount(); await screen.findByText("合成觀察");
+    act(() => notifyConfirmedDiaryDraft({ clientId: id, recordId: nextId, version: 1 }));
+    expect(await screen.findByText(/已有後續版本/)).toBeVisible();
+    expect(screen.queryByText(/它不在目前日期／班別/)).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("id", `care-diary-${successorId}`));
+  });
   it("shows read-mode guidance without fetching protected operations", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
-    render(<CareDiaryLifecycle clientId={id} readEnabled={false} enabled={false} canSign={false} demo={false} />);
+    render(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" readEnabled={false} enabled={false} canSign={false} demo={false} />);
     expect(screen.getByRole("heading", { name: "日誌操作目前為查看模式" })).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
@@ -25,7 +121,7 @@ describe("care diary completion UI", () => {
   it("unmounts loaded observations when operational access is lost", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(snapshot()); vi.stubGlobal("fetch", fetch);
     const view = mount(); await screen.findByText("合成觀察");
-    view.rerender(<CareDiaryLifecycle clientId={id} readEnabled={false} enabled={false} canSign={false} demo={false} />);
+    view.rerender(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" readEnabled={false} enabled={false} canSign={false} demo={false} />);
     expect(screen.queryByText("合成觀察")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "日誌操作目前為查看模式" })).toBeVisible();
     expect(fetch).toHaveBeenCalledOnce();
@@ -39,6 +135,7 @@ describe("care diary completion UI", () => {
     const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(response({ ...record, id: nextId, version: 2, previous_version_id: id }));
     vi.stubGlobal("fetch", fetch); mount();
     fireEvent.click(await screen.findByRole("button", { name: "提交已儲存版本" }));
+    confirmAction();
     expect(await screen.findByRole("alert")).toHaveTextContent("回覆版本或簽署狀態不一致");
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -46,6 +143,7 @@ describe("care diary completion UI", () => {
     const submitted: DiaryRecord = { ...record, status: "submitted" };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(snapshot(submitted)).mockResolvedValueOnce(response({ ...submitted, id: nextId, version: 2, previous_version_id: id, status: "signed" })));
     mount(); fireEvent.click(await screen.findByRole("button", { name: "確認內容並簽署" }));
+    confirmAction();
     expect(await screen.findByRole("alert")).toHaveTextContent("回覆不完整");
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -56,8 +154,9 @@ describe("care diary completion UI", () => {
     fireEvent.submit(input.closest("form")!);
     expect(await screen.findByRole("alert")).toHaveTextContent("請確認照顧項目");
     expect(fetch).toHaveBeenCalledOnce(); expect(input).toHaveValue(" ");
+    const discard = vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "取消編輯" }));
-    expect(window.confirm).toHaveBeenCalled(); expect(screen.queryByLabelText("照顧項目")).not.toBeInTheDocument();
+    expect(discard).toHaveBeenCalled(); expect(screen.queryByLabelText("照顧項目")).not.toBeInTheDocument();
   });
   it("offers returning submitted records to draft without signing", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(snapshot({ ...record, status: "submitted" }))); mount();
@@ -68,10 +167,10 @@ describe("care diary completion UI", () => {
     let resolveSecond!: (value: Response) => void;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(snapshot()).mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; })));
     const view = mount(); await screen.findByText("合成觀察");
-    view.rerender(<CareDiaryLifecycle clientId={nextId} enabled canSign demo={false} />);
+    view.rerender(<CareDiaryLifecycle clientId={nextId} serviceDate="2026-09-12" enabled canSign demo={false} />);
     expect(screen.queryByText("合成觀察")).not.toBeInTheDocument();
     resolveSecond(new Response(JSON.stringify({ requestId: id, status: "ok", errors: [], data: { records: [], history: [], demo: false, persisted: true } })));
-    await waitFor(() => expect(screen.getByText(/目前沒有日誌/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/本次服務日／班別尚無日誌/)).toBeVisible());
   });
   it("locks an uncertain edit and retries the original content/key even after a forged field change", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockRejectedValueOnce(new TypeError("Lost response after commit"))
@@ -95,11 +194,28 @@ describe("care diary completion UI", () => {
     expect(JSON.parse(String(second.body)).data.care_item).toBe("需要保留的合成內容");
     expect(refresh).not.toHaveBeenCalled();
   });
+  it("keeps an uncertain operation locked when only the viewed shift changes", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockRejectedValueOnce(new TypeError("Lost response"))
+      .mockResolvedValueOnce(snapshot());
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" selectedShift="morning" enabled canSign demo={false} />);
+    fireEvent.click(await screen.findByRole("button", { name: "提交已儲存版本" }));
+    confirmAction();
+    await screen.findByRole("button", { name: "重試原操作" });
+    view.rerender(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" selectedShift="afternoon" enabled canSign demo={false} />);
+    expect(screen.getByRole("button", { name: "重試原操作" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "重新讀取" })).toBeDisabled();
+    const submit = screen.queryByRole("button", { name: "提交已儲存版本" });
+    if (submit) expect(submit).toBeDisabled();
+  });
   it("does not let an uncertain reopen become a signature or a changed reason", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(snapshot({ ...record, status: "submitted" })).mockRejectedValue(new TypeError("Lost response"));
     vi.stubGlobal("fetch", fetch); mount();
     const reason = await screen.findByLabelText("退回理由");
     fireEvent.change(reason, { target: { value: "補充觀察" } }); fireEvent.submit(reason.closest("form")!);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("理由：補充觀察");
+    confirmAction();
     await screen.findByRole("button", { name: "重試原操作" });
     expect(reason).toBeDisabled(); expect(reason).toHaveValue("補充觀察");
     expect(screen.getByRole("button", { name: "確認內容並簽署" })).toBeDisabled();
@@ -126,6 +242,7 @@ describe("care diary completion UI", () => {
       .mockRejectedValueOnce(new TypeError("Read unavailable")).mockResolvedValueOnce(snapshot(submitted));
     vi.stubGlobal("fetch", fetch); mount();
     fireEvent.click(await screen.findByRole("button", { name: "提交已儲存版本" }));
+    confirmAction();
     expect(await screen.findByRole("alert")).toHaveTextContent("尚未重新讀回這個版本");
     expect(screen.queryByText("已重新讀回提交版本，仍待簽署，不會計為正式完成。")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新讀取" }));
@@ -136,6 +253,7 @@ describe("care diary completion UI", () => {
     const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(response({ ...record, id: nextId, version: 2, previous_version_id: id, status: "submitted" }))
       .mockResolvedValueOnce(snapshot());
     vi.stubGlobal("fetch", fetch); mount(); fireEvent.click(await screen.findByRole("button", { name: "提交已儲存版本" }));
+    confirmAction();
     expect(await screen.findByRole("alert")).toHaveTextContent("尚未重新讀回這個版本");
     expect(screen.queryByRole("button", { name: "提交已儲存版本" })).not.toBeInTheDocument();
   });
@@ -144,6 +262,7 @@ describe("care diary completion UI", () => {
       ...(mismatch === "fields" ? { fields: { ...record.fields, shift: "afternoon" } } : { occurred_at: "2026-09-13T01:00:00Z" }) };
     const fetch = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(response(returned));
     vi.stubGlobal("fetch", fetch); mount(); fireEvent.click(await screen.findByRole("button", { name: "提交已儲存版本" }));
+    confirmAction();
     expect(await screen.findByRole("alert")).toHaveTextContent("回覆內容或發生時間與原操作不一致");
     expect(screen.getByRole("button", { name: "重試原操作" })).toBeEnabled();
     expect(refresh).not.toHaveBeenCalled();
@@ -166,14 +285,16 @@ describe("care diary completion UI", () => {
     });
     vi.stubGlobal("fetch", fetch); mount();
     const button = await screen.findByRole("button", { name: "提交已儲存版本" });
-    fireEvent.click(button); fireEvent.click(button); expect(fetch).toHaveBeenCalledTimes(2);
+    const showModal = vi.spyOn(HTMLDialogElement.prototype, "showModal");
+    fireEvent.click(button); fireEvent.click(button); expect(fetch).toHaveBeenCalledTimes(1);
+    confirmAction(); expect(fetch).toHaveBeenCalledTimes(2);
     await act(async () => resolveFirst()); fireEvent.click(await screen.findByRole("button", { name: "重試原操作" }));
     await screen.findByText("已重新讀回提交版本，仍待簽署，不會計為正式完成。");
-    expect(committed.size).toBe(1); expect(window.confirm).toHaveBeenCalledOnce();
+    expect(committed.size).toBe(1); expect(showModal).toHaveBeenCalledOnce(); expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
   it("does not grant high-risk revisions just because routine writes are allowed", async () => {
     const fetch = vi.fn().mockResolvedValue(snapshot({ ...record, status: "submitted" })); vi.stubGlobal("fetch", fetch);
-    render(<CareDiaryLifecycle clientId={id} enabled canSign={false} canRevise={false} demo={false} />);
+    render(<CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" enabled canSign={false} canRevise={false} demo={false} />);
     expect(await screen.findByRole("button", { name: "退回草稿修訂" })).toBeDisabled();
     const reason = screen.getByLabelText("退回理由"); fireEvent.submit(reason.closest("form")!);
     expect(fetch).toHaveBeenCalledOnce();

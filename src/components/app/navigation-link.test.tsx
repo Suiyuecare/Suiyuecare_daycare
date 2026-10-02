@@ -173,6 +173,7 @@ describe("NavigationLink delegates navigation and tracks only Next pending state
     expect(status.classList.contains("module-loading--transition")).toBe(true);
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.getAttribute("aria-busy")).toBe("true");
+    expect(status.querySelector(".module-loading__logo, .module-loading__card > span")).toBeNull();
   });
 
   it("removes the portal immediately when Next returns to idle", () => {
@@ -202,7 +203,7 @@ describe("NavigationLink delegates navigation and tracks only Next pending state
     nextLink.pendingByHref.set(href, true);
     render(<NavigationLink href={href} loadingLabel="生命徵象紀錄">生命徵象紀錄</NavigationLink>);
     expect(screen.getByRole("status").textContent).not.toMatch(/\d+(?:\.\d+)?\s*[%％]|百分之/u);
-    const progress = screen.getByRole("progressbar", { name: "系統功能載入中" });
+    const progress = screen.getByRole("progressbar", { name: "頁面載入中" });
     expect(progress.hasAttribute("aria-valuenow")).toBe(false);
     expect(progress.hasAttribute("aria-valuetext")).toBe(false);
   });
