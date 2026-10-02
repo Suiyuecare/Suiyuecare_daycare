@@ -39,9 +39,11 @@ describe("versioned assessment registry", () => {
       "nsi_determine",
       "eat10",
       "bsrs5",
+      "lawton_iadl",
+      "bsrs5",
     ]);
     for (const definition of ASSESSMENT_DEFINITIONS) {
-      expect(definition.ruleRevision).toBe(1);
+      expect(definition.ruleRevision).toBe(definition.versionId.endsWith("-v2") ? 2 : 1);
       expect(definition.reviewRequired).toBe(true);
       expect(definition.activatedAt).toBeNull();
       if (definition.instrument === "fall_risk_taipei_115") {

@@ -1,169 +1,175 @@
 "use client";
 
-import { ChangeEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronRight, FileCode2, LockKeyhole, RefreshCcw, ShieldCheck, UploadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, FileCode2, LockKeyhole, RefreshCcw, ShieldCheck, XCircle } from "lucide-react";
 
-import { fetchWithTimeout } from "@/lib/api/client-fetch";
+import { CLIENT_WRITE_TIMEOUT_MS, ClientJsonReadError, fetchJsonWithTimeout } from "@/lib/api/client-fetch";
 import {
-  importErrorMessage,
+  ImportClientContractError,
   parseImportPreviewEnvelope,
   parseImportReparseEnvelope,
-  parseImportUploadEnvelope,
 } from "@/lib/imports/client-contract";
+import type { TenantContext } from "@/lib/domain/types";
+import type { CmsUploadResult } from "@/lib/imports/upload-client";
+import { canUseCmsUpload, cmsUploadScope, getCmsUploadOperation, getCmsUploadState,
+  hasCmsUploadOperation, quarantineCmsUploadAuthority, useCmsUploadState } from "@/lib/imports/upload-pending";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation,
+  usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import type { ImportPreview } from "@/lib/imports/types";
+import { CmsUploadControl } from "./cms-upload-control";
 import { ImportReadinessPanel } from "./import-readiness-panel";
 import { ImportNextSteps, ImportStages } from "./import-stages";
 import styles from "./import-readiness.module.css";
 import { ImportReminderPreview } from "@/components/care-reminders/import-reminder-preview";
 
-const MAX_BYTES = 25 * 1024 * 1024;
+type AcceptedPreview = { data: ImportPreview; authority: string; epoch: number };
+type ReparseIntent = { key: string; body: string; source: ImportPreview; authority: string; epoch: number;
+  receipt: ReturnType<typeof parseImportReparseEnvelope>["data"] | null };
 
-export function ImportWorkspace() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
+/** The legacy reparse remains component-local. Unknown writes retain their
+ * original key while mounted; a full reload is not a recovery guarantee. */
+export function ImportWorkspace({ context }: { context: TenantContext }) {
+  const uploadState = useCmsUploadState();
+  const foreignWrite = usePendingOperations();
+  const viewTransition = useViewTransitionPending();
+  const scope = useMemo(() => cmsUploadScope(context, "general", null), [context]);
+  const [accepted, setAccepted] = useState<AcceptedPreview | null>(null);
   const [pending, setPending] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [reparseUnknown, setReparseUnknown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [serviceUnavailable, setServiceUnavailable] = useState(false);
-  const uploadKey = useRef<string | null>(null);
-  const reparseKey = useRef<string | null>(null);
+  const reparseIntent = useRef<ReparseIntent | null>(null);
   const inFlight = useRef(false);
+  const owner = useRef({ mounted: false, generation: 0, authority: scope.authority, epoch: uploadState.epoch });
+  const activeReparse = useRef<AbortController | null>(null);
+  const activeLease = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const lifecycle = owner.current;
+    lifecycle.mounted = true;
+    lifecycle.generation += 1;
+    return () => { lifecycle.mounted = false; lifecycle.generation += 1; activeReparse.current?.abort();
+      activeLease.current?.(); activeLease.current = null; };
+  }, []);
+  useLayoutEffect(() => {
+    owner.current.authority = scope.authority; owner.current.epoch = uploadState.epoch;
+    activeReparse.current?.abort();
+  }, [scope.authority, uploadState.epoch]);
+  const preview = canUseCmsUpload(scope) && accepted?.authority === scope.authority &&
+    accepted.epoch === uploadState.epoch && !uploadState.operation ? accepted.data : null;
 
-  function selectFile(event: ChangeEvent<HTMLInputElement>) {
-    if (inFlight.current) return;
-    const selected = event.target.files?.[0] ?? null;
-    setError(null);
-    setNotice(null);
-    setServiceUnavailable(false);
-    setPreview(null);
-    uploadKey.current = null;
-    reparseKey.current = null;
-    if (!selected) return setFile(null);
-    if (!/\.html?$/iu.test(selected.name)) {
-      setError("請選擇中央系統下載的 .html 或 .htm 檔案。");
-      return setFile(null);
-    }
-    if (selected.size > MAX_BYTES) {
-      setError("檔案超過 25MB，未送到伺服器。");
-      return setFile(null);
-    }
-    setFile(selected);
-  }
-
-  async function upload() {
-    if (!file || inFlight.current) return;
-    inFlight.current = true;
-    setPending(true);
-    setError(null);
-    setNotice(null);
-    setServiceUnavailable(false);
-    uploadKey.current ??= crypto.randomUUID();
-    const key = uploadKey.current;
-    const body = new FormData();
-    body.set("file", file);
-    body.set("idempotency_key", key);
-
+  const onDirty = useCallback((dirty: boolean) => {
+    if (dirty) { setAccepted(null); setNotice(null); }
+  }, []);
+  const onSelectionChanged = useCallback(() => {
+    setAccepted(null); setError(null); setNotice(null); setServiceUnavailable(false);
+  }, []);
+  const onBusy = useCallback((busy: boolean) => setUploadBusy(busy), []);
+  const onPreview = useCallback(async (result: CmsUploadResult, signal: AbortSignal, current: () => boolean) => {
+    const epoch = getCmsUploadState().epoch;
+    const generation = owner.current.generation;
+    const staged = getCmsUploadOperation(scope);
+    const valid = () => owner.current.mounted && owner.current.generation === generation && !signal.aborted &&
+      current() && canUseCmsUpload(scope) && getCmsUploadState().epoch === epoch &&
+      owner.current.authority === scope.authority && owner.current.epoch === epoch;
+    if (!staged || !valid()) throw new ClientJsonReadError("ABORTED");
     try {
-      const bytes = await file.arrayBuffer();
-      const fileSha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-        (value) => value.toString(16).padStart(2, "0")).join("");
-      const response = await fetchWithTimeout("/api/imports/html", {
-        method: "POST",
-        headers: { "Idempotency-Key": key },
-        body,
-      }, 60_000);
-      const rawReceipt: unknown = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (response.status === 503) {
-          setServiceUnavailable(true);
-          throw new Error("暫時無法上傳，請聯絡管理員完成匯入服務設定");
-        }
-        throw new Error(importErrorMessage(rawReceipt, "上傳結果無法確認；請保留檔案並以相同操作重試。"));
+      const deadline = performance.now() + CLIENT_WRITE_TIMEOUT_MS;
+      const { response, payload } = await fetchJsonWithTimeout(`/api/imports/${result.batchId}/preview`, { signal });
+      if (!valid()) throw new ClientJsonReadError("ABORTED");
+      const parsed = parseImportPreviewEnvelope(payload, { batchId: result.batchId, httpStatus: response.status }).data;
+      const batch = parsed.batch;
+      if (batch.fileSha256 !== result.fileSha256 || batch.fileSha256 !== staged.file.sha256 ||
+          batch.byteLength !== staged.file.size || batch.mappingVersion !== result.mappingVersion ||
+          result.contentFingerprint !== null && batch.contentFingerprint !== result.contentFingerprint ||
+          result.sectionCount !== null && batch.sectionCount !== result.sectionCount ||
+          result.fieldCount !== null && batch.fieldCount !== result.fieldCount) throw new ImportClientContractError();
+      // The general preview contract has no payloadSha256. Do not manufacture
+      // a JSONB hash or borrow routine-intake evidence to fill that absence.
+      if (result.payloadSha256 !== null) throw new ImportClientContractError();
+      if (performance.now() >= deadline) throw new ClientJsonReadError("UNAVAILABLE");
+      if (!valid()) throw new ClientJsonReadError("ABORTED");
+      setAccepted({ data: parsed, authority: scope.authority, epoch });
+      setNotice("已解析，可開始核對。正式入檔尚未完成，個案資料未更新。");
+      setError(null); setServiceUnavailable(false);
+    } catch (failure) {
+      if (!valid()) throw new ClientJsonReadError("ABORTED");
+      setAccepted(null); setNotice(null);
+      if (failure instanceof ImportClientContractError || failure instanceof ClientJsonReadError &&
+          (failure.code === "INVALID_RESPONSE" || failure.status === 401 || failure.status === 403)) {
+        setError("登入、權限或資料回覆已變更，請重新登入後核對原操作；請勿視為完成。");
+        quarantineCmsUploadAuthority(scope);
       }
-      const receiptEnvelope = parseImportUploadEnvelope(rawReceipt, {
-        fileName: file.name, byteLength: file.size, fileSha256, httpStatus: response.status,
-      });
-      const previewResponse = await fetchWithTimeout(`/api/imports/${receiptEnvelope.data.batch.id}/preview`, { cache: "no-store" });
-      const rawPreview: unknown = await previewResponse.json().catch(() => null);
-      if (!previewResponse.ok) {
-        if (previewResponse.status === 503) {
-          setServiceUnavailable(true);
-          throw new Error("暫時無法取得解析預覽，請聯絡管理員完成匯入服務設定；上傳結果尚未確認。");
-        }
-        throw new Error(importErrorMessage(rawPreview, "上傳可能已完成，但無法取得預覽；請以相同操作重試。"));
-      }
-      const previewEnvelope = parseImportPreviewEnvelope(rawPreview, {
-        batchId: receiptEnvelope.data.batch.id, httpStatus: previewResponse.status,
-      });
-      if (previewEnvelope.data.batch.fileSha256 !== fileSha256 || previewEnvelope.data.batch.byteLength !== file.size) {
-        throw new Error("解析預覽與本次檔案不一致；請勿視為完成。");
-      }
-      setPreview(previewEnvelope.data);
-      setNotice(receiptEnvelope.data.duplicate ? "已找到相同檔案，未建立重複批次；僅載入解析預覽，正式入檔尚未完成。" : "已解析，可開始核對。正式入檔尚未完成，個案資料未更新。");
-      uploadKey.current = null;
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "匯入處理失敗，資料未變更。");
-    } finally {
-      inFlight.current = false;
-      setPending(false);
+      if (failure instanceof ClientJsonReadError && failure.status === 503) setServiceUnavailable(true);
+      throw new ClientJsonReadError(failure instanceof ClientJsonReadError ? failure.code : "INVALID_RESPONSE",
+        failure instanceof ClientJsonReadError ? failure.status : 200);
     }
-  }
+  }, [scope]);
 
   async function reparse() {
-    if (!preview || inFlight.current) return;
+    if (!preview || inFlight.current || uploadBusy || hasCmsUploadOperation() || hasViewTransition() || !canUseCmsUpload(scope)) return;
+    const epoch = getCmsUploadState().epoch;
+    const existing = reparseIntent.current;
+    if (existing && (existing.authority !== scope.authority || existing.epoch !== epoch)) return;
+    if (hasPendingOperations()) return;
+    const release = tryAcquirePendingOperation();
+    if (!release) return;
+    activeLease.current = release;
+    let key: string;
+    try { key = existing?.key ?? crypto.randomUUID(); }
+    catch { release(); activeLease.current = null; setError("目前無法建立安全操作，請重新登入後核對原資料。"); return; }
+    const intent = existing ?? { key, body: "", source: preview, authority: scope.authority,
+      epoch, receipt: null };
+    if (!existing) intent.body = JSON.stringify({ idempotency_key: intent.key, mapping_version: preview.batch.mappingVersion });
+    reparseIntent.current = intent;
+    const controller = new AbortController(); activeReparse.current = controller;
+    const generation = owner.current.generation;
+    const current = () => owner.current.mounted && generation === owner.current.generation && !controller.signal.aborted &&
+      reparseIntent.current === intent && canUseCmsUpload(scope) && getCmsUploadState().epoch === epoch &&
+      owner.current.authority === scope.authority && owner.current.epoch === epoch;
     inFlight.current = true;
+    setReparseUnknown(true);
     setPending(true);
     setError(null);
     setNotice(null);
     setServiceUnavailable(false);
-    reparseKey.current ??= crypto.randomUUID();
-    const key = reparseKey.current;
     try {
-      const response = await fetchWithTimeout(`/api/imports/${preview.batch.id}/reparse`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-        body: JSON.stringify({ idempotency_key: key, mapping_version: preview.batch.mappingVersion }),
-      }, 60_000);
-      const rawResult: unknown = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (response.status === 503) {
-          setServiceUnavailable(true);
-          setError("暫時無法重新解析，請聯絡管理員完成匯入服務設定；結果尚未確認。");
-        } else {
-          setError(importErrorMessage(rawResult, "重新解析結果無法確認；請以相同操作重試。"));
-        }
-      } else {
-        const receipt = parseImportReparseEnvelope(rawResult, {
-          batchId: preview.batch.id,
-          mappingVersion: preview.batch.mappingVersion,
-          httpStatus: response.status,
-        });
-        const refreshedResponse = await fetchWithTimeout(`/api/imports/${receipt.data.id}/preview`, { cache: "no-store" });
-        const rawRefreshed: unknown = await refreshedResponse.json().catch(() => null);
-        if (!refreshedResponse.ok) {
-          if (refreshedResponse.status === 503) {
-            setServiceUnavailable(true);
-            throw new Error("暫時無法刷新解析預覽，請聯絡管理員完成匯入服務設定；結果尚未確認。");
-          }
-          throw new Error(importErrorMessage(rawRefreshed, "重新解析已回覆完成，但無法刷新預覽；請以相同操作重試。"));
-        }
-        const refreshed = parseImportPreviewEnvelope(rawRefreshed, {
-          batchId: receipt.data.id, httpStatus: refreshedResponse.status,
-        });
-        if (refreshed.data.batch.version !== receipt.data.version ||
-            refreshed.data.batch.contentFingerprint !== receipt.data.contentFingerprint) {
-          throw new Error("重新解析回執與預覽快照不一致；請勿視為完成。");
-        }
-        setPreview(refreshed.data);
-        setNotice("已使用相同映射版本重新解析並刷新預覽；正式入檔尚未完成，個案資料未更新。");
-        reparseKey.current = null;
+      if (!current()) throw new ClientJsonReadError("ABORTED");
+      if (!intent.receipt) {
+        const receipt = await boundedReparse(intent, controller.signal);
+        if (!current()) throw new ClientJsonReadError("ABORTED");
+        if (receipt.fileSha256 !== intent.source.batch.fileSha256 || receipt.byteLength !== intent.source.batch.byteLength ||
+            receipt.version !== intent.source.batch.version + 1) throw new ImportClientContractError();
+        intent.receipt = receipt;
       }
-    } catch (reparseError) {
-      setError(reparseError instanceof Error ? reparseError.message : "重新解析結果未知；請以相同操作重試。");
+      const deadline = performance.now() + CLIENT_WRITE_TIMEOUT_MS;
+      const { response, payload } = await fetchJsonWithTimeout(`/api/imports/${intent.receipt.id}/preview`, { signal: controller.signal });
+      if (!current()) throw new ClientJsonReadError("ABORTED");
+      const refreshed = parseImportPreviewEnvelope(payload, { batchId: intent.receipt.id, httpStatus: response.status }).data;
+      if (JSON.stringify(refreshed.batch) !== JSON.stringify(intent.receipt)) throw new ImportClientContractError();
+      if (performance.now() >= deadline) throw new ClientJsonReadError("UNAVAILABLE");
+      if (!current()) throw new ClientJsonReadError("ABORTED");
+      setAccepted({ data: refreshed, authority: scope.authority, epoch });
+      setNotice("已使用相同映射版本重新解析並刷新預覽；正式入檔尚未完成，個案資料未更新。");
+      reparseIntent.current = null; setReparseUnknown(false);
+    } catch (failure) {
+      if (current()) {
+        const denied = failure instanceof ImportClientContractError || failure instanceof ClientJsonReadError &&
+          (failure.code === "INVALID_RESPONSE" || failure.status === 401 || failure.status === 403);
+        if (denied) { setAccepted(null); quarantineCmsUploadAuthority(scope); }
+        const unavailable = failure instanceof ClientJsonReadError && failure.status === 503;
+        setServiceUnavailable(unavailable); setReparseUnknown(true);
+        setError(unavailable ? "暫時無法重新解析，請聯絡管理員完成匯入服務設定；結果尚未確認。" :
+          "重新解析結果尚未確認；請以原操作重試，不要另建操作。");
+      }
     } finally {
-      inFlight.current = false;
-      setPending(false);
+      if (activeReparse.current === controller) {
+        activeReparse.current = null; inFlight.current = false;
+        if (owner.current.mounted) setPending(false);
+      }
+      release(); if (activeLease.current === release) activeLease.current = null;
     }
   }
 
@@ -177,16 +183,15 @@ export function ImportWorkspace() {
         <div className="panel">
           <div className="panel__header"><div className="panel__title"><h2>1. 選擇中央系統下載檔</h2><p>支援 UTF-8 HTML，單檔上限 25MB</p></div><ShieldCheck /></div>
           <div className="panel__body">
-            <label className="import-dropzone">
-              <input accept=".html,.htm,text/html" disabled={pending} onChange={selectFile} type="file" />
-              <span className="empty-card__icon"><UploadCloud /></span>
-              <strong>{file ? file.name : "選擇或拖放 HTML 檔案"}</strong>
-              <span>{file ? `${(file.size / 1024).toFixed(1)} KB・${preview ? "已取得解析預覽" : "尚未取得解析預覽"}` : "原始頁面不會在瀏覽器開啟，也不會連線到外部網址。"}</span>
-            </label>
+            <CmsUploadControl context={context} mode="general" enabled={!pending && !reparseUnknown}
+              uploadLabel="上傳並預覽" onPreview={onPreview} onDirty={onDirty} onBusy={onBusy} onSelectionChanged={onSelectionChanged} />
             {error ? <p className="form-error" role="alert"><XCircle />{error}</p> : null}
-            {notice ? <div className="callout" role="status"><CheckCircle2 />{notice}</div> : null}
+            {notice && preview ? <div className="callout" role="status"><CheckCircle2 />{notice}</div> : null}
             {serviceUnavailable ? <details className={styles.management}><summary>管理檢查明細：匯入服務設定</summary><p>匯入服務回覆 HTTP 503。請管理員檢查正式匯入儲存介面、封存服務與部署設定；此回覆不代表已取得完整解析預覽或正式入檔回執。</p><p>本頁不顯示伺服器原始錯誤內容、憑證或附件。</p></details> : null}
-            <div className="page-heading__actions import-actions"><button className="button button--secondary" disabled={!preview || pending} onClick={reparse} type="button"><RefreshCcw />重新解析</button><button className="button button--primary" disabled={!file || pending} onClick={upload} type="button">{pending ? "正在隔離解析…" : "上傳並預覽"}</button></div>
+            <div className="page-heading__actions import-actions"><button className="button button--secondary"
+              disabled={!preview || pending || uploadBusy || Boolean(uploadState.operation) || viewTransition || foreignWrite}
+              onClick={reparse} type="button"><RefreshCcw />{pending ? "正在重新解析…" : "重新解析"}</button></div>
+            {reparseUnknown && !pending ? <p className="text-muted">重新解析原操作仍待確認；本頁保留原鍵供重試。離開或完整重載尚不能恢復此原操作，請勿另建批次。</p> : null}
           </div>
 
           {preview ? <ImportPreviewPanel preview={preview} /> : null}
@@ -199,6 +204,46 @@ export function ImportWorkspace() {
       </section>
     </>
   );
+}
+
+/** Existing reparse wire, bounded independently through JSON and validation.
+ * It never retries or exposes provider errors. Scope ownership is fenced by
+ * the caller on both sides of this transport. */
+async function boundedReparse(intent: ReparseIntent, ownerSignal: AbortSignal) {
+  if (ownerSignal.aborted) throw new ClientJsonReadError("ABORTED");
+  const abort = new AbortController();
+  const expires = performance.now() + CLIENT_WRITE_TIMEOUT_MS;
+  const error = () => new ClientJsonReadError(ownerSignal.aborted ? "ABORTED" : "UNAVAILABLE");
+  const cancel = () => abort.abort();
+  let remove = () => {};
+  const stopped = new Promise<never>((_, reject) => {
+    const onAbort = () => reject(error());
+    abort.signal.addEventListener("abort", onAbort, { once: true });
+    remove = () => abort.signal.removeEventListener("abort", onAbort);
+  });
+  ownerSignal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, CLIENT_WRITE_TIMEOUT_MS);
+  const assertCurrent = () => { if (abort.signal.aborted || performance.now() >= expires) throw error(); };
+  try {
+    if (ownerSignal.aborted) cancel();
+    const work = (async () => {
+      assertCurrent();
+      let response: Response;
+      try { response = await fetch(`/api/imports/${intent.source.batch.id}/reparse`, { method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": intent.key }, body: intent.body,
+        credentials: "same-origin", cache: "no-store", redirect: "error", signal: abort.signal }); }
+      catch { throw error(); }
+      assertCurrent();
+      if (response.status !== 200 || response.redirected) throw new ClientJsonReadError("UNAVAILABLE", response.status);
+      let payload: unknown;
+      try { payload = await response.json(); } catch { assertCurrent(); throw new ClientJsonReadError("INVALID_RESPONSE", 200); }
+      assertCurrent();
+      const parsed = parseImportReparseEnvelope(payload, { batchId: intent.source.batch.id,
+        mappingVersion: intent.source.batch.mappingVersion, httpStatus: response.status }).data;
+      assertCurrent(); return parsed;
+    })();
+    return await Promise.race([work, stopped]);
+  } finally { clearTimeout(timer); remove(); ownerSignal.removeEventListener("abort", cancel); }
 }
 
 function ImportPreviewPanel({ preview }: { preview: ImportPreview }) {

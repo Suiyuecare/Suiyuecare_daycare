@@ -161,7 +161,7 @@ export function ClientRegistryWorkspace({
 
       <section className="panel">
         <div className="panel__header"><div className="panel__title"><h2>{lifecycle ? "目前生命週期狀態" : "個案主檔清單"}</h2><p>{clients.length} 位符合條件・快照 {formatTimestamp(snapshot.generatedAt)}</p></div></div>
-        <form className="filter-bar" method="get">
+        <form className="filter-bar" method="get" noValidate>
           <label className="filter-search"><Search aria-hidden="true" /><span className="sr-only">搜尋個案代碼或姓名</span><input defaultValue={query} name="q" placeholder="搜尋個案代碼或姓名…" type="search" /></label>
           <label className="field field--compact"><span>個案狀態</span><select defaultValue={status} name="status"><option value="all">全部狀態</option><option value="pending_admission">待收案</option><option value="active">在案</option><option value="suspended">暫停</option><option value="transferred">已轉出</option><option value="closed">已結案</option><option value="deceased">死亡結案</option></select></label>
           <button className="button button--secondary" type="submit">套用篩選</button>

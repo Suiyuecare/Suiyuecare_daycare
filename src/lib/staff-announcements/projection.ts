@@ -1,5 +1,6 @@
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { z } from "zod";
+import { DEFAULT_STAFF_ANNOUNCEMENT_FILTERS, validateStaffAnnouncementFilters } from "./query";
 
 import {
   STAFF_ANNOUNCEMENT_LIFECYCLES,
@@ -103,10 +104,20 @@ const managementSchema = z.object({
   expiry_rule: z.literal("explicit_datetime_or_explicit_no_expiry"),
 }).strict();
 
+const pagedManagementSchema = managementSchema.extend({
+  summary: summarySchema.extend({ matching_total: count }).strict(),
+  selected_announcement: rowSchema.nullable(),
+  pagination: z.object({
+    page: version, page_size: z.union([z.literal(20), z.literal(50), z.literal(100)]),
+    total_pages: version, range_start: count, range_end: count,
+  }).strict(),
+}).strict();
+
 export type StaffAnnouncementSourceRow = z.input<typeof rowSchema>;
 export type StaffAnnouncementAudienceSourceRow = z.input<typeof audienceSchema>;
 export type StaffAnnouncementRecipientSourceRow = z.input<typeof recipientSchema>;
 export type StaffAnnouncementManagementSourceRow = z.input<typeof managementSchema>;
+export type StaffAnnouncementPagedSourceRow = z.input<typeof pagedManagementSchema>;
 
 function invalid(): never {
   throw new Error("INVALID_STAFF_ANNOUNCEMENT_PROJECTION");
@@ -198,6 +209,7 @@ export function projectStaffAnnouncementSnapshot(input: {
   expectedCanManage: boolean;
   generatedAtFallback: string;
   demo: boolean;
+  selectedAnnouncementRow?: unknown;
 }): StaffAnnouncementSnapshot {
   const organization = uuid.safeParse(input.expectedOrganizationId);
   const branch = uuid.safeParse(input.expectedBranchId);
@@ -231,18 +243,32 @@ export function projectStaffAnnouncementSnapshot(input: {
     (selectedRelease === null && recipients.data.length > 0) ||
     !unique(recipients.data.map((item) => item.recipient_user_id))) invalid();
   if (selectedRelease?.success) {
-    const owner = items.find((item) => item.activeReleaseVersionId === selectedRelease.data);
+    const independent = input.selectedAnnouncementRow === undefined
+      ? null : rowSchema.safeParse(input.selectedAnnouncementRow);
+    if (independent !== null && (!independent.success || independent.data.generated_at !== generatedAt)) invalid();
+    const owner = independent?.success ? projectItem(independent.data, input.expectedCanManage)
+      : items.find((item) => item.activeReleaseVersionId === selectedRelease.data);
     if (!owner || recipients.data.length !== owner.recipientCount ||
+      owner.activeReleaseVersionId !== selectedRelease.data ||
       recipients.data.filter((item) => item.read_at !== null).length !== owner.readCount) invalid();
   }
+
+  const selectedAnnouncement = selectedRelease?.success
+    ? input.selectedAnnouncementRow === undefined
+      ? items.find((item) => item.activeReleaseVersionId === selectedRelease.data) ?? null
+      : projectItem(rowSchema.parse(input.selectedAnnouncementRow), input.expectedCanManage)
+    : null;
 
   return {
     organizationId: organization.data, branchId: branch.data, generatedAt,
     staleAfter: new Date(new Date(generatedAt).getTime() + 60_000).toISOString(),
     items, availableTotal: items.length, itemsTruncated: false,
+    filters: { ...DEFAULT_STAFF_ANNOUNCEMENT_FILTERS },
+    pagination: { page: 1, pageSize: 20, matchingTotal: items.length, totalPages: Math.max(1, Math.ceil(items.length / 20)), rangeStart: items.length ? 1 : 0, rangeEnd: items.length },
     metrics: metrics(items), canManage: input.expectedCanManage,
     audienceStaff, audienceRoles,
     selectedReleaseId: selectedRelease?.success ? selectedRelease.data : null,
+    selectedAnnouncement,
     selectedRecipients: recipients.data.map((item) => ({
       userId: item.recipient_user_id, displayName: item.recipient_display_name,
       employeeCode: item.recipient_employee_code, profileKind: item.recipient_profile_kind,
@@ -331,13 +357,88 @@ export function projectStaffAnnouncementManagementSnapshot(input: {
 
 export function filterStaffAnnouncementSnapshot(
   snapshot: StaffAnnouncementSnapshot,
-  filters: StaffAnnouncementFilters,
+  filters: Pick<StaffAnnouncementFilters, "query" | "status">,
 ) {
-  const query = filters.query.trim().toLocaleLowerCase("zh-TW");
+  const query = filters.query.toLocaleLowerCase("zh-TW");
   const items = snapshot.items.filter((item) =>
     (filters.status === "all" || item.lifecycle === filters.status) &&
-    (!query || `${item.title} ${item.body} ${item.activeReleaseTitle ?? ""} ${item.activeReleaseBody ?? ""}`
+    (!query || [item.title, item.body, item.activeReleaseTitle, item.activeReleaseBody]
+      .filter((value) => value !== null).join(" ")
       .toLocaleLowerCase("zh-TW").includes(query)),
   );
   return { ...snapshot, items };
+}
+
+export function projectStaffAnnouncementPagedSnapshot(input: {
+  row: unknown;
+  expectedOrganizationId: string;
+  expectedBranchId: string;
+  expectedCanManage: boolean;
+  expectedSelectedReleaseId: string | null;
+  expectedFilters: StaffAnnouncementFilters;
+  demo: boolean;
+}): StaffAnnouncementSnapshot {
+  const filters = validateStaffAnnouncementFilters(input.expectedFilters);
+  const parsed = pagedManagementSchema.safeParse(input.row);
+  const organization = uuid.safeParse(input.expectedOrganizationId);
+  const branch = uuid.safeParse(input.expectedBranchId);
+  const release = input.expectedSelectedReleaseId === null ? null : uuid.safeParse(input.expectedSelectedReleaseId);
+  if (!parsed.success || !organization.success || !branch.success || (release && !release.success)) invalid();
+  const row = parsed.data;
+  const summary = row.summary;
+  const pagination = row.pagination;
+  const totalPages = Math.max(1, Math.ceil(summary.matching_total / filters.pageSize));
+  const page = Math.min(filters.page, totalPages);
+  const rangeStart = summary.matching_total ? (page - 1) * filters.pageSize + 1 : 0;
+  const rangeEnd = Math.min(page * filters.pageSize, summary.matching_total);
+  const selectedId = release?.success ? release.data : null;
+  if (row.organization_id !== organization.data || row.branch_id !== branch.data ||
+    row.can_manage !== input.expectedCanManage || row.selected_release_version_id !== selectedId ||
+    (row.selected_announcement !== null) !== (selectedId !== null) ||
+    (row.selected_announcement && row.selected_announcement.generated_at !== row.generated_at) ||
+    row.announcements.some((item) => item.generated_at !== row.generated_at) ||
+    summary.matching_total > summary.available_total ||
+    pagination.page !== page || pagination.page_size !== filters.pageSize ||
+    pagination.total_pages !== totalPages || pagination.range_start !== rangeStart || pagination.range_end !== rangeEnd ||
+    row.announcements.length !== (rangeStart ? rangeEnd - rangeStart + 1 : 0) ||
+    summary.items_truncated !== (row.announcements.length < summary.available_total) ||
+    summary.unreleased_total + summary.scheduled_total + summary.published_total + summary.expired_total + summary.withdrawn_total !== summary.available_total ||
+    [summary.draft_total, summary.unreleased_total, summary.scheduled_total, summary.published_total, summary.expired_total, summary.withdrawn_total].some((count) => count > summary.available_total) ||
+    (!input.expectedCanManage && (row.staff_options.length || row.role_options.length || row.selected_recipients.length || selectedId))) invalid();
+  const projected = projectStaffAnnouncementSnapshot({
+    rows: row.announcements, audienceRow: input.expectedCanManage ? {
+      generated_at: row.generated_at, staff_options: row.staff_options, role_options: row.role_options,
+    } : null,
+    recipientRows: row.selected_recipients, selectedReleaseId: selectedId,
+    ...(row.selected_announcement ? { selectedAnnouncementRow: row.selected_announcement } : {}),
+    expectedOrganizationId: organization.data, expectedBranchId: branch.data,
+    expectedCanManage: input.expectedCanManage, generatedAtFallback: row.generated_at, demo: input.demo,
+  });
+  const filtered = filterStaffAnnouncementSnapshot(projected, filters);
+  const inPage = projected.selectedAnnouncement && projected.items.find((item) =>
+    item.announcementKey === projected.selectedAnnouncement!.announcementKey ||
+    item.versionId === projected.selectedAnnouncement!.versionId);
+  if (inPage && JSON.stringify(inPage) !== JSON.stringify(projected.selectedAnnouncement)) invalid();
+  const provenItems = projected.selectedAnnouncement && !inPage
+    ? [...projected.items, projected.selectedAnnouncement] : projected.items;
+  const loaded = metrics(provenItems);
+  if (filtered.items.length !== projected.items.length ||
+    provenItems.length > summary.available_total || summary.draft_total < summary.unreleased_total ||
+    provenItems.filter((item) => item.lifecycle === "draft").length > summary.unreleased_total ||
+    loaded.drafts > summary.draft_total || loaded.scheduled > summary.scheduled_total ||
+    loaded.published > summary.published_total || loaded.expired > summary.expired_total ||
+    loaded.withdrawn > summary.withdrawn_total || loaded.unreadRecipients > summary.unread_recipient_total ||
+    (filters.status !== "all" && summary.matching_total > summary[`${filters.status === "draft" ? "unreleased" : filters.status}_total`]) ||
+    (filters.query === "" && summary.matching_total !== (filters.status === "all" ? summary.available_total : summary[`${filters.status === "draft" ? "unreleased" : filters.status}_total`])) ||
+    (summary.available_total === projected.items.length && (
+      loaded.drafts !== summary.draft_total || loaded.scheduled !== summary.scheduled_total ||
+      loaded.published !== summary.published_total || loaded.expired !== summary.expired_total ||
+      loaded.withdrawn !== summary.withdrawn_total || loaded.unreadRecipients !== summary.unread_recipient_total
+    ))) invalid();
+  return {
+    ...projected, filters: { ...filters, page }, availableTotal: summary.available_total,
+    itemsTruncated: summary.items_truncated,
+    pagination: { page, pageSize: filters.pageSize, matchingTotal: summary.matching_total, totalPages, rangeStart, rangeEnd },
+    metrics: { drafts: summary.draft_total, scheduled: summary.scheduled_total, published: summary.published_total, expired: summary.expired_total, withdrawn: summary.withdrawn_total, unreadRecipients: summary.unread_recipient_total },
+  };
 }

@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "./pending-operation-lock";
+import { hasPendingOperations, hasViewTransition, tryAcquirePendingOperation, tryAcquirePendingRecoveryRead, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "./pending-operation-lock";
 
 const releases: (() => void)[] = [];
 function remember(release: (() => void) | null) { if (release) releases.push(release); return release; }
@@ -53,5 +53,38 @@ describe("tab-local operation/view coordinator", () => {
     vi.stubGlobal("window", undefined);
     expect(tryAcquirePendingOperation()).toBeNull();
     expect(tryAcquireViewTransition()).toBeNull();
+    expect(tryAcquirePendingRecoveryRead()).toBeNull();
+  });
+  it("holds exactly its own write during a mutually exclusive recovery read", () => {
+    const own = remember(tryAcquirePendingOperation())!;
+    const read = remember(tryAcquirePendingRecoveryRead(own))!;
+    expect(read).not.toBeNull(); expect(hasPendingOperations()).toBe(true); expect(hasViewTransition()).toBe(true);
+    expect(tryAcquirePendingOperation()).toBeNull(); expect(tryAcquireViewTransition()).toBeNull();
+    expect(tryAcquirePendingRecoveryRead(own)).toBeNull();
+    read(); expect(hasViewTransition()).toBe(false); expect(hasPendingOperations()).toBe(true);
+    own(); expect(hasPendingOperations()).toBe(false);
+  });
+  it("rejects extra foreign owners, fabricated and already-released closures", () => {
+    const own = remember(tryAcquirePendingOperation())!;
+    const foreign = remember(tryAcquirePendingOperation())!;
+    expect(tryAcquirePendingRecoveryRead(own)).toBeNull();
+    foreign(); expect(tryAcquirePendingRecoveryRead(foreign)).toBeNull();
+    expect(tryAcquirePendingRecoveryRead(() => own())).toBeNull();
+    expect(tryAcquirePendingRecoveryRead()).toBeNull();
+    const read = remember(tryAcquirePendingRecoveryRead(own))!; expect(read).not.toBeNull(); read(); own();
+    expect(tryAcquirePendingRecoveryRead(own)).toBeNull();
+  });
+  it("an obsolete read release cannot unlock a newer read, including logout", () => {
+    const own = remember(tryAcquirePendingOperation())!;
+    const read = remember(tryAcquirePendingRecoveryRead(own))!;
+    own(); expect(hasPendingOperations()).toBe(false); expect(tryAcquirePendingOperation()).toBeNull();
+    read(); const newer = remember(tryAcquirePendingRecoveryRead())!;
+    read(); expect(hasViewTransition()).toBe(true); expect(tryAcquirePendingOperation()).toBeNull(); newer();
+  });
+  it("ordinary recovery without a write uses the existing read exclusion fence", () => {
+    const read = remember(tryAcquirePendingRecoveryRead())!;
+    expect(read).not.toBeNull(); expect(hasPendingOperations()).toBe(false); expect(hasViewTransition()).toBe(true);
+    expect(tryAcquirePendingOperation()).toBeNull(); read();
+    expect(remember(tryAcquirePendingOperation())).not.toBeNull();
   });
 });

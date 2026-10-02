@@ -26,20 +26,27 @@ export class ClientMasterSnapshotError extends Error {
 export async function loadClientMasterSnapshot(
   context: TenantContext,
   interaction: "view" | "search" = "view",
+  read: {
+    supabase?: NonNullable<Awaited<ReturnType<typeof createServerSupabaseClient>>>;
+    signal?: AbortSignal;
+  } = {},
 ) {
   if (context.demo) return buildDemoClientMasterSnapshot();
   if (!context.scopes.includes("clients.read")) {
     throw new ClientMasterSnapshotError();
   }
 
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) throw new ClientMasterSnapshotError();
-  const result = await supabase.rpc("client_master_snapshot", {
+  if (read.signal?.aborted) throw new ClientMasterSnapshotError();
+  const supabase = read.supabase ?? await createServerSupabaseClient();
+  if (!supabase || read.signal?.aborted) throw new ClientMasterSnapshotError();
+  let query = supabase.rpc("client_master_snapshot", {
     p_expected_organization_id: context.organizationId,
     p_expected_branch_id: context.branchId,
     p_interaction: interaction,
   });
-  if (result.error) throw new ClientMasterSnapshotError();
+  if (read.signal) query = query.abortSignal(read.signal);
+  const result = await query;
+  if (read.signal?.aborted || result.error) throw new ClientMasterSnapshotError();
   if (result.data !== null && !Array.isArray(result.data)) {
     throw new ClientMasterSnapshotError();
   }

@@ -1,17 +1,23 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { staffPages } from "@/lib/catalog";
 import { buildDemoBodyAssessmentSnapshot } from "@/lib/body-assessments/demo";
 import { BodyAssessmentsWorkspace } from "./body-assessments-workspace";
+import { clearBodyAssessmentPendingOnLogout } from "@/lib/body-assessments/pending";
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const page = staffPages.find((p) => p.number === 19)!;
 const demo = buildDemoBodyAssessmentSnapshot({ clientId: null, state: "all" });
 const actor = demo.records[0].actor_user_id;
 function view(snapshot = demo) { return render(<BodyAssessmentsWorkspace page={page} snapshot={snapshot} canManage canSign actorUserId={actor} />); }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+beforeEach(() => {
+  clearBodyAssessmentPendingOnLogout(); refresh.mockClear();
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function(this: HTMLDialogElement) { this.open = true; } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function(this: HTMLDialogElement) { this.open = false; } });
+});
+afterEach(() => { cleanup(); clearBodyAssessmentPendingOnLogout(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("body observation workspace", () => {
   it("shows synthetic detail and prior observations while disabling mutations", () => {
     view(); expect(screen.getByRole("button", { name: "新增評估草稿" })).toBeDisabled();
@@ -48,8 +54,8 @@ describe("body observation workspace", () => {
     expect(screen.getByRole("button", { name: "新增評估草稿" })).toBeDisabled();
   });
   it("known stale-version rejection permits refreshing instead of trapping retries", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ status: "error", data: null,
-      errors: [{ code: "BODY_ASSESSMENT_VERSION_CONFLICT" }] }) }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ requestId: "00000000-0000-4000-8000-000000000001", status: "error", data: null,
+      errors: [{ code: "BODY_ASSESSMENT_VERSION_CONFLICT", message: "合成版本衝突" }] }) }));
     const record = demo.records[0].history[0];
     view({ ...demo, demo: false, records: [{ ...record, history: [], historyTotal: 0, historyTruncated: false }] });
     fireEvent.click(screen.getByRole("button", { name: "核對並簽署" }));

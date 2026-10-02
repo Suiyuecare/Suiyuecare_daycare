@@ -38,10 +38,12 @@ export async function loadClientDirectoryPage(
     afterClientCode?: string | null;
     afterClientId?: string | null;
     exactClientId?: string | null;
+    signal?: AbortSignal;
   },
 ): Promise<ClientDirectoryPage> {
   const pageSize = options.pageSize ?? DIRECTORY_PAGE_SIZE;
-  const result = await supabase.rpc("client_directory_snapshot", {
+  if (options.signal?.aborted) unavailable();
+  let query = supabase.rpc("client_directory_snapshot", {
     p_expected_organization_id: context.organizationId,
     p_expected_branch_id: context.branchId,
     p_purpose: options.purpose,
@@ -50,7 +52,9 @@ export async function loadClientDirectoryPage(
     p_after_client_id: options.afterClientId ?? null,
     p_exact_client_id: options.exactClientId ?? null,
   });
-  if (result.error) unavailable();
+  if (options.signal) query = query.abortSignal(options.signal);
+  const result = await query;
+  if (options.signal?.aborted || result.error) unavailable();
   try {
     return parseClientDirectoryPage({
       value: result.data,
@@ -69,6 +73,7 @@ export async function loadAllClientDirectoryRows(
   context: TenantContext,
   purpose: ClientDirectoryPurpose,
   maxRows = MAX_DIRECTORY_ROWS,
+  signal?: AbortSignal,
 ): Promise<ClientDirectoryRow[]> {
   if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > MAX_DIRECTORY_ROWS) {
     unavailable();
@@ -85,6 +90,7 @@ export async function loadAllClientDirectoryRows(
       pageSize: DIRECTORY_PAGE_SIZE,
       afterClientCode,
       afterClientId,
+      signal,
     });
     expectedCount ??= page.visibleCount;
     if (

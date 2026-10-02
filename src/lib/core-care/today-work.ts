@@ -83,10 +83,13 @@ export function scopeTodayWorkShift(row: TodayWorkRow, shift: RosterShift | "all
   const diaries = plannedShifts.flatMap((slot) => slot.tasks.filter((task) => task.kind === "care_diary"));
   const tasks: WorkTask[] = row.tasks.filter((task) => task !== "measurements" && task !== "diary");
   if (row.tasks.includes("measurements") && measurements.some((task) => task.status === "pending")) tasks.push("measurements");
-  if (row.tasks.includes("diary") && (diaries.some((task) => task.status === "pending") || row.diary.includes("草稿待完成") || row.diary.includes("待簽署"))) tasks.push("diary");
+  // A client/date draft has no proven roster shift. Keep it in the all-day queue,
+  // but never project it onto a signed morning or afternoon assignment.
+  if (row.tasks.includes("diary") && diaries.some((task) => task.status === "pending")) tasks.push("diary");
   const nextPage = tasks[0] === "attention" || tasks[0] === "diary" ? 6 : tasks[0] === "attendance" ? 46 : tasks[0] === "measurements" ? 3 : row.nextPage;
   return { ...row, plannedShifts, tasks, nextPage,
     nextLabel: tasks[0] === "attention" ? "查看需留意紀錄" : tasks[0] === "diary" ? "接續照顧日誌" : tasks[0] === "attendance" ? "確認出勤" : tasks[0] === "measurements" ? "前往量測" : "查看紀錄",
     measurements: row.measurements === "無查閱權限" || row.measurements.startsWith("未到") ? row.measurements : `${measurements.filter((task) => task.status === "recorded").length}／${measurements.length} 項已有紀錄`,
-    diary: diaries.length && row.diary !== "無查閱權限" ? `${diaries.filter((task) => task.status === "recorded").length}／${diaries.length} 班已簽署${row.diary.includes("草稿待完成") ? "；有草稿待完成" : row.diary.includes("待簽署") ? "；有待簽署日誌" : ""}` : row.diary };
+    diary: row.diary === "無查閱權限" || row.diary.startsWith("未到") ? row.diary
+      : diaries.length ? `${diaries.filter((task) => task.status === "recorded").length}／${diaries.length} 班已簽署` : "未安排" };
 }

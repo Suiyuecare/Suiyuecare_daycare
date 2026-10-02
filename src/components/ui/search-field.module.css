@@ -1,0 +1,12 @@
+.search { min-width: 0; }
+.control { position: relative; }
+.control label { display: block; }
+.search input { padding-right: 52px; }
+.search input::-webkit-search-cancel-button { display: none; }
+.search .clear { position: absolute; inset-inline-end: 0; top: 50%; transform: translateY(-50%); width: 44px; min-height: 44px; border-color: transparent; background: transparent; }
+.search .clear svg { position: static; transform: none; width: 18px; height: 18px; color: var(--ink-muted); }
+.search .clear:hover:not(:disabled) { background: var(--surface-soft); }
+.search .clear:active { background: var(--line); }
+@media (max-width: 760px) {
+  .search { flex-basis: 100%; min-width: 100%; }
+}

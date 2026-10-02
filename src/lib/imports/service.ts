@@ -35,7 +35,7 @@ function parsedStatus(
   return hasUnknown ? "mapping_required" : "ready_for_approval";
 }
 
-function deterministicBatchId(actor: ImportActor, idempotencyKey: string) {
+export function deterministicBatchId(actor: ImportActor, idempotencyKey: string) {
   const bytes = createHash("sha256")
     .update(`${actor.organizationId}\u001f${actor.branchId}\u001f${actor.userId}\u001f${idempotencyKey}`)
     .digest()

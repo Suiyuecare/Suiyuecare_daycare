@@ -307,7 +307,7 @@ export const staffPages = [
       "正式題本、公式、代碼與授權來源未核准前，僅保存 manual_unstandardized 人工候選摘要、結果三態與理由、人工複評日期三態與依據；不得建立分數、診斷、自動複評或照顧決策。",
       "正式發布規則未配置時，畫面與快照須明示未配置並 fail closed，不得將人工候選紀錄標示成官方或標準化 ABCD 結果。",
       "草稿修訂、簽署及更正只追加不可變線性版本，使用 expected terminal version、內容雜湊及 actor-scoped exact replay；簽署與更正須同一工作階段最近 15 分鐘 AAL2。",
-      "所有寫入在解析敏感 body 前驗證員工 AAL2、clients.read、abcd_assessments.read／manage；資料庫再次限制機構、分支及指派個案。",
+      "人工草稿建立與修訂允許已核准 Google 工作階段；簽署與更正仍要求近期 AAL2。所有寫入先驗證 clients.read、abcd_assessments.read／manage，資料庫再次限制機構、分支及指派個案。",
       "個案、年度、類型、複評三態、紀錄狀態與查詢均採嚴格單值白名單；完整集合統計先於 200 筆顯示截斷，查閱稽核不得保存摘要、結果、理由或查詢值。",
       "附件、匯出、通知與離線未配置時須明示未配置並 fail closed。",
     ],

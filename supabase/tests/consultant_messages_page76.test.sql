@@ -441,9 +441,10 @@ select
   '76100000-0000-4000-8000-000000000001',
   '76200000-0000-4000-8000-000000000001',
   'consultant', '歷史顧問訊息 ' || series, '合成歷史內容',
-  clock_timestamp() - make_interval(mins => series),
-  clock_timestamp(), '76000000-0000-4000-8000-000000000001',
-  '顧問訊息管理員', 'staff', 1, repeat('b', 64), clock_timestamp()
+  -- The table requires published_at = created_at for every synthetic row.
+  statement_timestamp() - make_interval(mins => series),
+  statement_timestamp(), '76000000-0000-4000-8000-000000000001',
+  '顧問訊息管理員', 'staff', 1, repeat('b', 64), statement_timestamp()
 from generate_series(1, 101) series;
 insert into public.consultant_message_recipients (
   organization_id, branch_id, message_id, recipient_user_id,

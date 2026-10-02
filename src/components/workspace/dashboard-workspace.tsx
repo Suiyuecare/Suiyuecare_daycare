@@ -5,15 +5,17 @@ import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { DashboardAutoRefresh } from "./dashboard-auto-refresh";
 import { TodayWorkList } from "./today-work-list";
 import type { CareRosterSnapshot } from "@/lib/care-roster/types";
-import { RosterComposer } from "@/components/care-roster/roster-composer";
+import { RosterComposer, RosterExceptionEntry } from "@/components/care-roster/roster-composer";
 
-export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = false, canViewManagementDetails = false, canOpenReadiness = false }: {
+export function DashboardWorkspace({ snapshot, serviceDate, roster, workScopeKey, canWriteRoster = false, loadError = false, canViewManagementDetails = false, canOpenReadiness = false }: {
   snapshot: DailyCareSnapshot | null;
   serviceDate: string;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
   canOpenReadiness?: boolean;
   roster?: CareRosterSnapshot;
+  workScopeKey?: string;
+  canWriteRoster?: boolean;
 }) {
   if (loadError || !snapshot) {
     return <section className="empty-card core-care-state" role="alert">
@@ -29,19 +31,26 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, loadError = 
     .format(new Date(`${serviceDate}T12:00:00+08:00`));
   const updated = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
     .format(new Date(snapshot.generatedAt));
+  const managerAssignments = roster?.manager && roster.status === "ready" ? roster.assignments : [];
+  const blockedCount = managerAssignments.filter((row) => row.state === "scheduled" && !row.isServiceEligible).length;
+  const unassignedCount = managerAssignments.filter((row) => row.state === "scheduled" && row.isServiceEligible && !row.staffUserId).length;
   return <>
-    <nav aria-label="所在位置" className="context-bar"><span>工作台</span><span aria-hidden="true">／</span><span aria-current="page" className="context-bar__crumb">今日工作</span></nav>
+    <nav aria-label="所在位置" className="context-bar today-context-bar"><span>工作台</span><span aria-hidden="true">／</span><span aria-current="page" className="context-bar__crumb">今日工作</span></nav>
     <header className="page-heading today-heading">
       <div><p className="eyebrow">{dayLabel}・更新於 {updated}{snapshot.demo ? "・合成示範" : ""}</p>
-        <h1>今天的照顧工作，一眼掌握。</h1>
-        <p className="page-heading__description">先找個案，再接續出勤、量測與照顧日誌。</p></div>
-      <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
+        <h1>今日工作</h1>
+        <p className="page-heading__description">選個案，接續完成當日紀錄。</p></div>
+      <div className="page-heading__actions">
+        <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
+        {canOpenReadiness ? <NavigationLink className="button button--secondary" aria-label="主管：檢查開站缺項"
+          loadingLabel="開站準備清單" href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>開站檢查</NavigationLink> : null}
+      </div>
     </header>
-    {canOpenReadiness ? <p className="callout"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
-      href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink>
-      <span>帳號、個案、當班安排還沒建齊？從準備清單找到下一步。</span></p> : null}
-    <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} />
-    {roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
+    {blockedCount + unassignedCount > 0 && <RosterExceptionEntry blockedCount={blockedCount} unassignedCount={unassignedCount}
+      canOpenComposer={canWriteRoster || !!roster?.demo} previewOnly={!!roster?.demo} />}
+    <TodayWorkList key={serviceDate} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} scopeKey={workScopeKey} canOpenRosterComposer={canWriteRoster || !!roster?.demo} />
+    {(canWriteRoster || roster?.demo) && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate}
+      canWriteRoster={canWriteRoster} authorityKey={workScopeKey} />}
     <footer className="today-footer">
       <NavigationLink className="button button--secondary" loadingLabel="個案中心" href={`/app/staff/workspace/case-center?date=${serviceDate}`}>到個案中心調整篩選</NavigationLink>
       <p>本頁僅整理出勤、量測與最近一筆日誌。交通、餐食及其他照顧工作，請到各自頁面確認。</p>

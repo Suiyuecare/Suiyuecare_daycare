@@ -51,6 +51,23 @@ beforeEach(() => {
 });
 
 describe("branding cannot replace authenticated tenant identity", () => {
+  it("enriches an approved nursing context only with exact DB-owned scope evidence", async () => {
+    mocks.from.mockImplementation((table: string) => {
+      const data = table === "active_memberships" ? [{ organization_id: ORG, branch_id: BRANCH, display_name: "合成護理員",
+        role_keys: ["nurse"], scopes: ["clients.read", "nursing_assessments.read", "nursing_assessments.sign"] }]
+        : [{ id: BRANCH, name: "合成分支" }];
+      return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+        returns: vi.fn().mockResolvedValue({ data, error: null }), maybeSingle: vi.fn().mockResolvedValue({ data: { name: "合成機構" }, error: null }) };
+    });
+    const verifiedAt = new Date(Date.now() - 1000).toISOString();
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === "is_staff_login_allowed" ? true
+      : { organizationId: ORG, branchId: BRANCH, actorUserId: USER, verifiedAt }, error: null }));
+    expect(await getTenantContext("staff")).toMatchObject({ userId: USER, roles: ["nurse"], recentAal2At: verifiedAt });
+    expect(mocks.rpc).toHaveBeenCalledWith("nursing_recent_aal2_evidence", { p_expected_organization_id: ORG, p_expected_branch_id: BRANCH });
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === "is_staff_login_allowed" ? true
+      : { organizationId: ORG, branchId: BRANCH, actorUserId: "58000000-0000-4000-8000-000000000999", verifiedAt }, error: null }));
+    expect(await getTenantContext("staff")).toMatchObject({ userId: USER, recentAal2At: null });
+  });
   it("keeps online preview identity fixed and separate from actual authentication", async () => {
     mocks.preview.mockReturnValue(true);
     expect(await getTenantContext("staff")).toMatchObject({

@@ -1,7 +1,7 @@
-.dialog { width: min(920px, calc(100vw - 32px)); }
-.confirmDialog { width: min(560px, calc(100vw - 32px)); }
 .dialogBody { display: grid; gap: 18px; }
 .formFields { border: 0; display: grid; gap: 16px; margin: 0; min-width: 0; padding: 0; }
+.formFields input:not([type="checkbox"]), .formFields textarea { font-size: 16px; min-width: 0; }
+.formFields textarea { min-height: 112px; resize: none; }
 .twoColumns { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .audience { border: 1px solid var(--line); border-radius: 14px; display: grid; gap: 6px; max-height: 220px; min-width: 0; overflow: auto; padding: 12px; }
 .audience legend { font-weight: 700; padding: 0 6px; }
@@ -30,9 +30,15 @@
 .recipientPanel { margin-top: 18px; }
 .detailTable { max-height: 520px; }
 .readBoundary { color: var(--ink-muted); font-size: .88rem; margin: 16px 0; }
+.pagination { font-size: .9rem; }
+.pagination :global(.button) { min-width: 100px; }
 
 @media (max-width: 760px) {
-  .dialog, .confirmDialog { width: calc(100vw - 16px); }
+  .pagination { grid-template-columns: 1fr 1fr; }
+  .pagination > span { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
+  .pagination > :first-child { grid-column: 1; grid-row: 2; justify-self: stretch; }
+  .pagination > :last-child { grid-column: 2; grid-row: 2; justify-self: stretch; }
+  .pagination :global(.button) { justify-content: center; }
   .twoColumns { grid-template-columns: 1fr; }
   .rowActions { min-width: 0; width: 100%; }
   .rowActions > * { min-width: 0; }
@@ -41,7 +47,6 @@
 }
 
 @media (max-width: 420px) {
-  .dialog, .confirmDialog { margin: 8px; width: calc(100vw - 16px); }
   .rowActions :global(.button) { justify-content: center; min-height: 44px; width: 100%; }
   .contentCompare section { overflow-wrap: anywhere; }
 }

@@ -1,35 +1,47 @@
 "use client";
 
 import { FormEvent, MouseEvent, useRef, useState } from "react";
-import { FilePlus2, ShieldCheck, X } from "lucide-react";
+import { FilePlus2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
-import { useCoreDraftGuard } from "./client-continuation";
+import { withCareRequestDeadline } from "@/lib/core-care/request-deadline";
+import { CoreDraftConfirmation, useCoreDraftGuard } from "./client-continuation";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { CoreCareReceiptError, parseDiaryWriteReceipt } from "@/lib/core-care/write-receipts";
 import { observationsFromForm } from "@/lib/care-diary/schema";
 import { DiaryObservationsFields } from "./diary-observations";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
+import { useCareRequestOwner } from "./use-care-request-owner";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
 import type { CareDiaryFields } from "@/lib/care-diary/schema";
+import { isDiaryShiftTimeAligned } from "@/lib/care-diary/shift-time";
 import { isDailyWorkflowShift, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
+import styles from "./daily-composer.module.css";
 
 type ClientOption = { id: string; name: string; code: string };
 type DiaryRequest = { client_id: string; page_slug: string; occurred_at: string; data: CareDiaryFields };
 
-function defaultTaipeiLocal(serviceDate: string) {
+function defaultTaipeiLocal(serviceDate: string, shift?: DailyWorkflowShift) {
+  const now = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   })
-    .formatToParts(new Date())
+    .formatToParts(now)
     .reduce<Record<string, string>>((result, part) => {
       result[part.type] = part.value;
       return result;
     }, {});
+  if (serviceDate !== `${parts.year}-${parts.month}-${parts.day}` ||
+      (shift && !isDiaryShiftTimeAligned(shift, now.toISOString()))) return "";
   return `${serviceDate}T${parts.hour}:${parts.minute}`;
 }
 
@@ -49,6 +61,7 @@ export function CareDiaryComposer({
   demo,
   selectedClientId,
   selectedShift,
+  existingOpenRecord = false,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
@@ -56,19 +69,42 @@ export function CareDiaryComposer({
   demo: boolean;
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
+  existingOpenRecord?: boolean;
 }) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
-  const draft = useCoreDraftGuard();
+  const validation = useDailyFormValidation();
+  const timeHintId = `${validation.labelId("occurred_at")}-hint`;
+  const [editorOpen, setEditorOpen] = useState(false);
   const attempt = useCareWriteAttempt<DiaryRequest>();
+  const attemptScope = useRef<string | null>(null);
+  const privacyScope = JSON.stringify(["care-note", demo, serviceDate, selectedClientId ?? null, selectedShift ?? "unselected"]);
+  const capabilities = JSON.stringify([enabled, clients.map((client) => client.id).sort()]);
+  const draft = useCoreDraftGuard({
+    scopeKey: privacyScope,
+    revisionKey: capabilities,
+    canPrompt: enabled,
+    isBlocked: () => !!attempt.current(),
+    onDiscard() {
+      setEditorOpen(false);
+      if (!attempt.current()) {
+        formRef.current?.reset(); validation.reset(); setError(null); setRestoredObservations(undefined);
+        setDraftSession((value) => value + 1); idempotencyKey.current = crypto.randomUUID();
+      }
+    },
+  });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
+  const lockedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const invalidShift = selectedShift !== undefined && !isDailyWorkflowShift(selectedShift);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const requestOwner = useCareRequestOwner(JSON.stringify([privacyScope, capabilities]), () => {
+    if (attempt.current()) attempt.failed();
+    setPending(false); setEditorOpen(false); setError(null); setNotice(null); draft.finish();
+  });
   const [draftSession, setDraftSession] = useState(0);
   const [restoredObservations, setRestoredObservations] = useState<Record<string, string>>();
   const offline = useOfflineCareForm({ kind: "care-note", serviceDate, enabled, demo, allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
@@ -76,41 +112,62 @@ export function CareDiaryComposer({
   function open(event: MouseEvent<HTMLButtonElement>) {
     if (!enabled || unavailableSelection || invalidShift) return;
     trigger.current = event.currentTarget;
-    if (attempt.current()) { dialog.current?.showModal(); return; }
+    if (attempt.current()) { setEditorOpen(true); return; }
     formRef.current?.reset();
     setDraftSession((value) => value + 1);
     setRestoredObservations(undefined);
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
-    dialog.current?.showModal();
+    validation.reset();
+    setEditorOpen(true);
   }
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆日誌結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
-    if (!draft.discard()) return;
-    dialog.current?.close();
+    if (attempt.current()) { setEditorOpen(false); setNotice("上一筆日誌結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    draft.requestExit(() => setEditorOpen(false));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current || pending) return;
     const form = event.currentTarget;
     const prior = attempt.current();
+    if (prior && attemptScope.current !== privacyScope) {
+      setError("上一筆日誌尚未確認，請回到原個案、日期與班別處理；未建立新的一筆。");
+      return;
+    }
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
-    if (!enabled || unavailableSelection || invalidShift || !clients.some((client) => client.id === clientId)) {
-      setError("請重新選擇目前授權的個案；尚未送出日誌草稿。");
+    if (!enabled || unavailableSelection || invalidShift ||
+      (selectedClientId !== undefined && clientId !== selectedClientId) ||
+      !clients.some((client) => client.id === clientId)) {
+      if (!prior) { setError(null); validation.validate(form, { client_id: "請重新選擇目前授權的個案；尚未送出日誌草稿。" }); }
+      else setError("請重新選擇目前授權的個案；尚未送出日誌草稿。");
       return;
+    }
+    if (!prior && !validation.validate(form)) { setError(null); return; }
+    let candidateOccurredAt: string | undefined;
+    if (!prior) {
+      try { candidateOccurredAt = taipeiLocalToIso(String(data.get("occurred_at") ?? "")); }
+      catch { validation.validate(form, { occurred_at: "請確認實際發生時間。" }); return; }
+      const shift = String(data.get("shift") ?? "") as CareDiaryFields["shift"];
+      if (!isDiaryShiftTimeAligned(shift, candidateOccurredAt)) {
+        validation.validate(form, { occurred_at: shift === "morning"
+          ? "上午班請填 12:00 前的實際發生時間。" : "下午班請填 12:00 起的實際發生時間。" });
+        return;
+      }
     }
     if (!draft.begin()) return;
     setPending(true);
     setError(null);
+    const request = requestOwner.begin();
     try {
       const body = prior?.body ?? {
           client_id: clientId,
           page_slug: "staff/daily-care/care-diary",
-          occurred_at: taipeiLocalToIso(String(data.get("occurred_at") ?? "")),
+          occurred_at: candidateOccurredAt!,
           data: {
             shift: String(data.get("shift") ?? "") as CareDiaryFields["shift"],
             care_item: String(data.get("care_item") ?? ""),
@@ -123,24 +180,40 @@ export function CareDiaryComposer({
           },
         };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
-        draft.saved(); dialog.current?.close();
+        request.throwIfStale();
+        draft.saved(); setEditorOpen(false);
         setNotice("已保存在裝置等待送出；尚未確認儲存到系統。");
         return;
       }
+      request.throwIfStale();
+      if (!prior) attemptScope.current = privacyScope;
       const frozen = attempt.prepare(body, idempotencyKey.current);
-      const response = await fetchWithTimeout("/api/records", {
-        method: "POST", cache: "no-store",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": frozen.key },
-        body: frozen.serialized,
-      });
-      if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
-      const raw: unknown = await response.json().catch(() => null);
+      const { response, raw, definite } = await withCareRequestDeadline(async (signal) => {
+        const response = await fetchWithTimeout("/api/records", {
+          method: "POST", cache: "no-store", signal,
+          headers: { "Content-Type": "application/json", "Idempotency-Key": frozen.key },
+          body: frozen.serialized,
+        });
+        signal.throwIfAborted();
+        if (!response.ok) {
+          const definite = await isDefiniteCareRejection(response);
+          signal.throwIfAborted();
+          return { response, raw: null, definite };
+        }
+        const raw: unknown = await response.json().catch(() => null);
+        signal.throwIfAborted();
+        return { response, raw, definite: false };
+      }, { signal: request.signal });
+      request.throwIfStale();
+      if (!response.ok) { if (definite) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
       parseDiaryWriteReceipt(raw, response.status, demo);
       await offline.saved();
+      request.throwIfStale();
       attempt.confirmed();
+      attemptScope.current = null;
       form.reset();
       draft.saved();
-      dialog.current?.close();
+      setEditorOpen(false);
       setNotice(
         demo
           ? "展示草稿已通過欄位與重送檢查；展示資料不會永久保存。"
@@ -149,21 +222,23 @@ export function CareDiaryComposer({
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
+      if (!request.isCurrent()) return;
       const uncertain = attempt.failed();
       if (uncertain) await offline.retainUnconfirmed(uncertain.body);
+      if (!request.isCurrent()) return;
       setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message
         : "草稿尚未確認儲存。請保留內容直接重試，系統會辨識同一次送出。");
     } finally {
-      draft.finish();
-      setPending(false);
+      request.finish();
+      if (request.isCurrent()) { draft.finish(); setPending(false); }
     }
   }
 
   return (
-    <div className="core-composer">
+    <div className={`core-composer ${styles.composer}`}>
       <button
-        className="button button--primary"
+        className={`button ${existingOpenRecord ? "button--secondary" : "button--primary"}`}
         disabled={!enabled || clients.length === 0 || unavailableSelection || invalidShift}
         onClick={open}
         title={!enabled ? "目前角色沒有建立照顧草稿的權限" : unavailableSelection ? "指定個案不在目前授權名單，請重新選擇" : clients.length === 0 ? "沒有可建立紀錄的個案" : undefined}
@@ -174,37 +249,33 @@ export function CareDiaryComposer({
       {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
       {invalidShift ? <p role="alert">指定班別無效，請返回今日工作重新選擇；不會自動改成全日。</p> : null}
       {notice ? <p className="core-composer__notice" role="status">{notice}</p> : null}
-      <dialog
-        aria-labelledby="care-diary-dialog-title"
-        className="core-dialog"
-        onCancel={(event) => { event.preventDefault(); close(); }}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) close();
-        }}
-        onClose={() => trigger.current?.focus()}
-        ref={dialog}
-      >
-        <form className="core-dialog__surface" data-core-care-draft ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`} onChange={() => { if (attempt.current()) return; draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
-          <header className="drawer__header"><div><p className="eyebrow">第 3 步・日誌草稿</p><h2 id="care-diary-dialog-title">新增照顧日誌</h2><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p></div><button aria-label="關閉" className="icon-button" disabled={pending} onClick={close} type="button"><X aria-hidden="true" /></button></header>
+      <GovernanceDialog open={editorOpen && !draft.open} title="新增照顧日誌" busy={pending}
+        cancelLabel={attempt.locked && !pending ? "稍後處理" : "取消"} onRequestClose={close} returnFocusRef={trigger}>
+        <form data-core-care-draft noValidate aria-busy={pending} ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "unselected"}`}
+          onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
+          onChange={(event) => { if (attempt.current()) return; validation.clearChanged(event.target); draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
-          <div className="drawer__body core-dialog__body">
+          <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => { draft.changed(); setRestoredObservations(values); setDraftSession((value) => value + 1); }} />
-            <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>此操作只建立草稿。異常旗標只是提醒工作人員確認，不會產生診斷或自動改變照顧決策。</span></div>
-            <label className="field"><span>個案 *</span><select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select></label>
-            <label className="field"><span>班別 *</span><select defaultValue={selectedShift ?? "full_day"} name="shift" required><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select></label>
-            <label className="field"><span>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate)} name="occurred_at" required type="datetime-local" /></label>
-            <label className="field"><span>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required /></label>
-            <DiaryObservationsFields key={draftSession} restored={restoredObservations} />
-            <label className="field"><span>紀錄摘要</span><textarea maxLength={2000} name="note" placeholder="只記錄必要觀察與處置，不輸入無關個資。" /></label>
-            <label className="field"><span>後續行動</span><textarea maxLength={1000} name="follow_up" placeholder="如需交班或追蹤，填寫具體行動。" /></label>
+            {lockedClient ? <div className={styles.selectedClient} role="group" aria-label="已選定個案">
+              <span>個案</span><strong>{lockedClient.name}</strong><small>{lockedClient.code}</small>
+              <small className={styles.selectedClientNote}><ShieldCheck aria-hidden="true" />僅存草稿；異常標記不自動診斷</small>
+              <input type="hidden" name="client_id" value={lockedClient.id} />
+            </div> : <><p className={styles.safetyNote}><ShieldCheck aria-hidden="true" />僅存草稿；異常標記只提醒人工確認，不會自動診斷。</p><label className="field"><span id={validation.labelId("client_id")}>個案 *</span><select defaultValue="" name="client_id" required {...validation.field("client_id")}><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select><DailyFieldError validation={validation} name="client_id" /></label></>}
+            <label className="field"><span id={validation.labelId("shift")}>班別 *</span><select defaultValue={selectedShift ?? ""} name="shift" required {...validation.field("shift")}><option value="">請選擇班別</option><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select><DailyFieldError validation={validation} name="shift" /></label>
+            <label className="field"><span id={validation.labelId("occurred_at")}>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate, selectedShift)} name="occurred_at" required type="datetime-local" {...validation.field("occurred_at", timeHintId)} /><small id={timeHintId}>班別依實際發生時間判定，中午 12:00 為分界。</small><DailyFieldError validation={validation} name="occurred_at" /></label>
+            <label className="field"><span id={validation.labelId("care_item")}>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required {...validation.field("care_item")} /><DailyFieldError validation={validation} name="care_item" /></label>
+            <DiaryObservationsFields key={draftSession} restored={restoredObservations} validation={validation} />
+            <label className="field"><span id={validation.labelId("note")}>紀錄摘要</span><textarea className="resize-none" maxLength={2000} name="note" placeholder="只記錄必要觀察與處置，不輸入無關個資。" {...validation.field("note")} /><DailyFieldError validation={validation} name="note" /></label>
+            <label className="field"><span id={validation.labelId("follow_up")}>後續行動</span><textarea className="resize-none" maxLength={1000} name="follow_up" placeholder="如需交班或追蹤，填寫具體行動。" {...validation.field("follow_up")} /><DailyFieldError validation={validation} name="follow_up" /></label>
             <label className="check-field"><input name="abnormal" type="checkbox" /><span>標記為需留意，送入後續人工確認</span></label>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
           </fieldset>
-          </div>
-          <footer className="drawer__footer"><button className="button button--secondary" disabled={pending} onClick={close} type="button">{attempt.locked && !pending ? "稍後處理" : "取消"}</button><button className="button button--primary" disabled={pending} type="submit">{pending ? "儲存中…" : attempt.locked ? "重試原草稿" : "儲存草稿"}</button></footer>
+          <footer className="drawer__footer"><button className="button button--primary" disabled={pending} type="submit">{pending ? "儲存中…" : attempt.locked ? "重試原草稿" : "儲存草稿"}</button></footer>
         </form>
-      </dialog>
+      </GovernanceDialog>
+      <CoreDraftConfirmation draft={draft} />
     </div>
   );
 }

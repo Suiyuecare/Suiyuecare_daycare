@@ -56,6 +56,45 @@ const mnaMaximum = {
 
 export const ASSESSMENT_TEST_VECTORS = [
   {
+    id: "iadl-v2-partial-function-options",
+    submission: {
+      versionId: "lawton-iadl-8-domain-expanded-v2",
+      answers: codedAnswers({
+        ...iadlMaximum,
+        telephone: "telephone_answer_only",
+        housekeeping: "housework_all_help",
+        laundry: "laundry_small_items",
+        transportation: "transport_with_companion",
+        finances: "finances_daily_only",
+      }),
+    },
+    expected: { status: "complete", rawScore: 8, adjustedScore: 8, classificationKey: "high_function_8" },
+  },
+  {
+    id: "bsrs-v2-fourteen-boundary",
+    submission: {
+      versionId: "bsrs5-zh-tw-v2",
+      answers: codedAnswers({ bsrs_01: "3", bsrs_02: "3", bsrs_03: "3", bsrs_04: "3", bsrs_05: "2", bsrs_suicide: "0" }),
+    },
+    expected: { status: "complete", rawScore: 14, adjustedScore: 14, classificationKey: "moderate_10_14" },
+  },
+  {
+    id: "bsrs-v2-fifteen-boundary",
+    submission: {
+      versionId: "bsrs5-zh-tw-v2",
+      answers: codedAnswers({ bsrs_01: "3", bsrs_02: "3", bsrs_03: "3", bsrs_04: "3", bsrs_05: "3", bsrs_suicide: "0" }),
+    },
+    expected: { status: "complete", rawScore: 15, adjustedScore: 15, classificationKey: "high_15_20" },
+  },
+  {
+    id: "bsrs-v2-safety-item-not-summed",
+    submission: {
+      versionId: "bsrs5-zh-tw-v2",
+      answers: codedAnswers({ bsrs_01: "0", bsrs_02: "0", bsrs_03: "0", bsrs_04: "0", bsrs_05: "0", bsrs_suicide: "4" }),
+    },
+    expected: { status: "complete", rawScore: 0, adjustedScore: 0, classificationKey: "adaptation_0_5" },
+  },
+  {
     id: "spmsq-no-errors",
     submission: {
       versionId: "spmsq-pfeiffer-10-education-adjusted-v1",

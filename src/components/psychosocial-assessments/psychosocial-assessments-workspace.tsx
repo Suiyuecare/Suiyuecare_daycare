@@ -1,3 +1,5 @@
+"use client";
+
 import {
   CalendarClock,
   CheckCircle2,
@@ -13,6 +15,7 @@ import Link from "next/link";
 
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
+import type { TenantContext } from "@/lib/domain/types";
 import type {
   PsychosocialAssessmentFilters,
   PsychosocialAssessmentListItem,
@@ -25,6 +28,7 @@ import {
   PsychosocialAssessmentFreshness,
 } from "./psychosocial-assessment-actions";
 import styles from "./psychosocial-assessments.module.css";
+import { PsychosocialAssessmentController, usePsychosocialAssessmentController } from "./psychosocial-assessment-controller";
 
 const domainLabels: Record<PsychosocialDomainKey, string> = {
   family_relationships: "家庭／關係人互動",
@@ -36,7 +40,7 @@ const domainLabels: Record<PsychosocialDomainKey, string> = {
 
 function formatTimestamp(value: string | null) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("zh-TW", {
+  const parts = new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei",
     year: "numeric",
     month: "2-digit",
@@ -44,7 +48,9 @@ function formatTimestamp(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(new Date(value));
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}/${part("month")}/${part("day")} ${part("hour")}:${part("minute")}`;
 }
 
 function formatDate(value: string | null) {
@@ -122,31 +128,33 @@ function AssessmentHistory({ item }: { item: PsychosocialAssessmentListItem }) {
   </details>;
 }
 
-export function PsychosocialAssessmentsWorkspace({
-  canManage,
-  canSign,
+type WorkspaceProps = {
+  context: TenantContext; canManage: boolean; canSign: boolean; filters: PsychosocialAssessmentFilters;
+  hasRecentAal2: boolean; loadError?: boolean; page: PageCatalogEntry; snapshot: PsychosocialAssessmentSnapshot | null;
+};
+
+export function PsychosocialAssessmentsWorkspace(props: WorkspaceProps) {
+  return <PsychosocialAssessmentController context={props.context} snapshot={props.loadError ? null : props.snapshot}
+    filters={props.filters} canManage={props.canManage} canSign={props.canSign} hasRecentAal2={props.hasRecentAal2}>
+    <PsychosocialWorkspaceContent {...props}/>
+  </PsychosocialAssessmentController>;
+}
+
+function PsychosocialWorkspaceContent({
   filters,
-  hasRecentAal2,
-  loadError = false,
   page,
-  snapshot,
-}: {
-  canManage: boolean;
-  canSign: boolean;
-  filters: PsychosocialAssessmentFilters;
-  hasRecentAal2: boolean;
-  loadError?: boolean;
-  page: PageCatalogEntry;
-  snapshot: PsychosocialAssessmentSnapshot | null;
-}) {
-  if (loadError || !snapshot) {
+}: WorkspaceProps) {
+  const controller = usePsychosocialAssessmentController();
+  const { canManage, canSign, hasRecentAal2 } = controller?.capabilities ?? { canManage: false, canSign: false, hasRecentAal2: false };
+  const snapshot = controller?.snapshot ?? null;
+  if (!snapshot) {
     return <section className="empty-card core-care-state" role="alert">
       <span className="empty-card__icon empty-card__icon--warning">
         <CircleAlert aria-hidden="true" />
       </span>
       <h1>心理社會評估暫時無法載入</h1>
       <p>正式快照採失敗即關閉；系統沒有擴大機構、分支或個案指派範圍，也沒有改用展示資料。</p>
-      <a className="button button--secondary" href="?">重新載入</a>
+      <button className="button button--secondary" disabled={controller?.readBlocked ?? true} onClick={() => controller?.refresh()}>重新載入</button>
     </section>;
   }
 
@@ -183,7 +191,9 @@ export function PsychosocialAssessmentsWorkspace({
     </div>
     {!snapshot.demo && !canManage ? <div className="callout" role="status">
       <ShieldCheck aria-hidden="true" />
-      <span>目前角色只有查看權限；新增、修訂、簽署與更正會由 API 及資料庫共同拒絕。</span>
+      <span>{canSign
+        ? "目前沒有新增與修訂草稿權限；簽署與更正仍須有效簽署授權及最近 15 分鐘驗證。"
+        : "目前只有查看權限；新增、修訂、簽署與更正未授權。"}</span>
     </div> : null}
 
     <section aria-label="心理社會評估摘要" className="metric-grid">
@@ -211,7 +221,7 @@ export function PsychosocialAssessmentsWorkspace({
           <p>{snapshot.matchingTotal} 位符合條件・快照 {formatTimestamp(snapshot.generatedAt)}・<PsychosocialAssessmentFreshness demo={snapshot.demo} staleAfter={snapshot.staleAfter} /></p>
         </div>
       </div>
-      <form className={`filter-bar ${styles.filters}`} method="get">
+      <form className={`filter-bar ${styles.filters}`} method="get" noValidate>
         <label className="field field--compact">
           <span>個案</span>
           <select defaultValue={filters.clientId ?? ""} name="client">

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { TenantContext } from "@/lib/domain/types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { loadAllClientDirectoryRows } from "@/lib/clients/directory";
+import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
 import type { CareRosterSnapshot } from "./types";
 
 const payloadSchema = z.object({
@@ -32,31 +33,36 @@ export async function loadCareRosterSnapshot(context: TenantContext, serviceDate
         evidenceAt: i === 0 && shift === "morning" ? `${serviceDate}T09:10:00+08:00` : null },
       { kind: "care_diary" as const, status: "pending" as const, evidenceAt: null }],
     }))) };
-  const supabase = await createServerSupabaseClient();
-  if (!supabase || !context.scopes.includes("clients.read")) return unavailable;
+  if (!context.scopes.includes("clients.read")) return unavailable;
   try {
-    const { data, error } = await supabase.rpc("care_roster_snapshot", {
-      p_organization_id: context.organizationId, p_branch_id: context.branchId, p_service_date: serviceDate,
-    }).maybeSingle<{ payload: unknown }>();
-    if (error) return unavailable;
-    const parsed = payloadSchema.safeParse(data?.payload);
-    if (!parsed.success || parsed.data.assignments.some((row) => row.serviceDate !== serviceDate)) return unavailable;
-    const assignmentKeys = parsed.data.assignments.map((row) => `${row.clientId}:${row.shift}`);
-    if (new Set(assignmentKeys).size !== assignmentKeys.length) return unavailable;
-    if (!parsed.data.manager && (parsed.data.staffOptions.length || parsed.data.assignments.some((row) => row.staffUserId !== context.userId || !row.isServiceEligible))) return unavailable;
-    let assignments: CareRosterSnapshot["assignments"] = parsed.data.assignments;
-    if (parsed.data.manager && assignments.some((row) => !row.isServiceEligible)) {
-      // Identity follows the same audited, tenant- and assignment-scoped path
-      // as the lifecycle page. Missing identity never becomes a UUID-based
-      // cancellation choice or a guessed name from another client.
-      const identities = await loadAllClientDirectoryRows(supabase, context, "client_lifecycle").catch(() => []);
-      const byId = new Map(identities.map((client) => [client.id, client]));
-      assignments = assignments.map((row) => {
-        const identity = byId.get(row.clientId);
-        return row.isServiceEligible ? row : { ...row, clientIdentity: identity
-          ? { displayName: identity.display_name, clientCode: identity.client_code } : null };
-      });
-    }
-    return { ...parsed.data, assignments, status: assignments.length ? "ready" : "empty", demo: false };
+    return await withServerReadDeadline(async (signal): Promise<CareRosterSnapshot> => {
+      const supabase = await createServerSupabaseClient();
+      if (!supabase || signal.aborted) return unavailable;
+      const { data, error } = await supabase.rpc("care_roster_snapshot", {
+        p_organization_id: context.organizationId, p_branch_id: context.branchId, p_service_date: serviceDate,
+      }).abortSignal(signal).maybeSingle<{ payload: unknown }>();
+      if (signal.aborted || error) return unavailable;
+      const parsed = payloadSchema.safeParse(data?.payload);
+      if (!parsed.success || parsed.data.assignments.some((row) => row.serviceDate !== serviceDate)) return unavailable;
+      const assignmentKeys = parsed.data.assignments.map((row) => `${row.clientId}:${row.shift}`);
+      if (new Set(assignmentKeys).size !== assignmentKeys.length) return unavailable;
+      if (!parsed.data.manager && (parsed.data.staffOptions.length || parsed.data.assignments.some((row) => row.staffUserId !== context.userId || !row.isServiceEligible))) return unavailable;
+      let assignments: CareRosterSnapshot["assignments"] = parsed.data.assignments;
+      if (parsed.data.manager && assignments.some((row) => !row.isServiceEligible)) {
+        // Identity follows the same audited, tenant- and assignment-scoped path
+        // as the lifecycle page. Missing identity never becomes a UUID-based
+        // cancellation choice or a guessed name from another client.
+        if (signal.aborted) return unavailable;
+        const identities = await loadAllClientDirectoryRows(supabase, context, "client_lifecycle", undefined, signal).catch(() => []);
+        if (signal.aborted) return unavailable;
+        const byId = new Map(identities.map((client) => [client.id, client]));
+        assignments = assignments.map((row) => {
+          const identity = byId.get(row.clientId);
+          return row.isServiceEligible ? row : { ...row, clientIdentity: identity
+            ? { displayName: identity.display_name, clientCode: identity.client_code } : null };
+        });
+      }
+      return { ...parsed.data, assignments, status: assignments.length ? "ready" : "empty", demo: false };
+    });
   } catch { return unavailable; }
 }

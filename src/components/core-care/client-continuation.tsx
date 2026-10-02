@@ -1,61 +1,78 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { NavigationLink } from "@/components/app/navigation-link";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
+import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { DAILY_WORKFLOW_STEPS, dailyWorkflowHref, type DailyWorkflowPage, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
+import { assessmentEntryHref } from "@/lib/assessment-entry/selection";
 import type { DailyCareSnapshot, DailyClientSummary } from "@/lib/core-care/types";
+import { useLegacyCoreDraftGuard } from "./legacy-core-draft-guard";
 
-const discardMessage = "還有尚未確認儲存的內容。確定要離開並放棄這次填寫嗎？";
+type CoreDraftGuardOptions = {
+  /** Only the visible workflow scope supplied by the caller, not inferred auth. */
+  scopeKey?: string;
+  revisionKey?: string;
+  canPrompt?: boolean;
+  /** A submitted/unknown attempt is not an unsent draft that can be discarded. */
+  isBlocked?: () => boolean;
+  onDiscard?: () => void;
+};
 
-/** Protect modal cancellation, link/GET navigation and full-document unloads. */
-export function useCoreDraftGuard() {
+/** Daily forms use the canonical navigation owner, including safe logout and
+ * validated GET replay. Synchronous getters retain the old immediate busy fence
+ * before React has committed the state update; no write lease is invented here. */
+export function useCoreDraftGuard(options?: CoreDraftGuardOptions) {
+  const ownerId = useId();
   const dirty = useRef(false);
   const busy = useRef(false);
-  useEffect(() => {
-    function mayLeave() {
-      if (busy.current) return false;
-      if (dirty.current && !window.confirm(discardMessage)) return false;
-      dirty.current = false;
-      return true;
-    }
-    function unload(event: BeforeUnloadEvent) {
-      if (!dirty.current && !busy.current) return;
-      event.preventDefault();
-      event.returnValue = "";
-    }
-    function click(event: MouseEvent) {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
-      if (new URL(link.href, window.location.href).href === window.location.href) return;
-      if (!mayLeave()) { event.preventDefault(); event.stopPropagation(); }
-    }
-    function submit(event: SubmitEvent) {
-      const form = event.target;
-      if (!(form instanceof HTMLFormElement) || form.hasAttribute("data-core-care-draft") || form.method.toLowerCase() !== "get") return;
-      if (!mayLeave()) { event.preventDefault(); event.stopPropagation(); }
-    }
-    window.addEventListener("beforeunload", unload);
-    document.addEventListener("click", click, true);
-    document.addEventListener("submit", submit, true);
-    return () => {
-      window.removeEventListener("beforeunload", unload);
-      document.removeEventListener("click", click, true);
-      document.removeEventListener("submit", submit, true);
-    };
-  }, []);
-  return {
-    changed() { dirty.current = true; },
-    begin() { if (busy.current) return false; busy.current = true; dirty.current = true; return true; },
-    finish() { busy.current = false; },
-    saved() { dirty.current = false; },
-    discard() {
-      if (busy.current || (dirty.current && !window.confirm(discardMessage))) return false;
-      dirty.current = false;
-      return true;
+  const currentOptions = useRef(options ?? {});
+  const [, update] = useState(0);
+  useLayoutEffect(() => { currentOptions.current = options ?? {}; });
+  const legacyDiscard = useLegacyCoreDraftGuard(options === undefined, dirty, busy);
+  const unsaved = useUnsavedChanges({
+    get dirty() { return options !== undefined && (dirty.current || busy.current || !!currentOptions.current.isBlocked?.()); },
+    get canPrompt() { return !busy.current && !currentOptions.current.isBlocked?.() && currentOptions.current.canPrompt !== false; },
+    scopeKey: options?.scopeKey ?? ownerId,
+    revisionKey: options?.revisionKey ?? "",
+    permittedFormAttribute: "data-core-care-draft",
+    onDiscard() {
+      dirty.current = false; busy.current = false;
+      currentOptions.current.onDiscard?.();
+      update((value) => value + 1);
     },
+  });
+  return {
+    ...unsaved,
+    requestDiscard: unsaved.requestExit,
+    // Existing no-options consumers keep their synchronous contract. Canonical
+    // callers must use requestExit and never a native-confirm fallback.
+    discard: legacyDiscard,
+    changed() { if (!dirty.current) { dirty.current = true; update((value) => value + 1); } },
+    begin() {
+      if (busy.current || unsaved.open) return false;
+      busy.current = true; dirty.current = true; update((value) => value + 1); return true;
+    },
+    finish() { busy.current = false; update((value) => value + 1); },
+    saved() { dirty.current = false; update((value) => value + 1); },
   };
+}
+
+export function CoreDraftConfirmation({ draft }: { draft: ReturnType<typeof useCoreDraftGuard> }) {
+  return <>
+    {draft.notice ? <p className="core-composer__notice" role="status">{draft.notice}</p> : null}
+    <GovernanceDialog open={draft.open} title="尚有未保存內容" cancelLabel="繼續填寫"
+      onRequestClose={draft.cancel} returnFocusRef={draft.returnFocusRef}>
+      <div onCompositionStart={draft.compositionStart} onCompositionEnd={draft.compositionEnd}>
+        <p>要保留這次填寫，或捨棄後繼續？</p>
+        <p className="muted">不影響裝置草稿或已送出紀錄。</p>
+        <footer className="drawer__footer">
+          <button className="button button--danger" onClick={draft.confirmDiscard} type="button">捨棄填寫並繼續</button>
+        </footer>
+      </div>
+    </GovernanceDialog>
+  </>;
 }
 
 function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?: DailyWorkflowShift) {
@@ -76,7 +93,7 @@ function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?:
       : client.careDiary.status === "draft" ? "已有草稿・未簽署" : "待簽署";
 }
 
-export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action }: {
+export function ClientContinuation({ page, serviceDate, selectedClientId, selectedShift, clients, sourceAccess, action, canOpenAssessments = false, canContinueDiary = false }: {
   page: DailyWorkflowPage;
   serviceDate: string;
   selectedClientId?: string;
@@ -84,12 +101,19 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
   clients: readonly DailyClientSummary[];
   sourceAccess: DailyCareSnapshot["sourceAccess"];
   action?: ReactNode;
+  canOpenAssessments?: boolean;
+  canContinueDiary?: boolean;
 }) {
   const selectId = useId();
   const [choice, setChoice] = useState("");
   const allowedClients = sourceAccess.clients ? clients : [];
   const selected = allowedClients.find((client) => client.clientId === selectedClientId);
   const chosen = allowedClients.find((client) => client.clientId === choice);
+  const shiftLabel = selected && selectedShift ? { morning: "上午班", afternoon: "下午班", full_day: "全日工作" }[selectedShift] : null;
+  // A positive dated snapshot may point to an existing record. Absence is not
+  // proof that no draft exists; the lifecycle read remains authoritative.
+  const openDiary = page === 6 && canContinueDiary && selected &&
+    (selected.careDiary?.status === "draft" || selected.careDiary?.status === "submitted");
 
   if (!sourceAccess.clients) return <section className="callout core-care-callout" role="status">
     <p>目前沒有個案名單查看權限。請聯絡主管確認授權；這不表示今天沒有個案。</p>
@@ -97,14 +121,14 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
 
   if (selectedClientId !== undefined && !selected) return <section className="callout core-care-callout" role="alert">
     <p>無法使用指定個案。請重新選擇目前授權的個案，系統不會自動改用其他人。</p>
-    <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate, undefined, selectedShift)} loadingLabel="個案選擇" prefetch={false}>重新選擇個案</NavigationLink>
+    <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate)} loadingLabel="個案選擇" prefetch={false}>重新選擇個案</NavigationLink>
   </section>;
 
-  return <section className="panel core-client-continuation" aria-labelledby={`${selectId}-heading`}>
+  return <section className={`panel core-client-continuation${selected ? " core-client-continuation--selected" : ""}`} aria-labelledby={`${selectId}-heading`}>
     <div className="panel__header">
       <div className="panel__title"><h2 id={`${selectId}-heading`}>{selected ? `${selected.displayName}的接續工作` : "先選定個案，再接續記錄"}</h2>
-        <p>{serviceDate}（臺北時間）{selectedShift ? ` · ${{ morning: "上午", afternoon: "下午", full_day: "全日" }[selectedShift]}` : ""}{selected ? ` · ${selected.clientCode}` : " · 出勤、量測、日誌沿用同一位個案與日期"}</p></div>
-      {selected ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate, undefined, selectedShift)} loadingLabel="個案選擇" prefetch={false}>更換個案</NavigationLink> : null}
+        <p>{serviceDate}（臺北時間）{shiftLabel ? ` · 目前班別：${shiftLabel}${page === 46 ? "（出勤按當日）" : ""}` : page === 46 ? " · 出勤按當日" : ""}{selected ? ` · ${selected.clientCode}` : " · 出勤、量測、日誌沿用同一位個案與日期"}</p></div>
+      {selected ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(page, serviceDate)} loadingLabel="個案選擇" prefetch={false}>更換個案</NavigationLink> : null}
     </div>
     <div className="panel__body">
       {!selected ? allowedClients.length ? <div className="core-client-picker">
@@ -112,9 +136,13 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
           <option value="">請選擇目前要照顧的個案</option>
           {allowedClients.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}（{client.clientCode}）</option>)}
         </select></label>
-        {chosen ? <NavigationLink className="button button--primary" href={dailyWorkflowHref(page, serviceDate, chosen.clientId, selectedShift)} loadingLabel={`${chosen.displayName}的工作清單`} prefetch={false}>選定這位個案</NavigationLink>
+        {chosen ? <NavigationLink className="button button--primary" href={dailyWorkflowHref(page, serviceDate, chosen.clientId)} loadingLabel={`${chosen.displayName}的工作清單`} prefetch={false}>選定這位個案</NavigationLink>
           : <button className="button button--primary" type="button" disabled>請先選擇個案</button>}
       </div> : <p>這個日期沒有可存取個案。請確認服務日期、分支與個案指派。</p> : null}
+      {openDiary ? <a className="button button--primary" href="#diary-lifecycle-title">
+        {selected.careDiary?.status === "draft" ? "接續已存草稿" : "檢視待簽日誌"}
+      </a> : null}
+      {selected ? action : null}
       <nav aria-label="個案照顧三步驟"><ol className="core-workflow-steps">
         {DAILY_WORKFLOW_STEPS.map((step, index) => <li key={step.page}>
           {selected && sourceAccess[step.source] && selected.sourceAccess?.[step.source] !== false ? <NavigationLink
@@ -127,7 +155,10 @@ export function ClientContinuation({ page, serviceDate, selectedClientId, select
           </span>}
         </li>)}
       </ol></nav>
-      {selected ? action : null}
+      {selected && selected.applicability?.eligible !== false && canOpenAssessments ? <NavigationLink
+        className="button button--secondary" href={assessmentEntryHref(selected.clientId)} loadingLabel="評估量表" prefetch={false}>
+        評估這位個案
+      </NavigationLink> : null}
       {selected && sourceAccess.careDiaries && selected.sourceAccess?.careDiaries !== false ? <NavigationLink
         className="button button--secondary" href={`/app/client-forms?client=${selected.clientId}`} loadingLabel="個案表單填答" prefetch={false}>
         此個案的機構自訂表單

@@ -12,6 +12,7 @@ export function taipeiLocalToIso(value: string) {
 }
 
 export function isoToTaipeiLocal(value: string) {
+  if (!isStrictOffsetDateTime(value)) throw new Error("INVALID_TIMESTAMP");
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) throw new Error("INVALID_TIMESTAMP");
   const parts = Object.fromEntries(
@@ -32,3 +33,4 @@ export function isoToTaipeiLocal(value: string) {
 export function defaultTaipeiLocal(now = new Date()) {
   return isoToTaipeiLocal(now.toISOString());
 }
+import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";

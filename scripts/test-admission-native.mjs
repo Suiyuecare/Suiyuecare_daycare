@@ -1,15 +1,15 @@
 // Dedicated real PostgreSQL admission/roster race checks. This script creates a
 // disposable Unix-socket-only cluster and never accepts a database URL.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const binaries = process.env.INTAKE_NATIVE_PG_BIN;
 if (!binaries?.startsWith("/")) throw new Error("Set INTAKE_NATIVE_PG_BIN to an existing absolute PostgreSQL bin directory.");
-const runtime = await mkdtemp("/tmp/daycare-admission-native.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-admission-native.");
 const env = { PATH: process.env.PATH, LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8", PGHOST: runtime, PGPORT: "55440", PGUSER: "postgres", PGDATABASE: "postgres", PGCONNECT_TIMEOUT: "5" };
 const run = (file, args, input) => {
   const result = spawnSync(file, args, { cwd: root, env, input, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: 120_000 });
@@ -63,6 +63,7 @@ const waitForBlocked = async (names) => {
   throw new Error("Competing admission sessions were not observed blocked in PostgreSQL.");
 };
 let started = false;
+let testFailure;
 try {
   console.log(run(join(binaries, "postgres"), ["--version"]).trim());
   run(join(binaries, "initdb"), ["-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=reject", "--no-locale", "--encoding=UTF8"]);
@@ -169,7 +170,12 @@ try {
   const finalLifecycle = JSON.parse(lifecycleCounts());
   if (replayDenied.status === 0 || !replayDenied.stderr.includes("42501") || finalLifecycle[0] !== 3 || finalLifecycle[1] !== 2 || !finalLifecycle[2]) throw new Error("Lifecycle delayed replay did not deny revoked scope without extra transition.");
   console.log("Native lifecycle delayed replay: winning admission plus scope disable -> waiting duplicate rejected 42501; only original transition retained.");
+} catch (error) {
+  testFailure = error;
+  throw error;
 } finally {
-  for (const holder of holders) await holder.release("rollback;").catch(() => {});
-  if (started) run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);
+  const released = await Promise.allSettled([...holders].map((holder) => holder.release("rollback;")));
+  const cleanupErrors = released.filter((result) => result.status === "rejected").map((result) => result.reason);
+  await cleanupNativeData({ started, testFailure, cleanupErrors,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

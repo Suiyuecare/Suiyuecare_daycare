@@ -80,6 +80,7 @@ describe("claim validation API exact database receipt", () => {
   it("does not claim no write occurred after a transport/database unknown failure", async () => {
     stubs.single.mockResolvedValue({ data: null, error: { code: "NETWORK", message: "SYNTH_SECRET_DETAIL" } });
     const response = await POST(request()); const result = await response.json();
+    expect(response.status).toBe(503);
     expect(result.errors[0].message).toContain("尚未確認");
     expect(JSON.stringify(result)).not.toMatch(/沒有部分凍結|SYNTH_SECRET_DETAIL/u);
   });

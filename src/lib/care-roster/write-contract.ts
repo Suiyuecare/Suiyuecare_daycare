@@ -5,6 +5,7 @@ export const rosterReceiptSchema = z.object({
   id: z.uuid(), clientId: z.uuid(), serviceDate: z.iso.date(), shift: z.enum(["morning", "afternoon"]),
   version: z.number().int().positive().safe(), replayed: z.boolean(),
 }).strict();
+export type RosterReceipt = z.infer<typeof rosterReceiptSchema>;
 const successSchema = z.object({
   requestId: z.uuid(), status: z.literal("ok"), errors: z.array(z.never()).length(0),
   data: z.object({ receipt: rosterReceiptSchema, persisted: z.literal(true), demo: z.literal(false) }).strict(),
@@ -27,12 +28,12 @@ export function rosterReceiptMatches(value: unknown, input: RosterInput) {
     && parsed.data.shift === input.shift && parsed.data.version === input.expectedVersion + 1 ? parsed.data : null;
 }
 export function parseRosterWriteOutcome(raw: unknown, status: number, input: RosterInput):
-  { kind: "success"; replayed: boolean } | { kind: "rejected"; message: string; needsReload: boolean; needsReauth: boolean }
+  { kind: "success"; replayed: boolean; receipt: RosterReceipt } | { kind: "rejected"; message: string; needsReload: boolean; needsReauth: boolean }
   | { kind: "unknown" } {
   const success = successSchema.safeParse(raw);
-  if (success.success && rosterReceiptMatches(success.data.data.receipt, input)
-    && status === (success.data.data.receipt.replayed ? 200 : 201)) {
-    return { kind: "success", replayed: success.data.data.receipt.replayed };
+  const receipt = success.success ? rosterReceiptMatches(success.data.data.receipt, input) : null;
+  if (receipt && status === (receipt.replayed ? 200 : 201)) {
+    return { kind: "success", replayed: receipt.replayed, receipt };
   }
   const failure = errorSchema.safeParse(raw);
   if (failure.success && definiteErrors[status]?.includes(failure.data.errors[0].code)) {

@@ -6,8 +6,8 @@ import {
   databaseFailure,
   handleIntegrationRoute,
   readJsonObject,
-  requireRecentAal2,
 } from "@/lib/integrations/http";
+import { requireRecentReferralAal2 } from "@/lib/referral-management/reauth";
 import {
   correlateReferralManagementReceipt,
   parseReferralManagementDatabaseReceipt,
@@ -72,7 +72,7 @@ async function authorizeAction(
   if (!actor.scopes.includes(permission)) throw new IntegrationError(
     "REFERRAL_MANAGEMENT_NOT_AUTHORIZED", "目前角色沒有這項轉介操作權限。", 403,
   );
-  await requireRecentAal2(actor);
+  await requireRecentReferralAal2(actor);
 }
 
 async function execute(input: ReferralManagementMutationInput, actor: TenantContext) {

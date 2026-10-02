@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { webcrypto } from "node:crypto";
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { OfflineCareProvider, useOfflineCare } from "./offline-care-provider";
 import type { TenantContext } from "@/lib/domain/types";
 import type { CareLocalDraft } from "@/lib/offline/care-outbox";
@@ -19,9 +19,69 @@ function TestConsumer() {
   const context = useOfflineCare()!;
   return <><p data-testid="draft-count">{context.drafts.length}</p><button onClick={() => { const item = context.drafts[0]; if (item) { const input = { ...item }; delete input.storageToken; void context.save(input).catch(() => undefined); } }}>Autosave</button></>;
 }
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); } });
+});
 beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("crypto", webcrypto); mocks.load.mockResolvedValue([]); mocks.save.mockResolvedValue("revision-saved"); mocks.remove.mockResolvedValue(true); mocks.synchronize.mockResolvedValue({ status: "saved", message: "Saved" }); vi.spyOn(navigator, "onLine", "get").mockReturnValue(false); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe("offline provider revision and expiry controls", () => {
+  it("distinguishes two same-day drafts of one kind before removing the exact second revision", async () => {
+    const first = draft();
+    const second = { ...draft(), id: "22222222-2222-4222-8222-222222222222", storageToken: "revision-two" };
+    mocks.load.mockResolvedValue([first, second]);
+    render(<OfflineCareProvider context={actor}><TestConsumer /></OfflineCareProvider>);
+    await waitFor(() => expect(screen.getByTestId("draft-count")).toHaveTextContent("2"));
+    fireEvent.click(screen.getByText(/裝置草稿：/));
+    const triggers = screen.getAllByRole("button", { name: "刪除這筆裝置草稿" });
+    expect(triggers).toHaveLength(2);
+    expect(triggers[0]).toHaveAccessibleDescription(/111111111111/);
+    expect(triggers[1]).toHaveAccessibleDescription(/222222222222/);
+    fireEvent.click(triggers[1]!);
+    const dialog = screen.getByRole("dialog", { name: "刪除裝置草稿" });
+    expect(within(dialog).getByText(/草稿編號 222222222222/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "刪除這筆裝置草稿" }));
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(expect.anything(), second.id, "revision-two", "generation-one"));
+    expect(mocks.remove).toHaveBeenCalledTimes(1);
+  });
+  it("confirms one exact local draft in the app dialog, with Cancel and Escape doing no deletion", async () => {
+    const item = draft(); mocks.load.mockResolvedValueOnce([item]).mockResolvedValue([]);
+    render(<OfflineCareProvider context={actor}><TestConsumer /></OfflineCareProvider>);
+    await waitFor(() => expect(screen.getByTestId("draft-count")).toHaveTextContent("1"));
+    fireEvent.click(screen.getByText(/裝置草稿：/));
+    const trigger = screen.getByRole("button", { name: "刪除這筆裝置草稿" });
+    fireEvent.click(trigger);
+    let dialog = screen.getByRole("dialog", { name: "刪除裝置草稿" });
+    expect(within(dialog).getByText(/不會撤回/)).toBeInTheDocument();
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "保留草稿" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "保留草稿" }));
+    expect(mocks.remove).not.toHaveBeenCalled();
+    fireEvent.click(trigger);
+    dialog = screen.getByRole("dialog", { name: "刪除裝置草稿" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(mocks.remove).not.toHaveBeenCalled();
+    fireEvent.click(trigger);
+    dialog = screen.getByRole("dialog", { name: "刪除裝置草稿" });
+    const confirm = within(dialog).getByRole("button", { name: "刪除這筆裝置草稿" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(expect.anything(), id, "revision-one", "generation-one"));
+    expect(mocks.remove).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/已移除這台裝置的草稿/)).toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText(/裝置草稿：/)));
+  });
+  it("keeps the confirmation open when another tab replaced the pinned revision", async () => {
+    const item = draft(); mocks.load.mockResolvedValue([item]); mocks.remove.mockResolvedValue(false);
+    render(<OfflineCareProvider context={actor}><TestConsumer /></OfflineCareProvider>);
+    await waitFor(() => expect(screen.getByTestId("draft-count")).toHaveTextContent("1"));
+    fireEvent.click(screen.getByText(/裝置草稿：/));
+    fireEvent.click(screen.getByRole("button", { name: "刪除這筆裝置草稿" }));
+    const dialog = screen.getByRole("dialog", { name: "刪除裝置草稿" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "刪除這筆裝置草稿" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("尚未確認刪除");
+    expect(screen.getByTestId("draft-count")).toHaveTextContent("1");
+    expect(screen.queryByText(/已移除這台裝置的草稿/)).not.toBeInTheDocument();
+  });
   it("uses the exact queued revision when a network result removes a device draft", async () => {
     const item = draft("queued"); mocks.load.mockResolvedValue([item]);
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);

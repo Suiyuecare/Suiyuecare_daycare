@@ -1,0 +1,17 @@
+{
+  "profile": "product-admin",
+  "canonicalMap": "UX-CONTRACT.md",
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCapabilities": ["Select/Listbox", "Form", "Scrollbar", "Toast", "CRUD"],
+  "sourceRoots": ["src/components/staff-announcements", "src/components/ui"],
+  "requiredCommands": ["typecheck", "tests", "build"],
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "tests": "pnpm exec vitest run src/components/staff-announcements src/components/ui/search-field.test.tsx src/lib/staff-announcements",
+    "build": "pnpm build"
+  },
+  "evidence": {
+    "crudFullFlow": "src/components/staff-announcements/staff-announcement-actions.test.tsx",
+    "failurePaths": "src/components/staff-announcements/staff-announcements-workspace.test.tsx"
+  }
+}

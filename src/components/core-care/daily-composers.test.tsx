@@ -2,16 +2,21 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import Link from "next/link";
 import { AttendanceComposer } from "./attendance-composer";
 import { VitalSignComposer } from "./vital-sign-composer";
 import { CareDiaryComposer } from "./care-diary-composer";
+import { clearUnsavedChangesOnLogout, requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 beforeAll(() => {
-  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() {
+    if (document.querySelector("dialog[open]")) throw new Error("A second modal opened before the editor closed");
+    this.setAttribute("open", "");
+  } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const clients = [
   { id: "a1111111-1111-4111-8111-111111111111", name: "合成個案甲", code: "SYN-01", attendance: null },
   { id: "a2222222-2222-4222-8222-222222222222", name: "合成個案乙", code: "SYN-02", attendance: null },
@@ -26,6 +31,7 @@ describe("care diary shift continuation", () => {
     fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("班別 *")).toHaveValue(shift);
+    fireEvent.change(within(dialog).getByLabelText("發生日期與時間 *"), { target: { value: `${date}T${shift === "afternoon" ? "13:00" : "09:00"}` } });
     fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成班別觀察" } });
     fireEvent.submit(dialog.querySelector("form")!); await within(dialog).findByRole("alert");
     expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).data.shift).toBe(shift);
@@ -34,6 +40,53 @@ describe("care diary shift continuation", () => {
     render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift={"night" as "morning"} enabled demo={false} />);
     expect(screen.getByRole("button", { name: "新增日誌草稿" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("不會自動改成全日");
+  });
+  it("requires a deliberate shift when the page has no confirmed shift", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    const dialog = screen.getByRole("dialog");
+    const shift = within(dialog).getByLabelText("班別 *");
+    expect(shift).toHaveValue("");
+    fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成全日觀察" } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(shift).toHaveFocus();
+    expect(shift).toHaveAttribute("aria-invalid", "true");
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(shift, { target: { value: "full_day" } });
+    fireEvent.change(within(dialog).getByLabelText("發生日期與時間 *"), { target: { value: `${date}T09:00` } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    await within(dialog).findByRole("alert");
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).data.shift).toBe("full_day");
+  });
+  it("does not invent a time for a past service day or the opposite shift", () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-02T05:00:00Z"));
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    expect(within(screen.getByRole("dialog")).getByLabelText("發生日期與時間 *")).toHaveValue("");
+  });
+  it("keeps an opposite-shift event local until the actual time is corrected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    const dialog = screen.getByRole("dialog"); const form = dialog.querySelector("form")!;
+    const time = within(dialog).getByLabelText("發生日期與時間 *");
+    fireEvent.change(time, { target: { value: `${date}T13:00` } });
+    fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成班別觀察" } });
+    fireEvent.submit(form);
+    expect(time).toHaveFocus(); expect(time).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("上午班請填 12:00 前");
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(time, { target: { value: `${date}T11:00` } });
+    fireEvent.submit(form); await within(dialog).findByRole("alert");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("does not reset the diary shift or fields when confirmation is cancelled", () => {
+    const spec = specs[2]; mount(spec.kind); const { dialog, field } = open(spec);
+    fireEvent.change(within(dialog).getByLabelText("班別 *"), { target: { value: "afternoon" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(within(dialog).getByLabelText("班別 *")).toHaveValue("afternoon"); expect(field).toHaveValue(spec.value);
   });
 });
 const specs = [
@@ -44,7 +97,9 @@ const specs = [
 
 function mount(kind: string, selected: string | undefined = selectedClientId) {
   const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId: selected };
-  render(kind === "attendance" ? <AttendanceComposer {...props} /> : kind === "vitals" ? <VitalSignComposer {...props} /> : <CareDiaryComposer {...props} />);
+  return render(<>{kind === "attendance" ? <AttendanceComposer {...props} /> : kind === "vitals" ? <VitalSignComposer {...props} /> : <CareDiaryComposer {...props} />}
+    <Link href="/app/dashboard" prefetch={false} onClick={(event) => event.preventDefault()}>離開工作頁</Link>
+    <form noValidate method="get" onSubmit={(event) => event.preventDefault()}><button>切換服務日</button></form></>);
 }
 function open(spec: typeof specs[number]) {
   fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
@@ -52,8 +107,14 @@ function open(spec: typeof specs[number]) {
   const form = dialog.querySelector("form")!;
   const field = within(dialog).getByLabelText(spec.field);
   fireEvent.change(field, { target: { value: spec.value } });
+  if (spec.kind === "diary") fireEvent.change(within(dialog).getByLabelText("班別 *"), { target: { value: "full_day" } });
   fireEvent.change(within(dialog).getByLabelText(spec.time), { target: { value: `${date}T09:10` } });
   return { dialog, form, field };
+}
+function selectedClientControl(dialog: HTMLElement): HTMLInputElement {
+  const control = dialog.querySelector<HTMLInputElement>('input[name="client_id"]');
+  if (!control) throw new Error("Selected client is missing from the form");
+  return control;
 }
 function successfulResponse(spec: typeof specs[number], init: RequestInit) {
   const body = JSON.parse(String(init.body)) as { client_id: string; occurred_at: string; event_kind: string };
@@ -80,7 +141,11 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
     const { dialog, form } = open(spec);
-    expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);
+    expect(selectedClientControl(dialog)).toHaveValue(selectedClientId);
+    expect(new FormData(form).get("client_id")).toBe(selectedClientId);
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent("合成個案乙");
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent("SYN-02");
+    expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
     fireEvent.submit(form);
     await within(dialog).findByRole("alert");
     expect(fetchMock.mock.calls[0]![0]).toBe(spec.endpoint);
@@ -100,21 +165,34 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     expect(screen.getByText(/不會自動改為其他個案/u)).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
-  it("keeps values after rejecting Cancel, Escape and backdrop discard; accepting resets on reopen", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("suspends the editor for Cancel, Escape and backdrop confirmation without losing input", () => {
+    const confirm = vi.spyOn(window, "confirm");
     mount(spec.kind);
-    const { dialog, field } = open(spec);
+    const { dialog, field, form } = open(spec);
+    for (const method of ["cancel", "escape", "backdrop"]) {
+      if (method === "cancel") fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+      else if (method === "escape") fireEvent(dialog, new Event("cancel", { cancelable: true }));
+      else fireEvent.click(dialog);
+      const confirmation = screen.getByRole("dialog", { name: "尚有未保存內容" });
+      expect(dialog).not.toHaveAttribute("open"); expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+      expect(form.isConnected).toBe(true); expect(field).toHaveValue(spec.kind === "vitals" ? 75 : spec.value);
+      expect(document.activeElement).toBe(within(confirmation).getByRole("button", { name: "繼續填寫" }));
+      if (method === "cancel") fireEvent.click(within(confirmation).getByRole("button", { name: "繼續填寫" }));
+      else if (method === "escape") fireEvent.keyDown(confirmation, { key: "Escape" });
+      else fireEvent.click(confirmation);
+      expect(dialog).toHaveAttribute("open"); expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+      expect(dialog.querySelector("form")).toBe(form);
+      expect(within(dialog).getByLabelText(spec.time)).toHaveValue(`${date}T09:10`);
+      expect(field).toHaveValue(spec.kind === "vitals" ? 75 : spec.value);
+      expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "取消" }));
+    }
+    expect(confirm).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-    fireEvent(dialog, new Event("cancel", { cancelable: true }));
-    fireEvent.click(dialog);
-    expect(confirm).toHaveBeenCalledTimes(3);
-    expect(dialog).toHaveAttribute("open");
-    expect(field).toHaveValue(spec.kind === "vitals" ? 75 : spec.value);
-    confirm.mockReturnValue(true);
-    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "捨棄填寫並繼續" }));
     expect(dialog).not.toHaveAttribute("open");
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
-    expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);
+    expect(selectedClientControl(dialog)).toHaveValue(selectedClientId);
     expect(field).toHaveValue(spec.kind === "vitals" ? null : "");
   });
   it("freezes the same body and key after an uncertain result, even on attempted edits", async () => {
@@ -150,7 +228,7 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     expect(within(dialog).getByRole("button", { name: "取消" })).toBeDisabled();
     fireEvent.submit(form);
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
-    expect(fetchMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(confirm).not.toHaveBeenCalled();
     expect(dialog).toHaveAttribute("open");
     await act(async () => resolve(successfulResponse(spec, fetchMock.mock.calls[0]![1] as RequestInit)));
@@ -185,6 +263,31 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
     expect(fetchMock).toHaveBeenCalledTimes(2); expect(committed.size).toBe(1);
     expect((fetchMock.mock.calls[1]![1] as RequestInit).body).toBe((fetchMock.mock.calls[0]![1] as RequestInit).body);
+  });
+  it("does not discard an unknown operation after hiding its editor or through GET/header navigation", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response("", { status: 503 })));
+    vi.stubGlobal("fetch", fetchMock); mount(spec.kind);
+    const { dialog, form } = open(spec); fireEvent.submit(form); await within(dialog).findByRole("alert");
+    fireEvent.click(within(dialog).getByRole("button", { name: "稍後處理" }));
+    const linkClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    act(() => screen.getByRole("link", { name: "離開工作頁" }).dispatchEvent(linkClick));
+    expect(linkClick.defaultPrevented).toBe(true); expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "切換服務日" }));
+    const refresh = vi.fn(); act(() => expect(requestUnsavedExit(refresh)).toBe(true));
+    expect(refresh).not.toHaveBeenCalled(); expect(screen.queryByRole("button", { name: "捨棄填寫並繼續" })).toBeNull();
+    const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload); expect(unload.defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: spec.trigger })); fireEvent.submit(form); await within(dialog).findByRole("alert");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ body: (fetchMock.mock.calls[0]![1] as RequestInit).body,
+      headers: (fetchMock.mock.calls[0]![1] as RequestInit).headers });
+  });
+  it("unconditional logout clears the unsent owner and queued modal without confirmation", () => {
+    const confirm = vi.spyOn(window, "confirm"); mount(spec.kind);
+    const { dialog } = open(spec); fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    const oldConfirm = screen.getByRole("button", { name: "捨棄填寫並繼續" });
+    act(() => clearUnsavedChangesOnLogout());
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(0); fireEvent.click(oldConfirm);
+    expect(confirm).not.toHaveBeenCalled(); expect(requestUnsavedExit(vi.fn())).toBe(false);
   });
   it("permits correcting the first definite validation rejection", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ requestId: "synthetic-request", status: "error", data: null, errors: [{ code: "INVALID_FIELDS", message: "請檢查欄位" }] }), { status: 422 }))); mount(spec.kind);
@@ -240,12 +343,55 @@ describe.each(specs.filter((spec) => spec.kind !== "attendance"))("$kind forged 
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
     const { dialog, form } = open(spec);
-    const select = within(dialog).getByLabelText("個案 *") as HTMLSelectElement;
-    const option = new Option("合成未授權個案", "a9999999-9999-4999-8999-999999999999");
-    select.add(option);
-    select.value = option.value;
+    const control = selectedClientControl(dialog);
+    const unauthorized = "a9999999-9999-4999-8999-999999999999";
+    control.value = unauthorized;
     fireEvent.submit(form);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("請重新選擇目前授權的個案");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(spec.kind === "vitals"
+      ? "已選個案不符" : "請重新選擇目前授權的個案");
   });
+});
+
+describe.each(specs.filter((spec) => spec.kind !== "diary"))("$kind fixed selected-client context", (spec) => {
+  it("does not accept a different authorized client injected into the fixed form value", () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    mount(spec.kind);
+    const { dialog, form } = open(spec);
+    const fixed = selectedClientControl(dialog);
+    expect(fixed).toHaveAttribute("type", "hidden");
+    fixed.value = clients[0]!.id;
+    fireEvent.submit(form);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveFocus();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("已選個案不符");
+  });
+
+  it("stops an open editor when its selected client is no longer in the authorized snapshot", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId };
+    const renderComposer = (next: typeof props) => spec.kind === "attendance"
+      ? <AttendanceComposer {...next} /> : <VitalSignComposer {...next} />;
+    const view = render(renderComposer(props));
+    fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
+    const form = screen.getByRole("dialog").querySelector("form")!;
+    view.rerender(renderComposer({ ...props, clients: [clients[0]!] }));
+    expect(screen.getByRole("button", { name: spec.trigger })).toBeDisabled();
+    if (spec.kind === "attendance") expect(screen.getByRole("status")).toHaveTextContent("不會自動改為其他個案");
+    expect(document.querySelector("dialog[open]")).toBeNull();
+    fireEvent.submit(form);
+    await waitFor(() => expect(fetchMock).not.toHaveBeenCalled());
+  });
+});
+
+it("does not let a fixed diary selection be silently replaced by another authorized client", () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  mount("diary");
+  const { dialog, form } = open(specs[2]);
+  const control = selectedClientControl(dialog);
+  control.value = clients[0]!.id;
+  fireEvent.submit(form);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(within(dialog).getByRole("alert")).toHaveTextContent("請重新選擇目前授權的個案");
 });

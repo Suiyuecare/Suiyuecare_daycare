@@ -1,4 +1,6 @@
-import { projectStaffAnnouncementSnapshot } from "./projection";
+import { filterStaffAnnouncementSnapshot, projectStaffAnnouncementSnapshot } from "./projection";
+import { DEFAULT_STAFF_ANNOUNCEMENT_FILTERS, validateStaffAnnouncementFilters } from "./query";
+import type { StaffAnnouncementFilters } from "./types";
 
 const generatedAt = "2026-09-01T10:30:00+08:00";
 const firstRelease = "68111111-1111-4111-8111-111111111112";
@@ -25,11 +27,16 @@ export function buildDemoStaffAnnouncementSnapshot(input: {
   organizationId: string;
   branchId: string;
   selectedReleaseId: string | null;
+  filters?: StaffAnnouncementFilters;
 }) {
+  const filters = validateStaffAnnouncementFilters(input.filters ?? DEFAULT_STAFF_ANNOUNCEMENT_FILTERS);
+  if (input.selectedReleaseId !== null && !(input.selectedReleaseId in recipients)) {
+    throw new Error("INVALID_STAFF_ANNOUNCEMENT_PROJECTION");
+  }
   const detail = input.selectedReleaseId && input.selectedReleaseId in recipients
     ? recipients[input.selectedReleaseId as keyof typeof recipients]
     : [];
-  return projectStaffAnnouncementSnapshot({
+  const snapshot = projectStaffAnnouncementSnapshot({
     expectedOrganizationId: input.organizationId,
     expectedBranchId: input.branchId,
     expectedCanManage: true,
@@ -143,4 +150,17 @@ export function buildDemoStaffAnnouncementSnapshot(input: {
       },
     ],
   });
+  const matched = filterStaffAnnouncementSnapshot(snapshot, filters).items;
+  const totalPages = Math.max(1, Math.ceil(matched.length / filters.pageSize));
+  const page = Math.min(filters.page, totalPages);
+  const items = matched.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  return {
+    ...snapshot, items, filters: { ...filters, page },
+    itemsTruncated: items.length < snapshot.availableTotal,
+    pagination: {
+      page, pageSize: filters.pageSize, matchingTotal: matched.length, totalPages,
+      rangeStart: matched.length ? (page - 1) * filters.pageSize + 1 : 0,
+      rangeEnd: Math.min(page * filters.pageSize, matched.length),
+    },
+  };
 }

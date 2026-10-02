@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import {
   Bell,
   BookOpenCheck,
@@ -30,12 +30,28 @@ import { companyNavigation } from "@/lib/config/company-navigation";
 import type { TenantContext } from "@/lib/domain/types";
 import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/types";
 import { clearOfflineDrafts } from "@/lib/offline/draft-store";
+import { clearClaimValidationPendingOnLogout } from "@/lib/service-management/claim-validation-pending";
+import { clearBodyAssessmentPendingOnLogout } from "@/lib/body-assessments/pending";
+import { clearNursingAssessmentPendingOnLogout, nursingAssessmentAuthoritySignature, observeNursingAssessmentAuthority } from "@/lib/nursing-assessments/pending";
+import { clearStaffAnnouncementPendingOnLogout, observeStaffAnnouncementAuthority, staffAnnouncementAuthoritySignature } from "@/lib/staff-announcements/pending";
+import { clearReferralPendingOnLogout, observeReferralAuthority, referralAuthoritySignature } from "@/lib/referral-management/pending";
+import { clearSocialWorkPendingOnLogout, observeSocialWorkAuthority, socialWorkAuthoritySignature } from "@/lib/social-work-records/pending";
+import { clearPsychosocialAssessmentPendingOnLogout, observePsychosocialAssessmentAuthority, psychosocialAssessmentAuthoritySignature } from "@/lib/psychosocial-assessments/pending";
+import { clearQuestionnaireViewOnLogout, getQuestionnaireViewState, observeQuestionnaireViewAuthority, questionnaireViewAuthority, useQuestionnaireViewState } from "@/lib/questionnaire-assessments/readiness-view";
+import { clearQuestionnairePendingOnLogout, observeQuestionnairePendingAuthority } from "@/lib/questionnaire-assessments/pending";
+import { clearCmsUploadOnLogout, cmsUploadAuthority, observeCmsUploadAuthority } from "@/lib/imports/upload-pending";
+import { clearMedicationPendingOnLogout, medicationAuthoritySignature, observeMedicationAuthority } from "@/lib/medications/pending";
+import { clearIntakeWritesOnLogout, intakeWriteAuthority, observeIntakeWriteAuthority } from "@/lib/client-intake/write-pending";
+import { clearTodayWorkViewOnLogout, observeTodayWorkAuthority, todayWorkAuthoritySignature } from "@/lib/workspace/today-work-memory";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
 import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { getMobileQuickLinks } from "@/lib/navigation/mobile-quick-links";
+import { clearUnsavedChangesOnLogout, requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavigationLink } from "./navigation-link";
+import { TaipeiClock } from "./taipei-clock";
 
 const moduleIcons = {
   workspace: LayoutDashboard,
@@ -70,7 +86,6 @@ export function AppShell({
   const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [taipeiClock, setTaipeiClock] = useState("");
   const logoutRunning = useRef(false);
   const refreshLease = useRef<(() => void) | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
@@ -84,7 +99,9 @@ export function AppShell({
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
-  const mobilePages = [1, 2, 3].flatMap((number) => availablePages.filter((page) => page.number === number));
+  const mobileQuickLinks = getMobileQuickLinks(context, navigation, showStoreOverview);
+  const assessmentShortcut = availablePages.find((page) => page.moduleId === "assessments");
+  const summaryShortcut = availablePages.find((page) => page.number === 54);
   const [groupRoute, setGroupRoute] = useState(pathname);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
@@ -94,9 +111,55 @@ export function AppShell({
   });
   const primaryRoleLabel = context.roles[0] ? roleDisplayName(context.roles[0]) : "已登入";
   const runtimeLabel = context.demo ? "合成資料" : "正式系統";
-  const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
+  const pageTitle = pathname === "/app/assessments" ? "評估工作入口" : showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : activePage?.title ?? appBranding.applicationName;
+  const announcementAuthority = staffAnnouncementAuthoritySignature(context);
+  const nursingAuthority = nursingAssessmentAuthoritySignature(context);
+  const referralAuthority = referralAuthoritySignature(context);
+  const socialWorkAuthority = socialWorkAuthoritySignature(context);
+  const psychosocialAuthority = psychosocialAssessmentAuthoritySignature(context);
+  const questionnaireAuthority = questionnaireViewAuthority(context);
+  const uploadAuthority = cmsUploadAuthority(context);
+  const medicationAuthority = medicationAuthoritySignature(context);
+  const intakeAuthority = intakeWriteAuthority(context);
+  const todayWorkAuthority = todayWorkAuthoritySignature(context);
+  const questionnaireView = useQuestionnaireViewState();
+
+  // Track authority outside the announcement route too: an unmounted editor
+  // must not accept an old reply after permissions change and later return.
+  useLayoutEffect(() => {
+    observeStaffAnnouncementAuthority(announcementAuthority);
+  }, [announcementAuthority]);
+  useLayoutEffect(() => {
+    observeNursingAssessmentAuthority(nursingAuthority);
+  }, [nursingAuthority]);
+  useLayoutEffect(() => {
+    observeReferralAuthority(referralAuthority);
+  }, [referralAuthority]);
+  useLayoutEffect(() => {
+    observeSocialWorkAuthority(socialWorkAuthority);
+  }, [socialWorkAuthority]);
+  useLayoutEffect(() => {
+    observePsychosocialAssessmentAuthority(psychosocialAuthority);
+  }, [psychosocialAuthority]);
+  useLayoutEffect(() => {
+    if (logoutRunning.current || logoutState !== "idle") return;
+    observeQuestionnaireViewAuthority(questionnaireAuthority);
+    observeQuestionnairePendingAuthority(questionnaireAuthority, getQuestionnaireViewState().epoch);
+  }, [questionnaireAuthority, questionnaireView.epoch, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeCmsUploadAuthority(uploadAuthority);
+  }, [uploadAuthority, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeMedicationAuthority(medicationAuthority);
+  }, [medicationAuthority, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeIntakeWriteAuthority(intakeAuthority);
+  }, [intakeAuthority, logoutState]);
+  useLayoutEffect(() => {
+    if (!logoutRunning.current && logoutState === "idle") observeTodayWorkAuthority(todayWorkAuthority);
+  }, [todayWorkAuthority, logoutState]);
 
   useEffect(() => {
     if (!refreshPending && refreshLease.current) {
@@ -107,15 +170,6 @@ export function AppShell({
   useEffect(() => () => {
     refreshLease.current?.();
     refreshLease.current = null;
-  }, []);
-
-  useEffect(() => {
-    const updateClock = () => setTaipeiClock(new Intl.DateTimeFormat("zh-TW", {
-      timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    }).format(new Date()));
-    updateClock();
-    const interval = window.setInterval(updateClock, 1000);
-    return () => window.clearInterval(interval);
   }, []);
 
   // Derive a newly active module during navigation without an effect-driven flash.
@@ -191,13 +245,29 @@ export function AppShell({
   }, [compactNavigation, menuOpen]);
 
   async function logout() {
+    if (logoutRunning.current) return;
+    logoutRunning.current = true;
+    // Privacy cleanup is unconditional; an unsent editor must never prevent
+    // logout or run an old navigation callback after a different actor signs in.
+    clearUnsavedChangesOnLogout();
+    clearClaimValidationPendingOnLogout();
+    clearBodyAssessmentPendingOnLogout();
+    clearNursingAssessmentPendingOnLogout();
+    clearStaffAnnouncementPendingOnLogout();
+    clearReferralPendingOnLogout();
+    clearSocialWorkPendingOnLogout();
+    clearPsychosocialAssessmentPendingOnLogout();
+    clearQuestionnairePendingOnLogout();
+    clearQuestionnaireViewOnLogout();
+    clearCmsUploadOnLogout();
+    clearMedicationPendingOnLogout();
+    clearIntakeWritesOnLogout();
+    clearTodayWorkViewOnLogout();
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       router.replace("/login");
       router.refresh();
       return;
     }
-    if (logoutRunning.current) return;
-    logoutRunning.current = true;
     // Remove the entire patient/employee shell immediately, before network or
     // IndexedDB work. A failed cleanup never restores the old sensitive view.
     setMenuOpen(false); setLogoutState("working"); setLogoutResult(null);
@@ -224,6 +294,7 @@ export function AppShell({
 
   function refreshCurrentPage() {
     if (hasPendingOperations()) return;
+    if (requestUnsavedExit(refreshCurrentPage)) return;
     const release = tryAcquireViewTransition();
     if (!release) return;
     refreshLease.current = release;
@@ -269,7 +340,8 @@ export function AppShell({
           </button>
         </div>
         <div className="sidebar__branch">
-          <BranchSwitcher compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
+          <BranchSwitcher key={JSON.stringify([context.organizationId, context.branchId, context.userId, context.demo,
+            [...context.roles].sort(), [...context.scopes].sort()])} compact currentBranchId={context.branchId} currentBranchName={context.branchName} organizationName={context.organizationName}
             readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
         </div>
         <nav className="sidebar__nav">
@@ -300,6 +372,19 @@ export function AppShell({
               <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
             </NavigationLink></div>
           </section> : null}
+          {assessmentShortcut || summaryShortcut ? <section className="nav-group" aria-label="常用工作">
+            <div className="nav-group__label nav-group__label--static">常用工作</div>
+            <div className="nav-group__items">
+              {assessmentShortcut ? <NavigationLink aria-current={pathname === "/app/assessments" ? "page" : undefined} className="nav-link" href="/app/assessments" loadingLabel="評估工作入口" onClick={() => closeMenu({ returnFocus: false })}>
+                <span className="nav-link__icon"><ClipboardCheck aria-hidden="true" /></span><span>評估量表</span>
+              </NavigationLink> : null}
+              {summaryShortcut ? <NavigationLink className="nav-link" href={`/app/${summaryShortcut.slug}`} loadingLabel={summaryShortcut.title} onClick={() => closeMenu({ returnFocus: false })}>
+                <span className="nav-link__icon"><BookOpenCheck aria-hidden="true" /></span><span>每日彙整</span>
+              </NavigationLink> : null}
+            </div>
+          </section> : null}
+          {navigation.some((group) => group.id !== "workspace") ? <details key={pathname} className="task-details sidebar__all-features" open={Boolean(activeGroup && activeGroup.id !== "workspace")}>
+            <summary>全部功能</summary>
           {navigation.filter((group) => group.id !== "workspace").map((group) => {
             const Icon = moduleIcons[group.id];
             const expanded = openGroups.has(group.id);
@@ -315,6 +400,7 @@ export function AppShell({
               })}</div> : null}
             </section>;
           })}
+          </details> : null}
         </nav>
         <div className="sidebar__footer">
           <a className="button button--secondary sidebar__module-return" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>
@@ -341,17 +427,21 @@ export function AppShell({
           <div className="topbar__context">
             <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>
             <span className="topbar__separator" aria-hidden="true">・</span>
-            <time className="topbar__clock" dateTime={taipeiClock ? `${taipeiClock}+08:00` : undefined} aria-label={taipeiClock ? `台北時間 ${taipeiClock}` : "台北時間載入中"}>{taipeiClock || "--:--:--"}</time>
+            <TaipeiClock />
           </div>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>
         <main className="main-stage" id="main-content" tabIndex={-1}>{children}</main>
       </div>
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
-        {mobilePages.map((page) => {
-          const Icon = moduleIcons[page.moduleId];
-          const label = page.number === 1 ? "今日" : page.number === 2 ? "個案" : "量測";
-          return <NavigationLink href={`/app/${page.slug}`} aria-label={page.title} title={page.title} aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
+        {mobileQuickLinks.map((link) => {
+          const href = link.kind === "catalog" ? `/app/${link.page.slug}` : link.href;
+          const title = link.kind === "catalog" ? link.page.title : link.title;
+          const Icon = link.kind === "catalog" ? moduleIcons[link.page.moduleId] : Building2;
+          return <NavigationLink href={href} aria-label={`${link.label}：${title}`} title={title}
+            aria-current={pathname === href ? "page" : undefined} loadingLabel={title} key={href}>
+            <Icon aria-hidden="true" /><span>{link.label}</span>
+          </NavigationLink>;
         })}
         <button type="button" aria-label="更多功能" aria-expanded={menuOpen} onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
       </nav>

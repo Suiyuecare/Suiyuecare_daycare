@@ -49,6 +49,10 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     typedEnv: true,
+    // Disposable local checks can skip warm-cache writes without changing
+    // application output or the default Vercel build cache behavior.
+    turbopackFileSystemCacheForBuild: process.env.DAYCARE_DISABLE_FILESYSTEM_CACHE !== "true",
+    turbopackFileSystemCacheForDev: process.env.DAYCARE_DISABLE_FILESYSTEM_CACHE !== "true",
   },
   async headers() {
     return [

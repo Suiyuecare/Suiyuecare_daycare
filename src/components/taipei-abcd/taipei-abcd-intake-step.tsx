@@ -9,6 +9,8 @@ import { isIntegrationError } from "@/lib/integrations/errors";
 import styles from "./taipei-abcd.module.css";
 import { TaipeiAbcdReview } from "./taipei-abcd-review";
 import type { transitionReceiptSchema } from "@/lib/taipei-abcd/workflow";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
+import { isDefinitiveRejection } from "./taipei-abcd-rejection";
 
 export type TaipeiAbcdIntakeStepProps = { clientId: string; organizationId: string; branchId: string;
   usageYear?: 115; readOnly?: boolean; prefill?: TaipeiAbcdPrefill[]; demo?: boolean; today?: string; onDirty?: (dirty: boolean) => void;
@@ -16,6 +18,14 @@ export type TaipeiAbcdIntakeStepProps = { clientId: string; organizationId: stri
 const missing: TaipeiAnswer = { state: "missing", value: null, reason: null };
 function dateLabel(value: string) { return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "short" }).format(new Date(value)); }
 const measureLabels: Record<string, string> = { temperature: "體溫", pulse: "脈搏", respiratory_rate: "呼吸", blood_pressure_systolic: "收縮壓", blood_pressure_diastolic: "舒張壓", weight: "體重" };
+type LocalChange = { kind: "form"; value: TaipeiForm; scope: string } | { kind: "month"; value: number; scope: string } | { kind: "reload"; scope: string };
+const definitiveDraftRejections = {
+  400: ["INVALID_TAIPEI_ABCD_DRAFT", "INVALID_JSON"],
+  401: ["AUTH_REQUIRED"],
+  403: ["DEMO_READ_ONLY", "TAIPEI_ABCD_NOT_AUTHORIZED", "ROUTINE_CARE_NOT_AUTHORIZED", "AAL2_REQUIRED"],
+  409: ["TAIPEI_ABCD_VERSION_CONFLICT"],
+  413: ["REQUEST_TOO_LARGE"],
+} as const;
 
 function AnswerInput({ field, answer, disabled, onChange, invalid = false, errorId }: { field: TaipeiField; answer: TaipeiAnswer; disabled: boolean; onChange: (next: TaipeiAnswer) => void; invalid?: boolean; errorId?: string }) {
   const id = useId(); const current = answer.value;
@@ -30,10 +40,10 @@ function AnswerInput({ field, answer, disabled, onChange, invalid = false, error
       {answer.state === "unconfirmed" && <option value="unconfirmed">來源預填，尚未核對</option>}
     </select>
     {field.help && <small>{field.help}</small>}
-    {answer.state === "not_applicable" ? <><label htmlFor={`${id}-reason`}>不適用原因</label><textarea id={`${id}-reason`} rows={2} maxLength={1000} value={answer.reason ?? ""} disabled={disabled} onChange={e => onChange({ ...answer, reason: e.target.value })} /></> : <>
+    {answer.state === "not_applicable" ? <><label htmlFor={`${id}-reason`}>不適用原因</label><textarea className="resize-none" id={`${id}-reason`} rows={2} maxLength={1000} value={answer.reason ?? ""} disabled={disabled} onChange={e => onChange({ ...answer, reason: e.target.value })} /></> : <>
       {field.kind === "choice" ? <select aria-label={`${field.label}內容`} value={typeof current === "string" ? current : ""} disabled={disabled} onChange={e => changeValue(e.target.value)}><option value="">請選擇</option>{field.options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : field.kind === "multi" ?
         <div className={styles.choices} role="group" aria-label={`${field.label}內容`}>{field.options?.map(o => <label key={o}><input type="checkbox" checked={Array.isArray(current) && current.includes(o)} disabled={disabled} onChange={e => { const selected = Array.isArray(current) ? current : []; changeValue(e.target.checked ? [...selected, o] : selected.filter(x => x !== o)); }} />{o}</label>)}</div> :
-        field.kind === "text" ? <textarea aria-label={`${field.label}內容`} rows={2} maxLength={4000} value={typeof current === "string" ? current : ""} disabled={disabled} onChange={e => changeValue(e.target.value)} /> :
+        field.kind === "text" ? <textarea className="resize-none" aria-label={`${field.label}內容`} rows={2} maxLength={4000} value={typeof current === "string" ? current : ""} disabled={disabled} onChange={e => changeValue(e.target.value)} /> :
         <input aria-label={`${field.label}內容`} type={field.kind === "date" ? "date" : "number"} min={field.min} max={field.max} step={field.kind === "number" ? "any" : undefined} value={typeof current === "string" || typeof current === "number" ? current : ""} disabled={disabled} onChange={e => changeValue(e.target.value === "" ? null : field.kind === "number" ? Number(e.target.value) : e.target.value)} />}
       {answer.state === "unconfirmed" && <button type="button" disabled={disabled} onClick={() => onChange({ ...answer, state: "recorded" })}>我已核對此來源值</button>}
     </>}
@@ -62,6 +72,10 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
   const [loading, setLoading] = useState(!demo); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(demo ? "展示模式：可以查看完整欄位；不會寫入正式資料。" : null); const [dirty, setDirty] = useState(false); const [reload, setReload] = useState(0);
   const [reviewDirty, setReviewDirty] = useState(false);
+  const [retryPending, setRetryPending] = useState(false); const [reviewPending, setReviewPending] = useState(false);
+  const [writeDenied, setWriteDenied] = useState(false);
+  const [confirmation, setConfirmation] = useState<LocalChange | null>(null);
+  const confirmationTrigger = useRef<HTMLElement | null>(null);
   const [invalidField, setInvalidField] = useState<string | null>(null); const editorRef = useRef<HTMLElement>(null); const errorId = useId();
   const pending = useRef<TaipeiDraftMutation | null>(null); const requestGeneration = useRef(0); const inFlight = useRef(false);
   const effectiveMonth = form === "C" ? month : 0; const identity = `${organizationId}/${branchId}/${clientId}/${form}/${effectiveMonth}`;
@@ -78,20 +92,46 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; controller.abort(); };
   }, [organizationId, branchId, clientId, form, effectiveMonth, usageYear, reload, demo]);
-  useEffect(() => { if (!dirty && !reviewDirty) return; const handler = (e: BeforeUnloadEvent) => e.preventDefault(); window.addEventListener("beforeunload", handler); return () => window.removeEventListener("beforeunload", handler); }, [dirty, reviewDirty]);
+  useEffect(() => { if (!dirty && !reviewDirty && !retryPending && !reviewPending) return; const handler = (e: BeforeUnloadEvent) => e.preventDefault(); window.addEventListener("beforeunload", handler); return () => window.removeEventListener("beforeunload", handler); }, [dirty, reviewDirty, retryPending, reviewPending]);
   useEffect(() => { onDirty?.(dirty || reviewDirty); }, [dirty, reviewDirty, onDirty]);
-  useEffect(() => { onBusy?.(saving); return () => onBusy?.(false); }, [saving, onBusy]);
+  useEffect(() => { onBusy?.(saving || retryPending || reviewPending); }, [saving, retryPending, reviewPending, onBusy]);
+  useEffect(() => () => onBusy?.(false), [onBusy]);
   useEffect(() => {
     if (!invalidField || !editorRef.current) return;
     const field = [...editorRef.current.querySelectorAll<HTMLElement>("[data-taipei-field]")].find((node) => node.dataset.taipeiField === invalidField);
     const section = field?.closest("details"); if (section) section.open = true;
     field?.querySelector<HTMLElement>("select")?.focus();
   }, [invalidField]);
-  const disabled = readOnly || demo || loading || saving || !snapshot?.canEdit;
+  const disabled = readOnly || demo || loading || saving || writeDenied || !snapshot?.canEdit;
+  const inputDisabled = disabled || retryPending;
   const progress = taipeiProgress(form, answers); const totals = taipeiDraftTotals(answers);
-  function changeAnswer(key: string, answer: TaipeiAnswer) { setAnswers(old => ({ ...old, [key]: answer })); setDirty(true); setMessage(null); pending.current = null; }
-  function resetView() { setLoading(!demo); setSnapshot(null); setAnswers({}); setDirty(false); setReviewDirty(false); setError(null); setInvalidField(null); setMessage(demo ? "展示模式：可以查看完整欄位；不會寫入正式資料。" : null); pending.current = null; }
-  function changeForm(next: TaipeiForm) { if (next === form || saving || ((dirty || reviewDirty) && !window.confirm("尚有未儲存的草稿或審核理由，切換將放棄本頁輸入。確定切換？"))) return; resetView(); setForm(next); }
+  function changeAnswer(key: string, answer: TaipeiAnswer) { if (pending.current || retryPending) return; setAnswers(old => ({ ...old, [key]: answer })); setDirty(true); setMessage(null); }
+  function resetView() { setLoading(!demo); setSnapshot(null); setAnswers({}); setDirty(false); setReviewDirty(false); setWriteDenied(false); setError(null); setInvalidField(null); setMessage(demo ? "展示模式：可以查看完整欄位；不會寫入正式資料。" : null); pending.current = null; }
+  function applyLocalChange(change: LocalChange) {
+    if (change.scope !== identity || saving || inFlight.current || pending.current || retryPending || reviewPending) return;
+    resetView();
+    if (change.kind === "form") setForm(change.value);
+    else if (change.kind === "month") setMonth(change.value);
+    else setReload(value => value + 1);
+  }
+  function requestLocalChange(change: LocalChange) {
+    if (saving || inFlight.current) return;
+    if (pending.current || retryPending || reviewPending) {
+      setError("原操作結果尚未確認。請保留這份表單，以相同內容重試；暫時不能切換或重新載入。");
+      return;
+    }
+    if (dirty || reviewDirty) {
+      confirmationTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setConfirmation(change);
+      return;
+    }
+    applyLocalChange(change);
+  }
+  function confirmLocalChange() {
+    const change = confirmation;
+    setConfirmation(null);
+    if (change) applyLocalChange(change);
+  }
   async function refreshReview(receipt: ReturnType<typeof transitionReceiptSchema.parse>) {
     const query = new URLSearchParams({ client: clientId, form, year: String(usageYear), month: String(effectiveMonth) });
     const response = await fetchWithTimeout(`/api/taipei-abcd/drafts?${query}`, { cache: "no-store" }); const body = await response.json();
@@ -107,14 +147,22 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
     try {
       const normalized = Object.fromEntries(Object.entries(answers).map(([key, a]) => [key, { ...a, value: typeof a.value === "string" ? a.value.trim() : a.value, reason: a.reason?.trim() || null }]));
       parseTaipeiAnswers(form, normalized);
+      const wasRetry = pending.current !== null;
       const payload = pending.current ?? { client_id: clientId, form, usage_year: usageYear, month: effectiveMonth, template_key: TAIPEI_ABCD_TEMPLATE.key,
         source_revision: TAIPEI_ABCD_TEMPLATE.sourceRevision, source_sha256: TAIPEI_ABCD_TEMPLATE.sourceSha256,
         expected_version: snapshot.latest?.version ?? 0, expected_content_hash: snapshot.latest?.contentHash ?? null,
         answers: normalized, idempotency_key: crypto.randomUUID() };
       pending.current = payload;
+      setRetryPending(true);
       const response = await fetchWithTimeout("/api/taipei-abcd/drafts", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": payload.idempotency_key }, body: JSON.stringify(payload), cache: "no-store" });
       const result = await response.json();
-      if (!response.ok || !result.data?.draft) throw new Error(result.errors?.[0]?.message ?? "尚無法確認儲存結果，請保持內容並重試。");
+      if (!response.ok || !result.data?.draft) {
+        if (!wasRetry && isDefinitiveRejection(response.status, result, definitiveDraftRejections)) {
+          pending.current = null; setRetryPending(false);
+          if (response.status === 401 || response.status === 403) setWriteDenied(true);
+        }
+        throw new Error(result.errors?.[0]?.message ?? "尚無法確認儲存結果，請保持內容並重試。");
+      }
       const row = result.data.draft as TaipeiDraft;
       validateTaipeiSnapshot({ ...snapshot, latest: row },
         { organizationId, branchId, clientId, form, usageYear, month: effectiveMonth });
@@ -124,7 +172,7 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
       if (!verifyResponse.ok || !verification.data) throw new Error("伺服器已回報儲存，但最新資料尚未讀回。請保留內容重試；不需重新建立另一份表單。");
       const next = validateTaipeiSnapshot(verification.data, { organizationId, branchId, clientId, form, usageYear, month: effectiveMonth });
       if (!next.latest || next.latest.id !== row.id || next.latest.version !== row.version || next.latest.contentHash !== row.contentHash) throw new Error("儲存後的版本尚未核對一致，或已有其他人更新。請保留輸入並重新載入核對。");
-      if (generation === requestGeneration.current) { setSnapshot(next); setAnswers(row.answers); setDirty(false); pending.current = null; setMessage(`已保存 ${form} 表草稿第 ${row.version} 版，可重新載入核對。尚未正式發布或簽署。`); }
+      if (generation === requestGeneration.current) { setSnapshot(next); setAnswers(row.answers); setDirty(false); pending.current = null; setRetryPending(false); setMessage(`已保存 ${form} 表草稿第 ${row.version} 版，可重新載入核對。尚未正式發布或簽署。`); }
     } catch (cause) { if (generation === requestGeneration.current) {
       const invalid = isIntegrationError(cause) && cause.field ? taipeiFields(form).find((field) => field.key === cause.field) : undefined;
       if (invalid) { setInvalidField(invalid.key); setError(`「${invalid.label}」的內容或資料狀態尚未完成。已開啟該欄位；請填妥內容、補上不適用原因，或改回未填／待確認。草稿尚未儲存。`); }
@@ -133,31 +181,43 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
     finally { inFlight.current = false; if (generation === requestGeneration.current) setSaving(false); }
   }
   const suggestions = prefill.filter(p => taipeiFields(form).some(f => f.key === p.fieldKey && f.prefillAllowed) && (!answers[p.fieldKey] || answers[p.fieldKey].state === "missing"));
-  return <section ref={editorRef} className={styles.workspace} aria-label="臺北市 A B C 收案表單" key={identity}>
-    <h3>補齊個案資料與照顧評估</h3>
-    <div className={styles.notice}><p>115 年度臺北市表單 · 原稿 114.11 修訂。這裡保存逐欄草稿，不代表官方表單已發布、評估已完成或任何人已簽署。</p><p>D 表是小規模多機能臨時住宿紀錄，本機構純日照範圍不適用，不需填寫。</p></div>
-    <div className={styles.tabs} role="group" aria-label="選擇表別">{(["A", "B", "C"] as const).map(x => <button type="button" key={x} aria-pressed={form === x} onClick={() => changeForm(x)} disabled={saving}>{x} 表 · {x === "A" ? "基本資料" : x === "B" ? "需求與照顧計畫" : "當月執行"}</button>)}</div>
-    {form === "C" && <label>115 年度月份 <select value={month} disabled={saving} onChange={e => { if ((!dirty && !reviewDirty) || window.confirm("切換月份會放棄未存草稿或審核理由，確定切換？")) { resetView(); setMonth(Number(e.target.value)); } }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 月</option>)}</select></label>}
+  return <section ref={editorRef} className={styles.workspace} aria-label="臺北市 A B C 收案表單" tabIndex={-1}>
+    <h3 data-governance-focus-anchor tabIndex={-1}>115 年度 A／B／C 表</h3>
+    <div className={styles.draftGate}><strong>僅存草稿</strong><span>尚未完成評估、正式發布或簽署</span></div>
+    <details className={styles.secondaryDetails}><summary>表單版本與適用範圍</summary><div className={styles.sectionBody}>
+      <p>臺北市表單，原稿 114.11 修訂；逐欄保存草稿不代表官方表單已發布。</p>
+      <p>D 表是小規模多機能臨時住宿紀錄，本機構純日照範圍不適用，不需填寫。</p>
+    </div></details>
+    <div className={styles.tabs} role="group" aria-label="選擇表別">{(["A", "B", "C"] as const).map(x => <button type="button" key={x} aria-pressed={form === x} onClick={() => { if (x !== form) requestLocalChange({ kind: "form", value: x, scope: identity }); }} disabled={saving}>{x} 表 · {x === "A" ? "基本資料" : x === "B" ? "需求與照顧計畫" : "當月執行"}</button>)}</div>
+    {form === "C" && <label>115 年度月份 <select value={month} disabled={saving} onChange={e => requestLocalChange({ kind: "month", value: Number(e.target.value), scope: identity })}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 月</option>)}</select></label>}
     {loading && <p role="status">正在載入此個案的 {form} 表……</p>}
-    {error && <div className={styles.error} role="alert" id={errorId}><p>{error}</p><button type="button" disabled={saving} onClick={() => { if ((!dirty && !reviewDirty) || window.confirm("重新載入會放棄未存輸入或審核理由，確定繼續？")) { resetView(); setReload(x => x + 1); } }}>重新載入</button></div>}
+    {error && <div className={styles.error} role="alert" id={errorId}><p>{error}</p><button type="button" disabled={saving || retryPending || reviewPending} onClick={() => requestLocalChange({ kind: "reload", scope: identity })}>重新載入</button></div>}
     {message && <p role="status">{message}</p>}
-    {!loading && <>
-      <p>{snapshot?.latest ? `已存第 ${snapshot.latest.version} 版` : "尚無已存草稿"} · 已填 {progress.recorded} 項 · 不適用 {progress.notApplicable} 項 · 待核對 {progress.unconfirmed} 項 · 未填 {progress.missing} 項</p>
-      <p className={styles.muted}>未填欄位含條件式補充欄，不代表每一項都必填。最終完整性須由表單核准規則與負責人覆核，不能以比例判定收案通過。</p>
-      {suggestions.length > 0 && <details><summary>可核對的來源建議：{suggestions.length} 項</summary><div className={styles.sectionBody}>{suggestions.map(s => <div key={s.fieldKey}><p>{taipeiFields(form).find(f => f.key === s.fieldKey)?.label} · 來源：{s.sourceLabel}</p><button type="button" disabled={disabled} onClick={() => { const answer: TaipeiAnswer = { state: "unconfirmed", value: s.value, reason: null }; try { parseTaipeiAnswers(form, { [s.fieldKey]: answer }); changeAnswer(s.fieldKey, answer); } catch { setError("來源值與欄位格式不符，請人工核對後填寫。"); } }}>帶入為待核對</button></div>)}</div></details>}
+    {!loading && (demo || snapshot) && <>
+      <div className={styles.progress} role="group" aria-label="填寫進度"><strong>{snapshot?.latest ? `已存草稿第 ${snapshot.latest.version} 版` : "尚無已存草稿"}</strong><div className={styles.progressCounts}>
+        <span>已填 <b>{progress.recorded}</b></span><span>不適用 <b>{progress.notApplicable}</b></span><span>待核對 <b>{progress.unconfirmed}</b></span><span>未填 <b>{progress.missing}</b></span>
+      </div></div>
+      <p className={styles.muted}>未填包含條件項；是否完成仍須依規則與負責人覆核。</p>
+      {suggestions.length > 0 && <details><summary>可核對的來源建議：{suggestions.length} 項</summary><div className={styles.sectionBody}>{suggestions.map(s => <div key={s.fieldKey}><p>{taipeiFields(form).find(f => f.key === s.fieldKey)?.label} · 來源：{s.sourceLabel}</p><button type="button" disabled={inputDisabled} onClick={() => { const answer: TaipeiAnswer = { state: "unconfirmed", value: s.value, reason: null }; try { parseTaipeiAnswers(form, { [s.fieldKey]: answer }); changeAnswer(s.fieldKey, answer); } catch { setError("來源值與欄位格式不符，請人工核對後填寫。"); } }}>帶入為待核對</button></div>)}</div></details>}
       {form === "C" && <>
-        {snapshot?.latest && <section aria-label="C 表已保存版本來源"><h4>已保存第 {snapshot.latest.version} 版的來源</h4><MonthlySources sources={snapshot.latest.sourceSnapshot} saved /></section>}
-        {snapshot?.latest ? <details><summary>查看目前最新來源（不屬於已保存版本）</summary><MonthlySources sources={snapshot.currentSources} /></details> : <section aria-label="C 表目前最新來源"><h4>目前最新來源（尚未保存）</h4><MonthlySources sources={snapshot?.currentSources ?? null} /></section>}
+        <p className={styles.sourceGuard}>C 表只引用當月實際量測與已簽署照顧紀錄；CMS 與到站安排不算執行。</p>
+        {snapshot?.latest && <section aria-label="C 表已保存版本來源"><details className={styles.sourceDisclosure}><summary>已保存第 {snapshot.latest.version} 版的來源</summary><div className={styles.sectionBody}><MonthlySources sources={snapshot.latest.sourceSnapshot} saved /></div></details></section>}
+        {snapshot?.latest ? <details className={styles.sourceDisclosure}><summary>查看目前最新來源（不屬於已保存版本）</summary><div className={styles.sectionBody}><MonthlySources sources={snapshot.currentSources} /></div></details> : <section aria-label="C 表目前最新來源"><details className={styles.sourceDisclosure}><summary>查看當月實際來源（尚未保存）</summary><div className={styles.sectionBody}><MonthlySources sources={snapshot?.currentSources ?? null} /></div></details></section>}
       </>}
       {TAIPEI_SECTIONS[form].map((section, index) => <details key={section.code} open={index === 0}><summary>{section.code} · {section.title}</summary><div className={styles.sectionBody}>
-        <p className={styles.muted}>原表第 {section.sourcePages.join("、")} 頁{section.help ? ` · ${section.help}` : ""}</p>
-        <div className={styles.fields}>{section.fields.map(field => <AnswerInput key={field.key} field={field} answer={answers[field.key] ?? missing} disabled={disabled} invalid={invalidField === field.key} errorId={errorId} onChange={next => changeAnswer(field.key, next)} />)}</div>
+        {section.help ? <p className={styles.muted}>{section.help}</p> : null}
+        <div className={styles.fields}>{section.fields.map(field => <AnswerInput key={field.key} field={field} answer={answers[field.key] ?? missing} disabled={inputDisabled} invalid={invalidField === field.key} errorId={errorId} onChange={next => changeAnswer(field.key, next)} />)}</div>
+        <details className={styles.secondaryDetails}><summary>原表出處</summary><p className={styles.sectionReference}>原表第 {section.sourcePages.join("、")} 頁</p></details>
       </div></details>)}
       {form === "B" && <div className={styles.notice}><p>草稿核對小計：營養 {totals.nutrition ?? "未填齊"}／14；SPPB {totals.sppb ?? "未填齊"}／12；跌倒因子 {totals.fallFactors ?? "未填齊"}／12；SPMSQ 錯誤 {totals.spmsqErrors ?? "未填齊"}／10。</p><p>小計不會產生診斷或照顧決策；未核對／不適用不當作 0 分。</p></div>}
-      <div className={styles.toolbar}><button className={styles.primary} type="button" disabled={disabled} onClick={save}>{saving ? "儲存中……" : `儲存 ${form} 表草稿`}</button><span>{dirty ? "尚有未存內容" : "僅保存草稿，不代替簽署"}</span></div>
-      {snapshot && !demo && <TaipeiAbcdReview key={`${identity}/${snapshot.latest?.id ?? "new"}`} snapshot={snapshot} unsavedAnswers={dirty} disabled={readOnly || loading || saving} onBusy={setSaving} onDirty={setReviewDirty} onChanged={refreshReview} />}
+      <div className={styles.toolbar}><button className={styles.primary} type="button" disabled={disabled || reviewPending} onClick={save}>{saving ? "儲存中……" : retryPending ? "以相同內容重試保存" : `儲存 ${form} 表草稿`}</button><span>{retryPending || reviewPending ? "原操作結果待確認，請先以相同內容重試" : dirty ? "尚有未存內容" : "僅保存草稿，不代替簽署"}</span></div>
+      {snapshot && !demo && <TaipeiAbcdReview key={`${identity}/${snapshot.latest?.id ?? "new"}`} snapshot={snapshot} unsavedAnswers={dirty || retryPending} disabled={readOnly || loading || saving || retryPending || writeDenied} onBusy={setSaving} onDirty={setReviewDirty} onPending={setReviewPending} onChanged={refreshReview} />}
       <details><summary>簽署與版本</summary><div className={styles.sectionBody}><p>A 表填表人／主管、B 表護理／社工／主管、C 表服務提供者／個管／主管簽署，須待正式範本雙人核准流程接通後，由本人依權限操作；本頁沒有代簽按鈕。</p><p>每次儲存新增版本，舊版本不可更新或刪除。草稿不能送出為正式官方完成表。</p>{snapshot?.history.map(r => <p key={r.id}>草稿第 {r.version} 版 · {dateLabel(r.createdAt)}</p>)}</div></details>
     </>}
+    {confirmation ? <GovernanceDialog open title="捨棄未保存的表單內容" cancelLabel="繼續填寫" onRequestClose={() => setConfirmation(null)} returnFocusRef={confirmationTrigger} fallbackFocusRef={editorRef}>
+      <p>{confirmation.kind === "form" ? `切換到 ${confirmation.value} 表` : confirmation.kind === "month" ? `切換到 ${confirmation.value} 月` : "重新讀取表單"}會捨棄目前未保存的草稿或審核理由；已保存版本不受影響。</p>
+      <button type="button" className="button button--danger" onClick={confirmLocalChange}>捨棄填寫並繼續</button>
+    </GovernanceDialog> : null}
   </section>;
 }
 

@@ -195,7 +195,7 @@ export function ClientMasterWorkspace({
             <p>{clients.length} 位符合條件・快照 {formatTimestamp(snapshot.generatedAt)}</p>
           </div>
         </div>
-        <form className="filter-bar" method="get">
+        <form className="filter-bar" method="get" noValidate>
           <label className="filter-search">
             <Search aria-hidden="true" />
             <span className="sr-only">搜尋個案代碼或姓名</span>

@@ -1,7 +1,10 @@
 import { fail, ok } from "@/lib/api/response";
+import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
 import { getTenantContext } from "@/lib/auth/context";
 import { demoBranding } from "@/lib/config/branding";
+import type { TenantContext } from "@/lib/domain/types";
 import { isDemoMode } from "@/lib/env";
+import { isIntegrationError } from "@/lib/integrations/errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -15,27 +18,48 @@ const demoBranches = [
 ];
 
 async function accessibleBranches() {
-  const context = await getTenantContext("staff");
+  let context: TenantContext | null;
+  try {
+    context = await getTenantContext("staff");
+  } catch (error) {
+    if (isIntegrationError(error) && error.code === "AUTH_CONTEXT_UNAVAILABLE" && error.httpStatus === 503) {
+      return { context: null, branches: null, error: "AUTH_CONTEXT_UNAVAILABLE" } as const;
+    }
+    throw error;
+  }
   if (!context) return { context: null, branches: null, error: "AUTH_REQUIRED" } as const;
   if (isDemoMode()) return { context, branches: demoBranches, error: null } as const;
   if (context.assuranceLevel !== "aal2") {
     return { context, branches: null, error: "AAL2_REQUIRED" } as const;
   }
 
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) return { context, branches: null, error: "SERVICE_NOT_CONFIGURED" } as const;
-  const { data, error } = await supabase
-    .from("branches")
-    .select("id, name")
-    .eq("organization_id", context.organizationId)
-    .eq("is_active", true)
-    .order("code")
-    .returns<Array<{ id: string; name: string }>>();
-  return { context, branches: error ? null : data, error: error ? "BRANCH_LOOKUP_FAILED" : null } as const;
+  try {
+    // This lookup has its own read budget after the separately bounded context.
+    // Never treat an unavailable list as proof that a requested branch is denied.
+    const lookup = await withServerReadDeadline(async (signal) => {
+      const supabase = await createServerSupabaseClient({ signal });
+      signal.throwIfAborted();
+      if (!supabase) return { branches: null, error: "SERVICE_NOT_CONFIGURED" } as const;
+      const { data, error } = await supabase
+        .from("branches")
+        .select("id, name")
+        .eq("organization_id", context.organizationId)
+        .eq("is_active", true)
+        .order("code")
+        .abortSignal(signal)
+        .returns<Array<{ id: string; name: string }>>();
+      signal.throwIfAborted();
+      return { branches: error ? null : data, error: error ? "BRANCH_LOOKUP_FAILED" : null } as const;
+    });
+    return { context, ...lookup };
+  } catch {
+    return { context, branches: null, error: "BRANCH_LOOKUP_FAILED" } as const;
+  }
 }
 
 export async function GET() {
   const result = await accessibleBranches();
+  if (result.error === "AUTH_CONTEXT_UNAVAILABLE") return fail(503, { code: result.error, message: "登入資料暫時無法讀取，請稍後重試。" });
   if (!result.context) return fail(401, { code: "AUTH_REQUIRED", message: "請先登入。" });
   if (result.error === "AAL2_REQUIRED") return fail(403, { code: "AAL2_REQUIRED", message: "請先完成雙因素驗證。" });
   if (!result.branches) return fail(503, { code: result.error ?? "BRANCH_LOOKUP_FAILED", message: "目前無法讀取可用分支。" });
@@ -55,8 +79,10 @@ export async function POST(request: Request) {
   }
 
   const result = await accessibleBranches();
+  if (result.error === "AUTH_CONTEXT_UNAVAILABLE") return fail(503, { code: result.error, message: "登入資料暫時無法讀取，請稍後重試。" });
   if (!result.context) return fail(401, { code: "AUTH_REQUIRED", message: "請先登入。" });
   if (result.error === "AAL2_REQUIRED") return fail(403, { code: "AAL2_REQUIRED", message: "請先完成雙因素驗證。" });
+  if (!result.branches) return fail(503, { code: result.error ?? "BRANCH_LOOKUP_FAILED", message: "目前無法讀取可用分支。" });
   const selected = result.branches?.find((branch) => branch.id === branchId);
   if (!selected) return fail(403, { code: "BRANCH_NOT_ACCESSIBLE", message: "您沒有此分支的資料範圍。" });
 

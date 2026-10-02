@@ -253,7 +253,10 @@ export function scoreAssessment(
       ? "incomplete"
       : "complete";
   const rule = ruleSnapshot(definition);
-  const baseAlerts = governanceAlerts(definition);
+  const baseAlerts = [
+    ...governanceAlerts(definition),
+    ...(definition.buildAnswerAlerts?.(normalizedAnswers) ?? []),
+  ];
 
   if (status !== "complete") {
     return {
@@ -302,4 +305,3 @@ export function scoreAssessment(
     rule,
   };
 }
-

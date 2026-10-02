@@ -1,0 +1,11 @@
+/* Keep the portal, live status and pointer protection immediate. Only reveal
+   its visual treatment when navigation outlasts a brief transition. A zero-
+   duration reveal adds no motion or minimum wait before the portal is removed. */
+.transitionFeedback {
+  animation: navigation-loading-reveal 0s linear 150ms both;
+}
+
+@keyframes navigation-loading-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

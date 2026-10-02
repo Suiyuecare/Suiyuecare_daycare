@@ -34,6 +34,15 @@ describe("fillable assessment scoring contracts", () => {
     ]));
     const result = scoreAssessment({ versionId: form.scoreVersionId!, answers });
     expect(result.score?.raw).toBe(0);
+    expect(result.rule?.versionId).toBe("bsrs5-zh-tw-v2");
+    expect(result.alerts).toContainEqual(expect.objectContaining({ code: "BSRS_SUICIDE_PROFESSIONAL_REVIEW", requiresAcknowledgement: true }));
+  });
+
+  it("keeps draft form schemas stable while selecting explicitly new scoring candidates", () => {
+    expect(QUESTIONNAIRE_FORMS.bsrs5.version).toBe("bsrs5-zh-tw-v1");
+    expect(QUESTIONNAIRE_FORMS.bsrs5.scoreVersionId).toBe("bsrs5-zh-tw-v2");
+    expect(QUESTIONNAIRE_FORMS.lawton_iadl.version).toBe("lawton-iadl-8-domain-expanded-v1");
+    expect(QUESTIONNAIRE_FORMS.lawton_iadl.scoreVersionId).toBe("lawton-iadl-8-domain-expanded-v2");
   });
 
   it("flags the Taipei B12 threshold exactly at three factors", () => {

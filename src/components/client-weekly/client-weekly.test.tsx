@@ -1,13 +1,25 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlan, previewWeeklyPlan } from "@/lib/client-weekly/schema";
 import { ClientWeeklyWorkspace } from "./client-weekly-workspace";
 const clientId = "c1600000-0000-4000-8000-000000000001";
 const today = "2026-09-14";
 function snapshot() { return { clientId, from: today, generatedAt: `${today}T00:00:00Z`, version: 0, plan: null, exceptions: [], days: previewWeeklyPlan(emptyPlan(today), today) }; }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
+beforeEach(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute("open"); } });
+});
+afterEach(() => {
+  cleanup(); vi.unstubAllGlobals();
+  for (const [name, descriptor] of [["showModal", originalShowModal], ["close", originalClose]] as const) {
+    if (descriptor) Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+  }
+});
 describe("weekly intake editor", () => {
   it("lets a synthetic user try four Mondays without claiming storage or doing network requests", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
@@ -38,9 +50,9 @@ describe("weekly intake editor", () => {
     expect(screen.getByLabelText("週一到站")).toBeDisabled();
     expect(screen.getByRole("button", { name: "儲存每週安排" })).toBeDisabled();
   });
-  it("retains both drafts when cancelling a date switch or reload", async () => {
+  it("uses one accessible confirmation for date switch and reload; cancel and Escape retain both drafts", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot() }));
-    const confirm = vi.fn().mockReturnValue(false); vi.stubGlobal("confirm", confirm); vi.stubGlobal("fetch", fetch);
+    const nativeConfirm = vi.fn(); vi.stubGlobal("confirm", nativeConfirm); vi.stubGlobal("fetch", fetch);
     render(<ClientWeeklyWorkspace clientId={clientId} today={today} canManage />);
     await waitFor(() => expect(screen.getByLabelText("單日異動理由")).toBeEnabled());
     fireEvent.change(screen.getByLabelText("安排依據／異動理由"), { target: { value: "家屬核對的固定週表" } });
@@ -48,9 +60,72 @@ describe("weekly intake editor", () => {
     fireEvent.change(screen.getByLabelText(/異動日期/), { target: { value: "2026-09-15" } });
     expect(screen.getByLabelText(/異動日期/)).toHaveValue(today);
     expect(screen.getByLabelText("單日異動理由")).toHaveValue("家屬通知臨時請假");
+    const dateDialog = screen.getByRole("dialog", { name: "改成 2026-09-15？" });
+    expect(dateDialog).toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: "繼續填寫" })).toHaveFocus();
+    fireEvent.keyDown(dateDialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/異動日期/)).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "捨棄草稿並重新載入" }));
-    expect(confirm).toHaveBeenCalledTimes(2); expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "重新讀取每週安排？" })).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "捨棄草稿並重新載入" })).toHaveFocus();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(nativeConfirm).not.toHaveBeenCalled();
     expect(screen.getByLabelText("安排依據／異動理由")).toHaveValue("家屬核對的固定週表");
+    expect(screen.getByLabelText("單日異動理由")).toHaveValue("家屬通知臨時請假");
+  });
+  it("only discards a single-day draft after explicit confirmation, keeping the weekly draft", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot() }));
+    vi.stubGlobal("fetch", fetch);
+    render(<ClientWeeklyWorkspace clientId={clientId} today={today} canManage />);
+    await waitFor(() => expect(screen.getByLabelText("單日異動理由")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("安排依據／異動理由"), { target: { value: "固定週表保留" } });
+    fireEvent.change(screen.getByLabelText("單日異動理由"), { target: { value: "單日異動待捨棄" } });
+    fireEvent.change(screen.getByLabelText(/異動日期/), { target: { value: "2026-09-15" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "捨棄單日草稿並換日期" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/異動日期/)).toHaveValue("2026-09-15");
+    expect(screen.getByLabelText("單日異動理由")).toHaveValue("");
+    expect(screen.getByLabelText("安排依據／異動理由")).toHaveValue("固定週表保留");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("keeps both drafts if confirmed reread fails, then discards only after a successful reread", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot() }))
+      .mockRejectedValueOnce(new Error("每週安排讀取中斷"))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot() }));
+    vi.stubGlobal("fetch", fetch);
+    render(<ClientWeeklyWorkspace clientId={clientId} today={today} canManage />);
+    await waitFor(() => expect(screen.getByLabelText("單日異動理由")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("安排依據／異動理由"), { target: { value: "固定週表草稿" } });
+    fireEvent.change(screen.getByLabelText("單日異動理由"), { target: { value: "單日異動草稿" } });
+    fireEvent.click(screen.getByRole("button", { name: "捨棄草稿並重新載入" }));
+    fireEvent.click(screen.getByRole("button", { name: "捨棄草稿並重新讀取" }));
+    expect(await screen.findByRole("dialog", { name: "重新讀取每週安排？" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "捨棄草稿並重新讀取" })).toBeEnabled());
+    expect(screen.getByLabelText("安排依據／異動理由")).toHaveValue("固定週表草稿");
+    expect(screen.getByLabelText("單日異動理由")).toHaveValue("單日異動草稿");
+    fireEvent.click(screen.getByRole("button", { name: "捨棄草稿並重新讀取" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("安排依據／異動理由")).toHaveValue("");
+    expect(screen.getByLabelText("單日異動理由")).toHaveValue("");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+  it("does not discard a draft or reread when edit permission changes while confirmation is open", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot() }));
+    vi.stubGlobal("fetch", fetch);
+    const { rerender } = render(<ClientWeeklyWorkspace clientId={clientId} today={today} canManage />);
+    await waitFor(() => expect(screen.getByLabelText("安排依據／異動理由")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("安排依據／異動理由"), { target: { value: "未送出的固定安排" } });
+    fireEvent.click(screen.getByRole("button", { name: "捨棄草稿並重新載入" }));
+    rerender(<ClientWeeklyWorkspace clientId={clientId} today={today} canManage={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "捨棄草稿並重新讀取" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("操作權限已變更");
+    expect(screen.getByLabelText("安排依據／異動理由")).toHaveValue("未送出的固定安排");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("validates a receipt then rereads before declaring saved and maintains original idempotency on uncertain retry", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: snapshot() }))

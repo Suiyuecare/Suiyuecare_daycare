@@ -1,4 +1,5 @@
 import Image from "next/image";
+import styles from "./module-loading.module.css";
 
 /** Finance's indeterminate auth-loading bar; never invent a completion percentage. */
 export function ModuleLoading({
@@ -9,7 +10,7 @@ export function ModuleLoading({
   transition?: boolean;
 }) {
   return (
-    <div className={`module-loading${transition ? " module-loading--transition" : ""}`} role="status" aria-live="polite" aria-busy="true">
+    <div className={`module-loading${transition ? ` module-loading--transition ${styles.transitionFeedback}` : ""}`} role="status" aria-live="polite" aria-busy="true">
       <div className="module-loading__card">
         <Image className="module-loading__logo" src="/suiyue-logo-transparent.png" alt="" width={54} height={54} unoptimized />
         <strong>{title}</strong>

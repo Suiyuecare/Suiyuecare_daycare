@@ -51,11 +51,59 @@ export interface QuestionnaireDraft {
   readonly contentHash: string;
 }
 
+export interface QuestionnaireAssessment extends QuestionnaireDraft {
+  readonly assessmentCreatedAt: string;
+}
+
+export interface QuestionnaireAssessmentCursor {
+  readonly createdAt: string;
+  readonly assessmentKey: string;
+}
+
+export interface QuestionnaireAssessmentPage {
+  readonly formKey: QuestionnaireFormKey;
+  readonly clientId: string;
+  readonly assessments: readonly QuestionnaireAssessment[];
+  readonly total: number;
+  readonly nextCursor: QuestionnaireAssessmentCursor | null;
+}
+
+export interface QuestionnaireAssessmentDateMatch {
+  readonly assessmentKey: string;
+  readonly versionId: string;
+  readonly version: number;
+  readonly assessedOn: string;
+  readonly savedAt: string;
+  readonly recordState: "draft";
+  readonly assessmentCreatedAt: string;
+}
+
+export interface QuestionnaireAssessmentDatePage {
+  readonly formKey: QuestionnaireFormKey;
+  readonly clientId: string;
+  readonly assessedOn: string;
+  readonly assessments: readonly QuestionnaireAssessmentDateMatch[];
+  readonly total: number;
+  readonly nextCursor: QuestionnaireAssessmentCursor | null;
+}
+
+export interface QuestionnaireHistoryPage {
+  readonly formKey: QuestionnaireFormKey;
+  readonly clientId: string;
+  readonly assessmentKey: string;
+  readonly versions: readonly QuestionnaireDraft[];
+  readonly total: number;
+  readonly nextBeforeVersion: number | null;
+}
+
 export interface QuestionnaireClient {
   readonly clientId: string;
   readonly displayName: string;
   readonly serviceStatus: "active" | "suspended";
   readonly latest: QuestionnaireDraft | null;
+  readonly assessments?: readonly QuestionnaireAssessment[];
+  readonly assessmentTotal?: number;
+  readonly nextAssessmentCursor?: QuestionnaireAssessmentCursor | null;
 }
 
 export interface QuestionnaireSnapshot {

@@ -6,15 +6,16 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
+import { todayWorkAuthoritySignature } from "@/lib/workspace/today-work-memory";
+import { QuestionnaireRuleWorkspace } from "@/components/questionnaire-rule-governance/questionnaire-rule-workspace";
 import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
+import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
 import { OpeningReadinessWorkspace } from "@/components/opening-readiness/opening-readiness-workspace";
 import { loadOpeningReadinessSnapshot } from "@/lib/opening-readiness/snapshot";
 import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
 import { OperationalWorkspace } from "@/components/workspace/operational-workspace";
-import { AssessmentEntryWorkspace } from "@/components/assessments/assessment-entry-workspace";
-import { externalAssessmentInstruments, type ExternalAssessmentInstrument } from "@/lib/external-assessment-results/contract";
 import { ImportWorkspace } from "@/components/imports/import-workspace";
 import { SyntheticImportPreview } from "@/components/imports/synthetic-import-preview";
 import { IntegrationsAuditWorkspace } from "@/components/integrations-audit/integrations-audit-workspace";
@@ -82,10 +83,14 @@ import { ChewingAssessmentsWorkspace } from "@/components/chewing-assessments/ch
 import { MnaAssessmentsWorkspace } from "@/components/mna-assessments/mna-assessments-workspace";
 import { QuestionnaireAssessmentsWorkspace } from "@/components/questionnaire-assessments/questionnaire-assessment-editor";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
-import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
+import { buildDemoQuestionnaireSnapshot } from "@/lib/questionnaire-assessments/demo-snapshot";
+import { buildDemoCaseDirectory } from "@/lib/clients/demo-case-directory";
+import { authorizedAssessmentEntryPages } from "@/lib/assessment-entry/selection";
+import { loadQuestionnaireResumeDraft, loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
 import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { StaffTrainingWorkspace } from "@/components/staff-training/staff-training-workspace";
 import { StaffCertificatesWorkspace } from "@/components/staff-certificates/staff-certificates-workspace";
+import { StaffCertificateDocumentsWorkspace } from "@/components/staff-certificates/staff-certificate-documents-workspace";
 import { StaffVaccinationsWorkspace } from "@/components/staff-vaccinations/staff-vaccinations-workspace";
 import { StaffToccWorkspace } from "@/components/staff-tocc/staff-tocc-workspace";
 import { StaffLabReportsWorkspace } from "@/components/staff-lab-reports/staff-lab-reports-workspace";
@@ -123,6 +128,7 @@ import {
 } from "@/lib/core-care/snapshot";
 import { isCoreDailyPage } from "@/lib/core-care/types";
 import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
+import { loadDailyExpectedClients } from "@/lib/client-weekly/daily-projection-loader";
 import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
 import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
 import { env, isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
@@ -271,15 +277,12 @@ import type {
   SocialResourceFilters,
   SocialResourceStatusFilter,
 } from "@/lib/social-resources/types";
-import { filterStaffAnnouncementSnapshot } from "@/lib/staff-announcements/projection";
+import { DEFAULT_STAFF_ANNOUNCEMENT_FILTERS, parseStaffAnnouncementPageQuery, StaffAnnouncementFilterError } from "@/lib/staff-announcements/query";
 import {
   loadStaffAnnouncementSnapshot,
   StaffAnnouncementSnapshotError,
 } from "@/lib/staff-announcements/snapshot";
-import {
-  STAFF_ANNOUNCEMENT_LIFECYCLES,
-  type StaffAnnouncementStatusFilter,
-} from "@/lib/staff-announcements/types";
+import type { StaffAnnouncementFilters } from "@/lib/staff-announcements/types";
 import {
   FallEventSnapshotError,
   loadFallEventSnapshot,
@@ -669,6 +672,9 @@ import { BodyAssessmentsWorkspace } from "@/components/body-assessments/body-ass
 import { parseBodyAssessmentFilters } from "@/lib/body-assessments/query";
 import { BodyAssessmentSnapshotError, loadBodyAssessmentSnapshot } from "@/lib/body-assessments/snapshot";
 import { NursingAssessmentsWorkspace } from "@/components/nursing-assessments/nursing-assessments-workspace";
+import { getNursingRecentAal2At } from "@/lib/nursing-assessments/reauth";
+import { getReferralRecentAal2At } from "@/lib/referral-management/reauth";
+import { getSocialWorkRecentAal2At } from "@/lib/social-work-records/reauth";
 import { loadNursingAssessmentSnapshot } from "@/lib/nursing-assessments/snapshot";
 import {
   FeedbackComplaintSnapshotError,
@@ -721,25 +727,34 @@ export default async function StaffCatalogPage({
     const serviceDate = parseServiceDate(
       typeof query.date === "string" ? query.date : undefined,
     );
+    const snapshotPromise = loadDailyCareSnapshot(context, serviceDate);
     const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
+    const expectedStatePromise = loadDailyExpectedClients(context, serviceDate);
+    // Observe an early rejection while the dashboard loads; the original
+    // promise still reaches its existing streamed component error boundary.
+    void expectedStatePromise.catch(() => {});
     let snapshot = null;
     let loadError = false;
     try {
-      snapshot = await loadDailyCareSnapshot(context, serviceDate);
+      snapshot = await snapshotPromise;
     } catch (error) {
       if (!(error instanceof CoreCareSnapshotError)) throw error;
       loadError = true;
     }
+    const workScopeKey = todayWorkAuthoritySignature(context);
     return (
       <><DashboardWorkspace
+        key={JSON.stringify([workScopeKey, serviceDate])}
+        workScopeKey={workScopeKey}
         canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
+        canWriteRoster={!context.demo && ["staff_scheduling.manage", "clients.read", "clients.view_all"].every((scope) => context.scopes.includes(scope))}
         loadError={loadError}
         serviceDate={serviceDate}
         snapshot={snapshot}
         roster={await rosterPromise}
       />
-      <Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={serviceDate} /></Suspense></>
+      <Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={serviceDate} statePromise={expectedStatePromise} /></Suspense></>
     );
   }
 
@@ -759,8 +774,10 @@ export default async function StaffCatalogPage({
     return (
       <CaseCenterWorkspace
         canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
+        demoDailyClientIds={context.demo ? buildDemoDailySnapshot(filters.date).clients.map((client) => client.clientId) : undefined}
         allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
         canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
+        canOpenAssessments={authorizedAssessmentEntryPages(context, staffPages).length > 0}
         filters={filters}
         loadError={loadError}
         page={page}
@@ -916,6 +933,7 @@ export default async function StaffCatalogPage({
     return (
       <MedicationRecordsWorkspace
         allClients={allClients}
+        context={context}
         canRecord={canRecord}
         canVerify={canVerify}
         currentUserId={context.userId}
@@ -1120,8 +1138,16 @@ export default async function StaffCatalogPage({
     const requestedClient = typeof query.client === "string" ? query.client : "";
     const validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
       ? requestedClient.toLowerCase() : null;
-    const invalidFilters = Boolean(requestedClient && !validClientId) ||
-      Object.keys(query).some((key) => key !== "client");
+    const resumeRequested = query.assessment !== undefined || query.version !== undefined;
+    const requestedAssessment = typeof query.assessment === "string" ? query.assessment : "";
+    const requestedVersion = typeof query.version === "string" ? query.version : "";
+    const validAssessmentKey = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedAssessment)
+      ? requestedAssessment.toLowerCase() : null;
+    const validVersionId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedVersion)
+      ? requestedVersion.toLowerCase() : null;
+    const invalidFilters = Boolean(query.client !== undefined && !validClientId) ||
+      Object.keys(query).some((key) => !["client", "assessment", "version"].includes(key)) ||
+      (resumeRequested && (!validClientId || !validAssessmentKey || !validVersionId || context.demo));
     const prefix = formKey === "spmsq"
       ? "questionnaire_cognition"
       : formKey === "barthel_adl" || formKey === "lawton_iadl"
@@ -1137,30 +1163,37 @@ export default async function StaffCatalogPage({
       context.scopes.includes(`${prefix}.read`) && context.scopes.includes(`${prefix}.manage`);
     let snapshot: QuestionnaireSnapshot | null = null;
     let loadError = invalidFilters;
+    let resumeStale = false;
     if (context.demo) {
-      snapshot = {
-        formKey,
-        generatedAt: new Date().toISOString(),
-        matchingTotal: 1,
-        demo: true,
-        clients: [{
-          clientId: "00000000-0000-4000-8000-000000000015",
-          displayName: "合成測試個案（非真實資料）",
-          serviceStatus: "active",
-          latest: null,
-        }],
-      };
+      snapshot = buildDemoQuestionnaireSnapshot(
+        formKey, buildDemoCaseDirectory(), validClientId, new Date().toISOString(),
+      );
     } else if (!invalidFilters) {
       try {
         snapshot = await loadQuestionnaireSnapshot(context, formKey, validClientId);
+        if (resumeRequested && validClientId && validAssessmentKey && validVersionId) {
+          if (!snapshot.clients.some((client) => client.clientId === validClientId)) throw new QuestionnaireSnapshotError();
+          const draft = await loadQuestionnaireResumeDraft(context, formKey, validClientId, validAssessmentKey, validVersionId);
+          if (!draft) resumeStale = true;
+          else snapshot = {
+            ...snapshot,
+            clients: snapshot.clients.map((client) => client.clientId === validClientId ? { ...client, latest: draft } : client),
+          };
+        }
       } catch (error) {
         if (!(error instanceof QuestionnaireSnapshotError)) throw error;
         loadError = true;
       }
     }
+    if (resumeStale) return <section className="empty-card core-care-state" role="alert">
+      <h1>草稿已有更新</h1>
+      <p>這份連結所指的版本不是最新草稿。請回到評估清單，重新選擇後再填寫；系統沒有開啟其他紀錄。</p>
+      <Link className="button button--secondary" href={`/app/assessments?client=${encodeURIComponent(validClientId!)}`}>返回這位個案的評估清單</Link>
+    </section>;
     return <QuestionnaireAssessmentsWorkspace
       assessorName={context.displayName}
       canManage={canManage}
+      context={context}
       form={form}
       loadError={loadError}
       pageTitle={page.title}
@@ -1268,64 +1301,6 @@ export default async function StaffCatalogPage({
       page={page} snapshot={snapshot} />;
   }
 
-  if ([15, 16, 18, 36].includes(page.number)) {
-    const requestedClient = typeof query.client === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query.client)
-      ? query.client.toLowerCase() : null;
-    const requestedInstrument: Record<number, ExternalAssessmentInstrument> = {
-      15: "barthel_adl", 16: "iadl", 18: "bsrs", 36: "mna",
-    };
-    const entryHref = `/app/staff/assessments/swallowing${requestedClient
-      ? `?client=${encodeURIComponent(requestedClient)}&externalInstrument=${requestedInstrument[page.number]}`
-      : `?externalInstrument=${requestedInstrument[page.number]}`}#external-result-entry`;
-    return <section className="empty-card" role="status">
-      <h1>{page.title}：外部結果登錄</h1>
-      <p>可在評估入口選擇個案，登錄經核准紙本／外部工具的原始結果；系統不提供題目或自動計分。</p>
-      <Link className="button button--primary" href={entryHref}>{requestedClient ? "登錄外部結果" : "先選個案並登錄結果"}</Link>
-    </section>;
-  }
-
-  if (page.number === 17) {
-    const requestedClient = typeof query.client === "string" ? query.client : "";
-    const selectedClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
-      ? requestedClient.toLowerCase() : null;
-    let clients: Awaited<ReturnType<typeof loadClientMasterSnapshot>>["clients"] = [];
-    let loadError = !context.demo && !context.scopes.includes("clients.read");
-    if (!loadError) {
-      try {
-        clients = (await loadClientMasterSnapshot(context)).clients.filter((client) =>
-          !["transferred", "closed", "deceased"].includes(client.status));
-      } catch (error) {
-        if (!(error instanceof ClientMasterSnapshotError)) throw error;
-        loadError = true;
-      }
-    }
-    // Keep the one-client-first entry limited to workflows that have a scoped
-    // draft/manual-record write path. Standardized scales without an approved
-    // instrument and persistence workflow remain explicitly unavailable below.
-    const entryPageNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28, 32, 33, 34, 35, 36, 51]);
-    const entryPages = staffPages.filter((candidate) => entryPageNumbers.has(candidate.number) &&
-      canAccessCatalogPage(context, candidate));
-    const unavailablePageNumbers = new Set<number>();
-    const unavailablePages = staffPages.filter((candidate) => unavailablePageNumbers.has(candidate.number) &&
-      canAccessCatalogPage(context, candidate));
-    const requestedInstrument = typeof query.externalInstrument === "string" &&
-      Object.hasOwn(externalAssessmentInstruments, query.externalInstrument)
-      ? query.externalInstrument as ExternalAssessmentInstrument : null;
-    let canReadExternalResults = false;
-    let canWriteExternalResults = false;
-    if (!context.demo) {
-      [canReadExternalResults, canWriteExternalResults] = await Promise.all([
-        canUseRoutineCare(context, "care_records.read"),
-        canUseRoutineCare(context, "care_records.write"),
-      ]);
-    }
-    return <AssessmentEntryWorkspace clients={clients} error={loadError}
-      pages={entryPages} unavailablePages={unavailablePages} selectedClientId={selectedClientId}
-      initialExternalInstrument={requestedInstrument} canReadExternalResults={canReadExternalResults}
-      canWriteExternalResults={canWriteExternalResults} />;
-  }
-
   if (page.number === 20) {
     const parameters = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) {
@@ -1368,7 +1343,7 @@ export default async function StaffCatalogPage({
     let loadError = false;
     try { filters = parseAbcdAssessmentFilters(parameters); }
     catch { loadError = true; }
-    const canManage = !context.demo && context.assuranceLevel === "aal2" &&
+    const canManage = !context.demo &&
       context.scopes.includes("clients.read") && context.scopes.includes("abcd_assessments.read") &&
       context.scopes.includes("abcd_assessments.manage");
     let snapshot = null;
@@ -1377,7 +1352,7 @@ export default async function StaffCatalogPage({
       try {
         [snapshot, recentAal2] = await Promise.all([
           loadAbcdAssessmentSnapshot(context, filters),
-          canManage ? hasRecentAal2() : Promise.resolve(false),
+          canManage && context.assuranceLevel === "aal2" ? hasRecentAal2() : Promise.resolve(false),
         ]);
       } catch (error) {
         if (!(error instanceof AbcdAssessmentSnapshotError)) throw error;
@@ -1478,6 +1453,15 @@ export default async function StaffCatalogPage({
       <p>連結中的個案、日期或班別格式不正確，系統沒有替您選擇其他個案或班別。</p>
       <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
     </section>;
+    const writePermission = page.number === 3 ? "health.write" : page.number === 6
+      ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
+    const authorityPromise = Promise.all([
+      writePermission ? canUseRoutineCare(context, writePermission) : Promise.resolve(false),
+      page.number === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
+    ]);
+    // Keep programmer failures observable when consumed, even if the read is
+    // still pending or independently fails before this preflight completes.
+    void authorityPromise.catch(() => {});
     let snapshot = null;
     let loadError = false;
     try {
@@ -1489,22 +1473,20 @@ export default async function StaffCatalogPage({
     if (snapshot && selectedClientId) {
       snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
     }
-    const writePermission = page.number === 3 ? "health.write" : page.number === 6
-      ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
-    const [canWriteRoutine, canReadDiary] = await Promise.all([
-      writePermission ? canUseRoutineCare(context, writePermission) : Promise.resolve(false),
-      page.number === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
-    ]);
+    const [canWriteRoutine, canReadDiary] = await authorityPromise;
     return (
       <CoreDailyWorkspace
         clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
           ? <CareReminderCard clientId={selectedClientId} context={context} /> : undefined}
         diaryLifecycle={page.number === 6 && snapshot?.sourceAccess.careDiaries && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
-          ? <CareDiaryLifecycle clientId={selectedClientId} readEnabled={canReadDiary} enabled={canWriteRoutine}
+          ? <CareDiaryLifecycle clientId={selectedClientId}
+            clientName={snapshot.clients.find((client) => client.clientId === selectedClientId)?.displayName}
+            sourceRevision={snapshot.generatedAt} readEnabled={canReadDiary} enabled={canWriteRoutine}
             canRevise={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.write")}
             canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")} demo={context.demo} /> : undefined}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         canWrite={canWriteRoutine}
+        canOpenAssessments={authorizedAssessmentEntryPages(context, staffPages).length > 0}
         loadError={loadError}
         moduleTitle={getModule(page.moduleId).title}
         page={page}
@@ -2069,13 +2051,14 @@ export default async function StaffCatalogPage({
     try {
       [snapshot, recentAal2] = await Promise.all([
         loadPsychosocialAssessmentSnapshot(context, filters),
-        canSign ? hasRecentAal2() : Promise.resolve(false),
+        canSign ? getSocialWorkRecentAal2At(context).then(value => value !== null) : Promise.resolve(false),
       ]);
     } catch (error) {
       if (!(error instanceof PsychosocialAssessmentSnapshotError)) throw error;
       loadError = true;
     }
     return <PsychosocialAssessmentsWorkspace
+      context={context}
       canManage={canManage}
       canSign={canSign}
       filters={filters}
@@ -2120,14 +2103,14 @@ export default async function StaffCatalogPage({
       try {
         [snapshot, recentAal2] = await Promise.all([
           loadSocialWorkRecordSnapshot(context, filters),
-          canSign ? hasRecentAal2() : Promise.resolve(false),
+          canSign ? getSocialWorkRecentAal2At(context).then(value => value !== null) : Promise.resolve(false),
         ]);
       } catch (error) {
         if (!(error instanceof SocialWorkRecordSnapshotError)) throw error;
         loadError = true;
       }
     }
-    return <SocialWorkRecordsWorkspace canManage={canManage} canSign={canSign}
+    return <SocialWorkRecordsWorkspace context={context} canManage={canManage} canSign={canSign}
       filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
       page={page} snapshot={snapshot} />;
   }
@@ -2914,40 +2897,36 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 68) {
-    const requestedStatus = typeof query.status === "string" ? query.status : "all";
-    const status: StaffAnnouncementStatusFilter =
-      requestedStatus === "all" || STAFF_ANNOUNCEMENT_LIFECYCLES.includes(
-        requestedStatus as (typeof STAFF_ANNOUNCEMENT_LIFECYCLES)[number],
-      ) ? requestedStatus as StaffAnnouncementStatusFilter : "all";
-    const selectedRelease = typeof query.release === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query.release)
-      ? query.release.toLowerCase() : null;
-    const filters = {
-      query: typeof query.q === "string" ? query.q.slice(0, 120) : "",
-      status,
-    };
+    let filters: StaffAnnouncementFilters = DEFAULT_STAFF_ANNOUNCEMENT_FILTERS;
+    let selectedRelease: string | null = null;
     const canPublish = !context.demo &&
       context.scopes.includes("announcements.manage") &&
       context.scopes.includes("announcements.publish");
     let snapshot = null;
     let recentAal2 = false;
     let loadError = false;
+    let invalidFilters = false;
     try {
-      const [unfiltered, aal2] = await Promise.all([
-        loadStaffAnnouncementSnapshot(context, selectedRelease),
+      ({ filters, selectedReleaseId: selectedRelease } = parseStaffAnnouncementPageQuery(query));
+      const [loaded, aal2] = await Promise.all([
+        loadStaffAnnouncementSnapshot(context, selectedRelease, filters),
         canPublish ? hasRecentAal2() : Promise.resolve(false),
       ]);
-      snapshot = filterStaffAnnouncementSnapshot(unfiltered, filters);
+      snapshot = loaded;
+      filters = loaded.filters;
       recentAal2 = aal2;
     } catch (error) {
-      if (!(error instanceof StaffAnnouncementSnapshotError)) throw error;
+      if (error instanceof StaffAnnouncementFilterError) invalidFilters = true;
+      else if (!(error instanceof StaffAnnouncementSnapshotError)) throw error;
       loadError = true;
     }
     return <StaffAnnouncementsWorkspace
+      context={context}
       canPublish={canPublish}
       canRead={!context.demo && context.scopes.includes("announcements.read")}
       filters={filters}
       hasRecentAal2={recentAal2}
+      invalidFilters={invalidFilters}
       loadError={loadError}
       page={page}
       snapshot={snapshot}
@@ -3059,6 +3038,10 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 72) {
+    // New read-only document sources are independent of the executive record
+    // writer. Unknown view values enter its strict query boundary, not fallback.
+    if (Object.hasOwn(query, "view")) return <StaffCertificateDocumentsWorkspace
+      context={context} query={query} page={page} />;
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
     const requestedStaff = typeof query.staff === "string" ? query.staff : "all";
     const staffMembershipId = uuidPattern.test(requestedStaff)
@@ -3094,6 +3077,8 @@ export default async function StaffCatalogPage({
       if (!(error instanceof StaffCertificateSnapshotError)) throw error;
       loadError = true;
     }
+    if (loadError && !context.demo) return <StaffCertificateDocumentsWorkspace
+      context={context} query={query} page={page} />;
     return <StaffCertificatesWorkspace canExceptions={canExceptions}
       canManage={canManage} filters={filters} hasRecentAal2={recentAal2}
       loadError={loadError} page={page} snapshot={snapshot} />;
@@ -3426,7 +3411,7 @@ export default async function StaffCatalogPage({
       recentTo,
       query: cleanQuery,
     };
-    const recentAal2 = await hasRecentAal2();
+    const recentAal2 = (await getReferralRecentAal2At(context)) !== null;
     let snapshot = null;
     let loadError = invalidFilters;
     if (!loadError) {
@@ -3437,7 +3422,7 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
-    return <ReferralManagementWorkspace filters={filters}
+    return <ReferralManagementWorkspace context={context} filters={filters}
       loadError={loadError} page={page} snapshot={snapshot} />;
   }
 
@@ -3837,6 +3822,7 @@ export default async function StaffCatalogPage({
     return (
       <ClaimsWorkspace
         canValidate={canValidate}
+        scope={{ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }}
         hasRecentAal2={recentAal2}
         loadError={loadError}
         page={page}
@@ -3921,7 +3907,7 @@ export default async function StaffCatalogPage({
 
   if (page.number === 80) {
     if (isSyntheticPreviewMode()) return <SyntheticImportPreview />;
-    return <ImportWorkspace />;
+    return <ImportWorkspace context={context} />;
   }
 
   if (page.number === 81) {
@@ -3988,6 +3974,7 @@ export default async function StaffCatalogPage({
     const canManage = context.demo || context.scopes.includes("forms.manage");
     const recentAal2 =
       context.demo || (canManage ? await hasCustomFormGovernanceAccess(context, true) : false);
+    const questionnaireAal2 = !context.demo && canManage ? await hasRecentAal2() : false;
     return (
       <FormRuleVersionsWorkspace
         key={[context.organizationId, context.branchId, context.userId,
@@ -3999,6 +3986,13 @@ export default async function StaffCatalogPage({
         loadError={loadError}
         page={page}
         snapshot={snapshot}
+        questionnaireRules={<QuestionnaireRuleWorkspace
+          key={[context.organizationId, context.branchId, context.userId, context.assuranceLevel,
+            [...context.scopes].sort().join(","), String(questionnaireAal2)].join(":")}
+          scope={{ organizationId: context.organizationId, branchId: context.branchId, userId: context.userId }}
+          canManage={canManage} hasRecentAal2={questionnaireAal2} demo={context.demo}
+          today={new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())}
+        />}
       />
     );
   }
@@ -4038,9 +4032,9 @@ export default async function StaffCatalogPage({
     let loadError = false;
     try { snapshot = await loadNursingAssessmentSnapshot(context); }
     catch { loadError = true; }
-    const recentAal2 = !context.demo && await hasRecentAal2();
+    const recentAal2 = !context.demo && (await getNursingRecentAal2At(context)) !== null;
     const authorizedNurse = !context.demo && context.roles.includes("nurse");
-    return <NursingAssessmentsWorkspace snapshot={snapshot} loadError={loadError}
+    return <NursingAssessmentsWorkspace context={context} snapshot={snapshot} loadError={loadError}
       initialClientId={selectedClientId}
       actorUserId={context.userId} hasRecentAal2={recentAal2}
       canManage={authorizedNurse && context.scopes.includes("nursing_assessments.manage")}

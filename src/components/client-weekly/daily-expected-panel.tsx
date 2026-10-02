@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { NavigationLink } from "@/components/app/navigation-link";
+import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { formatCareTaipeiTime } from "@/lib/core-care/date";
 import type { DailyExpectedState } from "@/lib/client-weekly/daily-projection";
 import type { DispatchRow } from "@/lib/client-weekly/dispatch-reconciliation";
@@ -24,10 +25,31 @@ export function DailyExpectedPanel({ state, mode, canOpenIntake, canOpenTranspor
   const router = useRouter();
   const online = useSyncExternalStore(subscribeOnline, onlineSnapshot, serverOnlineSnapshot);
   const [pending, startTransition] = useTransition();
+  const operationPending = usePendingOperations();
+  const viewPending = useViewTransitionPending();
+  const viewLease = useRef<(() => void) | null>(null);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
+  const [refreshError, setRefreshError] = useState(false);
   const [visible, setVisible] = useState(10);
   const [dispatchFilter, setDispatchFilter] = useState<"all" | DispatchRow["status"]>("all");
   const [staleGeneration, setStaleGeneration] = useState<string | null>(null);
   const generatedAt = state.status === "ready" ? state.generatedAt : null;
+  useEffect(() => {
+    if (!pending && viewLease.current) { viewLease.current(); viewLease.current = null; }
+  }, [pending, generatedAt, refreshEpoch]);
+  useEffect(() => () => { viewLease.current?.(); viewLease.current = null; }, []);
+  function refresh() {
+    if (state.status === "demo" || state.status === "forbidden" || document.visibilityState !== "visible" || !navigator.onLine || hasPendingOperations()) return;
+    const release = tryAcquireViewTransition();
+    if (!release) return;
+    viewLease.current = release;
+    // A no-change refresh still needs a committed effect to release its lease.
+    setRefreshEpoch((epoch) => epoch + 1); setRefreshError(false);
+    try { startTransition(() => router.refresh()); }
+    catch { release(); viewLease.current = null; setRefreshError(true); }
+  }
+  const paused = operationPending ? "有儲存結果尚待確認，重新讀取已暫停；請先回原表單確認結果。"
+    : viewPending && !pending ? "系統正在更新或切換分支，暫停重複更新。" : null;
   const stale = generatedAt !== null && staleGeneration === generatedAt;
   useEffect(() => {
     if (!generatedAt) return;
@@ -46,9 +68,11 @@ export function DailyExpectedPanel({ state, mode, canOpenIntake, canOpenTranspor
   const transportHref = `/app/staff/service-management/transport-plans?date=${encodeURIComponent(state.serviceDate)}`;
   return <section className={styles.panel} aria-label={mode === "transport" ? "接送需求與派車核對" : "預計到站與接送需求"} aria-busy={pending}>
     <header className={styles.heading}><div><h2>{mode === "transport" ? "接送需求與派車核對" : "預計到站・接送需求"}</h2><p>{state.serviceDate} · 依已保存的每週安排與當日異動</p></div>
-      <button type="button" className="button button--secondary" disabled={!online || pending || state.status === "demo" || state.status === "forbidden"} onClick={() => startTransition(() => router.refresh())}>{pending ? "更新中…" : "重新讀取"}</button></header>
+      <button type="button" className="button button--secondary" disabled={!online || pending || operationPending || viewPending || state.status === "demo" || state.status === "forbidden"} onClick={refresh}>{pending ? "更新中…" : "重新讀取"}</button></header>
     <p className={styles.note}>這是預計名冊，不是簽到結果；派車核對以同個案、日期及方向的最新已發布趟次為準，不代表已接到或完成服務。</p>
     {!online ? <p role="status" className={styles.notice}>目前離線，以下安排可能已變動；連線後請重新讀取。</p> : null}
+    {paused ? <p role="status" className={styles.notice}>{paused}</p> : null}
+    {refreshError ? <p role="alert" className={styles.notice}>預計名冊更新未完成，請稍後重新讀取。</p> : null}
     {stale && online ? <p role="status" className={styles.notice}>資料已超過一分鐘，安排可能有異動，請重新讀取。</p> : null}
     {state.status !== "ready" ? <p role={state.status === "unavailable" ? "alert" : "status"} className={styles.notice}>
       {state.status === "forbidden" ? "目前沒有查看這個分支安排的權限。" : state.status === "demo" ? "合成展示不連接正式每週安排，這裡尚不顯示實際人數。" : "目前無法讀取預計名冊，尚不能確認人數；請重試，或向排程負責人核對。"}

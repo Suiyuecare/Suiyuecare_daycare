@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { addDays, emptyDay, emptyPlan, previewWeeklyPlan, weekdayOf, weeklyInputSchema, weeklyReceiptSchema, weeklySnapshotSchema, type TransportNeed, type WeeklyDay, type WeeklyInput, type WeeklyPlan, type WeeklySnapshot } from "@/lib/client-weekly/schema";
 import styles from "./client-weekly.module.css";
 
@@ -9,6 +10,9 @@ const STATUS = { scheduled: "應到・尚非出勤", not_scheduled: "未安排",
 type Props = { clientId: string; canManage: boolean; demo?: boolean; today: string; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void };
 type Envelope = { status: string; data?: unknown; errors?: { code?: string; message?: string }[] };
 type PendingWrite = { input: WeeklyInput; body: string; everUncertain: boolean; confirmedVersion?: number };
+type DiscardConfirmation =
+  | { action: "reload"; from: string; version: number | null }
+  | { action: "change_date"; date: string; previousDate: string; from: string; version: number | null };
 
 async function readSnapshot(clientId: string, from: string, signal?: AbortSignal) {
   const response = await fetch(`/api/client-weekly?client=${encodeURIComponent(clientId)}&from=${from}`, { cache: "no-store", signal: signal ?? AbortSignal.timeout(15000) });
@@ -75,6 +79,10 @@ function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBus
   const [exceptionDate, setExceptionDate] = useState(today);
   const [exceptionDay, setExceptionDay] = useState(() => emptyDay(weekdayOf(today)));
   const [exceptionReason, setExceptionReason] = useState("");
+  const [discardConfirmation, setDiscardConfirmation] = useState<DiscardConfirmation | null>(null);
+  const reloadButton = useRef<HTMLButtonElement>(null);
+  const exceptionDateInput = useRef<HTMLInputElement>(null);
+  const reloadInFlight = useRef(false);
   const pending = useRef<PendingWrite | null>(null);
   const [recovery, setRecovery] = useState<"uncertain" | "conflict" | "committed" | null>(null);
   const [review, setReview] = useState<WeeklySnapshot | null>(null);
@@ -98,23 +106,45 @@ function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBus
       .finally(() => { clearTimeout(timeout); setLoading(false); });
     return () => { clearTimeout(timeout); controller.abort(); };
   }, [clientId, today, demo]);
-  async function reload() {
-    if (demo || lock.current || pending.current || recovery) return;
-    if ((dirty || exceptionDirty) && !window.confirm("重新載入會捨棄未儲存的每週安排與單日異動。確定繼續嗎？")) return;
+  async function reloadConfirmed() {
+    if (demo || lock.current || pending.current || recovery || reloadInFlight.current) return;
+    reloadInFlight.current = true;
     setLoading(true); setError(""); setMessage("");
-    try { const data = await readSnapshot(clientId, today); setSnapshot(data); setPlan(planFromSnapshot(data, today)); setDirty(false); setExceptionDirty(false); pending.current = null; setExceptionDay(data.exceptions.find((row) => row.serviceDate === exceptionDate)?.day ?? data.days.find((row) => row.date === exceptionDate)?.day ?? emptyDay(weekdayOf(exceptionDate))); setExceptionReason(""); }
+    try { const data = await readSnapshot(clientId, today); setSnapshot(data); setPlan(planFromSnapshot(data, today)); setDirty(false); setExceptionDirty(false); pending.current = null; setExceptionDay(data.exceptions.find((row) => row.serviceDate === exceptionDate)?.day ?? data.days.find((row) => row.date === exceptionDate)?.day ?? emptyDay(weekdayOf(exceptionDate))); setExceptionReason(""); setDiscardConfirmation(null); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "讀取失敗，請重試。"); }
-    finally { setLoading(false); }
+    finally { reloadInFlight.current = false; setLoading(false); }
   }
-  function chooseExceptionDate(date: string) {
-    if (lock.current || pending.current || recovery) return;
-    if (date === exceptionDate || (exceptionDirty && !window.confirm("更換日期會捨棄這筆未儲存的單日異動。確定更換嗎？"))) return;
+  function reload() {
+    if (demo || lock.current || pending.current || recovery || loading || discardConfirmation) return;
+    if (dirty || exceptionDirty) { setDiscardConfirmation({ action: "reload", from: today, version: snapshot?.version ?? null }); return; }
+    void reloadConfirmed();
+  }
+  function chooseExceptionDateConfirmed(date: string) {
     setExceptionDate(date);
     const existing = snapshot?.exceptions.find((row) => row.serviceDate === date);
     const projected = snapshot?.days.find((row) => row.date === date)?.day;
     setExceptionDay(existing?.day ?? projected ?? emptyDay(weekdayOf(date)));
     setExceptionReason(existing?.reason ?? "");
     setExceptionDirty(false);
+  }
+  function chooseExceptionDate(date: string) {
+    if (lock.current || pending.current || recovery || loading || discardConfirmation || date === exceptionDate) return;
+    if (exceptionDirty) { setDiscardConfirmation({ action: "change_date", date, previousDate: exceptionDate, from: today, version: snapshot?.version ?? null }); return; }
+    chooseExceptionDateConfirmed(date);
+  }
+  function confirmDiscard() {
+    const request = discardConfirmation;
+    if (!request || lock.current || pending.current || recovery || loading || (!canManage && !demo) ||
+        request.from !== today || request.version !== (snapshot?.version ?? null)) {
+      setDiscardConfirmation(null);
+      setError("安排或操作權限已變更，請重新選擇操作；目前草稿仍保留。");
+      return;
+    }
+    if (request.action === "change_date") {
+      if (request.previousDate !== exceptionDate) { setDiscardConfirmation(null); return; }
+      chooseExceptionDateConfirmed(request.date);
+      setDiscardConfirmation(null);
+    } else void reloadConfirmed();
   }
   async function save(action: "save_plan" | "save_exception") {
     if (demo || !canManage || !snapshot || lock.current || loading || recovery === "conflict" || recovery === "committed") return;
@@ -203,12 +233,12 @@ function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBus
   const pendingExceptionDate = recoveryContext.serviceDate;
   const reviewException = review?.exceptions.find((row) => row.serviceDate === pendingExceptionDate);
   const preview = dirty || demo ? previewWeeklyPlan(plan, today) : snapshot?.days ?? [];
-  return <section className={styles.workspace} aria-label="每週到站與交通需求">
+  return <><section className={styles.workspace} aria-label="每週到站與交通需求">
     <div><h2>每週到站與交通需求</h2><p>先設定固定來站日，再處理請假、臨時加日或改時間。去程及回程可分別安排；車輛與駕駛仍須另行派定。</p></div>
     {demo ? <p className={styles.notice}>合成互動示範：可試排四週，所有變更僅在此畫面，不會儲存正式資料。</p> : null}
     {!canManage && !demo ? <p className={styles.notice}>您可檢視已授權個案安排；修改需排程管理權限與最近的身分確認。</p> : null}
     {loading ? <p role="status">正在讀取每週安排…</p> : null}
-    {error ? <p role="alert" className={styles.notice}>{error} 草稿未清除。{!recovery ? "重新載入會捨棄目前草稿。" : ""}</p> : null}
+    {error && discardConfirmation?.action !== "reload" ? <p role="alert" className={styles.notice}>{error} 草稿未清除。{!recovery && (dirty || exceptionDirty) ? "重新載入成功後才會捨棄草稿。" : ""}</p> : null}
     {recovery === "uncertain" ? <section className={styles.notice} aria-label="確認原次儲存結果"><h3>先確認剛才的儲存</h3><p>連線或回條尚未確認，資料可能已存入。已暫停修改、換日期與另一種安排；重試只會沿用剛才同一份內容，不會另開新操作。</p><p>若畫面提示重新登入或權限不足，請恢復授權後回來確認原次結果；這不表示先前一定沒有存入。</p><button type="button" disabled={saving || loading || !canManage} onClick={() => { const action = pending.current?.input.action; if (action) void save(action); }}>重試確認原次儲存</button></section> : null}
     {recovery === "conflict" || recovery === "committed" ? <section className={styles.notice} aria-label="核對版本衝突"><h3>{recovery === "committed" ? "原次已儲存，目前另有更新版本" : "安排版本已變動，請先核對"}</h3><p>{recovery === "committed" ? `原次已確認存入第 ${recoveryContext.confirmedVersion} 版，目前已有其他更新。請比對後採用目前安排，不會再送出新操作；另一種未送出的草稿仍保留。` : "本次操作被拒絕，草稿仍保留在下方。讀取目前版本不會自動改寫草稿，也不會再次送出。"}</p><button type="button" disabled={saving || loading} onClick={() => void loadConflictReview()}>讀取目前版本供核對</button>{review ? <>
       <h4>伺服器目前安排・週表第 {review.version} 版</h4><p>生效：{review.plan?.effectiveFrom ?? "尚未設定"} 至 {review.plan?.effectiveTo ?? "未指定結束日"}；安排依據：{review.plan?.reason ?? "尚未設定"}</p>
@@ -217,8 +247,8 @@ function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBus
       <label className={styles.check}><input type="checkbox" checked={reviewConfirmed} disabled={saving || loading} onChange={(event) => setReviewConfirmed(event.target.checked)} />{recovery === "committed" ? "我已比對目前安排，同意採用目前版並結束原次確認" : "我已比對目前安排與下方保留的草稿，了解再次儲存將建立新版本"}</label><button type="button" disabled={!reviewConfirmed || saving || loading} onClick={useReviewedBaseline}>{recovery === "committed" ? "採用目前安排，結束確認" : "採用核對版本，繼續編輯草稿"}</button>
     </> : null}</section> : null}
     {message ? <p role="status" className={styles.notice}>{message}</p> : null}
-    {!demo ? <button type="button" disabled={saving || loading || recovery !== null} onClick={() => void reload()}>{dirty || exceptionDirty ? "捨棄草稿並重新載入" : "重新載入每週安排"}</button> : null}
-    <form onSubmit={(event) => { event.preventDefault(); void save("save_plan"); }}>
+    {!demo ? <button type="button" disabled={saving || loading || recovery !== null} onClick={reload} ref={reloadButton}>{dirty || exceptionDirty ? "捨棄草稿並重新載入" : "重新載入每週安排"}</button> : null}
+    <form noValidate onSubmit={(event) => { event.preventDefault(); void save("save_plan"); }}>
       <fieldset disabled={disabled}><legend>固定每週安排 {snapshot ? `・目前第 ${snapshot.version} 版` : ""}</legend>
         {plan.effectiveFrom < today ? <p>目前顯示已生效的歷史版本。調整前，請把新版本生效日期設為今天或未來日期；不會覆寫過去安排。</p> : null}
         <div className={styles.fields}>
@@ -226,20 +256,36 @@ function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBus
           <label>週表結束日期（可留空）<input type="date" min={plan.effectiveFrom} value={plan.effectiveTo ?? ""} onChange={(event) => { setPlan({ ...plan, effectiveTo: event.target.value || null }); setDirty(true); }} /></label>
         </div>
         <div className={styles.week}>{plan.days.map((day) => <DayEditor key={day.weekday} value={day} label={WEEKDAYS[day.weekday - 1]} disabled={disabled} onChange={(value) => { setPlan({ ...plan, days: plan.days.map((item) => item.weekday === value.weekday ? value : item) }); setDirty(true); }} />)}</div>
-        <label>安排依據／異動理由<textarea value={plan.reason} minLength={3} maxLength={300} required onChange={(event) => { setPlan({ ...plan, reason: event.target.value }); setDirty(true); }} /></label>
+        <label>安排依據／異動理由<textarea className="resize-none" value={plan.reason} minLength={3} maxLength={300} required onChange={(event) => { setPlan({ ...plan, reason: event.target.value }); setDirty(true); }} /></label>
       </fieldset>
       <button type="submit" disabled={disabled || demo}>{demo ? "展示模式不儲存" : saving ? "儲存並核對中…" : "儲存每週安排"}</button>
     </form>
     <div><h3>{dirty || demo ? "未儲存草稿・四週預覽" : snapshot ? "已儲存安排・四週預覽" : "安排尚未載入"}</h3><p>{snapshot || demo || dirty ? `共 ${preview.filter((row) => row.status === "scheduled").length} 個計畫到站日。` : "未取得正式安排，不能判定應到人數。"}{dirty || demo ? "草稿預覽尚未套用單日例外、收案及暫停狀態；儲存後以正式讀回結果為準。" : snapshot ? "已套用單日例外及目前服務狀態；不等於實際出勤。" : ""}</p>
       <ol className={styles.preview}>{preview.map((row) => <li key={row.date}><strong>{row.date} {WEEKDAYS[weekdayOf(row.date) - 1]}</strong><span>{STATUS[row.status]}</span>{row.status === "scheduled" && row.day ? <><span>{row.day.startsAt}–{row.day.endsAt}</span><span>去程：{row.day.outbound ? "需車・待排" : "自行到站"}／回程：{row.day.inbound ? "需車・待排" : "自行離站"}</span></> : null}</li>)}</ol>
     </div>
-    <form onSubmit={(event) => { event.preventDefault(); void save("save_exception"); }}>
+    <form noValidate onSubmit={(event) => { event.preventDefault(); void save("save_exception"); }}>
       <fieldset disabled={disabled || demo}><legend>單日請假／加日／改時間</legend><p>單日異動不改寫固定週表與歷史出勤。取消當日請取消「當日到站」；加日與改時請勾選並填寫。</p>
-        <label>異動日期{exceptionDirty ? "（更換日期會捨棄此筆單日草稿）" : ""}<input type="date" min={today} max={addDays(today, 27)} value={exceptionDate} required onChange={(event) => { if (event.target.value) chooseExceptionDate(event.target.value); }} /></label>
+        <label>異動日期{exceptionDirty ? "（更換日期會捨棄此筆單日草稿）" : ""}<input type="date" min={today} max={addDays(today, 27)} value={exceptionDate} required onChange={(event) => { if (event.target.value) chooseExceptionDate(event.target.value); }} ref={exceptionDateInput} /></label>
         <DayEditor value={exceptionDay} label="當日" disabled={disabled || demo} onChange={(day) => { setExceptionDay(day); setExceptionDirty(true); }} />
-        <label>單日異動理由<textarea value={exceptionReason} minLength={3} maxLength={300} required onChange={(event) => { setExceptionReason(event.target.value); setExceptionDirty(true); }} /></label>
+        <label>單日異動理由<textarea className="resize-none" value={exceptionReason} minLength={3} maxLength={300} required onChange={(event) => { setExceptionReason(event.target.value); setExceptionDirty(true); }} /></label>
       </fieldset>
       <button type="submit" disabled={disabled || demo}>儲存單日異動</button>
     </form>
-  </section>;
+  </section>
+    {discardConfirmation ? <GovernanceDialog
+      open title={discardConfirmation.action === "reload" ? "重新讀取每週安排？" : `改成 ${discardConfirmation.date}？`}
+      cancelLabel="繼續填寫"
+      busy={loading}
+      onRequestClose={() => setDiscardConfirmation(null)}
+      returnFocusRef={discardConfirmation.action === "reload" ? reloadButton : exceptionDateInput}
+    >
+      <p>{discardConfirmation.action === "reload"
+        ? "重新讀取成功後，未送出的固定週表與單日異動都會捨棄；若讀取失敗，草稿仍會保留。"
+        : `${discardConfirmation.previousDate} 的單日異動草稿會捨棄；固定週表草稿會保留。`}</p>
+      {error && discardConfirmation.action === "reload" ? <p role="alert">{error} 草稿仍保留，您可重試或繼續填寫。</p> : null}
+      <button type="button" className="button button--danger" disabled={loading} onClick={confirmDiscard}>
+        {discardConfirmation.action === "reload" ? "捨棄草稿並重新讀取" : "捨棄單日草稿並換日期"}
+      </button>
+    </GovernanceDialog> : null}
+  </>;
 }

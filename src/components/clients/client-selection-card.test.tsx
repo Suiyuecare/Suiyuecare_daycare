@@ -1,0 +1,68 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { ClientSelectionCard } from "./client-selection-card";
+
+const options = [
+  { value: "client-a", label: "合成個案甲 · TEST-01" },
+  { value: "client-b", label: "合成個案乙 · TEST-02" },
+];
+
+afterEach(cleanup);
+
+describe("ClientSelectionCard", () => {
+  it("uses the shared frame for an immediate client choice and preserves its change behavior", () => {
+    const onValueChange = vi.fn();
+    const { container } = render(
+      <ClientSelectionCard
+        id="intake-client"
+        label="個案"
+        value="client-a"
+        onValueChange={onValueChange}
+        options={options}
+        supplement={<span>尚未建檔</span>}
+      />,
+    );
+
+    expect(container.querySelector(".client-selection-card")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "個案選擇" })).toHaveAttribute("data-client-selection");
+    expect(container.querySelector(".client-selection-card__heading")).toHaveTextContent("尚未建檔");
+    expect(screen.getByLabelText("個案")).toHaveValue("client-a");
+    fireEvent.change(screen.getByLabelText("個案"), { target: { value: "client-b" } });
+    expect(onValueChange).toHaveBeenCalledWith("client-b");
+  });
+
+  it("keeps the GET-submit variant and its existing submit action", () => {
+    render(
+      <form action="/app/staff/assessments/spmsq" method="get" noValidate>
+        <ClientSelectionCard
+          id="questionnaire-client"
+          label="個案"
+          defaultValue=""
+          placeholderDisabled
+          actionLabel="選取個案"
+          options={options}
+        />
+      </form>,
+    );
+
+    expect(screen.getByLabelText("個案")).toHaveAttribute("name", "client");
+    expect(screen.getByRole("region", { name: "個案選擇" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "選取個案" })).toHaveAttribute("type", "submit");
+    expect(screen.getByRole("option", { name: "請選擇個案" })).toBeDisabled();
+  });
+
+  it("keeps its action in sync with a disabled field and connects an inline error", () => {
+    const { rerender } = render(<ClientSelectionCard id="assessment-client" label="個案"
+      options={options} actionLabel="開始" disabled error="請先選擇個案。" />);
+    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+    expect(screen.getByLabelText("個案")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("個案")).toHaveAttribute("aria-describedby", "assessment-client-error");
+    expect(screen.getByRole("alert")).toHaveTextContent("請先選擇個案。");
+    rerender(<ClientSelectionCard id="assessment-client" label="個案"
+      options={options} actionLabel="開始" actionDisabled />);
+    expect(screen.getByRole("button", { name: "開始" })).toBeDisabled();
+  });
+});

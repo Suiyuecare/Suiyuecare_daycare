@@ -17,22 +17,24 @@ const context: TenantContext = { organizationId: "33333333-3333-4333-8333-333333
   userId: "55555555-5555-4555-8555-555555555555", organizationName: "合成", branchName: "合成分支", displayName: "合成人員",
   roles: ["care_worker"], scopes: ["care_records.write"], assuranceLevel: "aal2", recentAal2At: null, demo: false };
 function scopeKey(scope: { organizationId: string; branchId: string; userId: string }) { return `${scope.organizationId}:${scope.branchId}:${scope.userId}`; }
-function Form({ demo = false }: { demo?: boolean }) {
+function CareFormFixture({ demo = false, fixed = false }: { demo?: boolean; fixed?: boolean }) {
   const formRef = useRef<HTMLFormElement>(null); const idempotencyKey = useRef(operationId);
   const offline = useOfflineCareForm({ kind: "care-note", serviceDate: "2026-09-12", enabled: true, demo,
-    allowedClientIds: [clientId], formRef, idempotencyKey, onRestoreId: (id) => { idempotencyKey.current = id; } });
-  return <form ref={formRef} onChange={() => { void offline.capture(); }} onSubmit={(event) => {
+    allowedClientIds: [clientId], fixedClientId: fixed ? clientId : undefined,
+    formRef, idempotencyKey, onRestoreId: (id) => { idempotencyKey.current = id; } });
+  return <form noValidate ref={formRef} onChange={() => { void offline.capture(); }} onSubmit={(event) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     void offline.queueIfOffline({ client_id: clientId, page_slug: "staff/daily-care/care-diary", occurred_at: "2026-09-12T01:00:00.000Z",
       data: { shift: "morning", care_item: "活動", note: data.get("note"), abnormal: false } });
   }}>
-    <label>個案<select name="client_id" defaultValue={clientId}><option value={clientId}>合成個案</option></select></label>
+    {fixed ? <div role="group" aria-label="已選定個案">合成個案<input type="hidden" name="client_id" value={clientId} /></div>
+      : <label>個案<select name="client_id" defaultValue={clientId}><option value={clientId}>合成個案</option></select></label>}
     <label>紀錄<input name="note" /></label>
     <button type="submit">儲存草稿</button>
     <OfflineCareFormNotice offline={offline} />
   </form>;
 }
-function View({ actor = context }: { actor?: TenantContext }) { return <OfflineCareProvider context={actor}><Form demo={actor.demo} /></OfflineCareProvider>; }
+function View({ actor = context }: { actor?: TenantContext }) { return <OfflineCareProvider context={actor}><CareFormFixture demo={actor.demo} /></OfflineCareProvider>; }
 beforeEach(() => {
   vi.clearAllMocks(); mocks.records.clear(); vi.stubGlobal("crypto", webcrypto);
   mocks.load.mockImplementation(async (scope) => [...(mocks.records.get(scopeKey(scope))?.values() ?? [])]);
@@ -57,6 +59,34 @@ describe("care form local drafts", () => {
     fireEvent.click(await screen.findByRole("button", { name: /恢復.*未送出草稿/u }));
     expect(screen.getByLabelText("紀錄")).toHaveValue("合成觀察待確認");
     expect(screen.getByText(/已恢復原草稿/u)).toBeInTheDocument();
+  });
+  it("pins a fixed selected client in local and queued drafts while restoring the original contents", async () => {
+    const fixture = <OfflineCareProvider context={context}><CareFormFixture fixed /></OfflineCareProvider>;
+    const view = render(fixture);
+    fireEvent.change(screen.getByLabelText("紀錄"), { target: { value: "固定個案觀察" } });
+    await screen.findByText(/已暫存這台裝置/u);
+    const item = mocks.save.mock.lastCall?.[1];
+    expect(item).toMatchObject({ clientRef: clientId, payload: { state: "local", formValues: { client_id: clientId, note: "固定個案觀察" } } });
+    view.unmount(); render(fixture);
+    fireEvent.click(await screen.findByRole("button", { name: /恢復.*未送出草稿/u }));
+    expect(screen.getByLabelText("紀錄")).toHaveValue("固定個案觀察");
+    expect(new FormData(screen.getByLabelText("紀錄").closest("form")!).get("client_id")).toBe(clientId);
+    fireEvent.click(screen.getByRole("button", { name: "儲存草稿" }));
+    await screen.findByText(/已保存在裝置等待送出/u);
+    expect(mocks.save.mock.lastCall?.[1]).toMatchObject({ clientRef: clientId,
+      payload: { state: "queued", formValues: { client_id: clientId }, request: { body: { client_id: clientId } } } });
+  });
+  it("does not offer a fixed-client draft whose saved form values name another client", async () => {
+    const fixture = <OfflineCareProvider context={context}><CareFormFixture fixed /></OfflineCareProvider>;
+    const view = render(fixture);
+    fireEvent.change(screen.getByLabelText("紀錄"), { target: { value: "可恢復草稿" } });
+    await screen.findByText(/已暫存這台裝置/u);
+    view.unmount();
+    const stored = mocks.records.get(scopeKey(context))!.get(operationId) as { payload: { formValues: Record<string, string> } };
+    stored.payload.formValues.client_id = "99999999-9999-4999-8999-999999999999";
+    render(fixture);
+    await waitFor(() => expect(mocks.load).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /恢復.*未送出草稿/u })).not.toBeInTheDocument();
   });
   it("does not show another account's local draft", async () => {
     const view = render(<View />); fireEvent.change(screen.getByLabelText("紀錄"), { target: { value: "合成機密" } });

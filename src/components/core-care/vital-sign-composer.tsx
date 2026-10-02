@@ -1,15 +1,20 @@
 "use client";
 
 import { FormEvent, MouseEvent, useRef, useState } from "react";
-import { HeartPulse, ShieldCheck, X } from "lucide-react";
+import { HeartPulse, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
-import { useCoreDraftGuard } from "./client-continuation";
+import { withCareRequestDeadline } from "@/lib/core-care/request-deadline";
+import { CoreDraftConfirmation, useCoreDraftGuard } from "./client-continuation";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { CoreCareReceiptError, parseVitalWriteReceipt } from "@/lib/core-care/write-receipts";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
+import { useCareRequestOwner } from "./use-care-request-owner";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
+import styles from "./daily-composer.module.css";
 
 type ClientOption = { id: string; name: string; code: string };
 type VitalRequest = { client_id: string; measured_at: string; values: Record<string, number> };
@@ -60,50 +65,93 @@ export function VitalSignComposer({
   selectedClientId?: string;
 }) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const fixedClientSummary = useRef<HTMLDivElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
-  const draft = useCoreDraftGuard();
+  const validation = useDailyFormValidation();
+  const [editorOpen, setEditorOpen] = useState(false);
   const attempt = useCareWriteAttempt<VitalRequest>();
+  const attemptScope = useRef<string | null>(null);
+  const privacyScope = JSON.stringify(["vital-sign", demo, serviceDate, selectedClientId ?? null]);
+  const capabilities = JSON.stringify([enabled, clients.map((client) => client.id).sort()]);
+  const draft = useCoreDraftGuard({
+    scopeKey: privacyScope,
+    revisionKey: capabilities,
+    canPrompt: enabled,
+    isBlocked: () => !!attempt.current(),
+    onDiscard() {
+      setEditorOpen(false);
+      if (!attempt.current()) { formRef.current?.reset(); validation.reset(); setError(null); idempotencyKey.current = crypto.randomUUID(); }
+    },
+  });
   const offline = useOfflineCareForm({ kind: "vital-sign", serviceDate, enabled, demo,
-    allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
+    allowedClientIds: clients.map((client) => client.id), fixedClientId: selectedClientId,
+    formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
+  const fixedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const requestOwner = useCareRequestOwner(JSON.stringify([privacyScope, capabilities]), () => {
+    if (attempt.current()) attempt.failed();
+    setPending(false); setEditorOpen(false); setError(null); setNotice(null); draft.finish();
+  });
 
   function open(event: MouseEvent<HTMLButtonElement>) {
     if (!enabled || unavailableSelection) return;
     trigger.current = event.currentTarget;
-    if (attempt.current()) { dialog.current?.showModal(); return; }
+    if (attempt.current()) { setEditorOpen(true); return; }
     formRef.current?.reset();
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
-    dialog.current?.showModal();
+    validation.reset();
+    setEditorOpen(true);
   }
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆量測結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
-    if (!draft.discard()) return;
-    dialog.current?.close();
+    if (attempt.current()) { setEditorOpen(false); setNotice("上一筆量測結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    draft.requestExit(() => setEditorOpen(false));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current || pending) return;
     const form = event.currentTarget;
     const prior = attempt.current();
+    if (prior && attemptScope.current !== privacyScope) {
+      setError("上一筆量測尚未確認，請回到原個案與日期處理；未建立新的一筆。");
+      return;
+    }
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
-    if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
-      setError("請重新選擇目前授權的個案；尚未送出量測。");
+    if (selectedClientId !== undefined && (!prior && (unavailableSelection || clientId !== selectedClientId) ||
+      prior && prior.body.client_id !== selectedClientId)) {
+      if (!prior) {
+        setError(null);
+        validation.validate(form, { client_id: "已選個案不符，請返回今日工作重新選擇；尚未送出量測。" });
+        fixedClientSummary.current?.focus();
+      } else setError("原量測個案與目前選定個案不符；請回到原個案確認上一筆結果。");
       return;
+    }
+    if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
+      if (!prior) { setError(null); validation.validate(form, { client_id: "請重新選擇目前授權的個案；尚未送出量測。" }); }
+      else setError("請重新選擇目前授權的個案；尚未送出量測。");
+      return;
+    }
+    if (!prior) {
+      const extra: Record<string, string> = {};
+      const filled = (name: string) => String(data.get(name) ?? "").trim() !== "";
+      if (!["systolic", "diastolic", "pulse", "temperature", "oxygen_saturation"].some(filled)) extra.systolic = "請至少填寫一項量測值；血壓須成對填寫。";
+      else if (filled("systolic") !== filled("diastolic")) extra[filled("systolic") ? "diastolic" : "systolic"] = "請一起填寫收縮壓與舒張壓。";
+      if (!validation.validate(form, extra)) { setError(null); return; }
     }
     if (!draft.begin()) return;
     setPending(true);
     setError(null);
+    const request = requestOwner.begin();
     try {
       const values = prior?.body.values ?? {
         systolic: optionalNumber(data, "systolic"),
@@ -118,28 +166,40 @@ export function VitalSignComposer({
         values: Object.fromEntries(Object.entries(values).filter((entry): entry is [string, number] => typeof entry[1] === "number")),
       };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
-        draft.saved(); dialog.current?.close();
+        request.throwIfStale();
+        draft.saved(); setEditorOpen(false);
         setNotice("量測已保存在裝置等待送出；尚未確認儲存到系統。重新連線後會自動重試。");
         return;
       }
+      request.throwIfStale();
+      if (!prior) attemptScope.current = privacyScope;
       const frozen = attempt.prepare(body, idempotencyKey.current);
-      const response = await fetchWithTimeout("/api/measurements", {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": frozen.key,
-        },
-        body: frozen.serialized,
-      });
-      if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
-      const raw: unknown = await response.json().catch(() => null);
+      const { response, raw, definite } = await withCareRequestDeadline(async (signal) => {
+        const response = await fetchWithTimeout("/api/measurements", {
+          method: "POST", cache: "no-store", signal,
+          headers: { "Content-Type": "application/json", "Idempotency-Key": frozen.key },
+          body: frozen.serialized,
+        });
+        signal.throwIfAborted();
+        if (!response.ok) {
+          const definite = await isDefiniteCareRejection(response);
+          signal.throwIfAborted();
+          return { response, raw: null, definite };
+        }
+        const raw: unknown = await response.json().catch(() => null);
+        signal.throwIfAborted();
+        return { response, raw, definite: false };
+      }, { signal: request.signal });
+      request.throwIfStale();
+      if (!response.ok) { if (definite) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
       parseVitalWriteReceipt(raw, response.status, demo, values);
       await offline.saved();
+      request.throwIfStale();
       attempt.confirmed();
+      attemptScope.current = null;
       form.reset();
       draft.saved();
-      dialog.current?.close();
+      setEditorOpen(false);
       setNotice(
         demo
           ? "展示量測已通過欄位與重送檢查；展示資料不會永久保存。"
@@ -148,19 +208,21 @@ export function VitalSignComposer({
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
+      if (!request.isCurrent()) return;
       const uncertain = attempt.failed();
       if (uncertain) await offline.retainUnconfirmed(uncertain.body);
+      if (!request.isCurrent()) return;
       setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message
         : "量測尚未確認儲存。請檢查至少一項數值、成對血壓與最近 24 小時內的時間。保留內容直接重試，系統會辨識同一次送出。");
     } finally {
-      draft.finish();
-      setPending(false);
+      request.finish();
+      if (request.isCurrent()) { draft.finish(); setPending(false); }
     }
   }
 
   return (
-    <div className="core-composer">
+    <div className={`core-composer ${styles.composer}`}>
       <button
         className="button button--primary"
         disabled={!enabled || clients.length === 0 || unavailableSelection}
@@ -183,23 +245,20 @@ export function VitalSignComposer({
           {notice}
         </p>
       ) : null}
-      <dialog
-        aria-labelledby="vital-sign-dialog-title"
-        className="core-dialog"
-        onCancel={(event) => { event.preventDefault(); close(); }}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) close();
-        }}
-        onClose={() => trigger.current?.focus()}
-        ref={dialog}
-      >
+      <GovernanceDialog open={editorOpen && !draft.open} title="新增生命徵象" busy={pending}
+        cancelLabel={attempt.locked && !pending ? "稍後處理" : "取消"} onRequestClose={close} returnFocusRef={trigger}>
         <form
-          className="core-dialog__surface"
           data-core-care-draft
+          noValidate
+          aria-busy={pending}
+          onCompositionStart={validation.onCompositionStart}
+          onCompositionEnd={validation.onCompositionEnd}
+          onKeyDown={validation.onKeyDown}
           ref={formRef}
           key={`${serviceDate}:${selectedClientId ?? "none"}`}
-          onChange={() => {
+          onChange={(event) => {
             if (attempt.current()) return;
+            validation.clearChanged(event.target);
             draft.changed();
             if (error) {
               idempotencyKey.current = crypto.randomUUID();
@@ -209,24 +268,10 @@ export function VitalSignComposer({
           }}
           onSubmit={submit}
         >
-          <header className="drawer__header">
-            <div>
-              <p className="eyebrow">第 2 步・量測</p>
-              <h2 id="vital-sign-dialog-title">新增生命徵象</h2>
-              <p>沿用選定個案，確認實際量測時間與數值；時間以臺北時間解讀。</p>
-            </div>
-            <button
-              aria-label="關閉"
-              className="icon-button"
-              onClick={close}
-              disabled={pending}
-              type="button"
-            >
-              <X aria-hidden="true" />
-            </button>
-          </header>
+          <p className="eyebrow">第 2 步・量測</p>
+          <p>沿用選定個案，確認實際量測時間與數值；時間以臺北時間解讀。</p>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
-          <div className="drawer__body core-dialog__body">
+          <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={() => draft.changed()} />
             <div className="callout core-care-callout">
@@ -235,9 +280,15 @@ export function VitalSignComposer({
                 至少填一項；血壓須成對填寫。技術範圍只防止明顯輸入錯誤，不代表醫療判讀或診斷。
               </span>
             </div>
-            <label className="field">
-              <span>個案 *</span>
-              <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required>
+            {selectedClientId !== undefined ? <div className={styles.selectedClient} role="group" aria-label="已選定個案"
+              aria-describedby={validation.errors.client_id ? validation.errorId("client_id") : undefined}
+              ref={fixedClientSummary} tabIndex={-1}>
+              <span>個案</span><strong>{fixedClient?.name ?? "個案範圍已變更"}</strong>{fixedClient ? <small>{fixedClient.code}</small> : null}
+              <input type="hidden" name="client_id" value={selectedClientId} />
+              <DailyFieldError validation={validation} name="client_id" />
+            </div> : <label className="field">
+              <span id={validation.labelId("client_id")}>個案 *</span>
+              <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required {...validation.field("client_id")}>
                 <option value="">請選擇個案</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
@@ -245,37 +296,45 @@ export function VitalSignComposer({
                   </option>
                 ))}
               </select>
-            </label>
+              <DailyFieldError validation={validation} name="client_id" />
+            </label>}
             <label className="field">
-              <span>量測日期與時間 *</span>
+              <span id={validation.labelId("measured_at")}>量測日期與時間 *</span>
               <input
                 defaultValue={defaultTaipeiLocal(serviceDate)}
                 name="measured_at"
+                {...validation.field("measured_at")}
                 required
                 type="datetime-local"
               />
+              <DailyFieldError validation={validation} name="measured_at" />
             </label>
             <fieldset className="vital-inputs">
               <legend>量測值（至少一項）</legend>
               <label className="field">
-                <span>收縮壓 mmHg</span>
-                <input inputMode="decimal" max="350" min="20" name="systolic" step="1" type="number" />
+                <span id={validation.labelId("systolic")}>收縮壓 mmHg</span>
+                <input inputMode="decimal" max="350" min="20" name="systolic" step="1" type="number" {...validation.field("systolic")} />
+                <DailyFieldError validation={validation} name="systolic" />
               </label>
               <label className="field">
-                <span>舒張壓 mmHg</span>
-                <input inputMode="decimal" max="250" min="10" name="diastolic" step="1" type="number" />
+                <span id={validation.labelId("diastolic")}>舒張壓 mmHg</span>
+                <input inputMode="decimal" max="250" min="10" name="diastolic" step="1" type="number" {...validation.field("diastolic")} />
+                <DailyFieldError validation={validation} name="diastolic" />
               </label>
               <label className="field">
-                <span>脈搏 bpm</span>
-                <input inputMode="decimal" max="350" min="10" name="pulse" step="1" type="number" />
+                <span id={validation.labelId("pulse")}>脈搏 bpm</span>
+                <input inputMode="decimal" max="350" min="10" name="pulse" step="1" type="number" {...validation.field("pulse")} />
+                <DailyFieldError validation={validation} name="pulse" />
               </label>
               <label className="field">
-                <span>體溫 °C</span>
-                <input inputMode="decimal" max="50" min="20" name="temperature" step="0.1" type="number" />
+                <span id={validation.labelId("temperature")}>體溫 °C</span>
+                <input inputMode="decimal" max="50" min="20" name="temperature" step="0.1" type="number" {...validation.field("temperature")} />
+                <DailyFieldError validation={validation} name="temperature" />
               </label>
               <label className="field">
-                <span>血氧 %</span>
-                <input inputMode="decimal" max="100" min="1" name="oxygen_saturation" step="1" type="number" />
+                <span id={validation.labelId("oxygen_saturation")}>血氧 %</span>
+                <input inputMode="decimal" max="100" min="1" name="oxygen_saturation" step="1" type="number" {...validation.field("oxygen_saturation")} />
+                <DailyFieldError validation={validation} name="oxygen_saturation" />
               </label>
             </fieldset>
             {error ? (
@@ -284,17 +343,14 @@ export function VitalSignComposer({
               </p>
             ) : null}
           </fieldset>
-          </div>
           <footer className="drawer__footer">
-            <button className="button button--secondary" disabled={pending} onClick={close} type="button">
-              {attempt.locked && !pending ? "稍後處理" : "取消"}
-            </button>
             <button className="button button--primary" disabled={pending} type="submit">
               {pending ? "儲存中…" : attempt.locked ? "重試原量測" : "儲存量測"}
             </button>
           </footer>
         </form>
-      </dialog>
+      </GovernanceDialog>
+      <CoreDraftConfirmation draft={draft} />
     </div>
   );
 }

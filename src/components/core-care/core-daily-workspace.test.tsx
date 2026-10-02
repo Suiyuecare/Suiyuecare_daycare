@@ -66,14 +66,21 @@ describe("daily care selected-client handoff and source boundaries", () => {
   ] as const)("passes the selected second client into the real page %s composer", (page, trigger, title) => {
     render(workspace(page, { selectedClientId: selected.clientId }));
     expect(screen.queryByRole("region", { name: "本頁摘要" })).not.toBeInTheDocument();
+    expect(screen.queryByText("先確認個案與日期，再接續出勤、量測和照顧日誌。")).toBeNull();
+    expect(screen.getByRole("navigation", { name: "所在位置" })).toHaveClass("core-care-context--selected");
+    expect(screen.getByRole("heading", { level: 1 }).closest(".core-care-heading")).toHaveClass("core-care-heading--selected");
     expect(screen.getByRole("button", { name: trigger }).closest(".core-client-continuation")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: trigger }));
-    const clientInput = within(screen.getByRole("dialog", { name: title })).getByLabelText("個案 *");
-    expect(clientInput).toHaveValue(selected.clientId);
-    expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
+    const dialog = screen.getByRole("dialog", { name: title });
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent(selected.displayName);
+    expect(within(dialog).getByRole("group", { name: "已選定個案" })).toHaveTextContent(selected.clientCode);
+    expect(dialog.querySelector('input[name="client_id"]')).toHaveValue(selected.clientId);
+    expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
   });
   it.each([46, 3, 6])("requires selection in the continuation before opening page %s composer", (page) => {
     render(workspace(page));
+    expect(screen.getByText("先確認個案與日期，再接續出勤、量測和照顧日誌。")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "所在位置" })).not.toHaveClass("core-care-context--selected");
     expect(screen.getByRole("combobox", { name: "選擇個案" })).toHaveValue("");
     expect(screen.queryByRole("dialog", { hidden: true })).not.toBeInTheDocument();
     expect(screen.getByText("請先在上方選定個案，再新增紀錄。")).toBeVisible();
@@ -90,15 +97,81 @@ describe("daily care selected-client handoff and source boundaries", () => {
     fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
     expect(within(screen.getByRole("dialog")).getByLabelText("班別 *")).toHaveValue("afternoon");
   });
+  it("puts a positively identified draft ahead of creating another, without treating absent snapshot data as proof", () => {
+    const draftClient = { ...snapshot.clients[4]!, careDiary: { ...snapshot.clients[4]!.careDiary!, status: "draft" as const } };
+    const current = { ...snapshot, clients: [draftClient] };
+    const view = render(workspace(6, { selectedClientId: draftClient.clientId, snapshot: current,
+      diaryLifecycle: <section id="diary-lifecycle-title">已儲存日誌</section> }));
+    const continueLink = screen.getByRole("link", { name: "接續已存草稿" });
+    const addButton = screen.getByRole("button", { name: "新增日誌草稿" });
+    expect(continueLink).toHaveAttribute("href", "#diary-lifecycle-title");
+    expect(addButton).toHaveClass("button--secondary");
+    expect(continueLink.compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.rerender(workspace(6, { selectedClientId: draftClient.clientId,
+      snapshot: { ...current, clients: [{ ...draftClient, careDiary: { ...draftClient.careDiary, status: "submitted" } }] },
+      diaryLifecycle: <section id="diary-lifecycle-title">待簽日誌</section> }));
+    expect(screen.getByRole("link", { name: "檢視待簽日誌" })).toHaveAttribute("href", "#diary-lifecycle-title");
+    expect(screen.getByRole("button", { name: "新增日誌草稿" })).toHaveClass("button--secondary");
+    view.rerender(workspace(6, { selectedClientId: draftClient.clientId,
+      snapshot: { ...current, clients: [{ ...draftClient, careDiary: null }] },
+      diaryLifecycle: <section id="diary-lifecycle-title">正在核對原始日誌</section> }));
+    expect(screen.queryByRole("link", { name: "接續已存草稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新增日誌草稿" })).toHaveClass("button--primary");
+  });
+  it("keeps the original GET parameters while stopping a blank service day with inline feedback", () => {
+    render(workspace(6, { selectedClientId: selected.clientId, selectedShift: "morning" }));
+    const dateInput = screen.getByLabelText("服務日期") as HTMLInputElement;
+    const dateForm = dateInput.closest("form")!;
+    expect(dateForm).toHaveAttribute("method", "get");
+    expect(dateForm).toHaveAttribute("novalidate");
+    fireEvent.change(dateInput, { target: { value: "" } });
+    const capturedSubmit = vi.fn();
+    document.addEventListener("submit", capturedSubmit, true);
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    document.removeEventListener("submit", capturedSubmit, true);
+    expect(capturedSubmit).not.toHaveBeenCalled();
+    const invalidSubmit = new Event("submit", { bubbles: true, cancelable: true });
+    fireEvent(dateForm, invalidSubmit);
+    expect(invalidSubmit.defaultPrevented).toBe(true);
+    expect(dateInput).toHaveFocus();
+    expect(dateInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("請選擇服務日期。", { selector: "small" })).toHaveAttribute("id", dateInput.getAttribute("aria-describedby"));
+    fireEvent.change(dateInput, { target: { value: "2026-09-11" } });
+    expect(dateInput).not.toHaveAttribute("aria-invalid");
+    const validSubmit = new Event("submit", { bubbles: true, cancelable: true });
+    fireEvent(dateForm, validSubmit);
+    expect(validSubmit.defaultPrevented).toBe(false);
+    expect(Object.fromEntries(new FormData(dateForm))).toEqual({ client: selected.clientId, shift: "morning", date: "2026-09-11" });
+  });
+  it("does not submit the date form while an IME Enter is committing text", () => {
+    render(workspace(3));
+    const dateInput = screen.getByLabelText("服務日期");
+    fireEvent.compositionStart(dateInput);
+    const composingEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, isComposing: true });
+    fireEvent(dateInput, composingEnter);
+    expect(composingEnter.defaultPrevented).toBe(true);
+    fireEvent.compositionEnd(dateInput);
+  });
   it("retains shift when recovering a failed load", () => {
     render(workspace(6, { selectedClientId: selected.clientId, selectedShift: "morning", snapshot: null, loadError: true }));
     expect(screen.getByRole("link", { name: "重新載入" }).getAttribute("href")).toContain("&shift=morning");
   });
   it.each([46, 3, 6])("keeps the selected page %s record list focused on that person", (page) => {
     const { container } = render(workspace(page, { selectedClientId: selected.clientId }));
+    const recordDetails = screen.getByText("查看完整紀錄").closest("details")!;
+    expect(recordDetails).not.toHaveAttribute("open");
+    expect(recordDetails).toContainElement(screen.getByRole("table"));
+    fireEvent.click(within(recordDetails).getByText("查看完整紀錄"));
+    expect(recordDetails).toHaveAttribute("open");
     expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
     expect(container.querySelectorAll(".core-care-mobile .record-card")).toHaveLength(1);
     expect(screen.getByText("2026-09-10 · 1 位已選定個案")).toBeVisible();
+  });
+  it("keeps the full work list visible before a client is selected", () => {
+    render(workspace(3));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("查看完整紀錄")).not.toBeInTheDocument();
+    expect(screen.getByText(/資料更新於/u)).toBeVisible();
   });
   it.each([46, 3, 6])("does not let an invalid page %s selection fall back to any other composer", (page) => {
     render(workspace(page, { selectedClientId: "a9999999-9999-4999-8999-999999999999" }));
@@ -132,9 +205,12 @@ describe("daily care selected-client handoff and source boundaries", () => {
     render(workspace(6, { canWrite: false, selectedClientId: selected.clientId }));
     expect(screen.getByRole("button", { name: "新增日誌草稿" })).toBeDisabled();
     expect(screen.getByText(/新增紀錄需要對應權限及身分驗證/u)).toBeVisible();
-    const rules = screen.getByText("查看身分驗證與資料規則").closest("details")!;
+    const rules = screen.getByText("資料來源與驗證說明").closest("details")!;
+    expect(rules).not.toHaveAttribute("open");
     expect(rules.textContent).toContain("身分驗證");
     expect(rules.textContent).not.toContain("AAL2");
     expect(rules.textContent).toContain("最近 15 分鐘");
+    fireEvent.click(within(rules).getByText("資料來源與驗證說明"));
+    expect(within(rules).getByText(/週表、單日調整與實到/u)).toBeVisible();
   });
 });

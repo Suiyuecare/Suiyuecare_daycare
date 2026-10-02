@@ -130,4 +130,16 @@ describe("staff announcements API boundary", () => {
     expect(response.status).toBe(409);
     expect(JSON.stringify(await response.json())).not.toContain("secret");
   });
+  it("handles a directly authorized old release ID without any first-page preflight", async () => {
+    const oldRelease = "68000999-0000-4000-8000-000000000999";
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, scopes: ["announcements.read"], assuranceLevel: "aal1", recentAal2At: null });
+    stubs.readJsonObject.mockResolvedValue({ release_version_id: oldRelease });
+    stubs.rpc.mockResolvedValue({ data: [{ release_version_id: oldRelease, announcement_key: announcementKey, read_at: "2026-09-26T10:00:00Z", replayed: false }], error: null });
+    expect((await POST(request("read"))).status).toBe(201);
+    expect(stubs.rpc).toHaveBeenCalledExactlyOnceWith("mark_staff_announcement_read", {
+      p_expected_organization_id: org, p_expected_branch_id: branch,
+      p_release_version_id: oldRelease, p_idempotency_key: key,
+    });
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+  });
 });

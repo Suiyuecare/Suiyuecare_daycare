@@ -10,10 +10,10 @@ const success = { requestId: id, status: "ok", data: { receipt, persisted: true,
 const error = (code: string) => ({ requestId: id, status: "error", data: null, errors: [{ code, message: "合成已拒絕" }] });
 describe("bounded roster write contract", () => {
   it("checks a persisted exact receipt and distinguishes replay HTTP status", () => {
-    expect(parseRosterWriteOutcome(success, 201, input)).toEqual({ kind: "success", replayed: false });
+    expect(parseRosterWriteOutcome(success, 201, input)).toEqual({ kind: "success", replayed: false, receipt });
     expect(parseRosterWriteOutcome(success, 200, input)).toEqual({ kind: "unknown" });
     expect(parseRosterWriteOutcome({ ...success, data: { ...success.data, receipt: { ...receipt, replayed: true } } }, 200, input))
-      .toEqual({ kind: "success", replayed: true });
+      .toEqual({ kind: "success", replayed: true, receipt: { ...receipt, replayed: true } });
   });
   it.each([{ clientId: "b1111111-1111-4111-8111-111111111111" }, { shift: "afternoon" }, { version: 2 },
     { serviceDate: "2026-09-16" }, { replayed: "true" }, { id: "bad" }, { unexpected: "sensitive" }])("rejects mismatched or malformed receipt %j", (change) => {

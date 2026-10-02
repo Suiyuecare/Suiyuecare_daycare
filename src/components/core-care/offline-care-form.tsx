@@ -8,6 +8,8 @@ import { useOfflineCare } from "./offline-care-provider";
 type Options = {
   kind: OfflineDraftKind; serviceDate: string; enabled: boolean; demo: boolean;
   allowedClientIds: readonly string[]; formRef: RefObject<HTMLFormElement | null>;
+  /** A client already selected by the authorized page cannot be changed by a restored device draft. */
+  fixedClientId?: string;
   idempotencyKey: RefObject<string>;
   onRestoreId: (id: string) => void;
 };
@@ -28,16 +30,26 @@ export function useOfflineCareForm(options: Options) {
   const [message, setMessage] = useState("");
   const enabled = Boolean(context?.enabled && options.enabled && !options.demo);
   const recoverable = enabled ? context!.drafts.filter((item) => item.kind === options.kind &&
-    item.payload.serviceDate === options.serviceDate && options.allowedClientIds.includes(item.clientRef) && item.payload.state === "local") : [];
+    item.payload.serviceDate === options.serviceDate && options.allowedClientIds.includes(item.clientRef) && item.payload.state === "local" &&
+    (!options.fixedClientId || item.clientRef === options.fixedClientId &&
+      (!item.payload.formValues.client_id || item.payload.formValues.client_id === options.fixedClientId))) : [];
+
+  function formValues() {
+    const values = valuesOf(options.formRef.current);
+    // The fixed client is a hidden form field, which valuesOf intentionally
+    // ignores. Pin it to the authorized page context in the device draft.
+    if (options.fixedClientId) values.client_id = options.fixedClientId;
+    return values;
+  }
 
   async function capture() {
     if (!enabled) return;
-    const formValues = valuesOf(options.formRef.current);
-    const clientRef = formValues.client_id;
+    const values = formValues();
+    const clientRef = values.client_id;
     if (!clientRef || !options.allowedClientIds.includes(clientRef)) return;
     try {
       await context!.save({ id: options.idempotencyKey.current, kind: options.kind, clientRef, baseVersion: 0,
-        payload: { schema: 1, serviceDate: options.serviceDate, formValues, state: "local" } });
+        payload: { schema: 1, serviceDate: options.serviceDate, formValues: values, state: "local" } });
       setMessage("已暫存這台裝置，尚未送出。最多保留 24 小時。");
     } catch { setMessage("裝置草稿尚未確認保存，請保留畫面並勿關閉分頁。"); }
   }
@@ -45,7 +57,8 @@ export function useOfflineCareForm(options: Options) {
   function restore(item: CareLocalDraft) {
     if (!enabled || !recoverable.some((candidate) => candidate.id === item.id) || Date.parse(item.expiresAt) <= Date.now()) return null;
     options.onRestoreId(item.id);
-    const values = item.payload.formValues;
+    const values = { ...item.payload.formValues };
+    if (options.fixedClientId) values.client_id = options.fixedClientId;
     const form = options.formRef.current;
     if (form) for (const field of Array.from(form.elements)) {
       if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) ||
@@ -59,10 +72,11 @@ export function useOfflineCareForm(options: Options) {
 
   async function queueIfOffline(body: Record<string, unknown>) {
     if (typeof navigator === "undefined" || navigator.onLine || options.demo) return false;
-    if (!enabled || !options.allowedClientIds.includes(String(body.client_id))) throw new Error("無法保存離線草稿，請保留畫面並待網路恢復。");
+    if (!enabled || !options.allowedClientIds.includes(String(body.client_id)) ||
+      options.fixedClientId && body.client_id !== options.fixedClientId) throw new Error("無法保存離線草稿，請保留畫面並待網路恢復。");
     await context!.save({ id: options.idempotencyKey.current, kind: options.kind,
       clientRef: String(body.client_id), baseVersion: 0, payload: { schema: 1,
-        serviceDate: options.serviceDate, formValues: valuesOf(options.formRef.current), state: "queued",
+        serviceDate: options.serviceDate, formValues: formValues(), state: "queued",
         request: { body, hash: await careRequestHash(body) } } });
     setMessage("已保存在裝置等待送出；尚未確認儲存到系統。重新連線後會以原筆操作重試。");
     return true;
@@ -74,11 +88,12 @@ export function useOfflineCareForm(options: Options) {
     catch { setMessage("伺服器已儲存，但裝置草稿尚未移除；請勿重建同一筆紀錄。"); }
   }
   async function retainUnconfirmed(body: Record<string, unknown>) {
-    if (!enabled || !options.allowedClientIds.includes(String(body.client_id))) return;
+    if (!enabled || !options.allowedClientIds.includes(String(body.client_id)) ||
+      options.fixedClientId && body.client_id !== options.fixedClientId) return;
     try {
       await context!.save({ id: options.idempotencyKey.current, kind: options.kind,
         clientRef: String(body.client_id), baseVersion: 0, payload: { schema: 1,
-          serviceDate: options.serviceDate, formValues: valuesOf(options.formRef.current), state: "review",
+          serviceDate: options.serviceDate, formValues: formValues(), state: "review",
           message: "上一筆儲存結果尚未確認；只可用原內容重試，避免產生重複紀錄。",
           request: { body, hash: await careRequestHash(body) } } });
       setMessage("原送出內容已保留在裝置，請確認上一筆結果後重試；不會另建一筆。");

@@ -5,7 +5,8 @@
 // assignment-revoked-during-lock-wait races for writes and receipt replays, and
 // final audit-lock checks for reads, writes and expiring signature evidence.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
@@ -14,8 +15,7 @@ const binaries = process.env.CUSTOM_FORM_NATIVE_PG_BIN ?? process.env.INTAKE_NAT
 if (!binaries || !binaries.startsWith("/")) {
   throw new Error("Set CUSTOM_FORM_NATIVE_PG_BIN (or INTAKE_NATIVE_PG_BIN) to an existing absolute native PostgreSQL bin directory.");
 }
-const runtime = await mkdtemp("/tmp/daycare-form-response-native.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-form-response-native.");
 const port = "55443";
 const env = {
   PATH: process.env.PATH,
@@ -92,6 +92,7 @@ const waitForAdvisoryWaiters = async (holderPid, applicationNames, lockEvent = "
   throw new Error("Native document writers were not observed waiting on the held advisory lock.");
 };
 let started = false;
+let testFailure;
 try {
   console.log(run(join(binaries, "postgres"), ["--version"]).trim());
   run(join(binaries, "initdb"), ["-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=reject", "--no-locale", "--encoding=UTF8"]);
@@ -263,6 +264,10 @@ try {
     Number(sql("select count(*) from private.custom_form_responses where status='signed'").trim())!==0)
     throw new Error('Expired signature retained ledger, receipt, signature or audit evidence');
   console.log('Native observed post-audit 15-minute signature expiry: SQLSTATE 42501, unsigned source preserved, signature/receipt/audit fully rolled back. Total observed races: 7.');
-}finally{
-  if(started)run(join(binaries,'pg_ctl'),['-D',data,'-m','fast','-w','stop']);
+} catch (error) {
+  testFailure = error;
+  throw error;
+} finally {
+  await cleanupNativeData({ started, testFailure,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

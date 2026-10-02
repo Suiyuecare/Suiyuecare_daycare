@@ -1,10 +1,12 @@
 "use client";
 
 import { Check, ChevronsUpDown } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { requestUnsavedExit } from "@/lib/navigation/unsaved-changes";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import {
   parseBranchListEnvelope,
   parseBranchSwitchEnvelope,
@@ -33,6 +35,8 @@ export function BranchSwitcher({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switchState, setSwitchState] = useState<"idle" | "working" | "reloading" | "uncertain">("idle");
+  const [confirmation, setConfirmation] = useState<Branch | null>(null);
+  const approvedSwitch = useRef<Branch | null>(null);
   const dialogId = useId();
   const dialogTitleId = `${dialogId}-branch-switch-title`;
   const dialogDescriptionId = `${dialogId}-branch-switch-description`;
@@ -42,6 +46,11 @@ export function BranchSwitcher({
   const viewLease = useRef<(() => void) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const reloadButton = useRef<HTMLButtonElement>(null);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
   useEffect(() => { if (switchState === "uncertain" || switchState === "reloading") reloadButton.current?.focus(); }, [switchState]);
   useEffect(() => () => { viewLease.current?.(); viewLease.current = null; }, []);
 
@@ -62,6 +71,7 @@ export function BranchSwitcher({
     try {
       const response = await fetchWithTimeout("/api/context/branch", { cache: "no-store" });
       const raw: unknown = await response.json().catch(() => null);
+      if (!active.current) return;
       if (!response.ok) {
         setError("無法讀取分支，請重試。");
         return;
@@ -71,21 +81,31 @@ export function BranchSwitcher({
       setBranches(body.data.branches);
       setOpen(true);
     } catch (caught) {
+      if (!active.current) return;
       setError(isClientFetchTimeoutError(caught)
         ? "讀取分支逾時，請重試。"
         : "無法讀取分支，請檢查網路後重試。");
     } finally {
-      setPending(false);
+      if (active.current) setPending(false);
     }
   }
 
-  async function select(branch: Branch) {
+  function select(branch: Branch) {
     if (readOnly || switchLock.current || pendingGuard()) return;
     if (branch.id === currentBranchId) {
       setOpen(false);
       return;
     }
-    if (!window.confirm("切換分支會重新載入系統，未儲存的輸入將不會保留。確定切換分支嗎？")) return;
+    if (requestUnsavedExit(() => select(branch))) return;
+    setConfirmation(branch);
+  }
+
+  async function performSwitch(branch: Branch) {
+    if (!active.current || readOnly || switchLock.current || pendingGuard() ||
+        branch.id === currentBranchId || !branches.some((option) => option.id === branch.id && option.name === branch.name)) return;
+    // Another editor can become dirty while confirmation is open (for example
+    // through a late asynchronous update). Recheck at the actual cookie boundary.
+    if (requestUnsavedExit(() => { void performSwitch(branch); }, () => active.current && !switchLock.current)) return;
     // A write may have started while confirmation was open. Acquire again at
     // the actual scope-change boundary, before changing any cookie or view.
     const release = tryAcquireViewTransition();
@@ -103,25 +123,38 @@ export function BranchSwitcher({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branchId: branch.id }),
       });
+      if (!active.current) return;
       if (!response.ok) {
         setError("切換未完成核對。為避免在不明分支操作，舊頁面已鎖定；請安全重新載入確認。");
         setSwitchState("uncertain");
         return;
       }
       const raw: unknown = await response.json().catch(() => null);
+      if (!active.current) return;
       parseBranchSwitchEnvelope(raw, response.status, branch);
       setOpen(false);
       setSwitchState("reloading");
       reloadCurrentStaffRoute();
     } catch (caught) {
+      if (!active.current) return;
       setError(isClientFetchTimeoutError(caught)
         ? "分支切換逾時，結果未知；舊頁面保持鎖定，請安全重新載入確認目前分支。"
         : "分支回覆無法完成核對；舊頁面保持鎖定，請安全重新載入確認目前分支。");
       setSwitchState("uncertain");
     } finally {
-      setPending(false);
+      if (active.current) setPending(false);
     }
   }
+
+  const executeApprovedSwitch = useEffectEvent((branch: Branch) => { void performSwitch(branch); });
+  // Close the cancellable modal before opening the non-cancellable scope guard.
+  // The effect event rechecks live props and locks, not the old render's values.
+  useEffect(() => {
+    if (confirmation || !approvedSwitch.current) return;
+    const branch = approvedSwitch.current;
+    approvedSwitch.current = null;
+    executeApprovedSwitch(branch);
+  }, [confirmation]);
 
   return (
     <div className={`branch-switcher${compact ? " branch-switcher--compact" : ""}`}>
@@ -137,6 +170,20 @@ export function BranchSwitcher({
       {!readOnly && operationPending ? <small role="status">有儲存結果尚待確認，暫停切換分支；請先回原表單確認。</small> : !readOnly && viewPending && switchState === "idle" ? <small role="status">系統正在更新，暫停切換分支。</small> : null}
       {open ? <div className="branch-switcher__menu">{branches.map((branch) => <button aria-current={branch.id === currentBranchId ? "true" : undefined} disabled={switchState !== "idle" || operationPending || viewPending} key={branch.id} onClick={() => select(branch)} type="button"><span>{branch.name}</span>{branch.id === currentBranchId ? <Check aria-hidden="true" /> : null}</button>)}</div> : null}
       {error && switchState === "idle" ? <small className="branch-switcher__error" role="alert">{error}</small> : null}
+      <GovernanceDialog open={confirmation !== null} title="確認切換分支" onRequestClose={() => setConfirmation(null)}>
+        {confirmation ? <>
+          <p>將切換至「{confirmation.name}」，並重新載入資料。</p>
+          <p>尚未儲存的輸入不會保留。確認後，舊頁面會停止操作，直到重新核對登入與分支權限。</p>
+          <div className="drawer__actions">
+            <button className="button button--primary" type="button" onKeyDown={(event) => {
+              if (event.key === "Enter" && event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); }
+            }} onClick={() => {
+              if (!active.current) return;
+              approvedSwitch.current = confirmation; setConfirmation(null);
+            }}>切換分支</button>
+          </div>
+        </> : null}
+      </GovernanceDialog>
       <dialog ref={dialog} className={styles.guard} aria-labelledby={dialogTitleId} aria-describedby={dialogDescriptionId} onCancel={(event) => event.preventDefault()}>
         <h2 id={dialogTitleId}>{switchState === "uncertain" ? "請先確認目前分支" : "正在安全切換分支"}</h2>
         <p id={dialogDescriptionId}>舊頁面已遮蔽並停止操作；重新載入後，系統會依目前登入與分支權限重新取得資料。</p>

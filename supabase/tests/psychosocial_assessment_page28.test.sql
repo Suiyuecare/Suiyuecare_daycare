@@ -398,7 +398,7 @@ select throws_ok($$select * from public.sign_psychosocial_assessment(
   (select version_id from psychosocial_revise_result), 2,
   '28900000-0000-4000-8000-000000000016')$$,
   '42501',
-  'current same-session recent AAL2 evidence is required for psychosocial signing',
+  'current same-session recent social-work AAL2 evidence is required',
   'AAL2 JWT without same-session recent evidence cannot sign'
 );
 

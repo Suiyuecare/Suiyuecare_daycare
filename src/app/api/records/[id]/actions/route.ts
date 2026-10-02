@@ -37,7 +37,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (error) {
       const code = error.code;
       throw databaseFailure(code === "42501" ? "DIARY_NOT_AUTHORIZED" : code === "40001" ? "VERSION_CONFLICT" : code === "23505" ? "IDEMPOTENCY_CONFLICT" : "DIARY_ACTION_FAILED",
-        code === "40001" ? "日誌已有新版本。請保留內容，重新讀取後人工確認，不會直接覆蓋。" : code === "42501" ? "目前權限或身分確認不足，尚未完成此操作。" : code === "23514" ? "請先補齊觀察摘要；標記需留意時也要填後續行動，並確認日誌狀態。" : "尚未確認完成，請保留內容並重試同一次操作。",
+        code === "40001" ? "日誌已有新版本。請保留內容，重新讀取後人工確認，不會直接覆蓋。" : code === "42501" ? "目前權限或身分確認不足，尚未完成此操作。" : code === "23514" ? "請確認班別與發生時間相符，且觀察內容、後續行動與日誌狀態符合要求；內容尚未儲存。" : "尚未確認完成，請保留內容並重試同一次操作。",
         code === "42501" ? 403 : code === "22023" || code === "23514" ? 422 : 409);
     }
     const receipt = z.object({ record: diaryRecordSchema, replayed: z.boolean() }).safeParse(data);

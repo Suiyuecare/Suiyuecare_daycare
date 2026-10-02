@@ -207,8 +207,9 @@ select throws_ok($$select pg_temp.print_prepare()$$,'42501',null,'wall-clock exp
 reset role;
 update public.memberships set ends_at=null where id='d8700000-0000-4000-8000-000000000001';
 -- Seed a pre-expired immutable synthetic job; never disable immutable triggers.
+with captured_clock as materialized (select clock_timestamp() as captured_at)
 insert into private.custom_response_print_jobs(organization_id,branch_id,client_id,response_id,actor_id,reauth_challenge_id,idempotency_key,request_hash,snapshot,snapshot_hash,created_at,expires_at)
- select organization_id,branch_id,client_id,response_id,actor_id,reauth_challenge_id,'da100000-0000-4000-8000-000000000099',request_hash,snapshot,snapshot_hash,clock_timestamp()-interval '6 minutes',clock_timestamp()-interval '1 minute' from private.custom_response_print_jobs limit 1;
+ select organization_id,branch_id,client_id,response_id,actor_id,reauth_challenge_id,'da100000-0000-4000-8000-000000000099',request_hash,snapshot,snapshot_hash,captured_at-interval '6 minutes',captured_at-interval '1 minute' from private.custom_response_print_jobs cross join captured_clock limit 1;
 select set_config('test.print_expired',(select private.custom_response_print_json(j,false)::text from private.custom_response_print_jobs j where idempotency_key='da100000-0000-4000-8000-000000000099'),true);
 set local role authenticated;
 select throws_ok($$select pg_temp.print_prepare(99)$$,'55000',null,'expired prepare receipt cannot be revived');

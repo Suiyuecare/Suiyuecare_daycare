@@ -11,6 +11,7 @@ import {
 
 import { StatusPill } from "@/components/ui/status-pill";
 import { ClaimValidationComposer } from "@/components/service-management/claim-validation-composer";
+import type { ClaimValidationScope } from "@/lib/service-management/claim-validation-pending";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import { sumMoney } from "@/lib/integrations/claims";
 import type {
@@ -67,6 +68,7 @@ export function ClaimsWorkspace({
   status,
   canValidate,
   hasRecentAal2,
+  scope,
   loadError = false,
 }: {
   page: PageCatalogEntry;
@@ -75,6 +77,7 @@ export function ClaimsWorkspace({
   status: "all" | ClaimStatus;
   canValidate: boolean;
   hasRecentAal2: boolean;
+  scope: ClaimValidationScope;
   loadError?: boolean;
 }) {
   if (loadError || !snapshot) {
@@ -117,7 +120,7 @@ export function ClaimsWorkspace({
 
   return <>
     <nav aria-label="所在位置" className="context-bar"><span>工作台</span><ChevronRight aria-hidden="true" /><span>服務管理</span><ChevronRight aria-hidden="true" /><span aria-current="page" className="context-bar__crumb">{page.title}</span></nav>
-<header className="page-heading"><div><p className="eyebrow">申報快照與對帳・頁面 49</p><h1>{page.title}</h1><p className="page-heading__description">申報批次、不可變匯出快照與主管機關回覆分開保存；筆數與金額由資料庫以同一權威快照精確彙整。</p></div><div className="page-heading__actions"><ClaimValidationComposer batches={draftBatches} demo={snapshot.demo} enabled={canValidate} hasRecentAal2={hasRecentAal2} /></div></header>
+<header className="page-heading"><div><p className="eyebrow">申報快照與對帳・頁面 49</p><h1>{page.title}</h1><p className="page-heading__description">申報批次、不可變匯出快照與主管機關回覆分開保存；筆數與金額由資料庫以同一權威快照精確彙整。</p></div><div className="page-heading__actions"><ClaimValidationComposer batches={draftBatches} demo={snapshot.demo} enabled={canValidate} hasRecentAal2={hasRecentAal2} scope={scope} /></div></header>
     <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>匯出與逐筆對帳已採單一交易、最近 15 分鐘 AAL2 與冪等保護；清單直接讀取資料庫彙整，不會以受分頁限制的明細在瀏覽器加總。</span></div>
     <section aria-label="申報摘要" className="metric-grid">{[
       ["申報批次", snapshot.batches.length, "批", "目前分支最近 200 批"],

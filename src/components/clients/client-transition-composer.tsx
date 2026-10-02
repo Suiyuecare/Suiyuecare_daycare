@@ -14,6 +14,7 @@ import { History, Plus, ShieldCheck, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "@/components/core-care/daily-form-validation";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
 import {
@@ -87,6 +88,7 @@ export function ClientTransitionComposer({
   const [retryRequired, setRetryRequired] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const validation = useDailyFormValidation();
   const locked = pending || retryRequired;
 
   useEffect(() => {
@@ -130,6 +132,7 @@ export function ClientTransitionComposer({
     setError(null);
     setNotice(null);
     setNeedsReauth(false);
+    validation.reset();
     dialog.current?.showModal();
   }
 
@@ -138,7 +141,8 @@ export function ClientTransitionComposer({
     dialog.current?.close();
   }
 
-  function changed() {
+  function changed(target: EventTarget) {
+    validation.clearChanged(target);
     if (error && !uncertain.current && !inFlight.current && !conflict) {
       operation.current = null;
       setError(null);
@@ -169,7 +173,29 @@ export function ClientTransitionComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current) return;
     if (inFlight.current || demo || !canManage || (!enabled && !uncertain.current) || conflict || (!selectedClient && !operation.current)) return;
+    const form = event.currentTarget;
+    let draftData: FormData | null = null;
+    if (!operation.current) {
+      try {
+        draftData = new FormData(form);
+      } catch {
+        setError("無法建立本次異動，尚未送出。請核對輸入後再試。");
+        return;
+      }
+      const data = draftData;
+      const effectiveOn = String(data.get("effective_on") ?? "");
+      const reason = String(data.get("reason") ?? "");
+      const handoffNote = String(data.get("handoff_note") ?? "");
+      const fieldErrors: Record<string, string> = {};
+      if (!selectedClient) fieldErrors.client_id = "請選擇個案。";
+      if (!allowedKinds.includes(eventKind)) fieldErrors.event_kind = "請重新選擇可執行的異動。";
+      if (effectiveOn && !/^\d{4}-\d{2}-\d{2}$/u.test(effectiveOn)) fieldErrors.effective_on = "請選擇有效的生效日期。";
+      if (reason && !reason.trim()) fieldErrors.reason = "請填寫異動理由。";
+      if (isTerminalClientTransition(eventKind) && !handoffNote.trim()) fieldErrors.handoff_note = "請填寫交接內容。";
+      if (!validation.validate(form, fieldErrors)) return;
+    }
     if (!operationLease.current) {
       const release = tryAcquirePendingOperation();
       if (!release) { setError("畫面正在更新或切換分支，請稍候再送出；尚未建立異動。"); return; }
@@ -179,10 +205,9 @@ export function ClientTransitionComposer({
     setPending(true);
     setError(null);
     setNeedsReauth(false);
-    const form = event.currentTarget;
     try {
       if (!operation.current && selectedClient) {
-        const data = new FormData(form);
+        const data = draftData ?? new FormData(form);
         const effectiveOn = String(data.get("effective_on") ?? "");
         operation.current = {
         key: crypto.randomUUID(),
@@ -311,7 +336,16 @@ export function ClientTransitionComposer({
         onKeyDown={keepDialogFocus}
         ref={dialog}
       >
-        <form className="core-dialog__surface" onChange={changed} onSubmit={submit}>
+        <form
+          aria-busy={pending}
+          className="core-dialog__surface"
+          noValidate
+          onChange={(event) => changed(event.target)}
+          onCompositionEnd={validation.onCompositionEnd}
+          onCompositionStart={validation.onCompositionStart}
+          onKeyDown={validation.onKeyDown}
+          onSubmit={submit}
+        >
           <header className="drawer__header">
             <div>
               <p className="eyebrow">不可變生命週期</p>
@@ -321,11 +355,13 @@ export function ClientTransitionComposer({
             <button aria-label="關閉" className="icon-button" disabled={locked} onClick={close} type="button"><X aria-hidden="true" /></button>
           </header>
           <div className="drawer__body core-dialog__body">
+            <DailyValidationSummary validation={validation} />
             <fieldset className="core-dialog__fieldset" disabled={locked || conflict}>
             <div className="callout core-care-callout"><History aria-hidden="true" /><span>正式收案會核對已核准 Google 帳號與個案管理權限；其他異動另需近期雙因素驗證。伺服器鎖定個案後再次核對目前狀態與資料版本。</span></div>
             <label className="field">
-              <span>個案 *</span>
+              <span id={validation.labelId("client_id")}>個案 *</span>
               <select
+                {...validation.field("client_id")}
                 name="client_id"
                 disabled={Boolean(lockedClientId)}
                 onChange={(event) => {
@@ -338,10 +374,12 @@ export function ClientTransitionComposer({
               >
                 {eligibleClients.map((client) => <option key={client.id} value={client.id}>{client.displayName}（{client.clientCode}・v{client.rowVersion}）</option>)}
               </select>
+              <DailyFieldError name="client_id" validation={validation} />
             </label>
             <label className="field">
-              <span>異動類型 *</span>
+              <span id={validation.labelId("event_kind")}>異動類型 *</span>
               <select
+                {...validation.field("event_kind")}
                 name="event_kind"
                 onChange={(event) => setEventKind(event.target.value as ClientTransitionKind)}
                 required
@@ -350,11 +388,12 @@ export function ClientTransitionComposer({
                 {allowedKinds.map((kind) => <option key={kind} value={kind}>{eventLabels[kind]}</option>)}
               </select>
               <small className="field-hint">只列出目前狀態可進行的異動；資料庫仍會在交易時重新驗證。</small>
+              <DailyFieldError name="event_kind" validation={validation} />
             </label>
-            <label className="field"><span>生效日期 *</span><input defaultValue={taipeiDate()} max={taipeiDate()} name="effective_on" required type="date" /></label>
-            <label className="field"><span>異動理由 *</span><textarea maxLength={1000} name="reason" placeholder="填寫可供後續稽核理解的具體原因。" required /></label>
+            <label className="field"><span id={validation.labelId("effective_on")}>生效日期 *</span><input {...validation.field("effective_on")} defaultValue={taipeiDate()} max={taipeiDate()} name="effective_on" required type="date" /><DailyFieldError name="effective_on" validation={validation} /></label>
+            <label className="field"><span id={validation.labelId("reason")}>異動理由 *</span><textarea {...validation.field("reason")} className="resize-none" maxLength={1000} name="reason" placeholder="填寫可供後續稽核理解的具體原因。" required rows={4} style={{ resize: "none" }} /><DailyFieldError name="reason" validation={validation} /></label>
             {isTerminalClientTransition(eventKind) ? (
-              <label className="field"><span>交接內容 *</span><textarea maxLength={2000} name="handoff_note" placeholder="記錄文件、承接單位、聯絡窗口與後續安排。" required /></label>
+              <label className="field"><span id={validation.labelId("handoff_note")}>交接內容 *</span><textarea {...validation.field("handoff_note")} className="resize-none" maxLength={2000} name="handoff_note" placeholder="記錄文件、承接單位、聯絡窗口與後續安排。" required rows={5} style={{ resize: "none" }} /><DailyFieldError name="handoff_note" validation={validation} /></label>
             ) : null}
             </fieldset>
             {error ? (

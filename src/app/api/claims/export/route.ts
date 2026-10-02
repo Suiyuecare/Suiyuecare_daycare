@@ -13,19 +13,11 @@ import {
 } from "@/lib/integrations/http";
 import { deterministicUuid } from "@/lib/integrations/security";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { parseClaimExportBoundDatabaseReceipt } from "@/lib/service-management/claim-operation-receipts";
+import { hashClaimExportRequest } from "@/lib/service-management/claim-request-hash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type ExportClaimResult = {
-  claim_batch_id: string;
-  format_version: string;
-  status: string;
-  snapshot_hash: string;
-  item_count: number;
-  total_amount: string | number;
-  replayed: boolean;
-};
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
@@ -78,16 +70,16 @@ export async function POST(request: Request) {
       input.idempotencyKey,
     );
     const { data, error } = await supabase
-      .rpc("export_claim_batch", {
+      .rpc("export_claim_batch_receipt", {
         p_expected_organization_id: actor.organizationId,
         p_expected_branch_id: actor.branchId,
         p_claim_batch_id: input.claimBatchId,
         p_expected_total_amount: input.expectedTotalAmount,
         p_idempotency_key: databaseIdempotencyKey,
       })
-      .maybeSingle<ExportClaimResult>();
+      .maybeSingle<unknown>();
 
-    if (error || !data) {
+    if (error) {
       const failure = classifyClaimExportDatabaseFailure(error?.code);
       throw databaseFailure(
         failure.code,
@@ -96,15 +88,24 @@ export async function POST(request: Request) {
       );
     }
 
+    let receipt;
+    try { receipt = parseClaimExportBoundDatabaseReceipt(data, { ...input,
+      organizationId: actor.organizationId, branchId: actor.branchId!, databaseIdempotencyKey,
+      requestHash: hashClaimExportRequest(input, { organizationId: actor.organizationId, branchId: actor.branchId! }) }); }
+    catch {
+      throw databaseFailure("CLAIM_EXPORT_RECEIPT_INVALID",
+        "申報匯出回執尚未核對完成；請保留原批次與金額，以相同冪等鍵重試。", 502);
+    }
+
     return ok(
       {
-        claimBatchId: data.claim_batch_id,
-        snapshotHash: data.snapshot_hash,
-        itemCount: data.item_count,
-        totalAmount: String(data.total_amount),
-        formatVersion: data.format_version,
-        status: data.status,
-        replayed: data.replayed,
+        claimBatchId: receipt.claim_batch_id,
+        snapshotHash: receipt.snapshot_hash,
+        itemCount: receipt.item_count,
+        totalAmount: receipt.total_amount,
+        formatVersion: receipt.format_version,
+        status: receipt.status,
+        replayed: receipt.replayed,
         persisted: true,
         demo: false,
       },

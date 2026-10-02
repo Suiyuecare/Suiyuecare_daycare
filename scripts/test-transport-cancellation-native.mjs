@@ -1,7 +1,8 @@
 // Native PostgreSQL validation in a disposable local cluster. Never accepts a URL
 // or connects to a hosted database. Auth and Storage schemas are synthetic fixtures.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
@@ -10,8 +11,7 @@ const binaries = process.env.INTAKE_NATIVE_PG_BIN;
 if (!binaries || !binaries.startsWith("/")) {
   throw new Error("Set INTAKE_NATIVE_PG_BIN to an existing absolute native PostgreSQL bin directory.");
 }
-const runtime = await mkdtemp("/tmp/daycare-cancellation-native.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-cancellation-native.");
 const port = "55442";
 const env = {
   PATH: process.env.PATH,
@@ -86,6 +86,7 @@ const waitForAdvisoryWaiters = async (holderPid, applicationNames) => {
   throw new Error("Native document writers were not observed waiting on the held advisory lock.");
 };
 let started = false;
+let testFailure;
 try {
   console.log(run(join(binaries, "postgres"), ["--version"]).trim());
   run(join(binaries, "initdb"), ["-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=reject", "--no-locale", "--encoding=UTF8"]);
@@ -240,6 +241,10 @@ try {
     Number(sql(`select count(*) from private.transport_trip_cancellations where trip_key='${sid(90,6)}';`).trim())!==0||auditCount()!==beforeAudit7)
     throw new Error(`Post-audit reauth expiry must roll back cancellation and audit: ${result7.stderr}`);
   console.log("Native observed post-audit revocation and real 15-minute reauth expiry both denied with zero cancellation/audit writes. Total observed races: 7.");
+} catch (error) {
+  testFailure = error;
+  throw error;
 } finally {
-  if(started)run(join(binaries,"pg_ctl"),["-D",data,"-m","fast","-w","stop"]);
+  await cleanupNativeData({ started, testFailure,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

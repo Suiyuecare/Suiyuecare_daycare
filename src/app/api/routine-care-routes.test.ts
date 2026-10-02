@@ -95,6 +95,33 @@ describe.each(cases)("$name routine-care POST boundary", (spec) => {
   });
 });
 
+describe("care diary shift/time boundary", () => {
+  it.each([
+    ["morning", "2026-09-13T04:00:00.000Z"],
+    ["afternoon", "2026-09-13T03:59:59.000Z"],
+  ])("rejects %s on the opposite side of Taipei noon before RPC", async (shift, occurredAt) => {
+    const response = await records(request("records", {
+      client_id: clientId, page_slug: "staff/daily-care/care-diary", occurred_at: occurredAt,
+      data: { ...diaryFields, shift },
+    }));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "CARE_DIARY_SHIFT_TIME_MISMATCH" });
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("accepts an afternoon event exactly at Taipei noon", async () => {
+    success("records");
+    const response = await records(request("records", {
+      client_id: clientId, page_slug: "staff/daily-care/care-diary", occurred_at: "2026-09-13T04:00:00.000Z",
+      data: { ...diaryFields, shift: "afternoon" },
+    }));
+    expect(response.status).toBe(201);
+    expect(stubs.rpc).toHaveBeenCalledExactlyOnceWith("record_care_diary_quick_draft", expect.objectContaining({
+      p_occurred_at: "2026-09-13T04:00:00.000Z", p_fields: expect.objectContaining({ shift: "afternoon" }),
+    }));
+  });
+});
+
 describe("attendance backfill remains protected", () => {
   it("rejects a new AAL1 backfill through the database rules even when a reason is supplied", async () => {
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.single }); stubs.single.mockResolvedValue({ data: null, error: { code: "42501" } });

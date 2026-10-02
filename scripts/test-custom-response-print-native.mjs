@@ -4,7 +4,8 @@
 // Scope: immutable print snapshots, exact replay, live permission/Google/session
 // revocation while waiting, and assignment expiry during an audited download.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
@@ -13,8 +14,7 @@ const binaries = process.env.CUSTOM_PRINT_NATIVE_PG_BIN ?? process.env.INTAKE_NA
 if (!binaries || !binaries.startsWith("/")) {
   throw new Error("Set CUSTOM_PRINT_NATIVE_PG_BIN (or INTAKE_NATIVE_PG_BIN) to an existing absolute native PostgreSQL bin directory.");
 }
-const runtime = await mkdtemp("/tmp/daycare-form-print-native.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-form-print-native.");
 const port = "55446";
 const env = {
   PATH: process.env.PATH,
@@ -89,6 +89,7 @@ const waitForWaiters = async (holderPid, applicationNames) => {
   throw new Error("Native document writers were not observed waiting on the held advisory lock.");
 };
 let started = false;
+let testFailure;
 
 try {
   console.log(run(join(binaries, "postgres"), ["--version"]).trim());
@@ -227,6 +228,10 @@ try {
     throw new Error("Rejected download audit was not rolled back");
   console.log("Native observed download expiry after audit lock wait: denied, no snapshot returned and audit rolled back.");
   console.log("Native custom response print acceptance: "+expected+" SQL assertions and 12 observed two-session races.");
+} catch (error) {
+  testFailure = error;
+  throw error;
 } finally {
-  if(started)run(join(binaries,"pg_ctl"),["-D",data,"-m","fast","-w","stop"]);
+  await cleanupNativeData({ started, testFailure,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

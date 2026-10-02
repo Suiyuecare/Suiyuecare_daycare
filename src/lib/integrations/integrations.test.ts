@@ -388,6 +388,15 @@ describe("claim snapshot and reconciliation", () => {
     });
   });
 
+  it.each([undefined, "NETWORK", "57014", "08006", "PGRST000"])(
+    "never describes an unknown export outcome as a confirmed rollback: %s", (code) => {
+      const failure = classifyClaimExportDatabaseFailure(code);
+      expect(failure).toMatchObject({ code: "CLAIM_EXPORT_FAILED", httpStatus: 503 });
+      expect(failure.message).toContain("尚未確認");
+      expect(failure.message).toContain("相同冪等鍵");
+      expect(failure.message).not.toMatch(/未建立快照|沒有.*寫入/u);
+    });
+
   it("requires one reconciliation result per claim item", () => {
     const request = parseClaimReconciliationRequest({
       idempotency_key: "claim-reconcile-0001",

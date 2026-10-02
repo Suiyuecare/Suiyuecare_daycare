@@ -12,6 +12,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
 import {
@@ -170,6 +171,7 @@ export function FormRuleVersionsWorkspace({
   canManage,
   hasRecentAal2,
   loadError = false,
+  questionnaireRules,
 }: {
   page: PageCatalogEntry;
   snapshot: FormGovernanceSnapshot | null;
@@ -177,15 +179,16 @@ export function FormRuleVersionsWorkspace({
   canManage: boolean;
   hasRecentAal2: boolean;
   loadError?: boolean;
+  questionnaireRules?: ReactNode;
 }) {
   if (loadError || !snapshot) {
     return (
-      <section className="empty-card core-care-state" role="alert">
+      <>{questionnaireRules}<section className="empty-card core-care-state" role="alert">
         <span className="empty-card__icon empty-card__icon--warning"><CircleAlert aria-hidden="true" /></span>
         <h1>表單與規則版本暫時無法載入</h1>
         <p>系統不會改查其他機構、其他分支、管理員密鑰或展示資料來補值。</p>
         <Link className="button button--secondary" href="/app/staff/governance/form-rule-versions">重新載入</Link>
-      </section>
+      </section></>
     );
   }
 
@@ -225,6 +228,8 @@ export function FormRuleVersionsWorkspace({
           <CustomFormDraftEditor enabled={canManage && !snapshot.incomplete} canSave={canManage && hasRecentAal2 && !blockedReason} disabledReason={blockedReason} />
         </div>
       </header>
+
+      {questionnaireRules}
 
       <div className={`callout ${styles.boundaryCallout}`}>
         <FileLock2 aria-hidden="true" />

@@ -71,6 +71,11 @@ export function StaffCertificatesWorkspace({
       <h1>{page.title}</h1>
       <p>{page.description} 原始版本、更正、作廢與例外核准均保留不可變歷程。</p>
     </div><div className={styles.snapshotMeta}>
+      {!snapshot.demo ? <Link className="button button--secondary"
+        prefetch={false}
+        href={`/app/staff/operations/staff-certificates?view=documents${filters.staffMembershipId ? `&staff=${filters.staffMembershipId}` : ""}`}>
+        查看附件狀態
+      </Link> : null}
       <span>台北快照日 {snapshot.snapshotDate}</span>
       <time dateTime={snapshot.generatedAt}>更新 {formatTaipei(snapshot.generatedAt)}</time>
       <span>正式資料超過 5 分鐘時請重新載入</span>

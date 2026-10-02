@@ -1,3 +1,5 @@
+"use client";
+
 import {
   AlertTriangle, CheckCircle2, ClipboardPenLine, Clock3, Inbox,
   Send, UserRoundSearch, UsersRound,
@@ -5,6 +7,7 @@ import {
 import Link from "next/link";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
+import type { TenantContext } from "@/lib/domain/types";
 import type {
   ReferralManagementFilters,
   ReferralManagementItem,
@@ -17,6 +20,8 @@ import {
   ReferralCorrectionForm,
   ReferralCreateForm,
   ReferralTransitionForm,
+  ReferralController,
+  useReferralController,
 } from "./referral-actions";
 import styles from "./referral-management.module.css";
 
@@ -42,7 +47,7 @@ const eventLabel: Record<ReferralManagementItem["eventKind"], string> = {
 };
 
 function formatTaipei(value: string) {
-  return new Intl.DateTimeFormat("zh-TW", {
+  const parts = new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei",
     year: "numeric",
     month: "2-digit",
@@ -50,7 +55,9 @@ function formatTaipei(value: string) {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(new Date(value));
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}/${part("month")}/${part("day")} ${part("hour")}:${part("minute")}`;
 }
 
 function Unit({ item }: { item: ReferralManagementItem }) {
@@ -109,21 +116,28 @@ function MobileCard({ item, snapshot }: {
 }
 
 export function ReferralManagementWorkspace({
-  filters, loadError, page, snapshot,
+  context, filters, loadError, page, snapshot,
 }: {
+  context: TenantContext;
   filters: ReferralManagementFilters;
   loadError: boolean;
   page: PageCatalogEntry;
   snapshot: ReferralManagementSnapshot | null;
 }) {
-  if (loadError || !snapshot) return <section className="empty-card"
+  return <ReferralController context={context} filters={filters} snapshot={loadError ? null : snapshot}><ReferralWorkspaceContent filters={filters} page={page}/></ReferralController>;
+}
+
+function ReferralWorkspaceContent({ filters, page }: { filters: ReferralManagementFilters; page: PageCatalogEntry }) {
+  const controller = useReferralController()!;
+  const snapshot = controller.snapshot;
+  if (!snapshot) return <section className="empty-card"
     aria-labelledby="referral-load-error">
     <span className="empty-card__icon empty-card__icon--warning"><AlertTriangle aria-hidden="true" /></span>
     <p className="eyebrow">載入失敗、反向日期、逾時或無權限</p>
     <h1 id="referral-load-error">無法取得轉介管理快照</h1>
     <p>系統沒有顯示未通過機構、分支、個案指派與角色驗證的局部資料。</p>
-    <Link className="button button--secondary"
-      href="/app/staff/professional-care/referrals">重新載入</Link>
+    <button className="button button--secondary" disabled={controller.readBlocked}
+      onClick={controller.refresh}>重新載入</button>
   </section>;
 
   return <div className={styles.workspace}>
@@ -160,7 +174,7 @@ export function ReferralManagementWorkspace({
       branchId={snapshot.branchId} clients={snapshot.clientOptions}
       organizationId={snapshot.organizationId} referenceTime={snapshot.generatedAt} />
 
-    <form className={styles.filters} method="get" aria-label="篩選轉介管理">
+    <form className={styles.filters} method="get" noValidate aria-label="篩選轉介管理">
       <label><span>個案</span><select name="client" defaultValue={filters.clientId ?? "all"}>
         <option value="all">全部個案</option>
         {snapshot.clientOptions.map((option) => <option key={option.clientId}

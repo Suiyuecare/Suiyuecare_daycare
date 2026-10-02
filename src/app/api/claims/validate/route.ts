@@ -93,7 +93,7 @@ export async function POST(request: Request) {
             : invalid
               ? "申報明細、服務證據、計畫版本、確認筆數或總額未通過驗證。"
               : "申報批次的驗證結果尚未確認；請保留原批次、金額與操作鍵重新核對。",
-        unauthorized ? 403 : invalid ? 422 : 409,
+        unauthorized ? 403 : invalid ? 422 : conflict || alreadyCompleted ? 409 : 503,
       );
     }
 

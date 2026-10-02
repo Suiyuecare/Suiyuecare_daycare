@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { bootstrapSql } from "../../../scripts/lib/pglite-bootstrap.mjs";
 import { abcdAssessmentPayload, parseAbcdAssessmentMutation, parseAbcdAssessmentReceipt } from "./parser";
+import { parseAbcdRecoveryContinuation, parseAbcdRecoverySummary } from "./recovery";
 import { projectAbcdAssessmentSnapshot, type AbcdAssessmentSnapshotSourceRow } from "./projection";
 import { emptyAbcdAssessmentFilters } from "./query";
 import type { AbcdAssessmentFilters, AbcdAssessmentMutationInput } from "./types";
@@ -15,6 +16,10 @@ const BRANCH = "21200000-0000-4000-8000-000000000002";
 const ACTOR = "21200000-0000-4000-8000-000000000003";
 const CLIENT = "21200000-0000-4000-8000-000000000004";
 const OTHER_CLIENT = "21200000-0000-4000-8000-000000000009";
+const OTHER_ACTOR = "21200000-0000-4000-8000-000000000019";
+const UNASSIGNED_CLIENT = "21200000-0000-4000-8000-000000000018";
+const EARLY_CLIENT = "21210000-0000-4000-8000-000000000001";
+const LATE_CLIENT = "21210000-0000-4000-8000-000000000201";
 const MEMBERSHIP = "21200000-0000-4000-8000-000000000005";
 const SESSION = "21200000-0000-4000-8000-000000000006";
 const KEY_A = "21200000-0000-4000-8000-000000000010";
@@ -46,6 +51,10 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
       file <= "20260908002000_abcd_assessments_page21.sql").sort();
     expect(files.at(-1)).toBe("20260908002000_abcd_assessments_page21.sql");
     for (const file of files) await database.exec(await readFile(resolve(directory, file), "utf8"));
+    await database.exec(await readFile(resolve(directory,
+      "20260928033352_abcd_selected_client_option.sql"), "utf8"));
+    await database.exec(await readFile(resolve(directory,
+      "20260928044255_abcd_operation_recovery.sql"), "utf8"));
     await database.query(`insert into auth.users(id,aud,role,email,created_at,updated_at)
       values ($1,'authenticated','authenticated','contract21@example.invalid',now(),now())`, [ACTOR]);
     await database.query("insert into public.organizations(id,code,name) values ($1,'contract21','合成 ABCD 測試機構')", [ORG]);
@@ -70,12 +79,39 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
   afterAll(async () => { await database?.close(); });
 
   async function mutate(input: AbcdAssessmentMutationInput) {
+    await reserve(input);
     const { rows } = await database.query<{ value: unknown }>(
       `select to_jsonb(result) as value from public.mutate_abcd_assessment(
         $1::uuid,$2::uuid,$3::text,$4::jsonb,$5::uuid) result`,
       [ORG, BRANCH, input.action, JSON.stringify(abcdAssessmentPayload(input)), input.idempotencyKey]);
     expect(rows).toHaveLength(1);
     return parseAbcdAssessmentReceipt(rows[0]!.value, input, ORG, BRANCH);
+  }
+
+  async function reserve(input: AbcdAssessmentMutationInput) {
+    const operation = input.action === "save_assessment" ? input.mode :
+      input.action === "sign_assessment" ? "sign" : "correct";
+    const { rows } = await database.query<{ id: string }>(
+      `select public.reserve_abcd_assessment_operation(
+        $1::uuid,$2::uuid,$3::text,$4::text,$5::jsonb,$6::uuid) as id`,
+      [ORG, BRANCH, operation, input.action,
+        JSON.stringify(abcdAssessmentPayload(input)), input.idempotencyKey]);
+    return rows[0]!.id;
+  }
+
+  async function recovery(clientId: string | null = null) {
+    const { rows } = await database.query<{ value: unknown }>(
+      `select public.abcd_assessment_recovery_snapshot($1::uuid,$2::uuid,$3::uuid) as value`,
+      [ORG, BRANCH, clientId]);
+    return parseAbcdRecoverySummary(rows[0]!.value, ORG, BRANCH, clientId);
+  }
+
+  async function resume(reservationId: string) {
+    const { rows } = await database.query<{ value: unknown }>(
+      `select public.resume_abcd_assessment_operation($1::uuid,$2::uuid,$3::uuid) as value`,
+      [ORG, BRANCH, reservationId]);
+    const stored = parseAbcdRecoveryContinuation(rows[0]!.value);
+    return parseAbcdAssessmentReceipt(stored.receipt, stored.input, ORG, BRANCH);
   }
 
   async function snapshot(filters: AbcdAssessmentFilters = emptyAbcdAssessmentFilters()) {
@@ -104,6 +140,155 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
       notificationStatus: "not_configured", exportStatus: "not_configured",
       offlineStatus: "not_configured" });
   });
+
+  it("holds original content and key server-side, then resumes exactly once after a lost response", async () => {
+    const input = parseAbcdAssessmentMutation(createBody(), KEY_A);
+    const reservationId = await reserve(input);
+    expect(await reserve(input)).toBe(reservationId);
+    expect(await recovery()).toMatchObject({ absenceIsFinal: false, truncated: false,
+      pendingTruncated: false, operations: [{ reservationId, clientId: CLIENT,
+        operation: "create", baselineVersion: 0, state: "pending", committedAt: null }] });
+    const committed = await resume(reservationId);
+    expect(committed).toMatchObject({ idempotencyKey: KEY_A, replayed: false,
+      recordPayload: { manualSummary: "合成 2026 年 A 類人工候選摘要" } });
+    expect(await resume(reservationId)).toEqual({ ...committed, replayed: true });
+    expect(await recovery(CLIENT)).toMatchObject({ operations: [{ reservationId,
+      state: "committed" }] });
+    await database.exec("reset role");
+    const { rows } = await database.query<{ count: number }>(
+      "select count(*)::integer as count from public.abcd_assessment_versions where client_id=$1", [CLIENT]);
+    expect(rows[0]!.count).toBe(1);
+    await database.exec("set role authenticated");
+  });
+
+  it("rejects direct authenticated mutation without the server-side reservation", async () => {
+    const input = parseAbcdAssessmentMutation(createBody(), KEY_A);
+    await database.exec("savepoint unreserved_direct_rpc");
+    await expect(database.query(`select * from public.mutate_abcd_assessment(
+      $1::uuid,$2::uuid,$3::text,$4::jsonb,$5::uuid)`,
+    [ORG, BRANCH, input.action, JSON.stringify(abcdAssessmentPayload(input)), input.idempotencyKey]))
+      .rejects.toThrow(/reservation is required/u);
+    await database.exec("rollback to savepoint unreserved_direct_rpc");
+    const reservationId = await reserve(input);
+    expect((await mutate(input)).replayed).toBe(false);
+    expect((await recovery()).operations).toMatchObject([{ reservationId, state: "committed" }]);
+  });
+
+  it("allows an original in-flight write to commit before continuation without another version", async () => {
+    const input = parseAbcdAssessmentMutation(createBody(), KEY_A);
+    const reservationId = await reserve(input);
+    const original = await mutate(input);
+    expect((await recovery()).operations[0]).toMatchObject({ reservationId,
+      state: "committed" });
+    expect(await resume(reservationId)).toEqual({ ...original, replayed: true });
+    await expect(reserve(parseAbcdAssessmentMutation({ ...createBody(),
+      manual_summary: "另一份內容" }, KEY_A))).rejects.toThrow(/idempotency conflict/u);
+  });
+
+  it("never treats an empty bounded lookup as proof that another HTTP write cannot arrive", async () => {
+    expect(await recovery()).toMatchObject({ absenceIsFinal: false, operations: [] });
+    const input = parseAbcdAssessmentMutation(createBody(), KEY_A);
+    const reservationId = await reserve(input);
+    await mutate(input);
+    expect(await recovery()).toMatchObject({ absenceIsFinal: false,
+      operations: [{ reservationId, state: "committed" }] });
+  });
+
+  it("does not expose or resume another actor's pending body, even when assigned to the same client", async () => {
+    const reservationId = await reserve(parseAbcdAssessmentMutation(createBody(), KEY_A));
+    await database.exec("reset role");
+    await database.query(`insert into auth.users(id,aud,role,email,created_at,updated_at)
+      values ($1,'authenticated','authenticated','other-actor@example.invalid',now(),now())`,
+    [OTHER_ACTOR]);
+    await database.query("insert into public.profiles(id,display_name,kind) values ($1,'另一位合成評估員','professional')",
+      [OTHER_ACTOR]);
+    await database.query(`insert into public.memberships(id,organization_id,branch_id,profile_id,status)
+      values ('21200000-0000-4000-8000-000000000020',$1,$2,$3,'active')`,
+    [ORG, BRANCH, OTHER_ACTOR]);
+    await database.query(`insert into public.membership_roles(membership_id,role_id)
+      select '21200000-0000-4000-8000-000000000020',id from public.roles
+      where role_key='professional' and is_system`);
+    await database.query(`insert into public.client_assignments(
+      organization_id,branch_id,client_id,assignee_user_id,assignment_kind)
+      values ($1,$2,$3,$4,'assessment')`, [ORG, BRANCH, CLIENT, OTHER_ACTOR]);
+    await database.query("select set_config('request.jwt.claims',$1,false)",
+      [JSON.stringify({ sub: OTHER_ACTOR, role: "authenticated", aal: "aal2", session_id: SESSION })]);
+    await database.exec("set role authenticated");
+    expect((await recovery()).operations).toEqual([]);
+    await database.exec("savepoint other_actor_denial");
+    await expect(resume(reservationId)).rejects.toThrow(/not permitted/u);
+    await database.exec("rollback to savepoint other_actor_denial");
+    await database.query("select set_config('request.jwt.claims',$1,false)",
+      [JSON.stringify({ sub: ACTOR, role: "authenticated", aal: "aal2", session_id: SESSION })]);
+    const wrongBranch = "21200000-0000-4000-8000-000000000021";
+    await expect(database.query(`select public.resume_abcd_assessment_operation(
+      $1::uuid,$2::uuid,$3::uuid)`, [ORG, wrongBranch, reservationId]))
+      .rejects.toThrow(/not permitted/u);
+  });
+
+  it("does not reserve an unassigned same-branch client", async () => {
+    await database.exec("reset role");
+    await database.query(`insert into public.clients(id,organization_id,branch_id,client_code,
+      display_name,status,admitted_on)
+      values ($1,$2,$3,'SYN-ABCD-NO','未指派合成個案','active','2025-01-01')`,
+    [UNASSIGNED_CLIENT, ORG, BRANCH]);
+    await database.exec("set role authenticated");
+    await expect(reserve(parseAbcdAssessmentMutation(
+      createBody("A", 2026, UNASSIGNED_CLIENT), KEY_A))).rejects.toThrow(/not permitted/u);
+  });
+
+  it("prioritizes pending writes over completed receipts and exposes bounded truncation", async () => {
+    const completed = parseAbcdAssessmentMutation(createBody(), KEY_A);
+    await reserve(completed); await mutate(completed);
+    for (let index = 0; index < 21; index += 1) {
+      const key = `21200000-0000-4000-8000-${String(300 + index).padStart(12, "0")}`;
+      await reserve(parseAbcdAssessmentMutation(createBody("B", 2000 + index), key));
+    }
+    const actual = await recovery();
+    expect(actual).toMatchObject({ truncated: true, pendingTruncated: true });
+    expect(actual.operations).toHaveLength(20);
+    expect(actual.operations.every((item) => item.state === "pending")).toBe(true);
+  }, 20_000);
+
+  it("denies a direct selected-client snapshot for an unassigned same-branch client", async () => {
+    await database.exec("reset role");
+    await database.query(`insert into public.clients(id,organization_id,branch_id,client_code,display_name,status,admitted_on)
+      values ($1,$2,$3,'SYN-ABCD-NO','未指派合成個案','active','2025-01-01')`,
+    [UNASSIGNED_CLIENT, ORG, BRANCH]);
+    await database.exec("set role authenticated");
+    await expect(snapshot({ ...emptyAbcdAssessmentFilters(), clientId: UNASSIGNED_CLIENT }))
+      .rejects.toThrow(/ABCD assessment snapshot is not permitted/u);
+  });
+
+  it("includes an authorized selected client beyond the first 200 options exactly once", async () => {
+    await database.exec("reset role");
+    await database.query(`insert into public.clients(id,organization_id,branch_id,client_code,
+      display_name,status,admitted_on)
+      select ('21210000-0000-4000-8000-'||lpad(series::text,12,'0'))::uuid,
+        $1,$2,'SYN-ABCD-BULK-'||series,'A'||lpad(series::text,3,'0'),
+        'active','2025-01-01'
+      from generate_series(1,201) series`, [ORG, BRANCH]);
+    await database.query(`insert into public.client_assignments(
+      organization_id,branch_id,client_id,assignee_user_id,assignment_kind)
+      select $1,$2,id,$3,'assessment' from public.clients
+      where organization_id=$1 and branch_id=$2
+        and client_code like 'SYN-ABCD-BULK-%'`, [ORG, BRANCH, ACTOR]);
+    await database.exec("set role authenticated");
+    const unfiltered = await snapshot();
+    expect(unfiltered.clientTotal).toBe(203);
+    expect(unfiltered.clients).toHaveLength(200);
+    expect(unfiltered.clients.some((client) => client.clientId === EARLY_CLIENT)).toBe(true);
+    expect(unfiltered.clients.some((client) => client.clientId === LATE_CLIENT)).toBe(false);
+    const selectedEarly = await snapshot({ ...emptyAbcdAssessmentFilters(), clientId: EARLY_CLIENT });
+    expect(selectedEarly.clients).toHaveLength(200);
+    expect(selectedEarly.clients.filter((client) => client.clientId === EARLY_CLIENT)).toHaveLength(1);
+    const selected = await snapshot({ ...emptyAbcdAssessmentFilters(), clientId: LATE_CLIENT });
+    expect(selected.clients).toHaveLength(201);
+    expect(selected.clientTotal).toBe(203);
+    expect(selected.clientsTruncated).toBe(true);
+    expect(selected.clients.filter((client) => client.clientId === LATE_CLIENT))
+      .toEqual([{ clientId: LATE_CLIENT, displayName: "A201" }]);
+  }, 20_000);
 
   it("accepts real create and exact replay receipts then projects the SQL row", async () => {
     const input = parseAbcdAssessmentMutation(createBody(), KEY_A);
@@ -162,7 +347,9 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
       assessment_key: created.assessmentKey, assessment_type: "A", assessment_year: 2026,
       previous_version_id: created.versionId, expected_version: created.version,
       expected_content_hash: created.contentHash }, KEY_SIGN);
-    const signed = await mutate(signInput); expect(signed.assessmentState).toBe("signed");
+    const signReservation = await reserve(signInput);
+    const signed = await resume(signReservation); expect(signed.assessmentState).toBe("signed");
+    expect(await resume(signReservation)).toEqual({ ...signed, replayed: true });
     expect(signed).toMatchObject({ previousVersionId: created.versionId,
       sourceContentHash: created.contentHash, recordPayload: created.recordPayload });
     const correctionInput = parseAbcdAssessmentMutation({ action: "correct_assessment",
@@ -173,7 +360,9 @@ describe("Page 21 PostgreSQL to TypeScript contract", () => {
       result: { state: "recorded", text: "合成人工更正候選結果", reason: null },
       reassessment: { state: "recorded", date: "2026-12-15", basis: "人工更正複評依據" },
       reason: "修正人工摘要與人工複評依據" }, KEY_CORRECT);
-    const corrected = await mutate(correctionInput);
+    const correctionReservation = await reserve(correctionInput);
+    const corrected = await resume(correctionReservation);
+    expect(await resume(correctionReservation)).toEqual({ ...corrected, replayed: true });
     expect(corrected).toMatchObject({ assessmentState: "corrected",
       previousVersionId: signed.versionId, sourceContentHash: signed.contentHash,
       recordPayload: { manualSummary: "合成 2026 年 A 類人工更正候選摘要",

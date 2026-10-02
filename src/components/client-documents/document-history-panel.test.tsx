@@ -49,7 +49,7 @@ function saved(input: Record<string, unknown>, changes: Record<string, unknown> 
   return ok({ receipt: { clientId: input.clientId, documentId: input.documentId, category: input.category,
     reviewRevision: Number(input.expectedReviewRevision) + 1, disposition: input.disposition, persisted: true, replayed: false, ...changes } });
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 
 describe("per-document history and lifecycle UI", () => {
   it("is lazy and never contacts document services in demo", async () => {
@@ -125,6 +125,63 @@ describe("per-document history and lifecycle UI", () => {
     expect(screen.queryByRole("button", { name: "確認儲存這份處置" })).not.toBeInTheDocument();
     expect(mutationCalls(fetch)).toHaveLength(1); expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
+  it("starts the history read while the independently refreshed summary is still unresolved", async () => {
+    let finishSummary: () => void = () => {};
+    const summary = new Promise<void>((resolve) => { finishSummary = resolve; });
+    const callbacks = props(); callbacks.onChanged.mockImplementation(() => summary);
+    const fetch = queued(ok({ snapshot: page() }));
+    fetch.mockImplementationOnce(async (_url, options) => saved(JSON.parse(String(options?.body))))
+      .mockResolvedValueOnce(ok({ snapshot: page([row(1, { reviewRevision: 2 })]) }));
+    render(<DocumentHistoryPanel {...callbacks} />); await open(); edit(); save();
+
+    await waitFor(() => expect(callbacks.onChanged).toHaveBeenCalledOnce());
+    expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/api/client-documents/history?"))).toHaveLength(2);
+    await act(async () => { finishSummary(); });
+    await waitFor(() => expect(screen.getByText(/逐份覆核第 2 版/)).toBeVisible());
+    expect(mutationCalls(fetch)).toHaveLength(1);
+  });
+  it("aborts a concurrent history read after summary failure and never admits its late result", async () => {
+    let finishHistory: (response: Response) => void = () => {};
+    const callbacks = props(); callbacks.onChanged.mockRejectedValue(new Error("summary unavailable"));
+    const fetch = queued(ok({ snapshot: page() }));
+    fetch.mockImplementationOnce(async (_url, options) => saved(JSON.parse(String(options?.body))))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishHistory = resolve; }));
+    render(<DocumentHistoryPanel {...callbacks} />); await open(); edit(); save();
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("清單更新失敗"));
+    expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/api/client-documents/history?"))).toHaveLength(2);
+    expect(fetch.mock.calls[2]?.[1]?.signal?.aborted).toBe(true);
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    await act(async () => { finishHistory(ok({ snapshot: page([row(1, { reviewRevision: 2 })]) })); });
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.getByText(/這份文件的處置已儲存/)).toBeVisible();
+    expect(mutationCalls(fetch)).toHaveLength(1);
+  });
+  it.each([
+    ["older revision", { reviewRevision: 1 }],
+    ["wrong disposition at the receipt revision", { reviewRevision: 2, disposition: "inactive" as const }],
+  ])("does not display %s returned by the concurrent history read", async (_description, changes) => {
+    const fetch = queued(ok({ snapshot: page() }));
+    fetch.mockImplementationOnce(async (_url, options) => saved(JSON.parse(String(options?.body))))
+      .mockResolvedValueOnce(ok({ snapshot: page([row(1, changes)]) }));
+    render(<DocumentHistoryPanel {...props()} />); await open(); edit(); save();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("清單更新失敗");
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.getByText(/這份文件的處置已儲存/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "重試確認原次文件處置" })).not.toBeInTheDocument();
+    expect(mutationCalls(fetch)).toHaveLength(1);
+  });
+  it.each([401, 403])("does not admit a concurrent history page after %i denial", async (status) => {
+    const fetch = queued(ok({ snapshot: page() }));
+    fetch.mockImplementationOnce(async (_url, options) => saved(JSON.parse(String(options?.body))))
+      .mockResolvedValueOnce(error(status));
+    render(<DocumentHistoryPanel {...props()} />); await open(); edit(); save();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("清單更新失敗");
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(mutationCalls(fetch)).toHaveLength(1);
+  });
   it("wrong target or version receipt stays uncertain, never shows success", async () => {
     const fetch = queued(ok({ snapshot: page() }));
     fetch.mockImplementationOnce(async (_url, options) => saved(JSON.parse(String(options?.body)), { documentId: uuid(2) }));
@@ -133,7 +190,8 @@ describe("per-document history and lifecycle UI", () => {
     expect(screen.queryByText(/這份文件的處置已儲存/)).not.toBeInTheDocument(); expect(mutationCalls(fetch)).toHaveLength(1);
   });
   it("downloads clean inactive evidence with exact document identity and explicit historical labeling", async () => {
-    const signedUrl = "https://synthetic.supabase.co/storage/v1/object/sign/client-intake-documents/synthetic";
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://synthetic.supabase.co");
+    const signedUrl = `https://synthetic.supabase.co/storage/v1/object/sign/client-intake-documents/${page().organizationId}/${clientId}/${uuid(1)}?token=synthetic`;
     const fetch = queued(ok({ snapshot: page([row(1, { disposition: "inactive", historicalOnly: true })]) }),
       ok({ url: signedUrl, documentId: uuid(1), version: 1, expiresSeconds: 60, disposition: "inactive", historicalOnly: true }));
     render(<DocumentHistoryPanel {...props()} />); await open();

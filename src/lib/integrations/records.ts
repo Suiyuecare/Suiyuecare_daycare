@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getPageBySlug } from "@/lib/catalog";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import { careDiaryDataSchema } from "@/lib/care-diary/schema";
+import { isDiaryShiftTimeAligned } from "@/lib/care-diary/shift-time";
 
 import { IntegrationError } from "./errors";
 import {
@@ -110,6 +111,14 @@ export function parseRecordDraft(
     headerIdempotencyKey ?? parsed.data.idempotency_key,
   );
   const occurredAt = parseIsoDateTime(parsed.data.occurred_at, "occurred_at");
+  if (!isDiaryShiftTimeAligned(validatedData.data.shift, occurredAt)) {
+    throw new IntegrationError(
+      "CARE_DIARY_SHIFT_TIME_MISMATCH",
+      "班別與實際發生時間不一致，請確認後再儲存。",
+      422,
+      "occurred_at",
+    );
+  }
   const canonicalData = canonicalJson(validatedData.data);
   if (Buffer.byteLength(canonicalData, "utf8") > 256 * 1024) {
     throw new IntegrationError(

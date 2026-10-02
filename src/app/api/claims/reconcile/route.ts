@@ -13,19 +13,11 @@ import {
 } from "@/lib/integrations/http";
 import { deterministicUuid } from "@/lib/integrations/security";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { parseClaimReconciliationBoundDatabaseReceipt } from "@/lib/service-management/claim-operation-receipts";
+import { hashClaimReconciliationRequest } from "@/lib/service-management/claim-request-hash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type ReconcileClaimResult = {
-  claim_batch_id: string;
-  status: string;
-  item_count: number;
-  accepted_count: number;
-  rejected_count: number;
-  total_amount: string | number;
-  replayed: boolean;
-};
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
@@ -82,7 +74,7 @@ export async function POST(request: Request) {
       response_message: result.responseMessage,
     }));
     const { data, error } = await supabase
-      .rpc("reconcile_claim_batch", {
+      .rpc("reconcile_claim_batch_receipt", {
         p_expected_organization_id: actor.organizationId,
         p_expected_branch_id: actor.branchId,
         p_claim_batch_id: input.claimBatchId,
@@ -90,9 +82,10 @@ export async function POST(request: Request) {
         p_results: results,
         p_idempotency_key: databaseIdempotencyKey,
       })
-      .maybeSingle<ReconcileClaimResult>();
+      .maybeSingle<unknown>();
 
-    if (error || !data) {
+    if (error) {
+      const rejected = ["22023", "23514", "55000"].includes(error.code ?? "");
       throw databaseFailure(
         error?.code === "42501"
           ? "CLAIM_RECONCILIATION_NOT_AUTHORIZED"
@@ -100,6 +93,7 @@ export async function POST(request: Request) {
             ? "CLAIM_RECONCILIATION_IDEMPOTENCY_CONFLICT"
             : error?.code === "P2001"
               ? "CLAIM_RECONCILIATION_ALREADY_COMPLETED"
+            : rejected ? "CLAIM_RECONCILIATION_REJECTED"
             : "CLAIM_RECONCILIATION_FAILED",
         error?.code === "42501"
           ? "目前角色或重新驗證狀態不允許對帳。"
@@ -107,20 +101,30 @@ export async function POST(request: Request) {
             ? "相同冪等鍵曾用於不同的申報對帳內容。"
             : error?.code === "P2001"
               ? "此批次已由另一項操作完成對帳，請重新載入最新狀態。"
-            : "申報結果未完成對帳；請確認逐筆覆蓋與總額後，以相同冪等鍵重試。",
-        error?.code === "42501" ? 403 : 409,
+            : rejected ? "申報批次、逐筆回覆或確認總額未通過對帳驗證。"
+            : "申報對帳結果尚未確認；請保留原批次、逐筆回覆與總額，以相同冪等鍵重試。",
+        error?.code === "42501" ? 403 : ["23505", "P2001"].includes(error.code ?? "") ? 409 : rejected ? 422 : 503,
       );
+    }
+
+    let receipt;
+    try { receipt = parseClaimReconciliationBoundDatabaseReceipt(data, { ...input,
+      organizationId: actor.organizationId, branchId: actor.branchId!, databaseIdempotencyKey,
+      requestHash: hashClaimReconciliationRequest(input, { organizationId: actor.organizationId, branchId: actor.branchId! }) }); }
+    catch {
+      throw databaseFailure("CLAIM_RECONCILIATION_RECEIPT_INVALID",
+        "申報對帳回執尚未核對完成；請保留原批次、逐筆回覆與總額，以相同冪等鍵重試。", 502);
     }
 
     return ok(
       {
-        claimBatchId: data.claim_batch_id,
-        status: data.status,
-        itemCount: data.item_count,
-        acceptedCount: data.accepted_count,
-        rejectedCount: data.rejected_count,
-        totalAmount: String(data.total_amount),
-        replayed: data.replayed,
+        claimBatchId: receipt.claim_batch_id,
+        status: receipt.status,
+        itemCount: receipt.item_count,
+        acceptedCount: receipt.accepted_count,
+        rejectedCount: receipt.rejected_count,
+        totalAmount: receipt.total_amount,
+        replayed: receipt.replayed,
         persisted: true,
         demo: false,
       },

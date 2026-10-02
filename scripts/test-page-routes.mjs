@@ -1,14 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { hasRouteHeading } from "./lib/route-heading.mjs";
 
 const baseUrl = new URL(process.env.ROUTE_SMOKE_BASE_URL ?? "http://127.0.0.1:3000");
 const matrixPath = resolve(process.cwd(), "docs/R0_PAGE_ACCEPTANCE_MATRIX.md");
 const matrix = await readFile(matrixPath, "utf8");
 const routeHeadingOverrides = new Map([
-  [1, "今天的照顧工作，一眼掌握。"],
-  [17, "吞嚥評估"],
+  [1, "今日工作"],
   [84, "今天一切平安，下午會再更新返家時間。"],
 ]);
+const clientAdmittedQuestionnaires = new Set([11, 12, 13, 14, 15, 16, 17, 18, 36]);
 
 const pages = matrix.split("\n").flatMap((line) => {
   const cells = line.split("|").map((cell) => cell.trim());
@@ -35,7 +36,11 @@ async function verifyPage(page) {
     const errors = [];
     if (response.status !== 200) errors.push(`HTTP ${response.status}`);
     const expectedHeading = routeHeadingOverrides.get(page.number) ?? page.title;
-    if (!body.includes(`<h1>${expectedHeading}</h1>`)) {
+    // Questionnaire content is intentionally redacted in SSR until the client
+    // admits the current authority/snapshot. Browser E2E verifies hydration.
+    const hasSafeQuestionnaireShell = clientAdmittedQuestionnaires.has(page.number) &&
+      hasRouteHeading(body, "評估資料需要重新確認");
+    if (!hasRouteHeading(body, expectedHeading) && !hasSafeQuestionnaireShell) {
       errors.push("route heading missing");
     }
     if (body.length < 1_000) errors.push("response unexpectedly small");

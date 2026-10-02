@@ -3,15 +3,16 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
-  Search,
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
 import { IntakeEntryLink } from "@/components/client-intake/intake-entry-link";
+import { NavigationLink } from "@/components/app/navigation-link";
 
 import { CaseCenterHistory } from "@/components/core-care/case-center-history";
 import { StatusPill } from "@/components/ui/status-pill";
+import { SearchField } from "@/components/ui/search-field";
 import type { PageCatalogEntry } from "@/lib/catalog";
 import { caseCenterHref } from "@/lib/case-center/query";
 import { caseCenterServiceStatus } from "@/lib/case-center/projection";
@@ -23,6 +24,7 @@ import type {
   CaseCenterSnapshot,
 } from "@/lib/case-center/types";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
+import { assessmentEntryHref, isAssessmentClientSelectable } from "@/lib/assessment-entry/selection";
 
 const lifecycleLabels: Record<CaseCenterLifecycleFilter, string> = {
   all: "全部生命週期",
@@ -101,37 +103,59 @@ function ClientWorkActions({
   date,
   canOpenAttendance,
   canViewSummary,
+  canOpenAssessments,
+  demoOutsideDailyRoster,
 }: {
   client: CaseCenterClient;
   date: string;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
+  canOpenAssessments: boolean;
+  demoOutsideDailyRoster: boolean;
 }) {
-  const canStart = canOpenAttendance && canStartClientWork(client, date);
+  const canStart = canOpenAttendance && !demoOutsideDailyRoster && canStartClientWork(client, date);
   return (
     <div className="case-center-actions">
       {canStart ? (
-        <a
+        <NavigationLink
           aria-label={`開始 ${client.displayName} 的當日工作（${formatDate(date)}）`}
           className="button button--primary"
           data-case-client-id={client.id}
           href={dailyWorkflowHref(46, date, client.id)}
+          loadingLabel="當日工作"
+          prefetch={false}
         >
           開始當日工作<ArrowRight aria-hidden="true" />
-        </a>
+        </NavigationLink>
       ) : (
-        <p className="case-center-action-note">{clientWorkNote(client, date)}</p>
+        <p className="case-center-action-note">{demoOutsideDailyRoster && canStartClientWork(client, date)
+          ? "所選日期沒有可接續的照顧工作，可查看紀錄或評估。"
+          : clientWorkNote(client, date)}</p>
       )}
       {!canStart && canViewSummary && (
-        <a
+        <NavigationLink
           aria-label={`查看 ${client.displayName} 的當日紀錄（${formatDate(date)}）`}
           className="button button--secondary"
           data-case-client-id={client.id}
           href={clientSummaryHref(client, date)}
+          loadingLabel="當日紀錄"
+          prefetch={false}
         >
           查看當日紀錄
-        </a>
+        </NavigationLink>
       )}
+      {canOpenAssessments && isAssessmentClientSelectable(client.lifecycleStatus) ? (
+        <NavigationLink
+          aria-label={`評估 ${client.displayName}（${client.clientCode}）`}
+          className="button button--secondary"
+          data-case-client-id={client.id}
+          href={assessmentEntryHref(client.id)}
+          loadingLabel="評估量表"
+          prefetch={false}
+        >
+          評估這位個案
+        </NavigationLink>
+      ) : null}
     </div>
   );
 }
@@ -148,6 +172,8 @@ export function CaseCenterWorkspace({
   loadError = false,
   allowedDailyPages = [],
   canViewSummary = false,
+  canOpenAssessments = false,
+  demoDailyClientIds,
 }: {
   page: PageCatalogEntry;
   snapshot: CaseCenterSnapshot | null;
@@ -156,6 +182,8 @@ export function CaseCenterWorkspace({
   allowedDailyPages?: readonly number[];
   canOpenIntake?: boolean;
   canViewSummary?: boolean;
+  canOpenAssessments?: boolean;
+  demoDailyClientIds?: readonly string[];
 }) {
   if (loadError || !snapshot) {
     return (
@@ -194,10 +222,11 @@ export function CaseCenterWorkspace({
     page: 1,
   });
   const canOpenAttendance = allowedDailyPages.includes(46) && snapshot.serviceDate === filters.date;
+  const activeFilterCount = Number(filters.lifecycle !== "all") + Number(filters.service !== "all") + Number(filters.responsible !== "all");
 
   return (
     <>
-      <CaseCenterHistory />
+      <CaseCenterHistory readyKey={`${caseCenterHref(filters)}:${snapshot.generatedAt}:${snapshot.clients.map((client) => client.id).join(",")}`} />
       <nav aria-label="所在位置" className="context-bar">
         <span>工作台</span>
         <ChevronRight aria-hidden="true" />
@@ -224,41 +253,10 @@ export function CaseCenterWorkspace({
           {snapshot.access.assignments === "self_only"
             ? "可依「我」篩選自己的個案；負責人顯示「權限受限」時，請向主管確認，不代表尚未指派。"
             : snapshot.access.profileLabels === "names"
-              ? "服務中的個案可接續當日照顧；待收案、暫停或服務結束的個案，請先確認狀態或查看紀錄。"
+              ? "依服務狀態開啟當日工作或查看紀錄。"
               : "負責人以人員代碼顯示；如需確認承辦人，請洽主管。"}
         </span>
       </div>
-
-      <section aria-label="個案摘要" className="metric-grid">
-        <article className="metric-card">
-          <div className="metric-card__top"><span>符合條件</span></div>
-          <div className="metric-card__value">
-            <strong>{snapshot.access.responsibleFilterRestricted ? "受限" : snapshot.total}</strong>
-            {!snapshot.access.responsibleFilterRestricted && <span>人</span>}
-          </div>
-          <p className="metric-card__foot">搜尋與篩選後的個案數</p>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top"><span>可見個案</span></div>
-          <div className="metric-card__value"><strong>{snapshot.visibleTotal}</strong><span>人</span></div>
-          <p className="metric-card__foot">本分支可查看的個案</p>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top"><span>服務中</span></div>
-          <div className="metric-card__value"><strong>{snapshot.summary.serving}</strong><span>人</span></div>
-          <p className="metric-card__foot">依 {snapshot.serviceDate} 判定</p>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top"><span>待收案</span></div>
-          <div className="metric-card__value"><strong>{snapshot.summary.pending}</strong><span>人</span></div>
-          <p className="metric-card__foot">已建檔但尚未開始服務</p>
-        </article>
-        <article className="metric-card">
-          <div className="metric-card__top"><span>暫停／結束</span></div>
-          <div className="metric-card__value"><strong>{snapshot.summary.paused + snapshot.summary.ended}</strong><span>人</span></div>
-          <p className="metric-card__foot">此日期暫停或已結束服務</p>
-        </article>
-      </section>
 
       <section className="panel case-center-panel">
         <div className="panel__header">
@@ -270,56 +268,58 @@ export function CaseCenterWorkspace({
           </div>
         </div>
 
-        <form className="filter-bar case-center-filters" method="get">
+        <form className="filter-bar case-center-filters" method="get" noValidate>
           <input name="date" type="hidden" value={filters.date} />
-          <label className="filter-search">
-            <Search aria-hidden="true" />
-            <span className="sr-only">搜尋個案代碼或姓名</span>
-            <input
-              autoComplete="off"
-              defaultValue={filters.query}
-              maxLength={120}
-              name="q"
-              placeholder="搜尋個案代碼或姓名…"
-              type="search"
-            />
-          </label>
-          <label className="field case-center-filter-field">
-            <span>生命週期</span>
-            <select defaultValue={filters.lifecycle} name="lifecycle">
-              {Object.entries(lifecycleLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field case-center-filter-field">
-            <span>服務狀態</span>
-            <select defaultValue={filters.service} name="service">
-              {Object.entries(serviceLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field case-center-filter-field">
-            <span>負責人</span>
-            <select defaultValue={responsibleValue} name="responsible">
-              <option value="all">全部可見指派</option>
-              {currentUser && <option value="me">{currentUser.label}</option>}
-              {snapshot.responsibleOptions
-                .filter((person) => !person.currentUser)
-                .map((person) => (
-                  <option key={person.userId} value={person.userId}>{person.label}</option>
-                ))}
-              {selectedResponsibleMissing && (
-                <option value={filters.responsible}>
-                  人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
-                </option>
-              )}
-            </select>
-          </label>
+          <SearchField defaultValue={filters.query} lengthUnit="code-units" label="搜尋個案代碼或姓名" placeholder="搜尋個案代碼或姓名…" />
           <button className="button button--primary" type="submit">套用篩選</button>
           <Link className="button button--secondary" href={clearHref}>清除</Link>
+          <details className="task-details case-center-filter-details" open={activeFilterCount > 0 || snapshot.access.responsibleFilterRestricted}>
+            <summary>更多篩選{activeFilterCount > 0 ? `（已套用 ${activeFilterCount} 項）` : ""}</summary>
+            <div className="case-center-filter-details__fields">
+              <label className="field case-center-filter-field">
+                <span>生命週期</span>
+                <select defaultValue={filters.lifecycle} name="lifecycle">
+                  {Object.entries(lifecycleLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field case-center-filter-field">
+                <span>服務狀態</span>
+                <select defaultValue={filters.service} name="service">
+                  {Object.entries(serviceLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field case-center-filter-field">
+                <span>負責人</span>
+                <select defaultValue={responsibleValue} name="responsible">
+                  <option value="all">全部可見指派</option>
+                  {currentUser && <option value="me">{currentUser.label}</option>}
+                  {snapshot.responsibleOptions
+                    .filter((person) => !person.currentUser)
+                    .map((person) => (
+                      <option key={person.userId} value={person.userId}>{person.label}</option>
+                    ))}
+                  {selectedResponsibleMissing && (
+                    <option value={filters.responsible}>
+                      人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
+                    </option>
+                  )}
+                </select>
+              </label>
+            </div>
+          </details>
         </form>
+        <nav className="case-center-quick-filters" aria-label="常用個案篩選">
+          <Link className="button button--secondary" aria-current={filters.lifecycle === "all" && filters.service === "all" ? "page" : undefined}
+            href={caseCenterHref({ ...filters, lifecycle: "all", service: "all", page: 1 })}>全部</Link>
+          <Link className="button button--secondary" aria-current={filters.lifecycle === "all" && filters.service === "serving" ? "page" : undefined}
+            href={caseCenterHref({ ...filters, lifecycle: "all", service: "serving", page: 1 })}>服務中</Link>
+          <Link className="button button--secondary" aria-current={filters.lifecycle === "pending_admission" && filters.service === "all" ? "page" : undefined}
+            href={caseCenterHref({ ...filters, lifecycle: "pending_admission", service: "all", page: 1 })}>待收案</Link>
+        </nav>
 
         {snapshot.access.responsibleFilterRestricted ? (
           <div className="panel__body">
@@ -369,6 +369,8 @@ export function CaseCenterWorkspace({
                         <ClientWorkActions
                           canOpenAttendance={canOpenAttendance}
                           canViewSummary={canViewSummary}
+                          canOpenAssessments={canOpenAssessments}
+                          demoOutsideDailyRoster={snapshot.demo && !demoDailyClientIds?.includes(client.id)}
                           client={client}
                           date={filters.date}
                         />
@@ -394,6 +396,8 @@ export function CaseCenterWorkspace({
                   <ClientWorkActions
                     canOpenAttendance={canOpenAttendance}
                     canViewSummary={canViewSummary}
+                    canOpenAssessments={canOpenAssessments}
+                    demoOutsideDailyRoster={snapshot.demo && !demoDailyClientIds?.includes(client.id)}
                     client={client}
                     date={filters.date}
                   />
@@ -428,6 +432,19 @@ export function CaseCenterWorkspace({
           </nav>
         )}
       </section>
+      <details className="task-details case-center-summary">
+        <summary>個案統計</summary>
+        <section aria-label="個案摘要">
+          <p className="data-table__secondary">分支統計依 {formatDate(snapshot.serviceDate)} 判定；符合條件人數另依目前搜尋與篩選。</p>
+          <dl className="case-center-summary__counts">
+            <div><dt>符合條件</dt><dd>{snapshot.access.responsibleFilterRestricted ? "受限" : `${snapshot.total} 人`}</dd></div>
+            <div><dt>可見個案</dt><dd>{snapshot.visibleTotal} 人</dd></div>
+            <div><dt>服務中</dt><dd>{snapshot.summary.serving} 人</dd></div>
+            <div><dt>待收案</dt><dd>{snapshot.summary.pending} 人</dd></div>
+            <div><dt>暫停／結束</dt><dd>{snapshot.summary.paused + snapshot.summary.ended} 人</dd></div>
+          </dl>
+        </section>
+      </details>
     </>
   );
 }

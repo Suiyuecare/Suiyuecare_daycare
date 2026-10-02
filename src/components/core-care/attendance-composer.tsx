@@ -1,16 +1,21 @@
 "use client";
 
 import { FormEvent, MouseEvent, useMemo, useRef, useState } from "react";
-import { ClipboardCheck, ShieldCheck, X } from "lucide-react";
+import { ClipboardCheck, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
+import { withCareRequestDeadline } from "@/lib/core-care/request-deadline";
 import { parseAttendanceSuccess } from "@/lib/core-care/attendance-client";
 import type { AttendanceEventKind } from "@/lib/core-care/attendance-constants";
-import { useCoreDraftGuard } from "./client-continuation";
+import { CoreDraftConfirmation, useCoreDraftGuard } from "./client-continuation";
+import { GovernanceDialog } from "@/components/ui/governance-dialog";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
+import { useCareRequestOwner } from "./use-care-request-owner";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { DailyFieldError, DailyValidationSummary, useDailyFormValidation } from "./daily-form-validation";
+import styles from "./daily-composer.module.css";
 
 type AttendanceRequest = { client_id: string; event_kind: AttendanceEventKind; occurred_at: string; reason?: string };
 
@@ -104,14 +109,26 @@ export function AttendanceComposer({
   selectedClientId?: string;
 }) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const fixedClientSummary = useRef<HTMLDivElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
-  const draft = useCoreDraftGuard();
+  const validation = useDailyFormValidation();
+  const [editorOpen, setEditorOpen] = useState(false);
   const attempt = useCareWriteAttempt<AttendanceRequest>();
+  const attemptScope = useRef<string | null>(null);
+  const privacyScope = JSON.stringify(["attendance", demo, serviceDate, selectedClientId ?? null]);
+  const capabilities = JSON.stringify([enabled, clients.map((client) => [client.id, allowedEvents(client)]).sort()]);
+  const draft = useCoreDraftGuard({
+    scopeKey: privacyScope,
+    revisionKey: capabilities,
+    canPrompt: enabled,
+    isBlocked: () => !!attempt.current(),
+    onDiscard() { setEditorOpen(false); if (!attempt.current()) resetForOpen(); },
+  });
   const offline = useOfflineCareForm({ kind: "attendance", serviceDate, enabled, demo,
-    allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
+    allowedClientIds: clients.map((client) => client.id), fixedClientId: selectedClientId,
+    formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const eligibleClients = useMemo(
     () => clients.filter((client) => allowedEvents(client).length > 0),
     [clients],
@@ -119,6 +136,7 @@ export function AttendanceComposer({
   const [clientId, setClientId] = useState(selectedClientId ?? "");
   const selectedClient =
     eligibleClients.find((client) => client.id === clientId);
+  const fixedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const unavailableSelection = selectedClientId !== undefined && !eligibleClients.some((client) => client.id === selectedClientId);
   const effectiveClientId = selectedClient?.id ?? "";
   const availableEvents = selectedClient ? allowedEvents(selectedClient) : [];
@@ -135,6 +153,10 @@ export function AttendanceComposer({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const requestOwner = useCareRequestOwner(JSON.stringify([privacyScope, capabilities]), () => {
+    if (attempt.current()) attempt.failed();
+    setPending(false); setEditorOpen(false); setError(null); setNotice(null); draft.finish();
+  });
   const isBackfill = isBackfillCandidate(occurredAt);
 
   function resetForOpen() {
@@ -147,21 +169,21 @@ export function AttendanceComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    validation.reset();
   }
 
   function open(event: MouseEvent<HTMLButtonElement>) {
     if (!enabled || unavailableSelection) return;
     trigger.current = event.currentTarget;
-    if (attempt.current()) { dialog.current?.showModal(); return; }
+    if (attempt.current()) { setEditorOpen(true); return; }
     resetForOpen();
-    dialog.current?.showModal();
+    setEditorOpen(true);
   }
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆出勤結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
-    if (!draft.discard()) return;
-    dialog.current?.close();
+    if (attempt.current()) { setEditorOpen(false); setNotice("上一筆出勤結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    draft.requestExit(() => setEditorOpen(false));
   }
 
   function changed() {
@@ -175,14 +197,31 @@ export function AttendanceComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (validation.composing.current || pending) return;
     const prior = attempt.current();
+    if (prior && attemptScope.current !== privacyScope) {
+      setError("上一筆出勤尚未確認，請回到原個案與日期處理；未建立新的一筆。");
+      return;
+    }
     if (prior && !clients.some((client) => client.id === prior.body.client_id)) {
       setError("原出勤個案不在目前名單；請回到原個案確認上一筆結果，未改用其他個案。");
       return;
     }
+    if (prior && selectedClientId !== undefined && prior.body.client_id !== selectedClientId) {
+      setError("原出勤個案與目前選定個案不符；請回到原個案確認上一筆結果。");
+      return;
+    }
+    if (!prior && selectedClientId !== undefined && (unavailableSelection || effectiveClientId !== selectedClientId ||
+      new FormData(event.currentTarget).get("client_id") !== selectedClientId)) {
+      validation.validate(event.currentTarget, { client_id: "已選個案不符，請返回今日工作重新選擇；尚未送出出勤。" });
+      fixedClientSummary.current?.focus();
+      return;
+    }
+    if (!prior && !validation.validate(event.currentTarget)) return;
     if (!enabled || (!prior && (unavailableSelection || !selectedClient || !availableEvents.length)) || !draft.begin()) return;
     setPending(true);
     setError(null);
+    const request = requestOwner.begin();
     try {
       const normalizedOccurredAt = prior?.body.occurred_at ?? taipeiLocalToIso(occurredAt);
       const body = prior?.body ?? {
@@ -190,32 +229,50 @@ export function AttendanceComposer({
         occurred_at: normalizedOccurredAt, ...(reason.trim() ? { reason: reason.trim() } : {}),
       };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
-        draft.saved(); dialog.current?.close();
+        request.throwIfStale();
+        draft.saved(); setEditorOpen(false);
         setNotice("出勤已保存在裝置等待送出；尚未確認儲存到系統。若已超過補登期限，會保留給您確認。");
         return;
       }
+      request.throwIfStale();
+      if (!prior) attemptScope.current = privacyScope;
       const frozen = attempt.prepare(body, idempotencyKey.current);
-      const response = await fetchWithTimeout("/api/attendance", {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": frozen.key,
-        },
-        body: frozen.serialized,
-      });
-      if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error(await responseError(response)); }
-      const raw: unknown = await response.json().catch(() => null);
+      const result = await withCareRequestDeadline(async (signal) => {
+        const response = await fetchWithTimeout("/api/attendance", {
+          method: "POST", cache: "no-store", signal,
+          headers: { "Content-Type": "application/json", "Idempotency-Key": frozen.key },
+          body: frozen.serialized,
+        });
+        signal.throwIfAborted();
+        if (!response.ok) {
+          const definite = await isDefiniteCareRejection(response);
+          signal.throwIfAborted();
+          const message = await responseError(response);
+          signal.throwIfAborted();
+          return { response, raw: null, definite, message };
+        }
+        const raw: unknown = await response.json().catch(() => null);
+        signal.throwIfAborted();
+        return { response, raw, definite: false, message: null };
+      }, { signal: request.signal });
+      request.throwIfStale();
+      const { response, raw } = result;
+      if (!response.ok) {
+        if (result.definite) attempt.failed(response.status);
+        throw new Error(result.message ?? "出勤尚未確認儲存，請重試原操作。");
+      }
       parseAttendanceSuccess(raw, response.status, {
         clientId: frozen.body.client_id,
         eventKind: frozen.body.event_kind,
         occurredAt: frozen.body.occurred_at,
       });
       await offline.saved();
+      request.throwIfStale();
       attempt.confirmed();
+      attemptScope.current = null;
 
       draft.saved();
-      dialog.current?.close();
+      setEditorOpen(false);
       setNotice(
         demo
           ? `展示${eventLabels[effectiveEventKind]}已通過相同驗證；展示資料不會永久保存。`
@@ -224,21 +281,23 @@ export function AttendanceComposer({
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (submitError) {
+      if (!request.isCurrent()) return;
       const uncertain = attempt.failed();
       if (uncertain) await offline.retainUnconfirmed(uncertain.body);
+      if (!request.isCurrent()) return;
       setError(
         submitError instanceof Error && submitError.message
           ? submitError.message
           : "出勤尚未確認儲存。請保留內容直接重試，系統會辨識同一次送出。",
       );
     } finally {
-      draft.finish();
-      setPending(false);
+      request.finish();
+      if (request.isCurrent()) { draft.finish(); setPending(false); }
     }
   }
 
   return (
-    <div className="core-composer">
+    <div className={`core-composer ${styles.composer}`}>
       <button
         className="button button--primary"
         disabled={!enabled || eligibleClients.length === 0 || unavailableSelection}
@@ -262,38 +321,18 @@ export function AttendanceComposer({
           {notice}
         </p>
       ) : null}
-      <dialog
-        aria-labelledby="attendance-dialog-title"
-        className="core-dialog"
-        onCancel={(event) => { event.preventDefault(); close(); }}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) close();
-        }}
-        onClose={() => trigger.current?.focus()}
-        ref={dialog}
-      >
-        <form className="core-dialog__surface" data-core-care-draft ref={formRef} onChange={() => { if (!attempt.current()) void offline.capture(); }} onSubmit={submit}>
-          <header className="drawer__header">
-            <div>
-              <p className="eyebrow">第 1 步・出勤</p>
-              <h2 id="attendance-dialog-title">簽到、簽退或登記未到</h2>
-              <p>確認個案、簽到退動作與時間；服務日依臺北時間判定。</p>
-            </div>
-            <button
-              aria-label="關閉"
-              className="icon-button"
-              onClick={close}
-              disabled={pending}
-              type="button"
-            >
-              <X aria-hidden="true" />
-            </button>
-          </header>
+      <GovernanceDialog open={editorOpen && !draft.open} title="簽到、簽退或登記未到" busy={pending}
+        cancelLabel={attempt.locked && !pending ? "稍後處理" : "取消"} onRequestClose={close} returnFocusRef={trigger}>
+        <form data-core-care-draft noValidate aria-busy={pending} ref={formRef}
+          onCompositionStart={validation.onCompositionStart} onCompositionEnd={validation.onCompositionEnd} onKeyDown={validation.onKeyDown}
+          onChange={(event) => { if (!attempt.current()) { validation.clearChanged(event.target); void offline.capture(); } }} onSubmit={submit}>
+          <p className="eyebrow">第 1 步・出勤</p>
+          <p>確認個案、簽到退動作與時間；服務日依臺北時間判定。</p>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
-          <div className="drawer__body core-dialog__body">
+          <DailyValidationSummary validation={validation} />
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
             <OfflineCareFormNotice offline={offline} onRestore={(values) => {
-              setClientId(values.client_id ?? "");
+              setClientId(selectedClientId ?? values.client_id ?? "");
               setEventKind((values.event_kind ?? "check_in") as AttendanceEventKind);
               setOccurredAt(values.occurred_at ?? ""); setReason(values.reason ?? ""); draft.changed();
             }} />
@@ -303,11 +342,17 @@ export function AttendanceComposer({
                 超過伺服器時間 15 分鐘會自動視為補登，須具補登權限、最近 15 分鐘重新驗證並填寫理由。
               </span>
             </div>
-            <label className="field">
-              <span>個案 *</span>
+            {selectedClientId !== undefined ? <div className={styles.selectedClient} role="group" aria-label="已選定個案"
+              aria-describedby={validation.errors.client_id ? validation.errorId("client_id") : undefined}
+              ref={fixedClientSummary} tabIndex={-1}>
+              <span>個案</span><strong>{fixedClient?.name ?? "個案範圍已變更"}</strong>{fixedClient ? <small>{fixedClient.code}</small> : null}
+              <input type="hidden" name="client_id" value={selectedClientId} />
+              <DailyFieldError validation={validation} name="client_id" />
+            </div> : <label className="field">
+              <span id={validation.labelId("client_id")}>個案 *</span>
               <select
-                autoFocus
                 name="client_id"
+                {...validation.field("client_id")}
                 onChange={(event) => {
                   changed();
                   const nextClient = eligibleClients.find(
@@ -328,11 +373,13 @@ export function AttendanceComposer({
                   </option>
                 ))}
               </select>
-            </label>
+              <DailyFieldError validation={validation} name="client_id" />
+            </label>}
             <label className="field">
-              <span>出勤動作 *</span>
+              <span id={validation.labelId("event_kind")}>出勤動作 *</span>
               <select
                 name="event_kind"
+                {...validation.field("event_kind")}
                 onChange={(event) => {
                   changed();
                   setEventKind(event.target.value as AttendanceEventKind);
@@ -346,11 +393,13 @@ export function AttendanceComposer({
                   </option>
                 ))}
               </select>
+              <DailyFieldError validation={validation} name="event_kind" />
             </label>
             <label className="field">
-              <span>事件日期與時間 *</span>
+              <span id={validation.labelId("occurred_at")}>事件日期與時間 *</span>
               <input
                 name="occurred_at"
+                {...validation.field("occurred_at")}
                 onChange={(event) => {
                   changed();
                   setOccurredAt(event.target.value);
@@ -359,12 +408,14 @@ export function AttendanceComposer({
                 type="datetime-local"
                 value={occurredAt}
               />
+              <DailyFieldError validation={validation} name="occurred_at" />
             </label>
             <label className="field">
-              <span>補登理由{isBackfill ? " *" : "（超過 15 分鐘時必填）"}</span>
+              <span id={validation.labelId("reason")}>補登理由{isBackfill ? " *" : "（超過 15 分鐘時必填）"}</span>
               <textarea
+                className="resize-none"
                 name="reason"
-                aria-describedby="attendance-reason-hint"
+                {...validation.field("reason", "attendance-reason-hint")}
                 maxLength={1000}
                 onChange={(event) => {
                   changed();
@@ -374,6 +425,7 @@ export function AttendanceComposer({
                 required={isBackfill}
                 value={reason}
               />
+              <DailyFieldError validation={validation} name="reason" />
               <small id="attendance-reason-hint">
                 {isBackfill
                   ? "目前時間已超過 15 分鐘；需確認補登授權與理由。"
@@ -386,16 +438,7 @@ export function AttendanceComposer({
               </p>
             ) : null}
           </fieldset>
-          </div>
           <footer className="drawer__footer">
-            <button
-              className="button button--secondary"
-              onClick={close}
-              disabled={pending}
-              type="button"
-            >
-              {attempt.locked && !pending ? "稍後處理" : "取消"}
-            </button>
             <button
               className="button button--primary"
               disabled={pending || (!attempt.locked && (!effectiveClientId || availableEvents.length === 0))}
@@ -405,7 +448,8 @@ export function AttendanceComposer({
             </button>
           </footer>
         </form>
-      </dialog>
+      </GovernanceDialog>
+      <CoreDraftConfirmation draft={draft} />
     </div>
   );
 }

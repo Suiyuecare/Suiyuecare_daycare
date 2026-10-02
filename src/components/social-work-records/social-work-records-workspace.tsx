@@ -1,18 +1,22 @@
+"use client";
+
 import {
   CalendarClock,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
-  ClipboardList,
   ClockAlert,
   FilePenLine,
   Search,
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
+import { useId, useRef, useState } from "react";
 
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
+import type { TenantContext } from "@/lib/domain/types";
+import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import type {
   SocialWorkRecordFilters,
   SocialWorkRecordSnapshot,
@@ -25,12 +29,17 @@ import {
   SocialWorkRecordFreshness,
 } from "./social-work-record-actions";
 import styles from "./social-work-records.module.css";
+import { SocialWorkRecordController, useSocialWorkController } from "./social-work-record-controller";
 
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat("zh-TW", {
+export function formatTimestamp(value: string) {
+  const parts = new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  }).format(new Date(value));
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+  // ICU engines choose different literal spacing; fixed separators hydrate
+  // consistently while the date/time fields still follow Asia/Taipei.
+  return `${part("year")}/${part("month")}/${part("day")} ${part("hour")}:${part("minute")}`;
 }
 
 function formatDate(value: string | null) {
@@ -78,6 +87,7 @@ function RecordHistory({ record }: { record: SocialWorkServiceRecord }) {
 }
 
 export function SocialWorkRecordsWorkspace({
+  context,
   canManage,
   canSign,
   filters,
@@ -86,6 +96,7 @@ export function SocialWorkRecordsWorkspace({
   page,
   snapshot,
 }: {
+  context: TenantContext;
   canManage: boolean;
   canSign: boolean;
   filters: SocialWorkRecordFilters;
@@ -94,12 +105,23 @@ export function SocialWorkRecordsWorkspace({
   page: PageCatalogEntry;
   snapshot: SocialWorkRecordSnapshot | null;
 }) {
-  if (loadError || !snapshot) {
+  return <SocialWorkRecordController context={context} snapshot={loadError ? null : snapshot} filters={filters} capabilities={{ canManage, canSign, hasRecentAal2 }}>
+    <SocialWorkRecordsContent filters={filters} page={page} />
+  </SocialWorkRecordController>;
+}
+
+function SocialWorkRecordsContent({ filters, page }: { filters: SocialWorkRecordFilters; page: PageCatalogEntry }) {
+  const controller = useSocialWorkController();
+  const { canManage, canSign, hasRecentAal2 } = controller?.capabilities ?? { canManage: false, canSign: false, hasRecentAal2: false };
+  const [filterError, setFilterError] = useState<{ field: "from" | "to"; message: string } | null>(null);
+  const filterId = useId(); const filterComposition = useRef(false);
+  const snapshot = controller?.snapshot;
+  if (!snapshot) {
     return <section className="empty-card core-care-state" role="alert">
       <span className="empty-card__icon empty-card__icon--warning"><CircleAlert aria-hidden="true" /></span>
       <h1>社工服務紀錄暫時無法載入</h1>
-      <p>正式快照採失敗即關閉；系統沒有擴大機構、分支或個案指派範圍，也沒有改用展示資料。</p>
-      <a className="button button--secondary" href="?">重新載入</a>
+      <p>目前沒有可用的授權資料。已送出的操作仍保留，不會補入其他分支或展示資料。</p>
+      <button className="button button--secondary" disabled={!controller || controller.readBlocked} onClick={controller?.refresh}>重新載入</button>
     </section>;
   }
 
@@ -111,10 +133,10 @@ export function SocialWorkRecordsWorkspace({
     </nav>
     <header className="page-heading core-care-heading">
       <div>
-        <p className="eyebrow">指派個案時間軸・頁面 {page.number}</p>
+        <p className="eyebrow">社工服務</p>
         <h1>{page.title}</h1>
         <p className="page-heading__description">
-          以實際發生時間記錄服務類型、內容、結果與作者；草稿、簽署、更正及追蹤皆追加新版本，原紀錄不會被覆寫。
+          選擇個案，記錄服務與後續追蹤。
         </p>
       </div>
       <div className="page-heading__actions">
@@ -124,14 +146,9 @@ export function SocialWorkRecordsWorkspace({
 
     {snapshot.demo ? <div className={`callout ${styles.demo}`} role="status">
       <CircleAlert aria-hidden="true" /><span><strong>展示模式：</strong>個案、作者與內容皆為合成示例；所有正式寫入按鈕維持唯讀。</span>
-    </div> : <div className={`callout ${styles.security}`}>
-      <ShieldCheck aria-hidden="true" /><span>只載入目前機構、分支及被指派個案。簽署與更正需最近 15 分鐘 AAL2；已簽紀錄只能追加帶理由且連回原版的更正版。</span>
-    </div>}
-    <div className={`callout ${styles.offline}`} role="status">
-      <ClipboardList aria-hidden="true" /><span><strong>離線正式同步尚未設定：</strong>本頁不會宣稱離線草稿已送達；網路中斷時請保留畫面並用同一操作重試。</span>
-    </div>
-    {!snapshot.demo && !canManage ? <div className="callout" role="status">
-      <ShieldCheck aria-hidden="true" /><span>目前角色只有查看權限；新增、修訂、簽署、更正與追蹤均由 API 及資料庫拒絕。</span>
+    </div> : <details className={styles.operatingNotes}><summary>紀錄與安全說明</summary><p>只查看目前授權範圍。簽署、更正須近期身分驗證；更正版保留原紀錄。本頁不提供裝置離線保存，完整重載不能復原未確認操作。</p></details>}
+    {!snapshot.demo && !canManage && !canSign ? <div className="callout" role="status">
+      <ShieldCheck aria-hidden="true" /><span>目前只有查看權限；新增、修訂、簽署、更正與追蹤尚未開放。</span>
     </div> : null}
 
     <section aria-label="社工服務摘要" className="metric-grid">
@@ -151,14 +168,21 @@ export function SocialWorkRecordsWorkspace({
       <div className="panel__header"><div className="panel__title">
         <h2>服務時間軸</h2><p>{snapshot.matchingTotal} 筆符合條件・快照 {formatTimestamp(snapshot.generatedAt)}・<SocialWorkRecordFreshness demo={snapshot.demo} staleAfter={snapshot.staleAfter} /></p>
       </div></div>
-      <form className={`filter-bar ${styles.filters}`} method="get">
-        <label className="field field--compact"><span>起日</span><input defaultValue={filters.dateFrom ?? ""} name="from" type="date" /></label>
-        <label className="field field--compact"><span>迄日</span><input defaultValue={filters.dateTo ?? ""} name="to" type="date" /></label>
+      <form className={`filter-bar ${styles.filters}`} method="get" noValidate onCompositionStart={() => { filterComposition.current = true; }} onCompositionEnd={() => { filterComposition.current = false; }} onChange={() => setFilterError(null)} onSubmit={(event) => {
+        if (controller?.readBlocked || filterComposition.current) { event.preventDefault(); return; }
+        const data = new FormData(event.currentTarget); const from = String(data.get("from") ?? ""); const to = String(data.get("to") ?? "");
+        const valid = (value: string) => !value || /^\d{4}-\d{2}-\d{2}$/u.test(value) && isStrictOffsetDateTime(`${value}T12:00:00+08:00`);
+        const problem = !valid(from) ? { field: "from" as const, message: "請選擇有效起日。" } : !valid(to) ? { field: "to" as const, message: "請選擇有效迄日。" } : from && to && from > to ? { field: "to" as const, message: "迄日不可早於起日。" } : null;
+        if (problem) { event.preventDefault(); setFilterError(problem); event.currentTarget.querySelector<HTMLInputElement>(`[name="${problem.field}"]`)?.focus(); }
+      }}>
+        <label className="field field--compact"><span>起日</span><input defaultValue={filters.dateFrom ?? ""} name="from" type="date" aria-invalid={filterError?.field === "from"} aria-describedby={filterError?.field === "from" ? `${filterId}-error` : undefined} /></label>
+        <label className="field field--compact"><span>迄日</span><input defaultValue={filters.dateTo ?? ""} name="to" type="date" aria-invalid={filterError?.field === "to"} aria-describedby={filterError?.field === "to" ? `${filterId}-error` : undefined} /></label>
         <label className="field field--compact"><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部指派個案</option>{snapshot.clientOptions.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}</option>)}</select></label>
         <label className="field field--compact"><span>服務類型</span><select defaultValue={filters.serviceType ?? ""} name="type"><option value="">全部類型</option>{snapshot.serviceTypeOptions.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
         <label className="field field--compact"><span>作者</span><select defaultValue={filters.authorUserId ?? ""} name="author"><option value="">全部作者</option>{snapshot.authorOptions.map((author) => <option key={author.userId} value={author.userId}>{author.displayName}</option>)}</select></label>
-        <button className="button button--secondary" type="submit">套用篩選</button>
+        <button className="button button--secondary" disabled={controller?.readBlocked} type="submit">套用篩選</button>
         <Link className="button button--quiet" href="?">清除</Link>
+        {filterError && <p className={styles.full} id={`${filterId}-error`} role="alert">{filterError.message}</p>}
       </form>
       {snapshot.recordsTruncated ? <div className={`callout ${styles.truncated}`} role="status">
         <CircleAlert aria-hidden="true" /><span>結果超過 200 筆，畫面依實際發生時間顯示前 200 筆；摘要仍採相同完整快照。請縮小日期、個案、類型或作者。</span>

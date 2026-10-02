@@ -1,9 +1,10 @@
 # API 邊界
 
-所有回應使用 `{ requestId, status, data, errors }`，且包含 `private, no-store`。寫入必須提供冪等鍵；錯誤不回傳 stack、token、原始附件或明文個資。瀏覽器呼叫統一經有界逾時；未知寫入結果保留相同冪等鍵，只有使用者修改內容後才換鍵。一般互動為 20 秒，25MB HTML 上傳／重解析為 60 秒，登出清理為 10 秒。
+所有回應使用 `{ requestId, status, data, errors }`，且包含 `private, no-store`。寫入必須提供冪等鍵；錯誤不回傳 stack、token、原始附件或明文個資。瀏覽器呼叫統一經有界逾時；未知寫入結果固定原內容、來源與冪等鍵，不得藉編輯換鍵。只有首次取得嚴格未提交拒絕、且從未結果不明的操作，才可回到未送出編輯並另建新操作。一般互動為 20 秒，25MB HTML 上傳／重解析為 60 秒，登出清理為 10 秒。
 
 | 介面 | 已實作邊界 | 正式前必要條件 |
 |---|---|---|
+| `GET /api/social-work-records/snapshot`、`GET /api/psychosocial-assessments/snapshot` | 頁29／28明確唯讀回查；先驗目前真員工AAL2及clients.read／social_work_records.read，再驗無query、UUID範圍／nonce及精確strict filter headers。呼叫各自原audited loader與social專用近期證據，回覆綁定actor／範圍／nonce／filters／canonical authority與capabilities，snapshot需有效且符合filters；private no-store、錯誤不回PHI。瀏覽器自己的unknown lease與暫時read fence互斥其他工作，auth／invalid回覆隔離舊來源，保留原write key/body/lease，不執行write／MFA／RSC refresh | 真hosted Auth／RPC／權限矩陣、實际MFA取得與scope變更後context復原、完整重載durable intent、32確認標記完整定位及全量部署門檻；本機假HTTP不代替這些驗收 |
 | `GET /app/staff/workspace/case-center` | Server Component 解析 `date`、`q`、生命週期、服務狀態、責任人與頁碼；只從目前 TenantContext 的機構／分支讀取 RLS 可見 `clients`，依穩定 client ID 去重並每頁 24 筆。責任人只使用 RLS 可見指派；無 `profiles.manage` 時退回不含姓名的人員代碼，無指派範圍時明示受限而非回報 0 | 正式 Supabase 角色矩陣與跨分支瀏覽器 E2E、500 個案／50 人效能；新增個案仍須使用第 60／61 頁專用寫入流程，不在本頁開放 |
 | `POST /api/auth/reauth/challenge` | 驗證登入 JWT、AAL2 與 session，發出一次性 nonce 且資料庫只保存 SHA-256 | 正式 Auth factor／session 撤銷 E2E |
 | `POST /api/auth/reauth` | 由挑戰後的較新 AMR/AAL2 JWT 原子消耗 nonce；重播與舊 JWT 均拒絕 | 所有高風險 Route Handler 與資料庫 policy 整體矩陣驗收 |

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TenantContext } from "@/lib/domain/types";
 import type { DiaryRecord } from "@/lib/care-diary/schema";
-const stubs = vi.hoisted(() => ({ authorize: vi.fn(), reauth: vi.fn(), rpc: vi.fn(), client: vi.fn() }));
+const stubs = vi.hoisted(() => ({ authorize: vi.fn(), reauth: vi.fn(), rpc: vi.fn(), client: vi.fn(), failure: vi.fn() }));
 vi.mock("@/lib/integrations/http", () => ({
   authorizeStaffRequest: stubs.authorize, requireRecentAal2: stubs.reauth,
   readJsonObject: (request: Request) => request.json(),
-  databaseFailure: (code: string, message: string, httpStatus: number) => Object.assign(new Error(message), { code, httpStatus }),
+  databaseFailure: (code: string, message: string, httpStatus: number) => {
+    stubs.failure(code, message, httpStatus);
+    return Object.assign(new Error(message), { code, httpStatus });
+  },
   handleIntegrationRoute: async (run: (id: string) => Promise<Response>) => {
     try { return await run("synthetic-request"); } catch (error) { const value = error as { code: string; httpStatus: number }; return Response.json({ error: value.code }, { status: value.httpStatus ?? 500 }); }
   },
@@ -31,6 +34,12 @@ describe("care diary lifecycle HTTP boundary", () => {
   it("requires recent authentication for signatures, without fabricating it", async () => { stubs.reauth.mockRejectedValue(Object.assign(new Error("reauth"), { code: "RECENT_AAL2_REQUIRED", httpStatus: 403 })); const response = await post({ action: "sign", base_version: 2, confirmed: true }); expect(response.status).toBe(403); expect(await response.json()).toEqual({ error: "RECENT_AAL2_REQUIRED" }); expect(stubs.reauth).toHaveBeenCalledExactlyOnceWith(actor); expect(stubs.client).not.toHaveBeenCalled(); expect(stubs.rpc).not.toHaveBeenCalled(); });
   it("does not report simulated signatures as real ones", async () => { stubs.authorize.mockResolvedValue({ ...actor, demo: true }); expect((await post({ action: "sign", base_version: 2, confirmed: true })).status).toBe(409); expect(stubs.rpc).not.toHaveBeenCalled(); });
   it("uses trusted actor scope and returns structured version conflict", async () => { stubs.rpc.mockResolvedValue({ data: null, error: { code: "40001" } }); const response = await post({ action: "submit", base_version: 2 }); expect(response.status).toBe(409); expect(stubs.rpc).toHaveBeenCalledWith("mutate_care_diary", expect.objectContaining({ p_expected_organization_id: id, p_expected_branch_id: id, p_record_id: id, p_base_version: 2 })); });
+  it.each(["edit", "submit"] as const)("explains a %s database constraint without claiming only observations are missing", async (action) => {
+    stubs.rpc.mockResolvedValue({ data: null, error: { code: "23514" } });
+    const response = await post({ action, base_version: 1, ...(action === "edit" ? { data: fields } : {}) });
+    expect(response.status).toBe(422);
+    expect(stubs.failure).toHaveBeenCalledExactlyOnceWith("DIARY_ACTION_FAILED", expect.stringContaining("班別與發生時間相符"), 422);
+  });
   it("rejects empty 2xx database receipts", async () => { stubs.rpc.mockResolvedValue({ data: {}, error: null }); expect((await post({ action: "submit", base_version: 1 })).status).toBe(503); });
   it("rejects extra client scope and signed author fields", async () => { expect((await post({ action: "correct", base_version: 3, reason: "reason", signed_by: id, organization_id: id })).status).toBe(422); expect(stubs.rpc).not.toHaveBeenCalled(); });
   it.each(["edit", "submit"] as const)("opts in to routine permission and allows authorized AAL1 %s to reach the RPC", async (action) => {

@@ -201,7 +201,13 @@ select public.issue_aal2_reauth_challenge('db500000-0000-4000-8000-000000000001'
 select set_config('test.fresh_factor',floor(extract(epoch from clock_timestamp()))::text,true);
 update auth.mfa_amr_claims set created_at=to_timestamp(current_setting('test.fresh_factor')::bigint),updated_at=to_timestamp(current_setting('test.fresh_factor')::bigint)
  where session_id='d8300000-0000-4000-8000-000000000011' and authentication_method='totp';
-select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{amr}',jsonb_build_array(jsonb_build_object('method','oauth','timestamp',current_setting('test.custom_amr')::bigint),jsonb_build_object('method','totp','timestamp',current_setting('test.fresh_factor')::bigint)))::text,true);
+-- A successful factor verification also returns a refreshed JWT. Do not retain
+-- the transaction-start iat from custom_login while the challenge uses the
+-- advancing server clock; a slower genuine test must still model that token.
+select set_config('request.jwt.claims',jsonb_set(jsonb_set(jsonb_set(
+ current_setting('request.jwt.claims')::jsonb,'{iat}',to_jsonb(current_setting('test.fresh_factor')::bigint)),
+ '{jti}',to_jsonb('synthetic-after-actual-factor'::text)),
+ '{amr}',jsonb_build_array(jsonb_build_object('method','oauth','timestamp',current_setting('test.custom_amr')::bigint),jsonb_build_object('method','totp','timestamp',current_setting('test.fresh_factor')::bigint)))::text,true);
 set local role authenticated;
 select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),true,'actual staff Google challenge records fresh AAL2 proof');
 select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),false,'consumed MFA challenge cannot be reused');

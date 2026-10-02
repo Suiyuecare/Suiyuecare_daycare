@@ -1,7 +1,9 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSyntheticPreviewMode } from "@/lib/env";
 import { isSyntheticPreviewRequestBlocked } from "@/lib/synthetic-preview/config";
+import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
+import { createServerReadFetch } from "@/lib/supabase/server-read-fetch";
 
 export async function proxy(request: NextRequest) {
   if (isSyntheticPreviewMode()) {
@@ -24,24 +26,45 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  const supabase = createServerClient(url, publishableKey, {
-    cookies: {
-      getAll: () => request.cookies.getAll(),
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) =>
-          request.cookies.set(name, value),
-        );
-        response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options),
-        );
-      },
-    },
-  });
+  try {
+    await withServerReadDeadline(async (deadline) => {
+      const owner = AbortSignal.any([deadline, request.signal]);
+      owner.throwIfAborted();
+      const changes: Array<{ name: string; value: string; options: CookieOptions }> = [];
+      const stagedCookies = new Map(request.cookies.getAll().map(({ name, value }) => [name, value]));
+      const refreshHeaders = new Map<string, string>();
+      const supabase = createServerClient(url, publishableKey, {
+        global: { fetch: createServerReadFetch(owner) },
+        cookies: {
+          // Subsequent SDK cleanup must see chunks created by an earlier
+          // staged refresh, while the real request remains unchanged.
+          getAll: () => Array.from(stagedCookies, ([name, value]) => ({ name, value })),
+          setAll(cookiesToSet, headers) {
+            // A late refresh may include removals as well as new tokens. Stage
+            // both until this optional refresh finishes inside its read owner.
+            if (owner.aborted) return;
+            changes.push(...cookiesToSet);
+            cookiesToSet.forEach(({ name, value }) => stagedCookies.set(name, value));
+            Object.entries(headers).forEach(([name, value]) => refreshHeaders.set(name, value));
+          },
+        },
+      });
 
-  // Refresh and cryptographically verify the session; authorization still
-  // happens in Server Components, Route Handlers, and RLS.
-  await supabase.auth.getClaims();
+      // Refresh and cryptographically verify, never authorize in Proxy.
+      await supabase.auth.getClaims();
+      owner.throwIfAborted();
+      if (changes.length) {
+        changes.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        changes.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+      }
+      refreshHeaders.forEach((value, name) => response.headers.set(name, value));
+    });
+  } catch {
+    // Optional refresh failure must not fabricate identity or clear cookies.
+    // Continue to the unchanged Server Component, API and RLS admission gates;
+    // this also leaves independent logout and signed webhooks reachable.
+  }
 
   return response;
 }

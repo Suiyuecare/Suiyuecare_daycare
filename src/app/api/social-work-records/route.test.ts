@@ -4,6 +4,7 @@ const stubs = vi.hoisted(() => ({
   authorizeStaffRequest: vi.fn(),
   readJsonObject: vi.fn(),
   requireRecentAal2: vi.fn(),
+  requireScoped: vi.fn(),
   createServerSupabaseClient: vi.fn(),
   rpc: vi.fn(),
   maybeSingle: vi.fn(),
@@ -37,8 +38,13 @@ vi.mock("@/lib/integrations/http", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: stubs.createServerSupabaseClient,
 }));
+vi.mock("@/lib/social-work-records/reauth", () => ({ requireRecentSocialWorkAal2: stubs.requireScoped }));
 
 import { PATCH, POST } from "./route";
+import {
+  parseSocialWorkActionSuccess,
+  type SocialWorkActionExpectation,
+} from "@/lib/social-work-records/parser";
 
 const organizationId = "29100000-0000-4000-8000-000000000001";
 const branchId = "29200000-0000-4000-8000-000000000001";
@@ -114,12 +120,52 @@ function followUpReceipt(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function patchCase(action: Exclude<SocialWorkActionExpectation["action"], "create_draft">) {
+  if (["revise_draft", "sign", "correct"].includes(action)) {
+    const expectedVersion = action === "correct" ? 2 : 1;
+    const fields = {
+      clientId, recordKey,
+      previousVersionId: action === "correct" ? signedVersionId : draftVersionId,
+      expectedVersion,
+    };
+    return {
+      body: action === "sign" ? { action, ...fields }
+        : {
+          ...createBody, ...fields, action,
+          ...(action === "correct" ? { correctionReason: "合成更正理由" } : {}),
+        },
+      row: recordReceipt({
+        version_id: "29710000-0000-4000-8000-000000000003", record_version: expectedVersion + 1,
+        record_state: action === "revise_draft" ? "draft"
+          : action === "sign" ? "signed" : "corrected",
+      }),
+      expectation: { action, recordKey, expectedVersion },
+    };
+  }
+  const expectedSequence = action === "track" ? 0 : 1;
+  return {
+    body: {
+      action, clientId, recordKey, serviceVersionId: signedVersionId, expectedSequence,
+      ...(action === "track" ? { dueOn: "2026-09-08", followUpPlan: "合成追蹤計畫" }
+        : action === "complete_follow_up" ? { followUpOutcome: "合成追蹤結果" }
+          : { transitionReason: "合成取消理由" }),
+    },
+    row: followUpReceipt({
+      follow_up_sequence: expectedSequence + 1,
+      follow_up_status: action === "track" ? "pending"
+        : action === "complete_follow_up" ? "completed" : "cancelled",
+    }),
+    expectation: { action, recordKey, expectedFollowUpSequence: expectedSequence },
+  };
+}
+
 describe("social-work service API boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
     stubs.readJsonObject.mockResolvedValue(createBody);
-    stubs.requireRecentAal2.mockResolvedValue(undefined);
+    stubs.requireRecentAal2.mockRejectedValue(new Error("generic evidence must not authorize social work"));
+    stubs.requireScoped.mockResolvedValue(undefined);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
   });
@@ -187,13 +233,14 @@ describe("social-work service API boundary", () => {
       serviceResult: "更正合成結果",
       correctionReason: "修正實際事實",
     });
-    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("reauth"), {
+    stubs.requireScoped.mockRejectedValue(Object.assign(new Error("reauth"), {
       code: "AAL2_REQUIRED",
       httpStatus: 403,
     }));
     const response = await PATCH(request("PATCH"));
     expect(response.status).toBe(403);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledWith(actor);
+    expect(stubs.requireScoped).toHaveBeenCalledWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
     expect(stubs.rpc).not.toHaveBeenCalled();
   });
 
@@ -215,8 +262,9 @@ describe("social-work service API boundary", () => {
     });
     const response = await PATCH(request("PATCH"));
     const body = await response.json();
-    expect(response.status).toBe(200);
-    expect(stubs.requireRecentAal2).toHaveBeenCalledWith(actor);
+    expect(response.status).toBe(201);
+    expect(stubs.requireScoped).toHaveBeenCalledWith(actor);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
     expect(body.data).toMatchObject({
       action: "sign", recordVersion: 2, recordState: "signed",
     });
@@ -235,7 +283,7 @@ describe("social-work service API boundary", () => {
     stubs.maybeSingle.mockResolvedValue({ data: followUpReceipt(), error: null });
     const response = await PATCH(request("PATCH"));
     const body = await response.json();
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(201);
     expect(body.data).toMatchObject({
       receiptKind: "follow_up",
       action: "track",
@@ -261,5 +309,42 @@ describe("social-work service API boundary", () => {
     expect(response.status).toBe(409);
     expect((await response.json()).errors[0].code)
       .toBe("SOCIAL_WORK_VERSION_CONFLICT");
+  });
+
+  const patchActions = [
+    "revise_draft", "sign", "correct", "track", "complete_follow_up", "cancel_follow_up",
+  ] as const;
+  it.each(patchActions)("accepts actual %s API receipts through the real client parser", async (action) => {
+    const fixture = patchCase(action);
+    stubs.readJsonObject.mockResolvedValue(fixture.body);
+    for (const replayed of [false, true]) {
+      stubs.maybeSingle.mockResolvedValue({ data: { ...fixture.row, replayed }, error: null });
+      const response = await PATCH(request("PATCH"));
+      const envelope = await response.json();
+      // Both layers are real: the API's HTTP status must agree with the exact
+      // frontend receipt parser, not with a permissive test-only decoder.
+      expect(() => parseSocialWorkActionSuccess(envelope, fixture.expectation, response.status))
+        .not.toThrow();
+      expect(response.status).toBe(replayed ? 200 : 201);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(envelope.data.replayed).toBe(replayed);
+    }
+    expect(stubs.rpc).toHaveBeenCalledTimes(2);
+    expect(stubs.rpc.mock.calls.map(([, args]) => args.p_idempotency_key))
+      .toEqual([idempotencyKey, idempotencyKey]);
+    expect(stubs.requireScoped).toHaveBeenCalledTimes(
+      action === "sign" || action === "correct" ? 2 : 0,
+    );
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("keeps create HTTP and real client receipt parsing aligned (replayed=%s)", async (replayed) => {
+    stubs.maybeSingle.mockResolvedValue({ data: recordReceipt({ replayed }), error: null });
+    const response = await POST(request("POST"));
+    const envelope = await response.json();
+    expect(() => parseSocialWorkActionSuccess(envelope, { action: "create_draft" }, response.status))
+      .not.toThrow();
+    expect(response.status).toBe(replayed ? 200 : 201);
+    expect(stubs.rpc).toHaveBeenCalledTimes(1);
   });
 });

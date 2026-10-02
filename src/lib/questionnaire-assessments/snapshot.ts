@@ -1,42 +1,13 @@
 import "server-only";
 
-import { z } from "zod";
-
 import type { TenantContext } from "@/lib/domain/types";
+import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 import { getQuestionnaireForm } from "./forms";
-import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "./types";
-
-const answerSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("answered"), value: z.string() }).strict(),
-  z.object({ state: z.literal("missing") }).strict(),
-  z.object({ state: z.literal("not_applicable"), reason: z.string() }).strict(),
-]);
-
-const snapshotSchema = z.object({
-  formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
-  generatedAt: z.string().datetime({ offset: true }),
-  matchingTotal: z.number().int().nonnegative(),
-  clients: z.array(z.object({
-    clientId: z.string().uuid(),
-    displayName: z.string(),
-    serviceStatus: z.enum(["active", "suspended"]),
-    latest: z.object({
-      assessmentKey: z.string().uuid(),
-      versionId: z.string().uuid(),
-      version: z.number().int().positive(),
-      formVersion: z.string(),
-      assessedOn: z.string(),
-      answers: z.record(z.string(), answerSchema),
-      context: z.record(z.string(), z.string()),
-      recordState: z.literal("draft"),
-      authorDisplayName: z.string(),
-      createdAt: z.string().datetime({ offset: true }),
-      contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
-    }).strict().nullable(),
-  }).strict()),
-}).strict();
+import { parseQuestionnaireHistoryPage, parseQuestionnaireSnapshot } from "./contract";
+import { parseQuestionnaireResumeSummary } from "./resume-summary";
+import type { QuestionnaireDraft, QuestionnaireFormKey, QuestionnaireSnapshot } from "./types";
 
 export class QuestionnaireSnapshotError extends Error {
   constructor() {
@@ -51,17 +22,71 @@ export async function loadQuestionnaireSnapshot(
   clientId: string | null,
 ): Promise<QuestionnaireSnapshot> {
   if (!getQuestionnaireForm(formKey)) throw new QuestionnaireSnapshotError();
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) throw new QuestionnaireSnapshotError();
-  const { data, error } = await supabase.rpc("questionnaire_assessment_snapshot", {
-    p_expected_organization_id: context.organizationId,
-    p_expected_branch_id: context.branchId,
-    p_form_key: formKey,
-    p_client_id: clientId,
-  });
-  const parsed = snapshotSchema.safeParse(data);
-  if (error || !parsed.success || parsed.data.formKey !== formKey) {
+  try {
+    return await withServerReadDeadline(async (signal) => {
+      const supabase = await createServerSupabaseClient();
+      if (!supabase || signal.aborted) throw new QuestionnaireSnapshotError();
+      const { data, error } = await supabase.rpc("questionnaire_assessment_snapshot", {
+        p_expected_organization_id: context.organizationId,
+        p_expected_branch_id: context.branchId,
+        p_form_key: formKey,
+        p_client_id: clientId,
+      }).abortSignal(signal);
+      if (signal.aborted || error) throw new QuestionnaireSnapshotError();
+      return parseQuestionnaireSnapshot(data, formKey, clientId);
+    });
+  } catch {
     throw new QuestionnaireSnapshotError();
   }
-  return parsed.data;
+}
+
+/** Read only the requested immutable version, then confirm it is still the
+ * newest saved terminal draft across every assessment chain of this form.
+ * A stale link never silently opens a different draft. */
+export async function loadQuestionnaireResumeDraft(
+  context: TenantContext,
+  formKey: QuestionnaireFormKey,
+  clientId: string,
+  assessmentKey: string,
+  versionId: string,
+): Promise<QuestionnaireDraft | null> {
+  if (context.demo || !context.branchId || !getQuestionnaireForm(formKey)) throw new QuestionnaireSnapshotError();
+  try {
+    return await withServerReadDeadline(async (signal) => {
+      const supabase = await createServerSupabaseClient();
+      if (!supabase || signal.aborted) throw new QuestionnaireSnapshotError();
+      const { data, error } = await supabase.rpc("questionnaire_assessment_history", {
+        p_expected_organization_id: context.organizationId,
+        p_expected_branch_id: context.branchId,
+        p_form_key: formKey,
+        p_client_id: clientId,
+        p_assessment_key: assessmentKey,
+        p_before_version: null,
+      }).abortSignal(signal);
+      if (signal.aborted || error || !data) throw new QuestionnaireSnapshotError();
+      const history = parseQuestionnaireHistoryPage(data, formKey, clientId, assessmentKey);
+      const current = history.versions[0];
+      if (!current || current.version !== history.total) throw new QuestionnaireSnapshotError();
+      if (current.versionId !== versionId) return null;
+
+      // The history RPC only proves this chain's terminal version. A newer
+      // independent assessment may have been saved after the entry link was
+      // rendered. Recheck that exact version against the selected client's
+      // answer-free, currently authorized cross-chain summary before return.
+      if (signal.aborted) throw new QuestionnaireSnapshotError();
+      const { data: summaryData, error: summaryError } = await supabase.rpc("questionnaire_resume_summary", {
+        p_expected_organization_id: context.organizationId,
+        p_expected_branch_id: context.branchId,
+        p_client_id: clientId,
+      }).abortSignal(signal);
+      if (signal.aborted || summaryError || !summaryData) throw new QuestionnaireSnapshotError();
+      const summary = parseQuestionnaireResumeSummary(summaryData, clientId);
+      const form = summary.forms.find((item) => item.formKey === formKey);
+      if (!form || !form.latest) throw new QuestionnaireSnapshotError();
+      return form.latest.assessmentKey === assessmentKey && form.latest.versionId === versionId
+        ? current : null;
+    });
+  } catch {
+    throw new QuestionnaireSnapshotError();
+  }
 }

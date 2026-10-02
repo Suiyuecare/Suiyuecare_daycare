@@ -16,7 +16,7 @@ beforeAll(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true,
     value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
 });
-afterEach(() => { cleanup(); navigation.refresh.mockClear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); navigation.refresh.mockClear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 function setup(kind: "report" | "manual_notification" | "improvement" | "follow_up" | "close",
   options: { demo?: boolean; canManage?: boolean; canClose?: boolean; recent?: boolean } = {}) {
@@ -93,10 +93,21 @@ describe("abnormal event action browser boundary", () => {
     expect(fetchMock.mock.calls[1]![1]!.body).toBe(fetchMock.mock.calls[0]![1]!.body);
   });
 
-  it("keeps a malicious 2xx receipt open and surfaces its request id", async () => {
+  it.each(["2026-09-26T10:00:00Z", "2026-09-27T10:00:00Z", "2026-09-28T10:00:00Z"])(
+    "keeps a mismatched 2xx deadline open and surfaces its request id on %s", async (now) => {
+    // The demo deadline follows today's date. A hardcoded supposedly malicious
+    // deadline can become the valid one after midnight (2026-09-27 + 3 days).
+    // Freeze Date only, leaving waitFor's timers real; derive a guaranteed
+    // different valid deadline instead of weakening receipt correlation.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(now));
     const { incident } = setup("follow_up");
+    const mismatchedDeadline = new Date(`${incident!.currentImprovementDueDate}T12:00:00+08:00`);
+    mismatchedDeadline.setUTCDate(mismatchedDeadline.getUTCDate() + 1);
+    const effectiveDueDate = mismatchedDeadline.toISOString().slice(0, 10);
+    expect(effectiveDueDate).not.toBe(incident!.currentImprovementDueDate);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(success(
-      "follow_up", incident!, { effectiveDueDate: "2026-09-30" },
+      "follow_up", incident!, { effectiveDueDate },
     )), { status: 200, headers: { "Content-Type": "application/json" } })));
     fireEvent.click(screen.getByRole("button", { name: "新增追蹤" }));
     const dialog = screen.getByRole("dialog", { name: "新增追蹤" });

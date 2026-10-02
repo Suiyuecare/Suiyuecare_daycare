@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -9,6 +10,9 @@ import type { RoleKey, TenantContext } from "@/lib/domain/types";
 import { demoBranding } from "@/lib/config/branding";
 import { isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getNursingRecentAal2At } from "@/lib/nursing-assessments/reauth";
+import { withServerReadDeadline } from "@/lib/api/server-read-deadline";
+import { IntegrationError } from "@/lib/integrations/errors";
 
 type MembershipRecord = {
   organization_id: string;
@@ -58,7 +62,19 @@ export const getTenantContext = cache(
       return audience === "family" ? demoFamilyContext : demoStaffContext;
     }
 
-    const supabase = await createServerSupabaseClient();
+    try {
+      return await withServerReadDeadline((signal) => loadLiveTenantContext(audience, signal));
+    } catch {
+      // A slow/unavailable authority source is not an absent or denied login.
+      // APIs retain 503, while requireTenantContext must not redirect to login.
+      throw new IntegrationError("AUTH_CONTEXT_UNAVAILABLE", "登入資料暫時無法讀取，請稍後重試。", 503);
+    }
+  },
+);
+
+async function loadLiveTenantContext(audience: "staff" | "family", signal: AbortSignal): Promise<TenantContext | null> {
+    const supabase = await createServerSupabaseClient({ signal });
+    signal.throwIfAborted();
     if (!supabase) return null;
     const db = supabase;
 
@@ -66,7 +82,11 @@ export const getTenantContext = cache(
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
+    signal.throwIfAborted();
 
+    if (userError && (isAuthRetryableFetchError(userError) || (userError.status ?? 0) >= 500)) {
+      throw new IntegrationError("AUTH_CONTEXT_UNAVAILABLE", "登入資料暫時無法讀取，請稍後重試。", 503);
+    }
     if (userError || !user) return null;
 
     // Admission is database-owned and independent of editable user metadata.
@@ -77,15 +97,18 @@ export const getTenantContext = cache(
       const { data: allowed, error } = await supabase.rpc(
         audience === "staff" ? "is_staff_login_allowed" : "is_executive_login_allowed",
       );
+      signal.throwIfAborted();
       if (error || allowed !== true) return null;
     } catch {
       return null;
     }
 
-    const { data: aalData } =
-      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-
+    // After verified user and admission, assurance and membership can load
+    // together. Both still use this exact authenticated request-owned client.
+    const assurancePromise = supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    const membershipPromise = (async () => {
     const cookieStore = await cookies();
+    signal.throwIfAborted();
     const selectedOrganizationId = cookieStore.get("daycare_organization")?.value;
     const selectedBranchId = cookieStore.get("daycare_branch")?.value;
     let membershipQuery = supabase
@@ -97,8 +120,13 @@ export const getTenantContext = cache(
     if (selectedOrganizationId) {
       membershipQuery = membershipQuery.eq("organization_id", selectedOrganizationId);
     }
-    const { data: memberships, error: membershipError } =
-      await membershipQuery.returns<MembershipRecord[]>();
+    const result = await membershipQuery.returns<MembershipRecord[]>();
+    signal.throwIfAborted();
+    return { ...result, selectedBranchId };
+    })();
+    const [{ data: aalData }, { data: memberships, error: membershipError, selectedBranchId }] =
+      await Promise.all([assurancePromise, membershipPromise]);
+    signal.throwIfAborted();
 
     if (membershipError || !memberships?.length) return null;
 
@@ -111,6 +139,7 @@ export const getTenantContext = cache(
 
     const requestedBranchId = membership.branch_id ?? selectedBranchId;
     async function findBranch(branchId?: string) {
+      signal.throwIfAborted();
       let query = db
         .from("branches")
         .select("id, name")
@@ -122,7 +151,16 @@ export const getTenantContext = cache(
         .limit(1)
         .returns<Array<{ id: string; name: string }>>();
     }
-    let branchResult = await findBranch(requestedBranchId);
+    const organizationPromise = supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", membership.organization_id)
+      .maybeSingle<{ name: string }>();
+    const [initialBranch, { data: organization, error: organizationError }] = await Promise.all([
+      findBranch(requestedBranchId), organizationPromise,
+    ]);
+    signal.throwIfAborted();
+    let branchResult = initialBranch;
     if (
       !branchResult.error &&
       !branchResult.data?.length &&
@@ -130,15 +168,11 @@ export const getTenantContext = cache(
       requestedBranchId
     ) {
       branchResult = await findBranch();
+      signal.throwIfAborted();
     }
     if (branchResult.error || !branchResult.data?.length) return null;
     const branch = branchResult.data[0]!;
 
-    const { data: organization, error: organizationError } = await supabase
-      .from("organizations")
-      .select("name")
-      .eq("id", membership.organization_id)
-      .maybeSingle<{ name: string }>();
     if (organizationError || !organization) return null;
 
     const roles = membership.role_keys ?? [];
@@ -147,7 +181,7 @@ export const getTenantContext = cache(
       return null;
     }
 
-    return {
+    const context: TenantContext = {
       organizationId: membership.organization_id,
       organizationName: organization.name,
       branchId: branch.id,
@@ -161,8 +195,12 @@ export const getTenantContext = cache(
       recentAal2At: null,
       demo: false,
     };
-  },
-);
+    // Populate only a database-verified nursing timestamp. No global admission
+    // or high-risk permission is expanded and missing evidence stays null.
+    if (audience === "staff") context.recentAal2At = await getNursingRecentAal2At(context, db, signal);
+    signal.throwIfAborted();
+    return context;
+}
 
 export async function requireTenantContext(
   audience: "staff" | "family" = "staff",
@@ -175,16 +213,25 @@ export async function requireTenantContext(
 }
 
 export async function hasRecentAal2() {
+  try {
+    return await withServerReadDeadline(async (signal) => {
   const context = await getTenantContext("staff");
+  signal.throwIfAborted();
   if (!context) return false;
   if (context.demo) return true;
   if (context.assuranceLevel !== "aal2") return false;
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient({ signal });
+  signal.throwIfAborted();
   if (!supabase) return false;
   const { data, error } = await supabase.rpc("has_recent_aal2", {
     max_age_minutes: 15,
   });
+  signal.throwIfAborted();
 
   return !error && data === true;
+    });
+  } catch {
+    throw new IntegrationError("AUTH_CONTEXT_UNAVAILABLE", "身分確認暫時無法完成，請稍後重試。", 503);
+  }
 }

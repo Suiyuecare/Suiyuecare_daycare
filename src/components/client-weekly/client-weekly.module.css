@@ -6,7 +6,7 @@
 .workspace legend { padding: 0 .4rem; font-weight: 700; }
 .workspace label { display: flex; flex-direction: column; gap: .45rem; min-width: 0; }
 .workspace input:not([type="checkbox"]),.workspace textarea { width: 100%; min-width: 0; min-height: 44px; padding: .65rem; border: 1px solid #ad8768; background: white; border-radius: .6rem; font-size: 16px; color: inherit; box-sizing: border-box; }
-.workspace textarea { min-height: 90px; resize: vertical; }
+.workspace textarea { min-height: 90px; resize: none; }
 .workspace button { min-height: 44px; padding: .7rem 1.1rem; border: 1px solid #9b460b; color: #fff; background: #9b460b; border-radius: .7rem; font-size: 16px; font-weight: 600; cursor: pointer; width: fit-content; max-width: 100%; }
 .workspace button:disabled { background: #f1e7db; color: #675a4e; border-color: #c7b59e; cursor: not-allowed; }
 .workspace :is(input,textarea,button):focus-visible { outline: 3px solid #715022; outline-offset: 3px; }

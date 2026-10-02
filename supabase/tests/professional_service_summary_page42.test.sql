@@ -267,7 +267,8 @@ select throws_ok($$select * from public.professional_service_summary_snapshot(
 
 select throws_ok($$select * from public.professional_service_summary_snapshot(
   '42100000-0000-4000-8000-000000000001',
-  '42200000-0000-4000-8000-000000000001', current_date
+  '42200000-0000-4000-8000-000000000001',
+  (date_trunc('month', current_date)::date + 1)
 )$$, '42501', 'professional service summary snapshot is not permitted',
   'a non-month-start date fails closed');
 

@@ -13,6 +13,7 @@ import Link from "next/link";
 import { MedicationAction } from "@/components/medications/medication-action";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
+import type { TenantContext } from "@/lib/domain/types";
 import type {
   MedicationAdministrationRecord,
   MedicationAdministrationSnapshot,
@@ -102,6 +103,7 @@ export function MedicationRecordsWorkspace({
   canVerify,
   hasRecentAal2,
   currentUserId,
+  context,
   loadError = false,
 }: {
   page: PageCatalogEntry;
@@ -114,6 +116,7 @@ export function MedicationRecordsWorkspace({
   canVerify: boolean;
   hasRecentAal2: boolean;
   currentUserId: string;
+  context: TenantContext;
   loadError?: boolean;
 }) {
   if (loadError || !snapshot) {
@@ -145,7 +148,7 @@ export function MedicationRecordsWorkspace({
             只對既有排程與當時唯一有效、已簽署的用藥計畫記錄結果；待第二人覆核不列為完成。
           </p>
         </div>
-        <form className="core-date-filter" method="get">
+        <form className="core-date-filter" method="get" noValidate>
           {selectedClientId ? <input name="client" type="hidden" value={selectedClientId} /> : null}
           <input name="status" type="hidden" value={status} />
           <label className="field"><span>服務日期</span><input defaultValue={serviceDate} name="date" type="date" /></label>
@@ -190,7 +193,7 @@ export function MedicationRecordsWorkspace({
             <p>{snapshot.rows.length} 筆符合目前篩選・所有時間均為 Asia/Taipei</p>
           </div>
         </div>
-        <form className="filter-bar" method="get">
+        <form className="filter-bar" method="get" noValidate>
           <input name="date" type="hidden" value={serviceDate} />
           <label className="field field--compact">
             <span>個案</span>
@@ -229,7 +232,7 @@ export function MedicationRecordsWorkspace({
                       <td className="medication-copy">{row.reason ?? "—"}</td>
                       <td><ExecutionSummary row={row} /></td>
                       <td><VerificationSummary row={row} /></td>
-                      <td><MedicationAction canRecord={canRecord} canVerify={canVerify} currentUserId={currentUserId} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} instance="desktop" row={row} serviceDate={serviceDate} /></td>
+                      <td><MedicationAction context={context} snapshotGeneratedAt={snapshot.generatedAt} canRecord={canRecord} canVerify={canVerify} currentUserId={currentUserId} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} instance="desktop" row={row} serviceDate={serviceDate} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -248,7 +251,7 @@ export function MedicationRecordsWorkspace({
                     <div><dt>覆核人</dt><dd>{row.finalizationState === "pending_verification" ? "待第二人" : row.verifier?.displayName ?? "不適用"}</dd></div>
                     <div className="medication-card-wide"><dt>最終簽署時間</dt><dd>{formatDateTime(row.signedAt)}</dd></div>
                   </dl>
-                  <MedicationAction canRecord={canRecord} canVerify={canVerify} currentUserId={currentUserId} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} instance="mobile" row={row} serviceDate={serviceDate} />
+                  <MedicationAction context={context} snapshotGeneratedAt={snapshot.generatedAt} canRecord={canRecord} canVerify={canVerify} currentUserId={currentUserId} demo={snapshot.demo} hasRecentAal2={hasRecentAal2} instance="mobile" row={row} serviceDate={serviceDate} />
                 </article>
               ))}
             </div>

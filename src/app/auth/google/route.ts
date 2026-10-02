@@ -8,7 +8,6 @@ import {
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-export const preferredRegion = "hnd1";
 
 export async function POST(request: Request) {
   const configuration = googleLoginConfiguration(request);

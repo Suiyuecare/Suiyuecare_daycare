@@ -2,15 +2,15 @@
 // Auth/Storage rows below are synthetic. No authorization helper is replaced.
 // Run: CUSTOM_LIFECYCLE_NATIVE_PG_BIN=/absolute/postgres/bin node scripts/test-custom-form-lifecycle-native.mjs
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { createNativeTestRuntime } from "./lib/native-test-cleanup.mjs";
 import { join, resolve } from "node:path";
 import { bootstrapSql } from "./lib/pglite-bootstrap.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const binaries = process.env.CUSTOM_LIFECYCLE_NATIVE_PG_BIN ?? process.env.INTAKE_NATIVE_PG_BIN;
 if (!binaries?.startsWith("/")) throw new Error("Set CUSTOM_LIFECYCLE_NATIVE_PG_BIN to an absolute native PostgreSQL bin directory.");
-const runtime = await mkdtemp("/tmp/daycare-form-lifecycle-native.");
-const data = join(runtime, "data");
+const { runtime, data, cleanupNativeData } = await createNativeTestRuntime("/tmp/daycare-form-lifecycle-native.");
 const env = { PATH: process.env.PATH, LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8", PGHOST: runtime,
   PGPORT: "55447", PGUSER: "postgres", PGDATABASE: "postgres", PGCONNECT_TIMEOUT: "5" };
 const run = (file, args, input) => {
@@ -80,6 +80,7 @@ const accept = (result, label) => {
   return receipt(result.stdout);
 };
 let started = false;
+let testFailure;
 try {
   console.log(run(join(binaries, "postgres"), ["--version"]).trim());
   run(join(binaries, "initdb"), ["-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=reject", "--no-locale", "--encoding=UTF8"]);
@@ -227,6 +228,10 @@ try {
     throw new Error("Expired challenge consumption changed immutable MFA proof");
   console.log("Observed challenge row-lock crossing TTL: false result, challenge unconsumed, original reauth evidence unchanged.");
   console.log(`Native custom form lifecycle acceptance: ${passed} SQL assertions and 6 observed two-session races.`);
+} catch (error) {
+  testFailure = error;
+  throw error;
 } finally {
-  if (started) run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);
+  await cleanupNativeData({ started, testFailure,
+    stop: () => run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]) });
 }

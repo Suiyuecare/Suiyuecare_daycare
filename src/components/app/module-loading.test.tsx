@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ModuleLoading } from "./module-loading";
+import styles from "./module-loading.module.css";
 
 afterEach(cleanup);
 
@@ -37,10 +38,24 @@ describe("ModuleLoading accessible indeterminate state", () => {
   it("applies transition positioning only when explicitly requested", () => {
     const { rerender } = render(<ModuleLoading />);
     expect(screen.getByRole("status").classList.contains("module-loading--transition")).toBe(false);
+    expect(screen.getByRole("status").classList.contains(styles.transitionFeedback)).toBe(false);
     rerender(<ModuleLoading transition />);
     expect(screen.getByRole("status").classList.contains("module-loading--transition")).toBe(true);
+    expect(screen.getByRole("status").classList.contains(styles.transitionFeedback)).toBe(true);
     rerender(<ModuleLoading transition={false} />);
     expect(screen.getByRole("status").classList.contains("module-loading--transition")).toBe(false);
+    expect(screen.getByRole("status").classList.contains(styles.transitionFeedback)).toBe(false);
+  });
+
+  it("keeps transition status accessible immediately while its visual reveal is delayed", () => {
+    render(<ModuleLoading transition title="正在載入工作清單" />);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("正在載入工作清單");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.getAttribute("aria-busy")).toBe("true");
+    expect(status.hasAttribute("hidden")).toBe(false);
+    expect(status.getAttribute("aria-hidden")).not.toBe("true");
+    expect(screen.getByRole("progressbar", { name: "系統功能載入中" })).toBeTruthy();
   });
 
   it("uses a decorative local logo rather than remote or identity-bearing content", () => {
