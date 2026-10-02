@@ -9,7 +9,7 @@ import { staffPages } from "@/lib/catalog";
 import { buildDemoReferralManagementSnapshot } from "@/lib/referral-management/demo";
 import type { ReferralManagementFilters } from "@/lib/referral-management/types";
 import type { TenantContext } from "@/lib/domain/types";
-import { clearReferralPendingOnLogout } from "@/lib/referral-management/pending";
+import { clearReferralPendingOnLogout, getReferralPending } from "@/lib/referral-management/pending";
 
 import {
   ReferralCorrectionForm,
@@ -30,7 +30,18 @@ const filters: ReferralManagementFilters = {
 const snapshot = buildDemoReferralManagementSnapshot({ organizationId, branchId, filters });
 const page = staffPages.find((entry) => entry.number === 39)!;
 const context: TenantContext = { organizationId, branchId, organizationName: "合成機構", branchName: "合成分支", userId: "39000000-0000-4000-8000-000000000042", displayName: "合成社工", roles: ["case_manager_social_worker"], scopes: ["clients.read", "referral_management.read", "referral_management.create", "referral_management.respond", "referral_management.correct"], assuranceLevel: "aal2", recentAal2At: null, demo: true };
-function liveSnapshot() { const generatedAt = new Date().toISOString(); return { ...snapshot, generatedAt, staleAfter: new Date(Date.now() + 60_000).toISOString(), canRespond: true, demo: false }; }
+async function liveSnapshot() {
+  // Logout rejects a prior snapshot generation, while accepted reads cannot go
+  // backwards. CI may run consecutive tests within one millisecond.
+  const { snapshotFloor, acceptedSnapshotAt } = getReferralPending();
+  const latestPriorGeneration = Math.max(
+    snapshotFloor ? Date.parse(snapshotFloor) : 0,
+    acceptedSnapshotAt ? Date.parse(acceptedSnapshotAt) : 0,
+  );
+  if (latestPriorGeneration) await waitFor(() => expect(Date.now()).toBeGreaterThan(latestPriorGeneration));
+  const generatedAt = new Date().toISOString();
+  return { ...snapshot, generatedAt, staleAfter: new Date(Date.now() + 60_000).toISOString(), canRespond: true, demo: false };
+}
 
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.open = true; } });
@@ -93,7 +104,7 @@ describe("Page 39 referral workspace and actions", () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
     vi.stubGlobal("fetch", fetchMock);
     const item = snapshot.items.find((entry) => entry.status === "received")!;
-    const data = liveSnapshot();
+    const data = await liveSnapshot();
     render(<ReferralController context={{ ...context, demo: false }} filters={filters} snapshot={data}><ReferralTransitionForm item={item} snapshot={data}/></ReferralController>);
     fireEvent.click(screen.getByText("登記回覆"));
     fireEvent.change(screen.getByRole("textbox", { name: "登記回覆內容" }), {
@@ -112,7 +123,7 @@ describe("Page 39 referral workspace and actions", () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
     vi.stubGlobal("fetch", fetchMock);
     const item = snapshot.items.find((entry) => entry.status === "received")!;
-    const data = liveSnapshot();
+    const data = await liveSnapshot();
     render(<ReferralController context={{ ...context, demo: false }} filters={filters} snapshot={data}><ReferralTransitionForm item={item} snapshot={data}/></ReferralController>);
     fireEvent.click(screen.getByText("登記回覆"));
     const field = screen.getByRole("textbox", { name: "登記回覆內容" });
