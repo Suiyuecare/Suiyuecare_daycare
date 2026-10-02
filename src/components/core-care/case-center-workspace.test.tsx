@@ -191,7 +191,9 @@ describe("case center filters and readable fallback states", () => {
     const form = container.querySelector<HTMLFormElement>("form.case-center-filters")!;
     const disclosure = form.querySelector<HTMLDetailsElement>(".case-center-advanced-filters")!;
 
-    expect(form.getAttribute("method")).toBe("get");
+    expect(form.method).toBe("get");
+    expect(form.action).toContain("/app/staff/workspace/case-center#case-center-list");
+    expect(form.noValidate).toBe(true);
     expect(disclosure.open).toBe(false);
     expect(screen.getByText("已套用：在案、服務中、我（合成人員）")).toBeTruthy();
     expect(Object.fromEntries(new FormData(form))).toEqual({
@@ -203,6 +205,34 @@ describe("case center filters and readable fallback states", () => {
     expect(screen.getByRole("button", { name: "套用篩選" })).toBeTruthy();
     fireEvent.click(screen.getByText("收合篩選"));
     expect(disclosure.open).toBe(false);
+  });
+
+  it("clears the search immediately and submits the current filters back to the search field", () => {
+    const selected = filters({ query: "合成 甲", lifecycle: "active" });
+    const { container } = render(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot()} />);
+    const form = container.querySelector<HTMLFormElement>("form.case-center-filters")!;
+    const submit = vi.fn();
+    form.requestSubmit = submit;
+    const input = screen.getByRole("searchbox") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("生命週期"), { target: { value: "suspended" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋" }));
+
+    expect(input.value).toBe("");
+    expect(document.activeElement).toBe(input);
+    expect(new FormData(form).get("lifecycle")).toBe("suspended");
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect((submit.mock.calls[0] as HTMLButtonElement[])[0]?.getAttribute("formaction"))
+      .toBe("/app/staff/workspace/case-center#case-center-search");
+  });
+
+  it("does not submit a search while a Chinese IME candidate is being selected", () => {
+    render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} />);
+    const input = screen.getByRole("searchbox");
+    fireEvent.compositionStart(input);
+    expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true, cancelable: true })).toBe(false);
+    fireEvent.compositionEnd(input);
+    expect(fireEvent.keyDown(input, { key: "Enter", cancelable: true })).toBe(true);
   });
 
   it("preserves all combined filters in pagination and resets only filter criteria on clear", () => {
@@ -249,6 +279,14 @@ describe("case center return history", () => {
     flushFrame();
     flushFrame();
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "個案工作清單" }));
+  });
+
+  it("returns focus to the search field after clearing and loading results", () => {
+    window.history.replaceState({ __NA: true }, "", `${caseCenterHref(filters())}#case-center-search`);
+    renderInStage(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} />);
+    flushFrame();
+    flushFrame();
+    expect(document.activeElement).toBe(screen.getByRole("searchbox"));
   });
 
   it.each(["click", "Enter"])("saves the client and scroll before %s without losing existing Next history state", (activation) => {
