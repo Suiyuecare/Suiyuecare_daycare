@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { pageCatalog } from "@/lib/catalog";
@@ -43,25 +44,31 @@ function snapshot(overrides: Partial<CaseCenterSnapshot> = {}): CaseCenterSnapsh
 
 let frames: Map<number, FrameRequestCallback>;
 let nextFrame: number;
-let scrollTo: ReturnType<typeof vi.fn>;
+let stage: HTMLElement | null;
+
+function renderInStage(element: ReactElement) {
+  stage = document.createElement("main");
+  stage.className = "main-stage";
+  document.body.append(stage);
+  return render(element, { container: stage });
+}
 
 beforeEach(() => {
   frames = new Map();
   nextFrame = 0;
-  scrollTo = vi.fn();
+  stage = null;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     const id = ++nextFrame;
     frames.set(id, callback);
     return id;
   });
   vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
-  vi.stubGlobal("scrollTo", scrollTo);
-  vi.stubGlobal("scrollY", 0);
   window.history.replaceState({ __NA: true }, "", caseCenterHref(filters()));
 });
 
 afterEach(() => {
   cleanup();
+  stage?.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -82,6 +89,7 @@ describe("case center front-line next step", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("個案中心");
     expect(screen.getByText("先選擇個案，再接續當日的出勤、量測與照顧日誌。")).toBeTruthy();
     expect(screen.getByText("服務日期：2026/09/10")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "個案摘要，左右捲動可查看五項統計" }).classList.contains("case-center-metrics")).toBe(true);
     expect(container.textContent).not.toMatch(/穩定個案 ID|資料列權限|保存在網址|尚未接線/);
     expect(screen.queryByRole("button", { name: /新增個案/ })).toBeNull();
     expect(container.querySelector("button[disabled]")).toBeNull();
@@ -101,6 +109,18 @@ describe("case center front-line next step", () => {
     }
     expect(screen.queryByRole("link", { name: /查看 合成個案甲 的當日紀錄/ })).toBeNull();
     expect(container.querySelectorAll("[data-case-client-id]")).toHaveLength(2);
+  });
+
+  it("does not offer dead-end daily links for demo directory-only clients", () => {
+    const directoryOnly = client({ id: "00000014-aaaa-4aaa-8aaa-000000000014", clientCode: "DEMO-020", displayName: "展示個案 20" });
+    const runnable = client({ id: "a1111111-1111-4111-8111-111111111111", clientCode: "HX-021", displayName: "陳O華" });
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({
+      demo: true, clients: [directoryOnly, runnable], total: 2, visibleTotal: 2,
+    })} allowedDailyPages={[46]} canViewSummary />);
+    expect(workLinks(container)).toHaveLength(2);
+    expect(workLinks(container).every((link) => new URL(link.href).searchParams.get("client") === runnable.id)).toBe(true);
+    expect(screen.getAllByText("僅供清單展示，無當日紀錄。")).toHaveLength(2);
+    expect(screen.queryByRole("link", { name: /查看 展示個案 20 的當日紀錄/ })).toBeNull();
   });
 
   it("uses the chosen past service date rather than silently switching to today", () => {
@@ -173,8 +193,8 @@ describe("case center filters and readable fallback states", () => {
     expect((screen.getByLabelText("服務狀態") as HTMLSelectElement).value).toBe("serving");
     expect((screen.getByLabelText("負責人") as HTMLSelectElement).value).toBe("me");
     expect(container.querySelector<HTMLInputElement>('input[name="date"]')?.value).toBe(serviceDate);
-    expect(screen.getByRole("link", { name: "下一頁" }).getAttribute("href")).toBe(caseCenterHref({ ...selected, page: 3 }));
-    expect(screen.getByRole("link", { name: "上一頁" }).getAttribute("href")).toBe(caseCenterHref({ ...selected, page: 1 }));
+    expect(screen.getByRole("link", { name: "下一頁" }).getAttribute("href")).toBe(`${caseCenterHref({ ...selected, page: 3 })}#case-center-list`);
+    expect(screen.getByRole("link", { name: "上一頁" }).getAttribute("href")).toBe(`${caseCenterHref({ ...selected, page: 1 })}#case-center-list`);
     expect(screen.getByRole("link", { name: "清除" }).getAttribute("href")).toBe(caseCenterHref(filters()));
   });
 
@@ -201,37 +221,46 @@ describe("case center filters and readable fallback states", () => {
   });
 });
 
-describe("case center native return history", () => {
+describe("case center return history", () => {
+  it("focuses the new list heading after pagination without requiring a pointer", () => {
+    const selected = filters({ page: 2 });
+    window.history.replaceState({ __NA: true }, "", `${caseCenterHref(selected)}#case-center-list`);
+    renderInStage(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot({ page: 2, pageCount: 2 })} />);
+    flushFrame();
+    flushFrame();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "個案工作清單" }));
+  });
+
   it.each(["click", "Enter"])("saves the client and scroll before %s without losing existing Next history state", (activation) => {
     const selected = filters({ query: "SYN", page: 2 });
     window.history.replaceState({ __NA: true, preserved: "existing-router-state" }, "", caseCenterHref(selected));
-    vi.stubGlobal("scrollY", 456);
-    const { container } = render(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot({ page: 2, pageCount: 2 })} allowedDailyPages={[46]} canViewSummary />);
+    const { container } = renderInStage(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot({ page: 2, pageCount: 2 })} allowedDailyPages={[46]} canViewSummary />);
+    stage!.scrollTop = 456;
     const link = workLinks(container)[0]!;
     link.addEventListener("click", (event) => event.preventDefault());
     if (activation === "click") fireEvent.click(link);
     else fireEvent.keyDown(link, { key: "Enter" });
     expect(window.history.state).toMatchObject({
-      __NA: true, preserved: "existing-router-state", caseCenterScrollY: 456, caseCenterFocusClientId: clientId,
+      __NA: true, preserved: "existing-router-state", caseCenterScrollTop: 456, caseCenterFocusClientId: clientId,
     });
     expect(`${window.location.pathname}${window.location.search}`).toBe(caseCenterHref(selected));
   });
 
   it("restores scroll and focuses the visible mobile link after returning", () => {
-    window.history.replaceState({ __NA: true, caseCenterScrollY: 380, caseCenterFocusClientId: clientId }, "", caseCenterHref(filters()));
-    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46]} canViewSummary />);
+    window.history.replaceState({ __NA: true, caseCenterScrollTop: 380, caseCenterFocusClientId: clientId }, "", caseCenterHref(filters()));
+    const { container } = renderInStage(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46]} canViewSummary />);
     const mobile = container.querySelector<HTMLElement>(".mobile-records")!;
     const link = within(mobile).getByRole("link", { name: /開始 合成個案甲/ });
     vi.spyOn(link, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
     flushFrame();
     flushFrame();
-    expect(scrollTo).toHaveBeenCalledWith({ top: 380, behavior: "auto" });
+    expect(stage!.scrollTop).toBe(380);
     expect(document.activeElement).toBe(link);
   });
 
   it("restores the sole summary action for a non-serving client", () => {
-    window.history.replaceState({ __NA: true, caseCenterScrollY: 380, caseCenterFocusClientId: clientId }, "", caseCenterHref(filters()));
-    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({
+    window.history.replaceState({ __NA: true, caseCenterScrollTop: 380, caseCenterFocusClientId: clientId }, "", caseCenterHref(filters()));
+    const { container } = renderInStage(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({
       clients: [client({ lifecycleStatus: "suspended", lifecycleState: "suspended", serviceStatus: "paused" })],
     })} allowedDailyPages={[46]} canViewSummary />);
     const mobile = container.querySelector<HTMLElement>(".mobile-records")!;
@@ -240,7 +269,30 @@ describe("case center native return history", () => {
     flushFrame();
     flushFrame();
     expect(workLinks(container)).toHaveLength(0);
-    expect(scrollTo).toHaveBeenCalledWith({ top: 380, behavior: "auto" });
+    expect(stage!.scrollTop).toBe(380);
     expect(document.activeElement).toBe(link);
+  });
+
+  it("keeps the source position when a client-side route change unmounts the list", () => {
+    const view = renderInStage(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46]} />);
+    const link = workLinks(view.container)[0]!;
+    stage!.scrollTop = 456;
+    link.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(link);
+    stage!.scrollTop = 0;
+    view.unmount();
+    expect(window.history.state).toMatchObject({ caseCenterScrollTop: 456, caseCenterFocusClientId: clientId });
+  });
+
+  it("does not restore a removed client onto an unrelated authorized row", () => {
+    window.history.replaceState({ __NA: true, caseCenterScrollTop: 380, caseCenterFocusClientId: clientId }, "", caseCenterHref(filters()));
+    renderInStage(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({
+      clients: [client({ id: "02000000-0000-4000-8000-000000000099", clientCode: "SYN-099" })],
+    })} allowedDailyPages={[46]} />);
+    stage!.scrollTop = 99;
+    flushFrame();
+    flushFrame();
+    expect(stage!.scrollTop).toBe(0);
+    expect(stage!.querySelector<HTMLElement>("[data-case-client-id]")?.dataset.caseClientId).not.toBe(clientId);
   });
 });

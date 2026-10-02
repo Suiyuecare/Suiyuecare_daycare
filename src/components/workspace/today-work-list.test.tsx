@@ -19,6 +19,44 @@ const snapshot = buildDemoDailySnapshot(date);
 const rows = buildTodayWorkRows(snapshot);
 
 describe("TodayWorkList", () => {
+  it("keeps search ahead of collapsed mobile filters and preserves the selected scope", () => {
+    const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
+    const search = screen.getByRole("searchbox", { name: "搜尋今日個案姓名或代碼" });
+    const counters = screen.getByRole("group", { name: "篩選待處理工作" });
+    const toggle = screen.getByRole("button", { name: /篩選個案與工作/ });
+    expect(search.compareDocumentPosition(counters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(counters).toHaveClass("today-filters--collapsed");
+    expect(container.querySelector("#today-filter-controls")).toHaveClass("today-filters--collapsed");
+
+    fireEvent.change(search, { target: { value: "HX-026" } });
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(search).toHaveValue("HX-026");
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋今日個案姓名或代碼" }));
+    expect(search).toHaveValue("");
+    expect(search).toHaveFocus();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(counters).not.toHaveClass("today-filters--collapsed");
+    fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(counters).toHaveClass("today-filters--collapsed");
+    expect(container.querySelector(".today-client")).toHaveFocus();
+    expect(screen.getByText("尚無量測・2 位")).toBeInTheDocument();
+  });
+
+  it("waits until Chinese input composition finishes before filtering", () => {
+    render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
+    const search = screen.getByRole("searchbox", { name: "搜尋今日個案姓名或代碼" });
+    fireEvent.compositionStart(search);
+    fireEvent.change(search, { target: { value: "黃" } });
+    expect(search).toHaveValue("黃");
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
+    fireEvent.compositionEnd(search);
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：1 位（搜尋結果）");
+  });
+
   it("carries the explicitly chosen afternoon through the person-specific next action", () => {
     const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
       assignments: (["morning", "afternoon"] as const).map((shift) => ({
@@ -69,6 +107,29 @@ describe("TodayWorkList", () => {
     rerender(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     expect(screen.getAllByRole("listitem")).toHaveLength(5);
     expect(screen.queryByRole("navigation", { name: "今日個案分頁" })).not.toBeInTheDocument();
+  });
+
+  it("focuses and scrolls to the first new row after explicit pagination", () => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    try {
+      const many = Array.from({ length: 45 }, (_, index) => ({ ...rows[0]!, id: `a1111111-1111-4111-8111-${String(index).padStart(12, "0")}`, code: `TEST-${index}` }));
+      render(<TodayWorkList rows={many} serviceDate={date} access={snapshot.sourceAccess} />);
+      fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+      expect(screen.getByText("TEST-20").closest("li")).toHaveFocus();
+      expect(screen.getByRole("status")).toHaveTextContent("第 2 / 3 頁");
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "start" });
+      fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+      expect(screen.getByText("TEST-40").closest("li")).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "上一頁" }));
+      expect(screen.getByText("TEST-20").closest("li")).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalledTimes(3);
+    } finally {
+      if (previousScrollIntoView) Object.defineProperty(Element.prototype, "scrollIntoView", previousScrollIntoView);
+      else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    }
   });
 
   it("uses a restricted state instead of zero when a source is unavailable", () => {
