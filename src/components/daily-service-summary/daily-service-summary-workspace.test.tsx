@@ -33,6 +33,16 @@ describe("Page 54 workspace", () => {
     expect(screen.getByText(/不列入完整度分母/u)).toBeInTheDocument();
   });
 
+  it("uses source evidence rather than label fragments for cell tones", () => {
+    render(workspace());
+    expect(screen.getAllByText("1 筆待完成").every((pill) =>
+      pill.classList.contains("status-pill--warning"))).toBe(true);
+    expect(screen.getAllByText("有 1 項例外").every((pill) =>
+      pill.classList.contains("status-pill--danger"))).toBe(true);
+    expect(screen.getAllByText("未授權・未知").every((pill) =>
+      pill.classList.contains("status-pill--neutral"))).toBe(true);
+  });
+
   it("provides a whitelisted internal drilldown for every desktop and mobile cell", () => {
     render(workspace());
     const links = screen.getAllByRole("link", { name: /查看 .*來源/u });

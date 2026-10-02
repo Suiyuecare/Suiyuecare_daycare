@@ -17,10 +17,11 @@ function oldValue(snapshot: IntakeSnapshot | null, key: string) {
   return display(snapshot.profile[key as keyof typeof snapshot.profile]);
 }
 
-export function CmsIntakeStep({ current, canImport, canApprove, demo, onSaved, onManual, onDirty, onBusy, profileHasDraft = false, archiveConfigured = false }: {
+export function CmsIntakeStep({ current, canImport, canApprove, canManual = true, canCreateNew = true, hasImportPermission = canImport, loadBlocked = false, demo, onSaved, onManual, onDirty, onBusy, profileHasDraft = false, archiveConfigured = false }: {
   current: IntakeSnapshot | null; canImport: boolean; canApprove: boolean; demo: boolean;
   onSaved: (id: string) => Promise<void>; onManual: () => void; onDirty: (dirty: boolean) => void;
-  onBusy?: (busy: boolean) => void; profileHasDraft?: boolean; archiveConfigured?: boolean;
+  onBusy?: (busy: boolean) => void; profileHasDraft?: boolean; archiveConfigured?: boolean; canManual?: boolean;
+  canCreateNew?: boolean; hasImportPermission?: boolean; loadBlocked?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<CmsIntakePreview | null>(null);
@@ -38,6 +39,8 @@ export function CmsIntakeStep({ current, canImport, canApprove, demo, onSaved, o
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
   const groups = new Map<string, CmsIntakePreview["fields"]>();
   for (const field of preview?.fields ?? []) if (field.intakeTarget) groups.set(field.intakeTarget, [...(groups.get(field.intakeTarget) ?? []), field]);
+  const canUpload = !demo && canImport && archiveConfigured;
+  const cmsPrimary = canUpload && canApprove;
   const ready = preview && !preview.sourceIsOlder && [...groups.keys()].every((target) => Boolean(choices[target]?.choice)) && groups.has("displayName") && groups.has("identityNumber") && confirmed && clientCode.trim() && (!preview.current || sourceReviewReason.trim().length >= 10);
   async function upload() {
     if (!file || busy || inFlight.current || demo || !canImport || !archiveConfigured) return;
@@ -64,15 +67,19 @@ export function CmsIntakeStep({ current, canImport, canApprove, demo, onSaved, o
   return <section className={styles.form}>
     <div><h2>匯入 CMS 資料</h2><p>選擇中央系統下載的 HTML，核對後建立個案。</p></div>
     {current ? <p className={styles.notice}>目前正在更新：{current.profile.displayName}。系統仍會用精確身分識別核對，不依姓名合併。</p> : null}
-    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停；請保留原檔，可先手動建檔。</p></div> : null}
+    {!demo && !archiveConfigured ? <div className={styles.notice} role="status"><p>HTML 匯入暫停；請保留原檔。{loadBlocked ? "請先重試讀取個案資料。" : canCreateNew ? "可先手動建檔。" : "請由具備新建案權限的人員處理。"}</p></div> : null}
     <label>CMS HTML（4 MB 以下）<input type="file" accept=".html,.htm,text/html,application/xhtml+xml" disabled={busy || demo || !canImport || !archiveConfigured} onChange={(e) => {
       const selected = e.target.files?.[0] ?? null;
       setPreview(null); setChoices({}); setConfirmed(false); setCommitted(null); setError(""); uploadKey.current = crypto.randomUUID(); onDirty(false);
       if (selected && (selected.size > MAX_INTAKE_WEB_UPLOAD_BYTES || !/\.html?$/iu.test(selected.name))) { setFile(null); setError("請選擇 4 MB 以下的 HTML 檔。較大檔案請交由管理員安排安全匯入，不要刪除來源資料。 "); return; }
       setFile(selected); onDirty(Boolean(selected));
     }} /></label>
-    <div className={styles.inline}><button className="button button--primary" type="button" disabled={!file || busy || demo || !canImport || !archiveConfigured} onClick={upload}>{busy ? "處理中，請稍候…" : "上傳並核對資料"}</button><button type="button" onClick={onManual} disabled={busy}>沒有 CMS 檔？手動建檔</button></div>
-    {demo ? <p className={styles.notice}>合成資料試看：不接收真實 HTML，也不連線至中央系統。</p> : !canImport ? <p className={styles.notice}>您尚未取得匯入權限，可請收案負責人協助。</p> : null}
+    <div className={styles.inline}>
+      {!cmsPrimary ? <button className="button button--primary" type="button" onClick={onManual} disabled={busy || !canManual}>{current ? "返回基本資料" : demo ? "檢視手動建檔欄位" : "手動建立待收案個案"}</button> : null}
+      <button className={`button ${cmsPrimary ? "button--primary" : "button--secondary"}`} type="button" disabled={!file || busy || !canUpload} onClick={upload}>{busy ? "處理中，請稍候…" : "上傳並核對資料"}</button>
+      {cmsPrimary ? <button type="button" onClick={onManual} disabled={busy || !canManual}>{current ? "返回基本資料" : "手動建立待收案個案"}</button> : null}
+    </div>
+    {demo ? <p className={styles.notice}>合成資料試看：不接收真實 HTML，也不連線至中央系統。</p> : loadBlocked ? <p className={styles.notice}>個案資料未讀取成功，暫停匯入與建檔；請先重試。</p> : !current && !canCreateNew ? <p className={styles.notice}>此帳號沒有建立新個案的權限；請選擇已授權的既有個案，或請收案負責人協助。</p> : !canImport ? <p className={styles.notice}>{hasImportPermission ? "此入口目前無法執行 CMS 匯入，請由具備建檔權限的收案人員協助。" : "您尚未取得 CMS 匯入權限，可請收案負責人協助。"}</p> : canUpload && !canApprove ? <p className={styles.notice}>您可在此分頁上傳並預覽，但不會建立跨人交接待辦；正式建檔請由具匯入與核准權限的人員自行選檔並完成逐欄核對。</p> : null}
     {preview?.imported && preview.importReceipt ? <div className={styles.notice}><p>這份檔案已完成建檔，沒有再建立第二位個案。</p><button type="button" disabled={busy} onClick={() => onSaved(preview.importReceipt!.clientId)}>開啟已建立個案</button></div> : null}
     {preview && !preview.imported && !committed ? <>
       <h3>逐欄核對後，才會寫入個案資料</h3>
