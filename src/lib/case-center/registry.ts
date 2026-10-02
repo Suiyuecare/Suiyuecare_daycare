@@ -37,7 +37,7 @@ async function loadAllAssignmentRows(
     let query = supabase
       .from("client_assignments")
       .select(
-        "client_id, assignee_user_id, assignment_kind, starts_at, ends_at",
+        "id, client_id, assignee_user_id, assignment_kind, starts_at, ends_at",
         withCount ? { count: "exact" } : undefined,
       )
       .eq("organization_id", context.organizationId)
@@ -46,14 +46,19 @@ async function loadAllAssignmentRows(
     if (assignmentAccess === "self_only") {
       query = query.eq("assignee_user_id", context.userId);
     }
-    return query.order("client_id").range(from, to).returns<
+    // Offset pages require a total order; multiple assignments share client_id.
+    return query.order("client_id").order("id").range(from, to).returns<
       CaseCenterAssignmentRow[]
     >();
   };
 
   const first = await assignmentQuery(true, 0, DATABASE_PAGE_SIZE - 1);
   if (first.error) throw new CaseCenterRegistryError();
-  const count = first.count ?? first.data?.length ?? 0;
+  // An absent exact count cannot prove that all assignment pages were read.
+  if (typeof first.count !== "number" || !Number.isSafeInteger(first.count) || first.count < 0) {
+    throw new CaseCenterRegistryError();
+  }
+  const count = first.count;
   if (count > MAX_VISIBLE_ASSIGNMENTS) throw new CaseCenterRegistryError();
   const remaining = await Promise.all(
     Array.from(
@@ -71,10 +76,18 @@ async function loadAllAssignmentRows(
   if (remaining.some((result) => result.error)) {
     throw new CaseCenterRegistryError();
   }
-  return [
+  const allRows = [
     ...(first.data ?? []),
     ...remaining.flatMap((result) => result.data ?? []),
-  ].filter(
+  ];
+  if (
+    allRows.length !== count ||
+    allRows.some((assignment) => typeof assignment.id !== "string" || !assignment.id) ||
+    new Set(allRows.map((assignment) => assignment.id)).size !== count
+  ) {
+    throw new CaseCenterRegistryError();
+  }
+  return allRows.filter(
     (assignment) =>
       !assignment.ends_at || assignment.ends_at > generatedAt,
   );

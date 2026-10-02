@@ -12,6 +12,7 @@ import { requireTenantContext } from "@/lib/auth/context";
 import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
 import { canAccessCatalogPage, getPageBySlug } from "@/lib/catalog";
 import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
+import { loadDailyExpectedClients } from "@/lib/client-weekly/daily-projection-loader";
 import { parseServiceDate } from "@/lib/core-care/date";
 import { CoreCareSnapshotError, loadDailyCareSnapshot } from "@/lib/core-care/snapshot";
 
@@ -38,6 +39,9 @@ export default async function DashboardPage({
   const serviceDate = parseServiceDate(
     typeof query.date === "string" ? query.date : undefined,
   );
+  // Start the independent panel before waiting for the main daily snapshot.
+  // The promise stays request-scoped and is rendered under its own Suspense boundary.
+  const expectedClientsPromise = loadDailyExpectedClients(context, serviceDate);
   const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
   let snapshot = null;
   let loadError = false;
@@ -59,7 +63,7 @@ export default async function DashboardPage({
         roster={await rosterPromise}
       />
       <Suspense fallback={<DailyExpectedClientsLoading />}>
-        <DailyExpectedClients context={context} serviceDate={serviceDate} />
+        <DailyExpectedClients context={context} serviceDate={serviceDate} statePromise={expectedClientsPromise} />
       </Suspense>
     </>
   );

@@ -21,6 +21,7 @@ export type CaseCenterClientRow = {
 };
 
 export type CaseCenterAssignmentRow = {
+  id: string;
   client_id: string;
   assignee_user_id: string;
   assignment_kind: string;

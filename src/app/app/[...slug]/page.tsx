@@ -115,10 +115,7 @@ import {
 import { buildDemoRecords } from "@/lib/demo/fixtures";
 import { parseServiceDate } from "@/lib/core-care/date";
 import { filterDailyCareSnapshotByClient } from "@/lib/core-care/projection";
-import {
-  CoreCareSnapshotError,
-  loadDailyCareSnapshot,
-} from "@/lib/core-care/snapshot";
+import { loadCoreDailyPageInputs } from "@/lib/core-care/daily-page-inputs";
 import { isCoreDailyPage } from "@/lib/core-care/types";
 import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
 import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
@@ -1401,26 +1398,15 @@ export default async function StaffCatalogPage({
       <p>連結中的個案、日期或班別格式不正確，系統沒有替您選擇其他個案或班別。</p>
       <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
     </section>;
-    let snapshot = null;
-    let loadError = false;
-    try {
-      snapshot = await loadDailyCareSnapshot(context, serviceDate);
-    } catch (error) {
-      if (!(error instanceof CoreCareSnapshotError)) throw error;
-      loadError = true;
-    }
+    const pageInputs = await loadCoreDailyPageInputs(context, serviceDate, page.number);
+    let snapshot = pageInputs.snapshot;
+    const { canWriteRoutine, canReadDiary, loadError } = pageInputs;
     if (snapshot && selectedClientId) {
       snapshot = filterDailyCareSnapshotByClient(snapshot, selectedClientId);
     }
     const selectedDailyClient = selectedClientId
       ? snapshot?.clients.find((client) => client.clientId === selectedClientId)
       : undefined;
-    const writePermission = page.number === 3 ? "health.write" : page.number === 6
-      ? "care_records.write" : page.number === 46 ? "attendance.write" : null;
-    const [canWriteRoutine, canReadDiary] = await Promise.all([
-      writePermission ? canUseRoutineCare(context, writePermission) : Promise.resolve(false),
-      page.number === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
-    ]);
     return (
       <CoreDailyWorkspace
         clientAttention={snapshot?.sourceAccess.clients && selectedClientId && snapshot.clients.some((client) => client.clientId === selectedClientId)
