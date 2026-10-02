@@ -92,8 +92,25 @@ function GuardHarness() {
   return <><button onClick={draft.changed}>編輯</button><button onClick={draft.begin}>開始儲存</button>
     <button onClick={() => { draft.finish(); draft.saved(); }}>確認儲存</button>
     <NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={(event) => event.preventDefault()}>前往工作台</NavigationLink>
-    <form method="get" onSubmit={(event) => event.preventDefault()}><button>套用日期</button></form></>;
+    <form method="get" noValidate onSubmit={(event) => event.preventDefault()}><button>套用日期</button></form></>;
 }
+
+function MultipleGuardHarness() {
+  const first = useCoreDraftGuard();
+  const second = useCoreDraftGuard();
+  return <><button onClick={first.changed}>編輯甲</button><button onClick={second.changed}>編輯乙</button>
+    <button onClick={second.begin}>儲存乙</button><button onClick={() => { second.finish(); second.saved(); }}>乙已儲存</button>
+    <button onClick={first.discard}>捨棄甲</button>
+    <NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={(event) => event.preventDefault()}>前往工作台</NavigationLink>
+    <form method="get" noValidate onSubmit={(event) => event.preventDefault()}><button>套用日期</button></form></>;
+}
+
+function unloadPrevented() {
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
 describe("unsent draft navigation guard", () => {
   it("cancels link navigation and document unload while preserving the draft", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -116,7 +133,7 @@ describe("unsent draft navigation guard", () => {
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
   });
-  it("keeps a draft when date navigation is cancelled, and confirms discard only once when accepted", () => {
+  it("keeps a draft when GET navigation is cancelled, even after accepting the confirmation", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<GuardHarness />);
     fireEvent.click(screen.getByRole("button", { name: "編輯" }));
@@ -125,8 +142,55 @@ describe("unsent draft navigation guard", () => {
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("link"));
     expect(confirm).toHaveBeenCalledTimes(2);
-    const event = new Event("beforeunload", { cancelable: true });
-    window.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(false);
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "確認儲存" }));
+    expect(unloadPrevented()).toBe(false);
+  });
+  it("asks once for two dirty forms and keeps both protected if navigation is cancelled", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const addUnload = vi.spyOn(window, "addEventListener");
+    render(<MultipleGuardHarness />);
+    expect(addUnload.mock.calls.filter(([name]) => name === "beforeunload")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "編輯甲" }));
+    fireEvent.click(screen.getByRole("button", { name: "編輯乙" }));
+    fireEvent.click(screen.getByRole("link", { name: "前往工作台" }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(unloadPrevented()).toBe(true);
+  });
+  it("checks every busy form before asking to leave and never clears another draft", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<MultipleGuardHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯甲" }));
+    fireEvent.click(screen.getByRole("button", { name: "儲存乙" }));
+    const link = screen.getByRole("link", { name: "前往工作台" });
+    const departure = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(departure);
+    expect(departure.defaultPrevented).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "捨棄甲" }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "乙已儲存" }));
+    fireEvent.click(link);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(unloadPrevented()).toBe(true);
+  });
+  it("removes the shared listener when the last draft owner unmounts", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const view = render(<MultipleGuardHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯甲" }));
+    expect(unloadPrevented()).toBe(true);
+    view.unmount();
+    expect(unloadPrevented()).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

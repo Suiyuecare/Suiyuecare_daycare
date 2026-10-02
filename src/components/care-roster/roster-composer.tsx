@@ -80,9 +80,15 @@ export function RosterComposer({ roster, clients, serviceDate }: {
         : "另有操作尚待確認或畫面正在更新，請完成後再重新載入並人工核對。"); return;
     }
     viewLease.current = release;
-    try { draftGuard.saved(); window.location.reload(); } catch {
-      release(); viewLease.current = null;
+    // A conflict reload has not saved the user's edited fields. Let the
+    // browser's beforeunload guard ask before replacing them; only a receipt
+    // from the write path above may mark this draft as saved.
+    try { window.location.reload(); } catch {
       setMessage(confirmed ? "每日分工已確認儲存，但最新清單尚未讀回。請讀取最新分工清單，不要重送本筆。" : "清單未能重新載入，請稍後再人工核對；不要直接重送分工。");
+    } finally {
+      // Reload can be cancelled at the browser prompt. Do not strand the
+      // shared view lock on a page that remains mounted.
+      release(); viewLease.current = null;
     }
   }
   if (!roster.manager) return null;

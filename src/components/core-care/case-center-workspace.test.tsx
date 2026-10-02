@@ -87,7 +87,7 @@ describe("case center front-line next step", () => {
   it("shows a clear next step without engineering copy or a fake add action", () => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46, 3, 6]} canViewSummary />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("個案中心");
-    expect(screen.getByText("先選擇個案，再接續當日的出勤、量測與照顧日誌。")).toBeTruthy();
+    expect(screen.getByText("選好個案，直接接續有權限的工作。")).toBeTruthy();
     expect(screen.getByText("服務日期：2026/09/10")).toBeTruthy();
     expect(screen.getByRole("region", { name: "個案摘要，左右捲動可查看五項統計" }).classList.contains("case-center-metrics")).toBe(true);
     expect(container.textContent).not.toMatch(/穩定個案 ID|資料列權限|保存在網址|尚未接線/);
@@ -109,6 +109,46 @@ describe("case center front-line next step", () => {
     }
     expect(screen.queryByRole("link", { name: /查看 合成個案甲 的當日紀錄/ })).toBeNull();
     expect(container.querySelectorAll("[data-case-client-id]")).toHaveLength(2);
+  });
+
+  it("lets a social worker continue with the selected person when attendance is unavailable", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()}
+      allowedContinuationPages={[28]} />);
+    expect(workLinks(container)).toHaveLength(0);
+    const links = screen.getAllByRole("link", { name: "開啟 合成個案甲 的心理社會評估" });
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      const url = new URL((link as HTMLAnchorElement).href);
+      expect(url.pathname).toBe("/app/staff/social-work/psychosocial-assessment");
+      expect(Object.fromEntries(url.searchParams)).toEqual({ client: clientId });
+      expect(link.getAttribute("data-case-client-id")).toBe(clientId);
+    }
+    expect(screen.queryByText("當日工作尚未開放，請洽主管確認。")).toBeNull();
+  });
+
+  it("keeps nursing work for the same person and selected date without exposing unrelated pages", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()}
+      allowedContinuationPages={[7, 8]} />);
+    const primary = screen.getAllByRole("link", { name: "開啟 合成個案甲 的用藥紀錄" });
+    expect(primary).toHaveLength(2);
+    expect(Object.fromEntries(new URL((primary[0] as HTMLAnchorElement).href).searchParams)).toEqual({ date: serviceDate, client: clientId });
+    expect(screen.queryByRole("link", { name: /心理社會評估/ })).toBeNull();
+    const mobile = container.querySelector<HTMLElement>(".mobile-records")!;
+    expect(within(mobile).getByText("其他工作")).toBeTruthy();
+    fireEvent.click(within(mobile).getByText("其他工作"));
+    expect(new URL((within(mobile).getByRole("link", { name: "開啟 合成個案甲 的用藥計畫" }) as HTMLAnchorElement).href).searchParams.get("client")).toBe(clientId);
+  });
+
+  it("does not offer today's medication execution for a paused person, and keeps demo links truthful", () => {
+    const paused = client({ lifecycleStatus: "suspended", lifecycleState: "suspended", serviceStatus: "paused" });
+    const view = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [paused] })}
+      allowedContinuationPages={[7, 8, 28]} />);
+    expect(screen.queryByRole("link", { name: /用藥紀錄/ })).toBeNull();
+    expect(screen.getAllByRole("link", { name: "開啟 合成個案甲 的心理社會評估" })).toHaveLength(2);
+    view.unmount();
+    render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ demo: true })}
+      allowedContinuationPages={[7, 8, 28]} />);
+    expect(screen.queryByRole("link", { name: /心理社會評估|用藥計畫|用藥紀錄/ })).toBeNull();
   });
 
   it("puts the mobile next step immediately after identity while retaining safety details and all five metrics", () => {

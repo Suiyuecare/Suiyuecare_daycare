@@ -325,6 +325,11 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .case-center-actions { display: grid; gap: 8px; }
 .case-center-filters input, .case-center-filters select { font-size: 16px; min-height: 44px; }
 .case-center-actions a { min-height: 44px; white-space: normal; }
+.case-center-next-work summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-size: .875rem; font-weight: 750; cursor: pointer; list-style: none; }
+.case-center-next-work summary::-webkit-details-marker { display: none; }
+.case-center-next-work summary svg { width: 16px; height: 16px; flex: none; transition: transform .18s ease; }
+.case-center-next-work[open] summary svg { transform: rotate(180deg); }
+.case-center-next-work > div { display: grid; gap: 8px; padding-top: 8px; }
 .case-center-action-note { margin: 0; color: var(--ink-muted); font-size: .875rem; line-height: 1.6; }
 .core-client-continuation { margin-bottom: 16px; }
 .core-client-continuation--selected .core-composer { margin-top: 4px; }
@@ -661,6 +666,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .mobile-primary-nav a, .mobile-primary-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; border-radius: 14px; background: transparent; color: var(--ink-muted); font-size: 10px; font-weight: 900; cursor: pointer; }
   .mobile-primary-nav svg { width: 25px; height: 25px; }
   .mobile-primary-nav [aria-current="page"] { background: #fff1df; color: var(--brand-strong); box-shadow: inset 0 0 0 1px rgba(245, 138, 0, .18); }
+  .mobile-primary-nav [data-current="true"], .mobile-primary-nav button[aria-expanded="true"] { background: #fff1df; color: var(--brand-strong); box-shadow: inset 0 0 0 1px rgba(245, 138, 0, .18); }
   .app-shell button, .app-shell a, .family-shell button, .family-shell a { min-height: 44px; }
   .app-shell input, .app-shell select, .app-shell textarea,
   .family-shell input, .family-shell select, .family-shell textarea { font-size: 16px; }
