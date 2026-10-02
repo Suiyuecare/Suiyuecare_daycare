@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 const routerReplace = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", async (importOriginal) => ({ ...await importOriginal<typeof import("next/navigation")>(), useRouter: () => ({ replace: routerReplace }) }));
 import { IntakeProfileForm } from "./intake-profile-form";
@@ -9,7 +9,19 @@ import { CmsIntakeStep } from "./cms-intake-step";
 import { emptyIntakeProfile } from "@/lib/client-intake/model";
 import { IntakeWorkspace } from "./intake-workspace";
 const id = "c1600000-0000-4000-8000-000000000001";
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); routerReplace.mockReset(); });
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
+});
+afterAll(() => {
+  if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  if (originalClose) Object.defineProperty(HTMLDialogElement.prototype, "close", originalClose);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); routerReplace.mockReset(); });
 describe("intake usability and truthful writes", () => {
   const newCaseContext = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
   it.each([
@@ -80,8 +92,7 @@ describe("intake usability and truthful writes", () => {
   it("guards a real history Back, retains a canceled draft, and clears it before Forward after discard", async () => {
     window.history.replaceState({ prior: true }, "", "/app/staff/workspace/case-center");
     window.history.pushState({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: { synthetic: true } }, "", "/app/client-intake");
-    const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.stubGlobal("confirm", confirm);
+    const confirm = vi.spyOn(window, "confirm");
     render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
     fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
     await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
@@ -89,31 +100,88 @@ describe("intake usability and truthful writes", () => {
     expect(window.history.state.__NA).toBe(true);
     expect(JSON.stringify(window.history.state)).not.toContain("合成未儲存名字");
     window.history.back();
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    const leave = await screen.findByRole("alertdialog", { name: "放棄未儲存的收案資料？" });
+    expect(leave).toBeVisible();
+    expect(screen.getByRole("button", { name: "繼續填寫" })).toHaveFocus();
     expect(window.location.pathname).toBe("/app/client-intake");
     expect(window.history.state.__daycareIntakeUnsavedGuard).toBe(marker);
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    await waitFor(() => expect(leave).not.toHaveAttribute("open"));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+    await waitFor(() => expect(screen.getByLabelText("目前處理的個案")).toHaveFocus());
     window.history.back();
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(leave).toHaveAttribute("open"));
+    fireEvent.click(screen.getByRole("button", { name: "放棄輸入並離開" }));
     await waitFor(() => expect(window.location.pathname).toBe("/app/staff/workspace/case-center"));
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
     window.history.forward();
     await waitFor(() => expect(window.location.pathname).toBe("/app/client-intake"));
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+  it("returns to the case center when a bookmarked intake page has no prior entry", async () => {
+    window.history.replaceState({ __NA: true }, "", "/app/client-intake");
+    vi.spyOn(window.history, "length", "get").mockReturnValue(1);
+    const go = vi.spyOn(window.history, "go");
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "尚未儲存" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    window.history.back();
+    const leave = await screen.findByRole("alertdialog", { name: "放棄未儲存的收案資料？" });
+    fireEvent.click(screen.getByRole("button", { name: "放棄輸入並離開" }));
+    await waitFor(() => expect(leave).not.toHaveAttribute("open"));
+    expect(routerReplace).toHaveBeenCalledExactlyOnceWith("/app/staff/workspace/case-center");
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+  });
+  it.each(["visible", "hidden"] as const)("uses a safe destination when only Forward entries exist and the tab is %s", async (visibilityState) => {
+    window.history.replaceState({ __NA: true }, "", "/app/client-intake");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue(visibilityState);
+    vi.spyOn(window.history, "length", "get").mockReturnValue(2);
+    const go = vi.spyOn(window.history, "go").mockImplementation(() => {});
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "前進紀錄不是上一頁" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    window.history.back();
+    await screen.findByRole("alertdialog", { name: "放棄未儲存的收案資料？" });
+    fireEvent.click(screen.getByRole("button", { name: "放棄輸入並離開" }));
+    expect(go).toHaveBeenCalledWith(-2);
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith("/app/staff/workspace/case-center"), { timeout: 2000 });
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
   });
   it("replaces the sentinel when an internal link is confirmed, without retaining the draft", async () => {
     window.history.replaceState({ __NA: true }, "", "/app/client-intake");
-    const confirm = vi.fn().mockReturnValue(true);
-    vi.stubGlobal("confirm", confirm);
+    const confirm = vi.spyOn(window, "confirm");
     render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
     fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
     await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
     fireEvent.click(screen.getByRole("link", { name: "個案中心" }));
-    expect(confirm).toHaveBeenCalledOnce();
+    const leave = screen.getByRole("alertdialog", { name: "放棄未儲存的收案資料？" });
+    expect(leave).toBeVisible();
+    expect(routerReplace).not.toHaveBeenCalled();
+    const keepEditing = screen.getByRole("button", { name: "繼續填寫" });
+    const discard = screen.getByRole("button", { name: "放棄輸入並離開" });
+    discard.focus();
+    fireEvent.keyDown(discard, { key: "Tab" });
+    expect(keepEditing).toHaveFocus();
+    fireEvent.keyDown(keepEditing, { key: "Tab", shiftKey: true });
+    expect(discard).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+    fireEvent.click(screen.getByRole("link", { name: "個案中心" }));
+    expect(leave).toHaveAttribute("open");
+    leave.dispatchEvent(new Event("close"));
+    expect(leave).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "放棄輸入並離開" }));
     expect(routerReplace).toHaveBeenCalledWith("/app/staff/workspace/case-center");
+    expect(routerReplace).toHaveBeenCalledTimes(1);
     expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined();
     expect(window.history.state.__NA).toBe(true);
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
   it("collapses the guard before a saved client changes the URL and preserves Next history state", async () => {
     window.history.replaceState({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: { synthetic: true } }, "", "/app/client-intake");
@@ -275,7 +343,7 @@ describe("intake usability and truthful writes", () => {
     expect(submitted).not.toHaveProperty("profile"); expect(submitted).not.toHaveProperty("parsedPayload");
   });
   it("keeps weekly drafts across steps and asks before switching the client", async () => {
-    vi.stubGlobal("fetch", vi.fn()); const confirm = vi.fn().mockReturnValue(false); vi.stubGlobal("confirm", confirm);
+    vi.stubGlobal("fetch", vi.fn()); const confirm = vi.spyOn(window, "confirm");
     const other = "c1600000-0000-4000-8000-000000000002";
     render(<IntakeWorkspace context={{ organizationId: id, organizationName: "合成機構", branchId: other, branchName: "合成分支", userId: id, displayName: "合成管理員", roles: ["nurse"], scopes: [], assuranceLevel: "aal2", recentAal2At: null, demo: true }} clients={[{ id, clientCode: "TEST-01", displayName: "合成個案甲" }, { id: other, clientCode: "TEST-02", displayName: "合成個案乙" }]} initialSnapshot={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成個案甲", clientCode: "TEST-01" }, fieldAuthority: {}, sourceBatchId: null }} loadError={false} today="2026-09-14" />);
     fireEvent.click(screen.getByRole("button", { name: /3\s*每週到站與接送/ }));
@@ -283,7 +351,64 @@ describe("intake usability and truthful writes", () => {
     fireEvent.click(screen.getByRole("button", { name: /2\s*基本資料/ }));
     expect(screen.getByRole("heading", { name: "核對個案基本資料" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("目前處理的個案"), { target: { value: other } });
-    expect(confirm).toHaveBeenCalled(); expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    expect(screen.getByRole("alertdialog", { name: "放棄輸入並更換個案？" })).toBeVisible();
+    expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    await waitFor(() => expect(screen.getByLabelText("目前處理的個案")).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: /3\s*每週到站與接送/ })); expect(screen.getByLabelText("週一到站")).toBeChecked();
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+  it("discards one client's draft only after confirmation and starts the chosen client with a clean form", async () => {
+    const other = "c1600000-0000-4000-8000-000000000002";
+    const storageWrite = vi.spyOn(Storage.prototype, "setItem");
+    render(<IntakeWorkspace context={{ ...newCaseContext, demo: true }} clients={[{ id, clientCode: "TEST-01", displayName: "合成個案甲" }, { id: other, clientCode: "TEST-02", displayName: "合成個案乙" }]} initialSnapshot={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成個案甲", clientCode: "TEST-01" }, fieldAuthority: {}, sourceBatchId: null }} loadError={false} today="2026-09-14" />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    expect(JSON.stringify(window.history.state)).not.toContain("合成未儲存名字");
+    fireEvent.change(screen.getByLabelText("目前處理的個案"), { target: { value: other } });
+    expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+    fireEvent.click(screen.getByRole("button", { name: "放棄並更換個案" }));
+    await waitFor(() => expect(screen.getByLabelText("目前處理的個案")).toHaveValue(other));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成個案乙");
+    expect(screen.getByLabelText("目前處理的個案")).toHaveFocus();
+    expect(storageWrite).not.toHaveBeenCalled();
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      for (let index = 0; index < storage.length; index++) expect(storage.getItem(storage.key(index)!)).not.toContain("合成未儲存名字");
+    }
+  });
+  it("fails closed if a modal cannot open, leaving the unsaved form intact", async () => {
+    vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(() => { throw new Error("unsupported"); });
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    fireEvent.click(screen.getByRole("link", { name: "個案中心" }));
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("無法安全確認離頁");
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+  });
+  it("does not offer discard while a save is in flight, including a browser Back", async () => {
+    window.history.replaceState({ prior: true }, "", "/app/staff/workspace/case-center");
+    window.history.pushState({ __NA: true }, "", "/app/client-intake");
+    let rejectWrite!: (reason: Error) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((_resolve, reject) => { rejectWrite = reject; })));
+    render(<IntakeWorkspace context={newCaseContext} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成未儲存名字" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toEqual(expect.any(String)));
+    const marker = window.history.state.__daycareIntakeUnsavedGuard;
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存與核對中…" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("link", { name: "個案中心" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(routerReplace).not.toHaveBeenCalled();
+    window.history.back();
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toBe(marker));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
+    rejectWrite(new Error("synthetic network failure"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled());
   });
 });

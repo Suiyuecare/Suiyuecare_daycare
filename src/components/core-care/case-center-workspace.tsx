@@ -223,7 +223,7 @@ export function CaseCenterWorkspace({
   return (
     <>
       <CaseCenterHistory readyKey={`${caseCenterHref(filters)}:${snapshot.generatedAt}:${snapshot.clients.map((client) => client.id).join(",")}`} />
-      <nav aria-label="所在位置" className="context-bar">
+      <nav aria-label="所在位置" className="context-bar case-center-context">
         <span>工作台</span>
         <ChevronRight aria-hidden="true" />
         <span aria-current="page" className="context-bar__crumb">
@@ -231,7 +231,7 @@ export function CaseCenterWorkspace({
         </span>
       </nav>
 
-      <header className="page-heading">
+      <header className="page-heading case-center-heading">
         <div>
           <p className="eyebrow">日常照顧</p>
           <h1>{page.title}</h1>
@@ -421,11 +421,6 @@ export function CaseCenterWorkspace({
                     <div><h3>{client.displayName}</h3><span className="data-table__secondary">{client.clientCode}</span></div>
                     <StatusPill status={serviceLabels[client.serviceStatus]} />
                   </div>
-                  <dl className="core-care-card-grid">
-                    <div><dt>生命週期</dt><dd>{lifecycleLabels[client.lifecycleState]}</dd></div>
-                    <div><dt>收案日</dt><dd>{formatDate(client.admittedOn)}</dd></div>
-                    <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
-                  </dl>
                   <ClientWorkActions
                     canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
                     canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}
@@ -433,6 +428,11 @@ export function CaseCenterWorkspace({
                     date={filters.date}
                     demoOnly={Boolean(demoDailyIds && !demoDailyIds.has(client.id))}
                   />
+                  <dl className="core-care-card-grid">
+                    <div><dt>生命週期</dt><dd>{lifecycleLabels[client.lifecycleState]}</dd></div>
+                    <div><dt>收案日</dt><dd>{formatDate(client.admittedOn)}</dd></div>
+                    <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
+                  </dl>
                 </article>
               ))}
             </div>

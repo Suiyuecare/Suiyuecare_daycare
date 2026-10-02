@@ -668,6 +668,7 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .page-heading h1 { font-size: 30px; }
   .page-heading__actions { justify-content: stretch; }
   .page-heading__actions .button { flex: 1; }
+  .case-center-context, .case-center-heading .eyebrow, .case-center-heading .page-heading__description { display: none; }
   .core-care-heading { align-items: stretch; }
   .core-date-filter { align-items: stretch; flex-direction: column; }
   .core-date-filter .field { min-width: 0; }

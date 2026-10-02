@@ -19,7 +19,7 @@ const ClientDocumentsWorkspace = dynamic(() => import("@/components/client-docum
 
 type ClientChoice = { id: string; displayName: string; clientCode: string };
 const historyGuardKey = "__daycareIntakeUnsavedGuard";
-const unsavedMessage = "尚有未儲存的收案資料。確定離開並放棄這些輸入嗎？";
+type PendingLeave = { kind: "history" } | { kind: "link"; href: string; sameOrigin: boolean } | { kind: "client"; id: string };
 
 function copyHistoryState() {
   const state = window.history.state;
@@ -49,8 +49,16 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   const [error, setError] = useState(loadError ? "個案清單或基本資料暫時無法載入，請重新整理後再試。沒有改用其他分支資料。" : "");
   const [dirtySteps, setDirtySteps] = useState<Record<number, boolean>>({});
   const dirty = Object.values(dirtySteps).some(Boolean);
-  const historyGuard = useRef<{ token: string; url: string; collapsing: boolean; collapse: Promise<void> | null } | null>(null);
+  const historyGuard = useRef<{ token: string; url: string; hadPriorEntry: boolean; collapsing: boolean; collapse: Promise<void> | null } | null>(null);
   const intentionalLeave = useRef(false);
+  const leaveDialog = useRef<HTMLDialogElement>(null);
+  const leaveCancel = useRef<HTMLButtonElement>(null);
+  const leaveDiscard = useRef<HTMLButtonElement>(null);
+  const leaveTrigger = useRef<HTMLElement | null>(null);
+  const clientSelector = useRef<HTMLSelectElement>(null);
+  const pendingLeave = useRef<PendingLeave | null>(null);
+  const [leaveIntent, setLeaveIntent] = useState<PendingLeave | null>(null);
+  const [leaveError, setLeaveError] = useState("");
   const [busySteps, setBusySteps] = useState<Record<number, boolean>>({});
   const saving = Object.values(busySteps).some(Boolean);
   const loadSequence = useRef(0);
@@ -79,53 +87,157 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
     });
     return guard.collapse;
   }, []);
+  const restoreLeaveFocus = useCallback((trigger: HTMLElement | null) => {
+    const usableTrigger = trigger?.isConnected && trigger.tabIndex >= 0 && !leaveDialog.current?.contains(trigger);
+    const target = usableTrigger ? trigger : clientSelector.current;
+    target?.focus();
+  }, []);
+  const requestLeave = useCallback((intent: PendingLeave, trigger: HTMLElement | null) => {
+    if (saving || loading) {
+      setLeaveError("資料仍在儲存或讀取中，請等待完成後再離開或更換個案。");
+      restoreLeaveFocus(trigger);
+      return;
+    }
+    if (pendingLeave.current) return;
+    leaveTrigger.current = trigger;
+    try {
+      if (!leaveDialog.current?.showModal) throw new Error("dialog unavailable");
+      leaveDialog.current.showModal();
+      pendingLeave.current = intent;
+      setLeaveIntent(intent);
+      setLeaveError("");
+      leaveCancel.current?.focus();
+    } catch {
+      // If a browser cannot lock the page with a modal, keep the draft here.
+      pendingLeave.current = null;
+      setLeaveError("此瀏覽器無法安全確認離頁。請先儲存資料，再離開或更換個案。");
+      restoreLeaveFocus(trigger);
+    }
+  }, [saving, loading, restoreLeaveFocus]);
   useEffect(() => {
     const interceptHistory = (event: PopStateEvent) => {
       const guard = historyGuard.current;
       if (!guard || guard.collapsing || event.state?.[historyGuardKey] === guard.token || window.location.href !== guard.url) return;
       if (!dirty) { historyGuard.current = null; return; }
-      if (!window.confirm(unsavedMessage)) {
-        window.history.pushState({ ...copyHistoryState(), [historyGuardKey]: guard.token }, "", guard.url);
-        return;
-      }
-      historyGuard.current = null;
-      flushSync(() => { setDirtySteps({}); setDraftEpoch((value) => value + 1); });
-      window.history.back();
+      // Back has already reached the same-URL entry. Restore the sentinel
+      // synchronously so a second Back cannot bypass an open confirmation.
+      window.history.pushState({ ...copyHistoryState(), [historyGuardKey]: guard.token }, "", guard.url);
+      requestLeave({ kind: "history" }, document.activeElement instanceof HTMLElement ? document.activeElement : null);
     };
     window.addEventListener("popstate", interceptHistory);
     return () => window.removeEventListener("popstate", interceptHistory);
-  }, [dirty]);
+  }, [dirty, requestLeave]);
   useEffect(() => {
     if (!dirty) { void collapseHistoryGuard(); return; }
     if (historyGuard.current) return;
     intentionalLeave.current = false;
     const token = crypto.randomUUID();
     const url = window.location.href;
+    const hadPriorEntry = window.history.length > 1;
     window.history.pushState({ ...copyHistoryState(), [historyGuardKey]: token }, "", url);
-    historyGuard.current = { token, url, collapsing: false, collapse: null };
+    historyGuard.current = { token, url, hadPriorEntry, collapsing: false, collapse: null };
   }, [dirty, collapseHistoryGuard]);
   useEffect(() => {
     if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => { if (!intentionalLeave.current) e.preventDefault(); };
+    const warn = (e: BeforeUnloadEvent) => { if (!intentionalLeave.current) { e.preventDefault(); e.returnValue = ""; } };
     const intercept = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const anchor = (e.target as Element | null)?.closest("a[href]") as HTMLAnchorElement | null;
+      const anchor = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>("a[href]") : null;
       if (!anchor || anchor.download || anchor.target && anchor.target !== "_self" || !["http:", "https:"].includes(anchor.protocol) || anchor.href === window.location.href || anchor.getAttribute("href")?.startsWith("#")) return;
-      if (!window.confirm(unsavedMessage)) { e.preventDefault(); e.stopPropagation(); return; }
       e.preventDefault(); e.stopPropagation();
-      intentionalLeave.current = true;
-      historyGuard.current = null;
-      const state = copyHistoryState();
-      delete state[historyGuardKey];
-      window.history.replaceState(state, "", window.location.href);
-      flushSync(() => { setDirtySteps({}); setDraftEpoch((value) => value + 1); });
-      if (anchor.origin === window.location.origin) router.replace(`${anchor.pathname}${anchor.search}${anchor.hash}`);
-      else window.location.assign(anchor.href);
+      requestLeave({ kind: "link", href: anchor.href, sameOrigin: anchor.origin === window.location.origin }, anchor);
     };
     window.addEventListener("beforeunload", warn);
     document.addEventListener("click", intercept, true);
     return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", intercept, true); };
-  }, [dirty, router]);
+  }, [dirty, requestLeave]);
+  function closeLeaveDialog() {
+    leaveDialog.current?.close();
+    // A programmatic close does not reliably dispatch React's onClose in all
+    // browsers. Run cancellation cleanup even when no close event arrives.
+    leaveDialogClosed();
+  }
+  function leaveDialogClosed() {
+    // A delayed close event from a previous dialog must not clear a newer
+    // confirmation that has already been opened.
+    if (leaveDialog.current?.open) return;
+    const intent = pendingLeave.current;
+    pendingLeave.current = null;
+    setLeaveIntent(null);
+    if (!intent) return;
+    if (intent.kind === "client" && clientSelector.current) clientSelector.current.value = selectedId;
+    const trigger = leaveTrigger.current;
+    leaveTrigger.current = null;
+    // Native dialog focus restoration can happen after close(). Wait until it
+    // completes, then return focus to the action that opened the confirmation.
+    window.setTimeout(() => {
+      if (!pendingLeave.current && !leaveDialog.current?.open) restoreLeaveFocus(trigger);
+    }, 0);
+  }
+  async function confirmLeave() {
+    const intent = pendingLeave.current;
+    if (!intent) return;
+    if (saving || loading) {
+      setLeaveError("資料仍在儲存或讀取中，請等待完成後再試；輸入尚未放棄。");
+      closeLeaveDialog();
+      return;
+    }
+    let hadPriorEntry = true;
+    if (intent.kind === "history") {
+      const guard = historyGuard.current;
+      if (!guard || window.location.href !== guard.url || window.history.state?.[historyGuardKey] !== guard.token) {
+        setLeaveError("返回位置已變更，請保留輸入並重新操作返回；本次尚未放棄資料。");
+        closeLeaveDialog();
+        return;
+      }
+      hadPriorEntry = guard.hadPriorEntry;
+    }
+    pendingLeave.current = null;
+    setLeaveIntent(null);
+    if (intent.kind === "client") {
+      flushSync(() => { setDirtySteps({}); setDraftEpoch((value) => value + 1); });
+      await collapseHistoryGuard();
+      closeLeaveDialog();
+      await commitChoice(intent.id);
+      clientSelector.current?.focus();
+      return;
+    }
+    intentionalLeave.current = true;
+    historyGuard.current = null;
+    const state = copyHistoryState();
+    delete state[historyGuardKey];
+    window.history.replaceState(state, "", window.location.href);
+    flushSync(() => { setDirtySteps({}); setDraftEpoch((value) => value + 1); });
+    closeLeaveDialog();
+    if (intent.kind === "history") {
+      if (!hadPriorEntry) router.replace("/app/staff/workspace/case-center");
+      else {
+        // history.length also counts Forward entries. If this was the first
+        // entry, go(-2) does nothing; give traversal a chance to start, then
+        // use a safe destination rather than leaving a cleared draft in place.
+        const sourceUrl = window.location.href;
+        const settled = () => {
+          window.clearTimeout(timer);
+          window.removeEventListener("popstate", settled);
+          window.removeEventListener("pagehide", settled);
+        };
+        window.addEventListener("popstate", settled);
+        window.addEventListener("pagehide", settled);
+        const timer = window.setTimeout(() => {
+          settled();
+          if (window.location.href === sourceUrl) {
+            router.replace("/app/staff/workspace/case-center");
+          }
+        }, 1200);
+        window.history.go(-2);
+      }
+    }
+    else if (intent.sameOrigin) {
+      const destination = new URL(intent.href);
+      router.replace(`${destination.pathname}${destination.search}${destination.hash}`);
+    } else window.location.assign(intent.href);
+  }
   function goTo(value: number) { if (showSteps) stepsToggleRef.current?.focus(); setStep(value); setVisited((v) => new Set([...v, value])); setShowSteps(false); }
   async function readClient(clientId: string, fromWrite = false) {
     const sequence = ++loadSequence.current;
@@ -148,8 +260,10 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   }
   async function choose(id: string) {
     if (saving || loading) return;
-    if (dirty && !window.confirm("尚有未儲存的資料。確定放棄並切換個案嗎？")) return;
-    if (dirty) { flushSync(() => { setDirtySteps({}); setDraftEpoch((value) => value + 1); }); await collapseHistoryGuard(); }
+    if (dirty) { requestLeave({ kind: "client", id }, clientSelector.current); return; }
+    await commitChoice(id);
+  }
+  async function commitChoice(id: string) {
     if (!id) { ++loadSequence.current; setSelectedId(""); setSnapshot(null); setManual(preferManualForNew); setVisited(new Set([preferManualForNew ? 1 : 0])); setStep(preferManualForNew ? 1 : 0); setShowSteps(false); setError(""); setDirtySteps({}); window.history.replaceState(copyHistoryState(), "", "/app/client-intake"); return; }
     if (context.demo) {
       const client = clients.find((c) => c.id === id)!;
@@ -160,7 +274,23 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   const saved = (id: string) => readClient(id, true);
   return <div className={styles.workspace}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>收案</p><div className={styles.titleRow}><h1>個案建檔</h1><Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link></div><p>先建立基本資料，再安排服務與文件。</p></div></header>
-    <section className={styles.selector}><label>目前處理的個案<select value={selectedId} disabled={loading || saving} onChange={(e) => choose(e.target.value)}><option value="">＋建立新個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName} · {client.clientCode}</option>)}</select></label><div><span className={styles.badge}>{snapshot ? snapshot.pending ? "待收案 · 尚未開始服務" : "已建檔 · 依服務狀態執行" : "尚未建檔"}</span><p>{snapshot ? `基本資料待核對 ${intakeMissingItems(snapshot.profile).length} 項` : error ? "個案資料尚未讀取成功，請先重試。" : !canCreateScope ? "此帳號沒有建立新個案的權限；請選擇已授權的既有個案。" : manual ? "先建立基本資料，其餘項目可後續核對。" : "先匯入 CMS，或選擇手動建檔。"}</p></div></section>
+    <section className={styles.selector}><label>目前處理的個案<select ref={clientSelector} value={selectedId} disabled={loading || saving} onChange={(e) => choose(e.target.value)}><option value="">＋建立新個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName} · {client.clientCode}</option>)}</select></label><div><span className={styles.badge}>{snapshot ? snapshot.pending ? "待收案 · 尚未開始服務" : "已建檔 · 依服務狀態執行" : "尚未建檔"}</span><p>{snapshot ? `基本資料待核對 ${intakeMissingItems(snapshot.profile).length} 項` : error ? "個案資料尚未讀取成功，請先重試。" : !canCreateScope ? "此帳號沒有建立新個案的權限；請選擇已授權的既有個案。" : manual ? "先建立基本資料，其餘項目可後續核對。" : "先匯入 CMS，或選擇手動建檔。"}</p></div></section>
+    {leaveError ? <p className={styles.error} role="alert">{leaveError}</p> : null}
+    <dialog aria-describedby={`${stepsId}-leave-description`} aria-labelledby={`${stepsId}-leave-title`} className={`core-dialog ${styles.leaveDialog}`} onCancel={(event) => { event.preventDefault(); closeLeaveDialog(); }} onClose={leaveDialogClosed} onKeyDown={(event) => {
+      if (event.key !== "Tab") return;
+      const first = leaveCancel.current;
+      const last = leaveDiscard.current;
+      if (!first || !last) return;
+      const outside = !leaveDialog.current?.contains(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || outside)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || outside)) { event.preventDefault(); first.focus(); }
+    }} ref={leaveDialog} role="alertdialog">
+      <div className="core-dialog__surface">
+        <header className="drawer__header"><h2 id={`${stepsId}-leave-title`}>{leaveIntent?.kind === "client" ? "放棄輸入並更換個案？" : "放棄未儲存的收案資料？"}</h2></header>
+        <div className="drawer__body core-dialog__body" id={`${stepsId}-leave-description`}><p>{leaveIntent?.kind === "client" ? "更換個案會清除這位個案尚未儲存的輸入。" : "離開此頁會清除尚未儲存的輸入；已保存的資料不受影響。"}</p></div>
+        <footer className="drawer__footer"><button autoFocus className="button button--secondary" onClick={closeLeaveDialog} ref={leaveCancel} type="button">繼續填寫</button><button className="button button--danger" onClick={() => void confirmLeave()} ref={leaveDiscard} type="button">{leaveIntent?.kind === "client" ? "放棄並更換個案" : "放棄輸入並離開"}</button></footer>
+      </div>
+    </dialog>
     {context.demo ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
     {snapshot ? <AdmissionHandoff snapshot={snapshot} canRead={scope("clients.read")} blocked={dirty || saving || loading || Boolean(error)} /> : null}
     {!snapshot && manual && !context.demo ? <p className={styles.notice} role="status">目前可先手動建立待收案個案；CMS 匯入需由具權限人員在服務就緒後核對。</p> : null}

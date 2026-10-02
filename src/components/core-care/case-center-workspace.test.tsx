@@ -111,6 +111,19 @@ describe("case center front-line next step", () => {
     expect(container.querySelectorAll("[data-case-client-id]")).toHaveLength(2);
   });
 
+  it("puts the mobile next step immediately after identity while retaining safety details and all five metrics", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46]} />);
+    const mobileCard = container.querySelector<HTMLElement>(".core-care-mobile .record-card")!;
+    expect(mobileCard.children[0]?.classList.contains("record-card__top")).toBe(true);
+    expect(mobileCard.children[1]?.classList.contains("case-center-actions")).toBe(true);
+    expect(mobileCard.children[2]?.classList.contains("core-care-card-grid")).toBe(true);
+    expect(within(mobileCard).getByText("生命週期")).toBeTruthy();
+    expect(within(mobileCard).getByText("負責人")).toBeTruthy();
+    expect(container.querySelectorAll(".case-center-metrics .metric-card")).toHaveLength(5);
+    expect(container.querySelector(".case-center-context")).toBeTruthy();
+    expect(container.querySelector(".case-center-heading")).toBeTruthy();
+  });
+
   it("does not offer dead-end daily links for demo directory-only clients", () => {
     const directoryOnly = client({ id: "00000014-aaaa-4aaa-8aaa-000000000014", clientCode: "DEMO-020", displayName: "展示個案 20" });
     const runnable = client({ id: "a1111111-1111-4111-8111-111111111111", clientCode: "HX-021", displayName: "陳O華" });
