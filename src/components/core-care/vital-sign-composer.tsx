@@ -10,6 +10,9 @@ import { CoreCareReceiptError, parseVitalWriteReceipt } from "@/lib/core-care/wr
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { dailyWorkflowHref, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
+import { NavigationLink } from "@/components/app/navigation-link";
+import { taipeiServiceDateOf } from "@/lib/core-care/date";
 
 type ClientOption = { id: string; name: string; code: string };
 type VitalRequest = { client_id: string; measured_at: string; values: Record<string, number> };
@@ -52,12 +55,14 @@ export function VitalSignComposer({
   enabled,
   demo,
   selectedClientId,
+  selectedShift,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
   enabled: boolean;
   demo: boolean;
   selectedClientId?: string;
+  selectedShift?: DailyWorkflowShift;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -72,6 +77,8 @@ export function VitalSignComposer({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticePending, setNoticePending] = useState(false);
+  const [nextClientId, setNextClientId] = useState<string | null>(null);
 
   function open(event: MouseEvent<HTMLButtonElement>) {
     if (!enabled || unavailableSelection) return;
@@ -81,12 +88,14 @@ export function VitalSignComposer({
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
+    setNoticePending(false);
+    setNextClientId(null);
     dialog.current?.showModal();
   }
 
   function close() {
     if (pending) return;
-    if (attempt.current()) { dialog.current?.close(); setNotice("上一筆量測結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
+    if (attempt.current()) { dialog.current?.close(); setNoticePending(true); setNotice("上一筆量測結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
     if (!draft.discard()) return;
     dialog.current?.close();
   }
@@ -119,6 +128,8 @@ export function VitalSignComposer({
       };
       if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
         draft.saved(); dialog.current?.close();
+        setNextClientId(null);
+        setNoticePending(true);
         setNotice("量測已保存在裝置等待送出；尚未確認儲存到系統。重新連線後會自動重試。");
         return;
       }
@@ -137,14 +148,19 @@ export function VitalSignComposer({
       parseVitalWriteReceipt(raw, response.status, demo, values);
       await offline.saved();
       attempt.confirmed();
+      const savedDate = taipeiServiceDateOf(frozen.body.measured_at);
       form.reset();
       draft.saved();
       dialog.current?.close();
       setNotice(
         demo
           ? "展示量測已通過欄位與重送檢查；展示資料不會永久保存。"
-          : "生命徵象已儲存；可接續上方日誌步驟。量測資料不代表自動診斷。",
+          : savedDate !== serviceDate
+            ? `量測已儲存於 ${savedDate ?? "其他服務日"}，與畫面所選日期不同；請先切換服務日再接續。`
+            : "生命徵象已儲存；可接續寫日誌。量測資料不代表自動診斷。",
       );
+      setNoticePending(false);
+      setNextClientId(!demo && savedDate === serviceDate ? frozen.body.client_id : null);
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
@@ -178,11 +194,9 @@ export function VitalSignComposer({
         <HeartPulse aria-hidden="true" />新增量測
       </button>
       {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
-      {notice ? (
-        <p className="core-composer__notice" role="status">
-          {notice}
-        </p>
-      ) : null}
+      {notice ? <div className="core-composer__result"><p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p>
+        {nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(6, serviceDate, nextClientId, selectedShift)} loadingLabel="照顧日誌" prefetch={false}>接著寫日誌</NavigationLink> : null}
+      </div> : null}
       <dialog
         aria-labelledby="vital-sign-dialog-title"
         className="core-dialog"

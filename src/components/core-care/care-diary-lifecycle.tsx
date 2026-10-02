@@ -9,10 +9,22 @@ import { DiaryObservationsFields } from "./diary-observations";
 import { useCoreDraftGuard } from "./client-continuation";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
+import { diaryMatchesServiceContext } from "@/lib/core-care/diary-context";
+import { onConfirmedDiaryDraft } from "@/lib/core-care/diary-draft-event";
+import { formatCareTaipeiTime } from "@/lib/core-care/date";
+import type { DailyWorkflowShift } from "@/lib/core-care/workflow-links";
 
 type DiaryAction = "edit" | "submit" | "sign" | "correct" | "reopen";
 type DiaryMutation = { record: DiaryRecord; kind: DiaryAction; body: string };
 type ReadbackConfirmation = { record: DiaryRecord; notice: string };
+type DiaryConfirmation = { record: DiaryRecord; kind: Exclude<DiaryAction, "edit">; extra: Record<string, unknown> };
+
+const confirmationLabels = {
+  submit: { title: "提交照顧日誌", button: "確認提交", consequence: "提交後這個版本不可直接修改；尚須具權限的人員核對並簽署，才算正式完成。" },
+  sign: { title: "簽署照顧日誌", button: "確認並簽署", consequence: "將以本人身分簽署這個版本。簽署後原內容不可覆寫；需要更正時須另建版本並留下理由。" },
+  correct: { title: "建立更正草稿", button: "確認建立更正草稿", consequence: "原簽署版本將完整保留；新草稿必須重新提交與簽署才算完成。" },
+  reopen: { title: "退回草稿修訂", button: "確認退回草稿修訂", consequence: "此提交版本與退回理由會留在歷程；退回後仍須重新提交與簽署。" },
+} as const;
 
 const statusLabels = { draft: "草稿", submitted: "待簽署", signed: "正式完成", corrected: "更正版已完成" } as const;
 const snapshotSchema = z.object({ status: z.literal("ok"), requestId: z.string().min(1), data: z.object({
@@ -50,16 +62,17 @@ function DiaryEditor({ record, pending, locked, onSave, onCancel }: { record: Di
   </fieldset></form>;
 }
 
-type LifecycleProps = { clientId?: string; readEnabled?: boolean; enabled: boolean; canSign: boolean; canRevise?: boolean; demo: boolean };
+type LifecycleProps = { clientId?: string; clientName?: string; clientCode?: string; serviceDate: string; selectedShift?: DailyWorkflowShift; readEnabled?: boolean; enabled: boolean; canSign: boolean; canRevise?: boolean; demo: boolean };
 export function CareDiaryLifecycle(props: LifecycleProps) {
   if (props.readEnabled === false) return <section className="panel" aria-labelledby="diary-read-mode-title">
     <h2 id="diary-read-mode-title">日誌操作目前為查看模式</h2>
     <p>可在下方查看既有日誌摘要；編輯、提交與簽署需要對應權限及身分驗證。</p>
   </section>;
+  // Keep the same in-flight write attempt when only the viewed day or shift changes.
   return <CareDiaryClientLifecycle key={`${props.clientId ?? "none"}:${props.demo}`} {...props} />;
 }
 
-function CareDiaryClientLifecycle({ clientId, enabled, canSign, canRevise = canSign, demo }: LifecycleProps) {
+function CareDiaryClientLifecycle({ clientId, clientName, clientCode, serviceDate, selectedShift, enabled, canSign, canRevise = canSign, demo }: LifecycleProps) {
   const router = useRouter();
   const [records, setRecords] = useState<DiaryRecord[]>([]);
   const [history, setHistory] = useState<z.infer<typeof snapshotSchema>["data"]["history"]>([]);
@@ -72,8 +85,37 @@ function CareDiaryClientLifecycle({ clientId, enabled, canSign, canRevise = canS
   const attempt = useCareWriteAttempt<DiaryMutation>();
   const actionDraft = useCoreDraftGuard();
   const readback = useRef<ReadbackConfirmation | null>(null);
+  const createdDrafts = useRef<Array<{ id: string; version: number }>>([]);
+  const focusDraftId = useRef<string | null>(null);
   const inFlight = useRef(false);
   const activeClient = useRef(clientId);
+  const confirmationDialog = useRef<HTMLDialogElement>(null);
+  const confirmationCancel = useRef<HTMLButtonElement>(null);
+  const confirmationReturnFocus = useRef<HTMLElement | null>(null);
+  const [confirmation, setConfirmation] = useState<DiaryConfirmation | null>(null);
+
+  useEffect(() => {
+    const dialog = confirmationDialog.current;
+    if (!dialog) return;
+    if (confirmation && !dialog.open) {
+      dialog.showModal();
+      confirmationCancel.current?.focus();
+    } else if (!confirmation && dialog.open) {
+      dialog.close();
+    }
+  }, [confirmation]);
+
+  useEffect(() => {
+    if (!clientId || demo) return;
+    return onConfirmedDiaryDraft((draft) => {
+      if (!draft || draft.clientId !== clientId || !draft.recordId || !Number.isInteger(draft.version)) return;
+      if (!createdDrafts.current.some((entry) => entry.id === draft.recordId && entry.version === draft.version)) {
+        createdDrafts.current.push({ id: draft.recordId, version: draft.version });
+      }
+      setError(null); setNotice("系統已回覆草稿儲存，正在讀回核對；尚未正式完成。");
+      setLoading(true); setRecords([]); setHistory([]); setReload((value) => value + 1);
+    });
+  }, [clientId, demo]);
 
   useEffect(() => {
     let current = true;
@@ -89,12 +131,61 @@ function CareDiaryClientLifecycle({ clientId, enabled, canSign, canRevise = canS
         if (expected && ![...data.data.data.records, ...data.data.data.history].some((entry) => entry.id === expected.record.id && entry.record_key === expected.record.record_key && entry.version === expected.record.version && entry.status === expected.record.status)) {
           throw new Error("READBACK_NOT_CONFIRMED");
         }
+        const drafts = createdDrafts.current;
+        const latestDrafts = data.data.data.records;
+        const previousDrafts = data.data.data.history;
+        if (drafts.some((draft) => ![...latestDrafts, ...previousDrafts].some((entry) => entry.id === draft.id && entry.version === draft.version && entry.status === "draft"))) {
+          throw new Error("READBACK_NOT_CONFIRMED");
+        }
         setRecords(data.data.data.records); setHistory(data.data.data.history);
         if (expected) { setNotice(expected.notice); readback.current = null; }
+        if (drafts.length) {
+          const supersededDraft = drafts.map((draft) => previousDrafts.find((entry) => entry.id === draft.id && entry.version === draft.version && entry.status === "draft")).find(Boolean);
+          const matchedDraft = [...drafts].reverse().map((draft) => latestDrafts.find((entry) => entry.id === draft.id && entry.version === draft.version && entry.status === "draft" && diaryMatchesServiceContext(entry, serviceDate, selectedShift))).find(Boolean);
+          const successor = supersededDraft ? latestDrafts.find((entry) => entry.record_key === supersededDraft.record_key && diaryMatchesServiceContext(entry, serviceDate, selectedShift)) : null;
+          setNotice(supersededDraft
+            ? "草稿已讀回，但已有後續版本；請核對目前狀態，不要把舊草稿當成仍可編輯。"
+            : matchedDraft ? "已讀回新草稿。請確認內容，再提交與簽署。" : "已讀回新草稿；它不在目前日期／班別，請查看其他紀錄或切換服務日。");
+          focusDraftId.current = successor?.id ?? matchedDraft?.id ?? null;
+          createdDrafts.current = [];
+        }
       }
-    }).catch(() => { if (current) setError(readback.current ? "系統已回覆儲存，但尚未重新讀回這個版本。請按「重新讀取」核對，不要另建相同紀錄。" : "目前無法載入日誌，請檢查連線或重新登入後重試。這不代表沒有紀錄。"); }).finally(() => { if (current) setLoading(false); });
+    }).catch(() => { if (current) setError(readback.current || createdDrafts.current.length ? "系統已回覆儲存，但尚未重新讀回這個版本。請按「重新讀取」核對，不要另建相同紀錄。" : "目前無法載入日誌，請檢查連線或重新登入後重試。這不代表沒有紀錄。"); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; activeClient.current = undefined; };
-  }, [clientId, reload, demo]);
+  }, [clientId, reload, demo, serviceDate, selectedShift]);
+
+  useEffect(() => {
+    if (!focusDraftId.current) return;
+    const target = document.getElementById(`care-diary-${focusDraftId.current}`);
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: "nearest" });
+    focusDraftId.current = null;
+  }, [records]);
+
+  function requestAction(record: DiaryRecord, kind: DiaryConfirmation["kind"], extra: Record<string, unknown> = {}) {
+    if (inFlight.current || confirmation || demo || !clientId || record.client_id !== clientId) return;
+    if ((kind === "sign" ? !canSign : !enabled) || ((kind === "correct" || kind === "reopen") && !canRevise)) return;
+    const prior = attempt.current();
+    if (prior) {
+      if (prior.body.record.id === record.id && prior.body.kind === kind) void action(record, kind);
+      return;
+    }
+    confirmationReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirmation({ record, kind, extra });
+  }
+
+  function closeConfirmation() {
+    setConfirmation(null);
+    confirmationDialog.current?.close();
+  }
+
+  function confirmAction() {
+    const selected = confirmation;
+    if (!selected) return;
+    closeConfirmation();
+    void action(selected.record, selected.kind, selected.extra);
+  }
 
   async function action(record: DiaryRecord, kind: DiaryAction, extra: Record<string, unknown> = {}) {
     if (inFlight.current || demo || !clientId || record.client_id !== clientId) return false;
@@ -102,7 +193,6 @@ function CareDiaryClientLifecycle({ clientId, enabled, canSign, canRevise = canS
     if ((kind === "correct" || kind === "reopen") && !canRevise) return false;
     const prior = attempt.current();
     if (prior && (prior.body.record.id !== record.id || prior.body.kind !== kind)) return false;
-    if (!prior && kind !== "edit" && !window.confirm(kind === "sign" ? "我已閱讀這個版本，確認是本次實際觀察與處置，並以本人身分簽署。" : kind === "correct" ? "建立同一事件的更正草稿？原簽署版本會完整保留，更正內容須重新確認與簽署。" : kind === "reopen" ? "退回草稿修訂？這個提交版本與退回理由會保留在歷程。" : "提交這個已儲存的版本？提交後不可直接修改，仍須本人確認簽署才算完成。")) return false;
     const frozen = prior ?? attempt.prepare({ record, kind, body: JSON.stringify({ action: kind, base_version: record.version, ...extra, ...(kind === "sign" ? { confirmed: true } : {}) }) }, crypto.randomUUID());
     if (kind !== "edit") actionDraft.begin();
     inFlight.current = true; setPending(true); setError(null); setNotice(null);
@@ -131,20 +221,53 @@ function CareDiaryClientLifecycle({ clientId, enabled, canSign, canRevise = canS
     finally { actionDraft.finish(); inFlight.current = false; setPending(false); }
   }
 
-  return <section className="panel" aria-labelledby="diary-lifecycle-title"><div className="panel__header"><div><p className="eyebrow">草稿 → 確認 → 簽署</p><h2 id="diary-lifecycle-title">接續完成照顧日誌</h2></div><button type="button" className="button button--secondary" disabled={loading || pending || !clientId || editingId !== null || attempt.locked} onClick={() => { setLoading(true); setError(null); setRecords([]); setHistory([]); setReload((value) => value + 1); }}>重新讀取</button></div>
-    {!clientId ? <p>請先選擇一位個案，查看與接續完成他的日誌。</p> : null}
-    {loading ? <p role="status">正在讀取日誌…</p> : null}{error ? <p role="alert">{error}</p> : null}{notice ? <p role="status">{notice}</p> : null}
-    {attempt.locked && !pending ? <div className="callout core-care-callout"><p role="status">上一筆操作結果尚未確認，內容已鎖定。請重試原操作；不要修改內容或另建相同紀錄。若持續被拒絕，請聯絡主管核對。</p><button type="button" className="button button--primary" onClick={() => { const original = attempt.current(); if (original) void action(original.body.record, original.body.kind); }}>重試原操作</button></div> : null}
-    {clientId && !loading && !error && records.length === 0 ? <p>{demo ? "展示模式不保存日誌或簽署。正式登入並選擇個案後，這裡會顯示可接續的草稿。" : "這位個案目前沒有日誌。可從上方新增日誌草稿。"}</p> : null}
-    {records.map((record) => <article key={record.id} className="today-work-card"><header><h3>{record.fields.care_item}</h3><p>{new Date(record.occurred_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })} · 第 {record.version} 版 · {statusLabels[record.status]}</p></header>
+  const currentRecords = records.filter((record) => diaryMatchesServiceContext(record, serviceDate, selectedShift));
+  const otherRecords = records.filter((record) => !diaryMatchesServiceContext(record, serviceDate, selectedShift));
+  const shiftLabel = selectedShift === "morning" ? "上午" : selectedShift === "afternoon" ? "下午" : selectedShift === "full_day" ? "全日" : "全部班別";
+
+  function recordCard(record: DiaryRecord) {
+    return <article key={record.id} id={`care-diary-${record.id}`} tabIndex={-1} className="record-card"><header><h3>{record.fields.care_item}</h3><p>{new Date(record.occurred_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })} · {record.fields.shift === "morning" ? "上午" : record.fields.shift === "afternoon" ? "下午" : "全日"} · 第 {record.version} 版 · {statusLabels[record.status]}</p></header>
       <p>{record.fields.note || "未填寫文字摘要，請確認本次快速紀錄。"}</p>
       {record.fields.abnormal ? <p>需留意：{record.fields.follow_up || "請補充後續行動"}</p> : null}
       {record.fields.observations ? <details><summary>查看本次快速紀錄</summary><DiaryObservationSummary observations={record.fields.observations} /></details> : null}
       {record.signed_at ? <p>簽署時間：{new Date(record.signed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}。原內容不可覆寫。</p> : null}
       {editingId === record.id ? <DiaryEditor key={record.id} record={record} pending={pending} locked={attempt.locked} onSave={(fields) => action(record, "edit", { data: fields })} onCancel={() => { if (!attempt.current()) setEditingId(null); }} /> : null}
-      <div className="action-row">{record.status === "draft" ? <><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => setEditingId(record.id)} type="button">繼續編輯草稿</button><button className="button button--primary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => void action(record, "submit")} type="button">提交已儲存版本</button></> : record.status === "submitted" ? <><button className="button button--primary" disabled={pending || attempt.locked || !canSign || demo || editingId !== null} onClick={() => void action(record, "sign")} type="button">確認內容並簽署</button><form onSubmit={(event) => { event.preventDefault(); void action(record, "reopen", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>退回理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">退回草稿修訂</button></form></> : <form onSubmit={(event) => { event.preventDefault(); void action(record, "correct", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>更正理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">建立更正草稿</button></form>}</div>
+      <div className="action-row">{record.status === "draft" ? <><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => setEditingId(record.id)} type="button">繼續編輯草稿</button><button className="button button--primary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => requestAction(record, "submit")} type="button">提交已儲存版本</button></> : record.status === "submitted" ? <><button className="button button--primary" disabled={pending || attempt.locked || !canSign || demo || editingId !== null} onClick={() => requestAction(record, "sign")} type="button">確認內容並簽署</button><form data-core-care-draft onSubmit={(event) => { event.preventDefault(); requestAction(record, "reopen", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>退回理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">退回草稿修訂</button></form></> : <form data-core-care-draft onSubmit={(event) => { event.preventDefault(); requestAction(record, "correct", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>更正理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">建立更正草稿</button></form>}</div>
       <details><summary>版本與更正歷程</summary><ol>{history.filter((item) => item.record_key === record.record_key).map((item) => <li key={item.id}>第 {item.version} 版 · {statusLabels[item.status as keyof typeof statusLabels] ?? item.status}{item.correction_reason ? ` · ${item.correction_reason}` : ""}</li>)}</ol></details>
-    </article>)}
+    </article>;
+  }
+
+  return <section className="panel" aria-labelledby="diary-lifecycle-title"><div className="panel__header"><div><p className="eyebrow">草稿 → 提交 → 簽署</p><h2 id="diary-lifecycle-title">本次照顧日誌</h2></div><button type="button" className="button button--secondary" disabled={loading || pending || !clientId || editingId !== null || attempt.locked} onClick={() => { setLoading(true); setError(null); setRecords([]); setHistory([]); setReload((value) => value + 1); }}>重新讀取</button></div>
+    {!clientId ? <p>請先選擇一位個案，查看與接續完成他的日誌。</p> : null}
+    {loading ? <p role="status">正在讀取日誌…</p> : null}{error ? <p role="alert">{error}</p> : null}{notice ? <p role="status">{notice}</p> : null}
+    {attempt.locked && !pending ? <div className="callout core-care-callout"><p role="status">上一筆操作結果尚未確認，內容已鎖定。請重試原操作；不要修改內容或另建相同紀錄。若持續被拒絕，請聯絡主管核對。</p><button type="button" className="button button--primary" onClick={() => { const original = attempt.current(); if (original) void action(original.body.record, original.body.kind); }}>重試原操作</button></div> : null}
+    {clientId && !loading ? <section aria-label={`${serviceDate} ${shiftLabel}日誌`} className="panel__body care-diary-records">
+      <p className="eyebrow">{serviceDate} · {shiftLabel} · {currentRecords.length} 筆</p>
+      {currentRecords.length ? currentRecords.map(recordCard) : !error ? <p>{demo ? "展示模式不保存日誌或簽署。" : "本次服務日／班別尚無日誌；可從上方新增草稿。其他日期或班別不算本次完成。"}</p> : null}
+    </section> : null}
+    {otherRecords.length ? <details className="panel__body care-diary-records"><summary>其他日期／班別紀錄（{otherRecords.length}）</summary><p>以下紀錄不計入本次服務日與班別；請先核對時間再操作。</p>{otherRecords.map(recordCard)}</details> : null}
+    <dialog aria-describedby="care-diary-confirm-description" aria-labelledby="care-diary-confirm-title" className="core-dialog"
+      onCancel={(event) => { event.preventDefault(); closeConfirmation(); }}
+      onClick={(event) => { if (event.target === event.currentTarget) closeConfirmation(); }}
+      onClose={() => { setConfirmation(null); confirmationReturnFocus.current?.focus(); }} ref={confirmationDialog} role="alertdialog">
+      <div className="core-dialog__surface">
+        <header className="drawer__header"><div><p className="eyebrow">核對後才會送出</p><h2 id="care-diary-confirm-title">{confirmation ? `${confirmationLabels[confirmation.kind].title}・個案 ${clientName && clientCode ? `${clientName}（${clientCode}）` : confirmation.record.client_id.slice(-8).toUpperCase()}` : "確認照顧日誌操作"}</h2></div></header>
+        <div className="drawer__body core-dialog__body" id="care-diary-confirm-description">
+          {confirmation ? <>
+            <dl className="core-care-card-grid">
+              {clientCode ? <div><dt>個案代碼</dt><dd>{clientCode}</dd></div> : null}
+              <div><dt>個案識別碼</dt><dd>{confirmation.record.client_id}</dd></div>
+              <div><dt>照顧項目</dt><dd>{confirmation.record.fields.care_item}</dd></div>
+              <div><dt>發生時間</dt><dd>{formatCareTaipeiTime(confirmation.record.occurred_at)}</dd></div>
+              <div><dt>目前紀錄版本</dt><dd>第 {confirmation.record.version} 版・{statusLabels[confirmation.record.status]}</dd></div>
+            </dl>
+            {typeof confirmation.extra.reason === "string" ? <p>理由：{confirmation.extra.reason}</p> : null}
+            <p>{confirmationLabels[confirmation.kind].consequence}</p>
+          </> : null}
+        </div>
+        <footer className="drawer__footer"><button autoFocus className="button button--secondary" onClick={closeConfirmation} ref={confirmationCancel} type="button">取消，返回紀錄</button><button className="button button--primary" disabled={!confirmation} onClick={confirmAction} type="button">{confirmation ? confirmationLabels[confirmation.kind].button : "確認"}</button></footer>
+      </div>
+    </dialog>
   </section>;
 }
 

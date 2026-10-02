@@ -185,6 +185,26 @@ describe("case center front-line next step", () => {
 });
 
 describe("case center filters and readable fallback states", () => {
+  it("keeps the GET filters in a collapsed disclosure with a readable applied summary", () => {
+    const selected = filters({ query: "合成 甲", lifecycle: "active", service: "serving", responsible: actorId });
+    const { container } = render(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot()} />);
+    const form = container.querySelector<HTMLFormElement>("form.case-center-filters")!;
+    const disclosure = form.querySelector<HTMLDetailsElement>(".case-center-advanced-filters")!;
+
+    expect(form.getAttribute("method")).toBe("get");
+    expect(disclosure.open).toBe(false);
+    expect(screen.getByText("已套用：在案、服務中、我（合成人員）")).toBeTruthy();
+    expect(Object.fromEntries(new FormData(form))).toEqual({
+      date: serviceDate, q: "合成 甲", lifecycle: "active", service: "serving", responsible: "me",
+    });
+
+    fireEvent.click(screen.getByText("展開篩選"));
+    expect(disclosure.open).toBe(true);
+    expect(screen.getByRole("button", { name: "套用篩選" })).toBeTruthy();
+    fireEvent.click(screen.getByText("收合篩選"));
+    expect(disclosure.open).toBe(false);
+  });
+
   it("preserves all combined filters in pagination and resets only filter criteria on clear", () => {
     const selected = filters({ query: "合成 甲", lifecycle: "active", service: "serving", responsible: actorId, page: 2 });
     const { container } = render(<CaseCenterWorkspace page={page} filters={selected} snapshot={snapshot({ page: 2, pageCount: 3, total: 53 })} />);
