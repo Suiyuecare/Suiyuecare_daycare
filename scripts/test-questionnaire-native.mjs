@@ -94,7 +94,12 @@ try {
   sql(await readFile(join(root, "supabase/seed.sql"), "utf8"));
   console.log(`Native migration compilation: ${migrations.length}/${migrations.length}.`);
   sql(run("/usr/bin/tar", ["-xOf", join(root, "node_modules/@electric-sql/pglite/dist/pgtap.tar.gz"), "share/postgresql/extension/pgtap--1.3.5.sql"]));
-  for (const name of ["questionnaire_assessment_drafts.test.sql", "questionnaire_assessment_history.test.sql", "questionnaire_assessment_admission_validation.test.sql"]) {
+  for (const name of [
+    "questionnaire_assessment_drafts.test.sql",
+    "questionnaire_assessment_history.test.sql",
+    "questionnaire_assessment_admission_validation.test.sql",
+    "questionnaire_resume_summary.test.sql",
+  ]) {
     const suite = await readFile(join(root, "supabase/tests", name), "utf8");
     const expected = Number(suite.match(/select\s+plan\((\d+)\)/i)?.[1]);
     const output = sql(suite);
