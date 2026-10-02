@@ -67,6 +67,8 @@ describe("daily care selected-client handoff and source boundaries", () => {
     render(workspace(page, { selectedClientId: selected.clientId }));
     expect(screen.queryByRole("region", { name: "本頁摘要" })).not.toBeInTheDocument();
     expect(screen.queryByText("先確認個案與日期，再接續出勤、量測和照顧日誌。")).toBeNull();
+    expect(screen.getByRole("navigation", { name: "所在位置" })).toHaveClass("core-care-context--selected");
+    expect(screen.getByRole("heading", { level: 1 }).closest(".core-care-heading")).toHaveClass("core-care-heading--selected");
     expect(screen.getByRole("button", { name: trigger }).closest(".core-client-continuation")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: trigger }));
     const dialog = screen.getByRole("dialog", { name: title });
@@ -78,6 +80,7 @@ describe("daily care selected-client handoff and source boundaries", () => {
   it.each([46, 3, 6])("requires selection in the continuation before opening page %s composer", (page) => {
     render(workspace(page));
     expect(screen.getByText("先確認個案與日期，再接續出勤、量測和照顧日誌。")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "所在位置" })).not.toHaveClass("core-care-context--selected");
     expect(screen.getByRole("combobox", { name: "選擇個案" })).toHaveValue("");
     expect(screen.queryByRole("dialog", { hidden: true })).not.toBeInTheDocument();
     expect(screen.getByText("請先在上方選定個案，再新增紀錄。")).toBeVisible();

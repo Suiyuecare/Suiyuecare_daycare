@@ -551,6 +551,8 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
 
 /* Core care vertical slice */
 .core-care-heading { align-items: center; }
+.synthetic-preview-banner { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--warning-soft); color: var(--warning); line-height: 1.5; }
+.synthetic-preview-banner p { margin: 4px 0 0; }
 .core-date-filter { display: flex; align-items: end; gap: 10px; }
 .core-date-filter .field { min-width: 178px; }
 .core-care-callout { margin-bottom: 18px; border-color: var(--line); background: var(--surface-mint); color: var(--brand-strong); }
@@ -741,6 +743,9 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .today-heading .page-heading__actions .button { flex: 0 0 auto; padding-inline: 10px; }
   .today-heading .eyebrow { margin-bottom: 2px; font-size: .72rem; }
   .core-care-heading { align-items: stretch; }
+  .core-care-context--selected, .core-care-heading--selected .eyebrow { display: none; }
+  .synthetic-preview-banner { margin-bottom: 8px; padding: 8px 12px; font-size: .875rem; line-height: 1.35; }
+  .synthetic-preview-banner p { margin-top: 2px; }
   .core-date-filter { align-items: flex-end; flex-direction: row; }
   .core-date-filter .field { flex: 1 1 auto; min-width: 0; }
   .core-date-filter .button { flex: 0 0 auto; padding-inline: 12px; }
