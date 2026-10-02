@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { DailyExpectedClients, DailyExpectedClientsLoading } from "@/components/client-weekly/daily-expected-clients";
-import { ShieldX } from "lucide-react";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
-import { DashboardWorkspace } from "@/components/workspace/dashboard-workspace";
+import { StaffAccessDenied } from "@/components/app/staff-access-denied";
 import { parseDailyWorkSelection } from "@/lib/core-care/selection-query";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
@@ -27,7 +26,6 @@ import type { DataInventorySnapshot } from "@/lib/data-inventory/types";
 import { defaultIntegrationsAuditFilters, parseIntegrationsAuditQuery } from "@/lib/integrations-audit/query";
 import { IntegrationsAuditSnapshotError, loadIntegrationsAuditSnapshot } from "@/lib/integrations-audit/snapshot";
 import { CoreDailyWorkspace } from "@/components/core-care/core-daily-workspace";
-import { CaseCenterWorkspace } from "@/components/core-care/case-center-workspace";
 import { ClientMasterWorkspace } from "@/components/clients/client-master-workspace";
 import { ClientLifecycleWorkspace } from "@/components/clients/client-lifecycle-workspace";
 import { ClientServicePlanWorkspace } from "@/components/client-service-plan-workflow/client-service-plan-workspace";
@@ -122,7 +120,6 @@ import {
   loadDailyCareSnapshot,
 } from "@/lib/core-care/snapshot";
 import { isCoreDailyPage } from "@/lib/core-care/types";
-import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
 import { CareReminderCard } from "@/components/care-reminders/care-reminder-card";
 import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
 import { env, isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
@@ -180,14 +177,6 @@ import {
   MEDICATION_PLAN_LIFECYCLE_STATES,
   type MedicationPlanLifecycleFilter,
 } from "@/lib/medication-plans/types";
-import {
-  caseCenterHref,
-  parseCaseCenterFilters,
-} from "@/lib/case-center/query";
-import {
-  CaseCenterRegistryError,
-  loadCaseCenterSnapshot,
-} from "@/lib/case-center/registry";
 import {
   BLOOD_GLUCOSE_MEAL_CONTEXTS,
   type BloodGlucoseMealContext,
@@ -676,7 +665,9 @@ import {
 } from "@/lib/feedback-complaints/snapshot";
 
 export function generateStaticParams() {
-  return staffPages.map((page) => ({ slug: page.slug.split("/") }));
+  return staffPages
+    .filter((page) => page.number !== 1 && page.number !== 2)
+    .map((page) => ({ slug: page.slug.split("/") }));
 }
 
 export async function generateMetadata({
@@ -698,75 +689,7 @@ export default async function StaffCatalogPage({
   const context = await requireTenantContext("staff");
 
   if (!canAccessCatalogPage(context, page)) {
-    return (
-      <section
-        aria-labelledby="access-denied-title"
-        className="empty-card"
-        style={{ margin: "clamp(32px, 8vw, 96px) auto" }}
-      >
-        <span className="empty-card__icon empty-card__icon--warning">
-          <ShieldX aria-hidden="true" />
-        </span>
-        <p className="eyebrow">無權限</p>
-        <h1 id="access-denied-title">這個功能不在您的資料範圍內</h1>
-        <p>系統未載入此頁資料。若工作需要使用，請由機構管理員調整角色與有效範圍。</p>
-        <Link className="button button--secondary" href="/app/staff/workspace/dashboard">
-          返回工作儀表板
-        </Link>
-      </section>
-    );
-  }
-
-  if (page.number === 1) {
-    const serviceDate = parseServiceDate(
-      typeof query.date === "string" ? query.date : undefined,
-    );
-    const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
-    let snapshot = null;
-    let loadError = false;
-    try {
-      snapshot = await loadDailyCareSnapshot(context, serviceDate);
-    } catch (error) {
-      if (!(error instanceof CoreCareSnapshotError)) throw error;
-      loadError = true;
-    }
-    return (
-      <><DashboardWorkspace
-        canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
-        canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
-        loadError={loadError}
-        serviceDate={serviceDate}
-        snapshot={snapshot}
-        roster={await rosterPromise}
-      />
-      <Suspense fallback={<DailyExpectedClientsLoading />}><DailyExpectedClients context={context} serviceDate={serviceDate} /></Suspense></>
-    );
-  }
-
-  if (page.number === 2) {
-    const filters = parseCaseCenterFilters(query);
-    let snapshot = null;
-    let loadError = false;
-    try {
-      snapshot = await loadCaseCenterSnapshot(context, filters);
-    } catch (error) {
-      if (!(error instanceof CaseCenterRegistryError)) throw error;
-      loadError = true;
-    }
-    if (snapshot && snapshot.page !== filters.page) {
-      redirect(caseCenterHref({ ...filters, page: snapshot.page }));
-    }
-    return (
-      <CaseCenterWorkspace
-        canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
-        allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
-        canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
-        filters={filters}
-        loadError={loadError}
-        page={page}
-        snapshot={snapshot}
-      />
-    );
+    return <StaffAccessDenied />;
   }
 
   if (page.number === 4) {
