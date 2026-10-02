@@ -33,6 +33,9 @@ const receipt = { action: "create", clientId, formKey: form.key, assessmentKey, 
 const draft = { assessmentKey, versionId, version: 1, formVersion: form.version, assessedOn: "2026-09-25", answers: body.answers,
   context: {}, recordState: "draft", authorDisplayName: "護理員", createdAt: "2026-09-25T01:00:00Z", contentHash: "a".repeat(64) };
 const page = { formKey: "spmsq", clientId, assessments: [{ ...draft, assessmentCreatedAt: draft.createdAt }], total: 1, nextCursor: null };
+const datePage = { formKey: "spmsq", clientId, assessedOn: draft.assessedOn,
+  assessments: [{ assessmentKey, versionId, version: 1, assessedOn: draft.assessedOn, recordState: "draft",
+    savedAt: draft.createdAt, assessmentCreatedAt: draft.createdAt }], total: 1, nextCursor: null };
 const history = { formKey: "spmsq", clientId, assessmentKey, versions: [draft], total: 1, nextBeforeVersion: null };
 const get = (query: string) => GET(new Request(`https://example.invalid/api/questionnaire-assessments?form_key=spmsq&${query}`));
 const post = (key = operationId) => POST(new Request("https://example.invalid/api/questionnaire-assessments?form_key=spmsq", { method: "POST", headers: { "Idempotency-Key": key }, body: "{}" }));
@@ -133,6 +136,23 @@ describe("questionnaire draft and history API", () => {
     expect(stubs.rpc).toHaveBeenCalledWith("questionnaire_assessment_list", { p_expected_organization_id: organizationId,
       p_expected_branch_id: branchId, p_form_key: "spmsq", p_client_id: clientId, p_before_created_at: null, p_before_assessment_key: null });
   });
+  it("finds one exact assessment date with a metadata-only, server-filtered read", async () => {
+    stubs.getTenantContext.mockResolvedValue({ ...actor, scopes: ["clients.read", "questionnaire_cognition.read"] });
+    stubs.rpc.mockResolvedValue({ data: datePage, error: null });
+    const response = await get(`mode=by_date&client_id=${clientId}&assessed_on=2026-09-25`);
+    expect(response.status).toBe(200);
+    expect(stubs.rpc).toHaveBeenCalledWith("questionnaire_assessment_date_lookup", {
+      p_expected_organization_id: organizationId, p_expected_branch_id: branchId, p_form_key: "spmsq",
+      p_client_id: clientId, p_assessed_on: "2026-09-25", p_before_created_at: null, p_before_assessment_key: null,
+    });
+    expect((await response.json()).data.assessments[0]).not.toHaveProperty("answers");
+  });
+  it("preserves the original microsecond cursor when finding older matches on the same date", async () => {
+    const precise = "2026-09-25T01:00:00.123456+00:00";
+    stubs.rpc.mockResolvedValue({ data: { ...datePage, assessments: [{ ...datePage.assessments[0], savedAt: precise, assessmentCreatedAt: precise }] }, error: null });
+    expect((await get(`mode=by_date&client_id=${clientId}&assessed_on=2026-09-25&before_created_at=${encodeURIComponent(precise)}&before_assessment_key=${assessmentKey.toUpperCase()}`)).status).toBe(200);
+    expect(stubs.rpc.mock.calls[0][1]).toMatchObject({ p_before_created_at: precise, p_before_assessment_key: assessmentKey });
+  });
   it("passes exact chain/version cursors to the bounded history RPC", async () => {
     stubs.rpc.mockResolvedValue({ data: history, error: null });
     expect((await get(`mode=versions&client_id=${clientId}&assessment_key=${assessmentKey}&before_version=21`)).status).toBe(200);
@@ -141,7 +161,11 @@ describe("questionnaire draft and history API", () => {
   });
   it.each(["mode=versions", `mode=assessments&client_id=${clientId}&before_created_at=2026-09-25T01:00:00Z`,
     `mode=versions&client_id=${clientId}&assessment_key=${assessmentKey}&before_version=0`,
-    `mode=assessments&client_id=${clientId}&client_id=${clientId}`, "form_key=gds_15", "mode=snapshot&assessment_key=bad", "mode=sign", "limit=100000"]) (
+    `mode=assessments&client_id=${clientId}&client_id=${clientId}`, `mode=assessments&client_id=${clientId}&assessed_on=2026-09-25`,
+    `mode=by_date&client_id=${clientId}`, `mode=by_date&client_id=${clientId}&assessed_on=2026-02-30`,
+    `mode=by_date&client_id=${clientId}&assessed_on=2026-09-25&before_assessment_key=${assessmentKey}`,
+    `mode=by_date&client_id=${clientId}&assessed_on=2026-09-25&assessment_key=${assessmentKey}`,
+    "form_key=gds_15", "mode=snapshot&assessment_key=bad", "mode=sign", "limit=100000"]) (
     "rejects malformed or unbounded read filters: %s", async (query) => {
       expect((await get(query)).status).toBe(400); expect(stubs.rpc).not.toHaveBeenCalled();
     });
@@ -150,6 +174,14 @@ describe("questionnaire draft and history API", () => {
     expect((await get(`mode=versions&client_id=${clientId}&assessment_key=${assessmentKey}`)).status).toBe(503);
     stubs.rpc.mockResolvedValue({ data: null, error: { code: "42501" } });
     expect((await get(`mode=assessments&client_id=${clientId}`)).status).toBe(403);
+  });
+  it("keeps date lookup read errors, denied scope, and malformed metadata distinct", async () => {
+    stubs.rpc.mockResolvedValue({ data: null, error: { code: "42501" } });
+    expect((await get(`mode=by_date&client_id=${clientId}&assessed_on=2026-09-25`)).status).toBe(403);
+    stubs.rpc.mockResolvedValue({ data: null, error: { code: "22023" } });
+    expect((await get(`mode=by_date&client_id=${clientId}&assessed_on=2026-09-25`)).status).toBe(400);
+    stubs.rpc.mockResolvedValue({ data: { ...datePage, assessments: [{ ...datePage.assessments[0], answers: body.answers }] }, error: null });
+    expect((await get(`mode=by_date&client_id=${clientId}&assessed_on=2026-09-25`)).status).toBe(503);
   });
   it("blocks MNA BMI claims inconsistent with measured context", async () => {
     const mna = QUESTIONNAIRE_FORMS.mna_sf;

@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 
 import { ClientJsonReadError, fetchJsonWithTimeout } from "@/lib/api/client-fetch";
 import { questionnairePreview } from "@/lib/questionnaire-assessments/preview";
-import { parseQuestionnaireAssessmentPage, parseQuestionnaireHistoryPage } from "@/lib/questionnaire-assessments/contract";
+import { parseQuestionnaireAssessmentDatePage, parseQuestionnaireAssessmentPage, parseQuestionnaireHistoryPage } from "@/lib/questionnaire-assessments/contract";
+import { questionnaireAssessedDateSchema, questionnaireTaipeiToday as taipeiToday } from "@/lib/questionnaire-assessments/assessed-date";
 import { useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { useUnsavedChanges } from "@/lib/navigation/use-unsaved-changes";
 import { GovernanceDialog } from "@/components/ui/governance-dialog";
@@ -14,6 +15,7 @@ import { beginQuestionnairePending, cancelQuestionnaireRecoveryRead, getQuestion
 import type {
   QuestionnaireAnswers,
   QuestionnaireAssessment,
+  QuestionnaireAssessmentDatePage,
   QuestionnaireAssessmentCursor,
   QuestionnaireClient,
   QuestionnaireDraft,
@@ -36,12 +38,6 @@ const historyEnvelopeSchema = z.object({
   requestId: z.string().uuid().refine(value => value === value.toLowerCase()),
   status: z.literal("ok"), data: z.unknown(), errors: z.tuple([]),
 }).strict();
-
-function taipeiToday() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
-}
 
 function initialAnswers(form: QuestionnaireFormDefinition, item: QuestionnaireClient["latest"]): QuestionnaireAnswers {
   return Object.fromEntries(form.questions.map(({ id }) => [
@@ -73,6 +69,7 @@ function QuestionnaireEditor({
   reading = false,
   scope,
   sourceAt,
+  formRef,
   onSaved,
   onDirtyChange,
   onLockChange,
@@ -87,6 +84,7 @@ function QuestionnaireEditor({
   reading?: boolean;
   scope: QuestionnairePendingScope | null;
   sourceAt: string;
+  formRef?: RefObject<HTMLFormElement | null>;
   onSaved: (assessmentKey: string) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
   onLockChange: (locked: boolean) => void;
@@ -233,6 +231,9 @@ function QuestionnaireEditor({
   return <form
     data-questionnaire-write
     className={styles.formPanel}
+    ref={formRef}
+    tabIndex={-1}
+    aria-label={`${form.title}填寫表單`}
     noValidate
     onCompositionStart={() => { composing.current = true; }}
     onCompositionEnd={() => { composing.current = false; }}
@@ -242,7 +243,7 @@ function QuestionnaireEditor({
     onSubmit={async (event) => {
       event.preventDefault();
       if (!canManage || !scope || readOnly || pending || checking || committed || reading || viewTransitionPending || composing.current) return;
-      if (!z.iso.date().safeParse(assessedOn).success || assessedOn < "2000-01-01" || assessedOn > taipeiToday()) {
+      if (!questionnaireAssessedDateSchema.safeParse(assessedOn).success) {
         setDateError("請填寫有效評估日期（YYYY-MM-DD），且不得晚於今天。");
         setMessage("請修正評估日期後再保存；答案已保留。");
         dateField.current?.focus();
@@ -530,6 +531,10 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
   const [versions, setVersions] = useState<readonly QuestionnaireDraft[]>([]);
   const [versionTotal, setVersionTotal] = useState(0);
   const [beforeVersion, setBeforeVersion] = useState<number | null>(null);
+  const [dateInput, setDateInput] = useState("");
+  const [datePage, setDatePage] = useState<QuestionnaireAssessmentDatePage | null>(null);
+  const [dateError, setDateError] = useState("");
+  const focusVersionId = useRef<string | null>(null);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -544,6 +549,8 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
   const ownerEpoch = getQuestionnaireViewState().epoch;
   const originalSourceKey = useRef(sourceKey);
   const recordHeading = useRef<HTMLHeadingElement>(null);
+  const dateField = useRef<HTMLInputElement>(null);
+  const editorForm = useRef<HTMLFormElement>(null);
   const ownerCurrent = () => mounted.current && (!authority ||
     getQuestionnaireViewState().signature === authority && getQuestionnaireViewState().epoch === ownerEpoch);
   useLayoutEffect(() => { if (scope) observeQuestionnairePendingSource(scope, sourceAt); }, [scope, sourceAt]);
@@ -555,6 +562,12 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
     onNavigationBlockChange(dirty || locked || journal.navigationBlocked || journal.confirmed.length > 0);
   }, [dirty, locked, journal, onNavigationBlockChange]);
   useEffect(() => () => { controller.current?.abort(); }, []);
+  useLayoutEffect(() => {
+    if (!focusVersionId.current || baseline?.versionId !== focusVersionId.current || reading) return;
+    editorForm.current?.focus();
+    editorForm.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
+    focusVersionId.current = null;
+  }, [baseline, reading]);
   const exit = useUnsavedChanges({ dirty: dirty || Boolean(journal.operation), scopeKey: `${authority}-${ownerEpoch}`,
     revisionKey: sourceKey, canPrompt: !locked && !reading && !journal.operation,
     permittedFormAttribute: "data-questionnaire-write", onDiscard: () => {
@@ -576,6 +589,7 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
     setSelectedKey(client.latest?.assessmentKey ?? "");
     setReadOnly(!canManage);
     setVersions([]); setVersionTotal(0); setBeforeVersion(null);
+    setDatePage(null); setDateError(""); focusVersionId.current = null;
     setReadError(""); setFeedback(""); setReloadKey(null);
     setEditorEpoch((current) => current + 1);
     originalSourceKey.current = sourceKey;
@@ -593,9 +607,10 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
     setBaseline(null); setSelectedKey(""); setReadOnly(!canManage);
     setVersions([]); setDirty(false); setFeedback(""); setReadError("");
   }
-  async function read(mode: "assessments" | "versions", key?: string, older = false) {
+  async function read(mode: "assessments" | "versions", key?: string, older = false,
+    expected?: QuestionnaireAssessmentDatePage["assessments"][number]) {
     if (!ownerCurrent()) return;
-    retryRead.current = () => { void read(mode, key, older); };
+    retryRead.current = () => { void read(mode, key, older, expected); };
     controller.current?.abort(); controller.current = new AbortController();
     const sequence = ++requestSequence.current;
     const query = new URLSearchParams({ form_key: form.key, client_id: client.clientId, mode });
@@ -613,6 +628,12 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
       if (mode === "versions") {
         const page = parseQuestionnaireHistoryPage(data, form.key, client.clientId, key!);
         if (older && page.versions.some((version) => version.version >= beforeVersion!)) throw new Error("版本順序未確認，請重新載入歷程。");
+        if (expected && (page.versions[0]?.versionId !== expected.versionId ||
+          page.versions[0]?.assessedOn !== expected.assessedOn)) {
+          setDatePage(null);
+          setDateError("這筆評估已有更新。請重新依日期查找，再開啟正確版本。");
+          return;
+        }
         setVersions((current) => older ? [...current, ...page.versions.filter((item) => !current.some((entry) => entry.versionId === item.versionId))] : page.versions);
         setVersionTotal(page.total); setBeforeVersion(page.nextBeforeVersion);
         if (!older) {
@@ -620,6 +641,7 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
           if (!latest) throw new Error("找不到這次評估的版本，請重新載入。");
           setSelectedKey(key!); setBaseline(latest); setReadOnly(true); setDirty(false);
           setAssessments((current) => current.map((item) => item.assessmentKey === key ? { ...latest, assessmentCreatedAt: item.assessmentCreatedAt } : item));
+          if (expected) focusVersionId.current = latest.versionId;
         }
       } else {
         const page = parseQuestionnaireAssessmentPage(data, form.key, client.clientId);
@@ -631,6 +653,49 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
         if (authority && (!(error instanceof ClientJsonReadError) || error.status === 401 || error.status === 403 || error.code === "INVALID_RESPONSE")) quarantineQuestionnaireView(authority);
         else setReadError("歷程暫時無法載入，請重試。");
       }
+    } finally { if (sequence === requestSequence.current && ownerCurrent()) setReading(false); }
+  }
+  async function lookupDate(older = false) {
+    if (!ownerCurrent() || reading || locked || journal.operation || journal.confirmed.length) return;
+    const searchedOn = older ? datePage?.assessedOn : dateInput;
+    if (!searchedOn || !questionnaireAssessedDateSchema.safeParse(searchedOn).success) {
+      setDateError("請選擇有效評估日期，且不得晚於今天。");
+      dateField.current?.focus();
+      return;
+    }
+    if (older && (!datePage?.nextCursor || dateInput !== searchedOn)) return;
+    controller.current?.abort(); controller.current = new AbortController();
+    const sequence = ++requestSequence.current;
+    const query = new URLSearchParams({ form_key: form.key, client_id: client.clientId, mode: "by_date", assessed_on: searchedOn });
+    if (older && datePage?.nextCursor) {
+      query.set("before_created_at", datePage.nextCursor.createdAt);
+      query.set("before_assessment_key", datePage.nextCursor.assessmentKey);
+    }
+    setReading(true); setDateError("");
+    if (!older) setDatePage(null);
+    try {
+      const { payload } = await fetchJsonWithTimeout(`/api/questionnaire-assessments?${query}`, { signal: controller.current.signal });
+      if (sequence !== requestSequence.current || !ownerCurrent()) return;
+      const page = parseQuestionnaireAssessmentDatePage(historyEnvelopeSchema.parse(payload).data, form.key, client.clientId, searchedOn);
+      if (older && datePage && (page.total !== datePage.total || page.assessments.some((item) =>
+        datePage.assessments.some((previous) => previous.assessmentKey === item.assessmentKey)))) {
+        setDatePage(null);
+        setDateError("查找結果已有更新，請重新查找。");
+        return;
+      }
+      setDatePage((current) => older && current?.assessedOn === searchedOn ? {
+        ...page, assessments: [...current.assessments, ...page.assessments.filter((item) =>
+          !current.assessments.some((entry) => entry.assessmentKey === item.assessmentKey))],
+      } : page);
+    } catch (error) {
+      if (sequence !== requestSequence.current || !ownerCurrent()) return;
+      if (authority && (!(error instanceof ClientJsonReadError) || error.status === 401 || error.status === 403 || error.code === "INVALID_RESPONSE")) {
+        quarantineQuestionnaireView(authority); return;
+      }
+      if (error instanceof ClientJsonReadError && error.status === 400) {
+        setDatePage(null); setDateError("查找結果已有更新，請重新查找。"); return;
+      }
+      setDateError(older ? "較早的評估暫時無法載入；已找到的紀錄仍可查看。" : "暫時無法依日期查找，請重試。");
     } finally { if (sequence === requestSequence.current && ownerCurrent()) setReading(false); }
   }
   async function saved(key: string) {
@@ -695,6 +760,7 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
     </section> : null}
     {sourceReady ? <QuestionnaireEditor
       assessorName={assessorName} baseline={baseline} canManage={canManage} client={client} demo={demo} form={form}
+      formRef={editorForm}
       key={`${baseline?.versionId ?? "new"}-${readOnly ? "view" : "edit"}-${editorEpoch}`}
       onDirtyChange={setDirty} onLockChange={setLocked} onSaved={saved} readOnly={readOnly} reading={reading}
       scope={scope} sourceAt={sourceAt}
@@ -707,6 +773,39 @@ function QuestionnaireRecords({ assessorName, canManage, client, demo, form, onN
         {canManage ? <button className="button button--secondary" disabled={disabled} onClick={() => requestSwitch(startNew)} type="button">新增一次評估</button> : null}
       </div>
       <p>已保存 {total} 次評估；每次評估與修訂版本分開保留。</p>
+      {!demo ? <section className={styles.dateLookup} aria-label="依日期找評估">
+        <div className={styles.dateLookupForm}>
+          <label htmlFor="assessment-history-date">依評估日期查找</label>
+          <div className={styles.dateLookupControls}>
+            <input aria-describedby={dateError ? "assessment-history-date-error" : undefined} aria-invalid={Boolean(dateError)}
+              disabled={disabled} id="assessment-history-date" max={taipeiToday()} min="2000-01-01"
+              onChange={(event) => { setDateInput(event.currentTarget.value); setDatePage(null); setDateError(""); }}
+              onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault(); void lookupDate();
+              } }}
+              ref={dateField} type="date" value={dateInput} />
+            <button className="button button--secondary" disabled={disabled} onClick={() => void lookupDate()} type="button">{reading ? "查找中…" : "查找"}</button>
+            {dateInput ? <button className="button button--quiet" disabled={disabled} onClick={() => {
+              setDateInput(""); setDatePage(null); setDateError(""); dateField.current?.focus();
+            }} type="button">清除日期</button> : null}
+          </div>
+        </div>
+        {dateError ? <p id="assessment-history-date-error" role="alert">{dateError}</p> : null}
+        {datePage && dateInput === datePage.assessedOn ? <div className={styles.dateLookupResults}>
+          {datePage.total === 0 ? <p>這一天沒有已保存的評估。</p> : <>
+            <p role="status">找到 {datePage.total} 筆，已顯示 {datePage.assessments.length} 筆。</p>
+            <ul>{datePage.assessments.map((item, index) => <li key={item.assessmentKey}>
+              <span><strong>第 {index + 1} 筆 · 草稿 v{item.version}</strong>
+                <small>最近保存 {new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "short" }).format(new Date(item.savedAt))}</small></span>
+              <button className="button button--secondary" disabled={disabled} onClick={() => requestSwitch(() => {
+                void read("versions", item.assessmentKey, false, item);
+              })} type="button">查看評估</button>
+            </li>)}</ul>
+            {datePage.nextCursor ? <button className="button button--secondary" disabled={disabled}
+              onClick={() => void lookupDate(true)} type="button">載入更多同日評估</button> : null}
+          </>}
+        </div> : null}
+      </section> : null}
       {total ? <>
         <label className={styles.recordPicker}>選擇已保存評估
           {/* Popup geometry is platform-owned, consistent with ClientSelectionCard. */}

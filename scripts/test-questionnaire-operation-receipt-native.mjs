@@ -92,12 +92,13 @@ try {
   started = true; sql(bootstrapSql);
   sql("create schema storage;create table storage.buckets(id text primary key,name text not null,public boolean not null default false,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null references storage.buckets(id),name text not null);alter table storage.objects enable row level security;");
   const allMigrations = (await readdir(join(root, "supabase/migrations"))).filter(name => name.endsWith(".sql")).sort();
-  assert.equal(allMigrations.length, 159, "Current repository must contain the complete 159-migration chain");
+  assert.equal(allMigrations.length, 160, "Current repository must contain the complete 160-migration chain");
   assert.deepEqual(allMigrations.slice(153), [
     "20260928033352_abcd_selected_client_option.sql", "20260928044255_abcd_operation_recovery.sql",
     "20260928045335_abcd_routine_draft_aal1.sql", "20260928050459_abcd_assessment_client_search.sql",
     "20261001173654_care_diary_shift_time_guard.sql",
     "20261002052536_questionnaire_resume_summary.sql",
+    "20261002074215_questionnaire_assessment_date_lookup.sql",
   ]);
   const migrations = allMigrations.slice(0, 153);
   assert.equal(migrations.length, 153); assert.equal(migrations.at(-1), "20260927171515_import_upload_operation_locator.sql");

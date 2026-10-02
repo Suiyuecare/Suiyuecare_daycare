@@ -1,15 +1,13 @@
 import { z } from "zod";
 
 import { getQuestionnaireForm } from "./forms";
+import { questionnaireAssessedDateSchema } from "./assessed-date";
 import { mnaMeasurementIssue } from "./preview";
 import type { QuestionnaireAnswer, QuestionnaireFormKey } from "./types";
 
 // Mechanical extraction of the existing unsigned POST preprocessing. This is
 // not the database-wire validation candidate and does not authorize a write.
 const uuid = z.string().uuid().transform((value) => value.toLowerCase());
-const date = z.iso.date().refine((value) => value >= "2000-01-01" && value <= new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
-}).format(new Date()));
 
 function parseAnswers(formKey: QuestionnaireFormKey, value: unknown) {
   const form = getQuestionnaireForm(formKey);
@@ -87,7 +85,7 @@ export function parseQuestionnaireMutation(value: unknown, idempotencyKey: strin
     clientId: uuid,
     formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
     formVersion: z.string().min(1).max(80),
-    assessedOn: date,
+    assessedOn: questionnaireAssessedDateSchema,
     answers: z.unknown(),
     context: z.record(z.string(), z.string()).default({}),
   });

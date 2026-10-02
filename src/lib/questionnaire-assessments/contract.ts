@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import type { QuestionnaireAssessmentPage, QuestionnaireFormKey, QuestionnaireHistoryPage, QuestionnaireSnapshot } from "./types";
+import type { QuestionnaireAssessmentDatePage, QuestionnaireAssessmentPage, QuestionnaireFormKey, QuestionnaireHistoryPage, QuestionnaireSnapshot } from "./types";
+import { questionnaireAssessedDateSchema } from "./assessed-date";
 
 export const questionnaireFormKeySchema = z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]);
 const uuid = z.string().uuid();
@@ -28,6 +29,15 @@ export const questionnaireReceiptSchema = z.object({
 const assessmentPageSchema = z.object({
   formKey: questionnaireFormKeySchema, clientId: uuid,
   assessments: z.array(assessmentSchema).max(20), total: z.number().int().nonnegative(),
+  nextCursor: cursorSchema.nullable(),
+}).strict();
+const dateMatchSchema = z.object({
+  assessmentKey: uuid, versionId: uuid, version: z.number().int().positive().max(1_000_001),
+  assessedOn: questionnaireAssessedDateSchema, savedAt: instant, recordState: z.literal("draft"), assessmentCreatedAt: instant,
+}).strict();
+const assessmentDatePageSchema = z.object({
+  formKey: questionnaireFormKeySchema, clientId: uuid, assessedOn: questionnaireAssessedDateSchema,
+  assessments: z.array(dateMatchSchema).max(20), total: z.number().int().nonnegative(),
   nextCursor: cursorSchema.nullable(),
 }).strict();
 const historyPageSchema = z.object({
@@ -60,6 +70,21 @@ export function parseQuestionnaireAssessmentPage(value: unknown, formKey: Questi
   if (parsed.formKey !== formKey || parsed.clientId !== clientId || parsed.total < parsed.assessments.length ||
     new Set(parsed.assessments.map((item) => item.assessmentKey)).size !== parsed.assessments.length ||
     (parsed.nextCursor && (!last || parsed.nextCursor.assessmentKey !== last.assessmentKey || parsed.nextCursor.createdAt !== last.assessmentCreatedAt))) throw new Error("Invalid questionnaire assessment page scope");
+  return parsed;
+}
+
+export function parseQuestionnaireAssessmentDatePage(value: unknown, formKey: QuestionnaireFormKey, clientId: string,
+  assessedOn: string): QuestionnaireAssessmentDatePage {
+  const parsed = assessmentDatePageSchema.parse(value);
+  const last = parsed.assessments.at(-1);
+  if (parsed.formKey !== formKey || parsed.clientId !== clientId || parsed.assessedOn !== assessedOn ||
+    parsed.total < parsed.assessments.length || parsed.assessments.some((item) => item.assessedOn !== assessedOn ||
+      Date.parse(item.savedAt) < Date.parse(item.assessmentCreatedAt)) ||
+    new Set(parsed.assessments.map((item) => item.assessmentKey)).size !== parsed.assessments.length ||
+    (parsed.nextCursor && (!last || parsed.nextCursor.assessmentKey !== last.assessmentKey ||
+      parsed.nextCursor.createdAt !== last.assessmentCreatedAt || parsed.assessments.length !== 20))) {
+    throw new Error("Invalid questionnaire date lookup scope or cursor");
+  }
   return parsed;
 }
 

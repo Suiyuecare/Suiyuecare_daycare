@@ -41,6 +41,11 @@ const history = (chain = 1, versions = [1], nextBeforeVersion: number | null = n
   formKey: "spmsq", clientId, assessmentKey: key(chain), versions: versions.map((v) => draft(chain, v)), total, nextBeforeVersion,
 });
 const page = (assessments = [assessment(), assessment(2)], total = assessments.length) => ({ formKey: "spmsq", clientId, assessments, total, nextCursor: null });
+const dateMatch = (chain: number, version = 1) => ({ assessmentKey: key(chain), versionId: versionId(chain * 100 + version),
+  version, assessedOn: "2026-09-25", savedAt: stamp, recordState: "draft", assessmentCreatedAt: stamp });
+const datePage = (matches = [dateMatch(60)], total = matches.length, nextCursor: { createdAt: string; assessmentKey: string } | null = null) => ({
+  formKey: "spmsq", clientId, assessedOn: "2026-09-25", assessments: matches, total, nextCursor,
+});
 const receipt = (action: "create" | "revise", chain = 1, version = 1, assessedOn = "2026-09-25") => ({ action, clientId, formKey: "spmsq", assessmentKey: key(chain),
   versionId: versionId(chain * 100 + version), version, recordState: "draft", assessedOn, contentHash: "a".repeat(64), committedAt: stamp, replayed: false });
 const workspace = (snapshot = defaultSnapshot(), canManage = true, selectedForm = form) => render(<QuestionnaireAssessmentsWorkspace assessorName="目前登入人員" canManage={canManage}
@@ -373,6 +378,80 @@ describe("questionnaire independent drafts and version browsing", () => {
     const versionsQuery = new URL(stubs.fetch.mock.calls.at(-1)![0] as string, "https://example.invalid").searchParams;
     expect(versionsQuery.get("assessment_key")).toBe(key(3)); expect(versionsQuery.get("before_version")).toBe("3");
     expect(screen.queryByRole("button", { name: "載入較早版本" })).toBeNull();
+  });
+
+  it("finds an older-than-50 assessment by its actual assessment date and opens the exact version", async () => {
+    const snapshot = defaultSnapshot(); const client = snapshot.clients[0]!;
+    workspace({ ...snapshot, clients: [{ ...client, assessmentTotal: 60 }] });
+    fireEvent.change(screen.getByLabelText("依評估日期查找"), { target: { value: "2026-09-25" } });
+    stubs.fetch.mockResolvedValueOnce(response(datePage([dateMatch(60, 2)], 60)));
+    fireEvent.keyDown(screen.getByLabelText("依評估日期查找"), { key: "Enter" });
+    await waitFor(() => expect(button("查看評估")).not.toBeDisabled());
+    expect(screen.getByText("找到 60 筆，已顯示 1 筆。")).toBeVisible();
+    const query = new URL(stubs.fetch.mock.calls[0]![0] as string, "https://example.invalid").searchParams;
+    expect(query.get("mode")).toBe("by_date"); expect(query.get("assessed_on")).toBe("2026-09-25");
+    expect(query.get("client_id")).toBe(clientId);
+    stubs.fetch.mockResolvedValueOnce(response(history(60, [2, 1])));
+    fireEvent.click(button("查看評估"));
+    await waitFor(() => expect(screen.getByText("查看草稿 v2")).toBeVisible());
+    expect(screen.getByRole("form", { name: `${form.title}填寫表單` })).toHaveFocus();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("asks for a fresh date lookup when the result set changes between pages", async () => {
+    workspace();
+    fireEvent.change(screen.getByLabelText("依評估日期查找"), { target: { value: "2026-09-25" } });
+    stubs.fetch.mockResolvedValueOnce(response(datePage(
+      Array.from({ length: 20 }, (_, index) => dateMatch(60 - index)), 60,
+      { createdAt: stamp, assessmentKey: key(41) },
+    )));
+    fireEvent.click(button("查找"));
+    await waitFor(() => expect(button("載入更多同日評估")).not.toBeDisabled());
+    stubs.fetch.mockResolvedValueOnce(response(datePage(
+      Array.from({ length: 20 }, (_, index) => dateMatch(40 - index)), 61,
+      { createdAt: stamp, assessmentKey: key(21) },
+    )));
+    fireEvent.click(button("載入更多同日評估"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("查找結果已有更新，請重新查找。"));
+    expect(screen.queryByRole("button", { name: "查看評估" })).toBeNull();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("does not open a changed version returned after a date match", async () => {
+    workspace();
+    fireEvent.change(screen.getByLabelText("依評估日期查找"), { target: { value: "2026-09-25" } });
+    stubs.fetch.mockResolvedValueOnce(response(datePage([dateMatch(60, 2)])));
+    fireEvent.click(button("查找"));
+    await waitFor(() => expect(button("查看評估")).not.toBeDisabled());
+    stubs.fetch.mockResolvedValueOnce(response(history(60, [3, 2, 1])));
+    fireEvent.click(button("查看評估"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("這筆評估已有更新"));
+    expect(screen.getByText("修訂草稿 v1")).toBeVisible();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("keeps no-match, read failure, and a changed exact version separate without clearing unsaved answers", async () => {
+    workspace();
+    const date = screen.getByLabelText("依評估日期查找");
+    const first = within(questionGroup(1)).getByRole("radio", { name: form.questions[0]!.choices[1]!.label });
+    fireEvent.click(first);
+    fireEvent.change(date, { target: { value: "2026-09-25" } });
+    stubs.fetch.mockResolvedValueOnce(response(datePage([], 0)));
+    fireEvent.click(button("查找"));
+    await waitFor(() => expect(screen.getByText("這一天沒有已保存的評估。")).toBeVisible());
+    expect(first).toBeChecked();
+    stubs.fetch.mockRejectedValueOnce(new Error("network unavailable"));
+    fireEvent.click(button("查找"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("暫時無法依日期查找"));
+    expect(screen.queryByText("這一天沒有已保存的評估。")).toBeNull();
+    expect(first).toBeChecked();
+    stubs.fetch.mockResolvedValueOnce(response(datePage([dateMatch(60, 2)])));
+    fireEvent.click(button("查找"));
+    await waitFor(() => expect(button("查看評估")).not.toBeDisabled());
+    fireEvent.click(button("查看評估"));
+    expect(screen.getByText("放棄尚未保存的修改？")).toBeVisible();
+    fireEvent.click(button("繼續填寫"));
+    expect(first).toBeChecked(); expect(posts()).toHaveLength(0);
   });
 
   it("freezes uncertain saves and retries the same body/key without allowing assessment switches", async () => {

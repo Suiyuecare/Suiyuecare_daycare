@@ -97,6 +97,7 @@ try {
   for (const name of [
     "questionnaire_assessment_drafts.test.sql",
     "questionnaire_assessment_history.test.sql",
+    "questionnaire_assessment_date_lookup.test.sql",
     "questionnaire_assessment_admission_validation.test.sql",
     "questionnaire_resume_summary.test.sql",
   ]) {

@@ -26,7 +26,7 @@
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|
 | Select/Listbox | 原生 select＋`.control` | DESIGN.md | native；平台 popup 可接受 | 元件鍵盤＋窄版瀏覽器 |
-| Date | 治理：格式提示 text input；店務／身體／公告／護理／轉介：native date／month／datetime-local | API 七鍵契約／period schema／body parser／announcement date／referral parser | typed YYYY-MM-DD；native 具名例外 | 閏日／順序／first-error／原生鍵盤與手機 |
+| Date | 治理與量表填寫：格式提示 text input；量表唯讀歷程查找、店務／身體／公告／護理／轉介：native date／month／datetime-local | API 七鍵契約／period schema／body parser／announcement date／referral parser／量表日期查找契約 | typed YYYY-MM-DD；native 具名例外 | 閏日／順序／first-error／原生鍵盤與手機 |
 | Form | `governance-dialog.tsx`＋各流程的嚴格 client 契約 | API＋本契約 | review／retirement／claim validation／body signature／announcements／nursing／referrals | validation、unknown retry |
 | Scrollbar | `src/app/globals.css` | DESIGN.md | 穩定 gutter | computed style＋forced-colors |
 | Toast | 共用 dialog 的持續 inline status／alert | 本契約 | success／error | live region test |
@@ -347,3 +347,9 @@ AppShell 的底部導覽由 `mobile-quick-links.ts` 依固定職務優先序，�
 評估入口先由既有個案名單確認目前可見的個案，再對該個案讀取九份題目式量表的最少中繼資料；資料庫逐表核對現行機構、分支、指派與讀取權限，未授權表單不回傳狀態或答案。最近草稿以終端版本的伺服器保存時間排序，不以評估日期或建立該次評估的日期推定；同時標示摘要查詢時間，避免把快照當即時資料。沒有明確成功回覆時不可顯示「尚無草稿」。完整答案只在點選該量表後，憑原個案、表單、評估鏈與版本 ID 再次核對並讀取；連結過期須告知返回重選，不能開啟同案另一份草稿。
 
 已有草稿且可管理者用「接續填寫」；只有讀取權限者用「查看草稿」；明確沒有紀錄而可管理者用「開始填寫」。展示資料與讀取失敗用可區辨狀態，不冒稱可正式保存或未曾保存。沿用原編輯器的未保存離開、冪等、版本衝突與結果未知回查；此入口不簽署、不啟用正式計分，也不將臨床答案放入搜尋結果、網址、瀏覽器持久儲存或稽核 metadata。
+
+### 2026-10-02：依評估日期找回歷程
+
+已選個案的九份題目式量表在原編輯器的「評估紀錄」提供原生日期選擇及「查找」。日期以台北當日為上界、2000 年為下界；與量表填寫用的文字日期分屬不同控制，但共用正式日期合法性。查找是唯讀操作，不受未保存表單的送出攔截；不改正在填寫的答案。回傳清單僅含鏈 ID、終端版本 ID／版號、日期、伺服器保存時間和草稿狀態；不回傳答案、作者、雜湊或附件。由資料庫先限定機構、分支、指派、個案、表單與終端版本的評估日期，再計數和每批最多 20 筆游標分頁。每次查閱留下不含個資內容的稽核事件。
+
+點「查看評估」後，以原個案、鏈 ID 讀回版本並核對所選終端版本 ID 與評估日期；若已修訂，停止切換並要求重查，不能改開另一筆。若目前表單已修改，先用共用 GovernanceDialog 確認，取消或 Escape 保留答案。查無符合、查詢失敗、結果更新與撤權分開處理；跨頁總數或重疊結果改變時清掉舊搜尋結果並要求重查，不讓不一致清單繼續開啟。搜尋與舊歷程共用取消、序號及目前授權邊界，晚到回覆不得覆蓋新個案。此功能僅找回草稿，不啟用正式分數、簽署或替代 89 頁／真人資料驗收。

@@ -68,6 +68,25 @@ export interface QuestionnaireAssessmentPage {
   readonly nextCursor: QuestionnaireAssessmentCursor | null;
 }
 
+export interface QuestionnaireAssessmentDateMatch {
+  readonly assessmentKey: string;
+  readonly versionId: string;
+  readonly version: number;
+  readonly assessedOn: string;
+  readonly savedAt: string;
+  readonly recordState: "draft";
+  readonly assessmentCreatedAt: string;
+}
+
+export interface QuestionnaireAssessmentDatePage {
+  readonly formKey: QuestionnaireFormKey;
+  readonly clientId: string;
+  readonly assessedOn: string;
+  readonly assessments: readonly QuestionnaireAssessmentDateMatch[];
+  readonly total: number;
+  readonly nextCursor: QuestionnaireAssessmentCursor | null;
+}
+
 export interface QuestionnaireHistoryPage {
   readonly formKey: QuestionnaireFormKey;
   readonly clientId: string;

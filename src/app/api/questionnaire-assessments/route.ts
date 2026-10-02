@@ -3,7 +3,8 @@ import { z } from "zod";
 import { ok } from "@/lib/api/response";
 import { getTenantContext } from "@/lib/auth/context";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
-import { parseQuestionnaireAssessmentPage, parseQuestionnaireHistoryPage, parseQuestionnaireSnapshot, questionnaireReceiptSchema } from "@/lib/questionnaire-assessments/contract";
+import { parseQuestionnaireAssessmentDatePage, parseQuestionnaireAssessmentPage, parseQuestionnaireHistoryPage, parseQuestionnaireSnapshot, questionnaireReceiptSchema } from "@/lib/questionnaire-assessments/contract";
+import { questionnaireAssessedDateSchema } from "@/lib/questionnaire-assessments/assessed-date";
 import { parseQuestionnaireMutation } from "@/lib/questionnaire-assessments/mutation-contract";
 import type { QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import {
@@ -37,6 +38,16 @@ function databaseError(errorCode?: string) {
   return databaseFailure(
     "QUESTIONNAIRE_SAVE_FAILED", "評估草稿是否保存尚未確認；請保留內容並以相同操作識別碼重試。",
   );
+}
+
+function dateLookupError(errorCode?: string) {
+  if (errorCode === "42501") return databaseFailure(
+    "QUESTIONNAIRE_NOT_AUTHORIZED", "目前的角色、個案指派或資料範圍不允許查看這份評估。", 403,
+  );
+  if (errorCode === "22023") return databaseFailure(
+    "QUESTIONNAIRE_INVALID", "查詢條件已變更，請重新依日期查找。", 400,
+  );
+  return databaseFailure("QUESTIONNAIRE_DATE_LOOKUP_FAILED", "評估紀錄暫時無法查找，請稍後重試。", 503);
 }
 
 function permissionScope(formKey: QuestionnaireFormKey, permission: "read" | "manage") {
@@ -82,16 +93,18 @@ export async function GET(request: Request) {
     const beforeVersion = parameters.get("before_version");
     const beforeCreatedAt = parameters.get("before_created_at");
     const beforeAssessmentKey = parameters.get("before_assessment_key")?.toLowerCase() ?? null;
-    const allowed = ["form_key", "client_id", "mode", "assessment_key", "before_version", "before_created_at", "before_assessment_key"];
+    const assessedOn = parameters.get("assessed_on");
+    const allowed = ["form_key", "client_id", "mode", "assessment_key", "before_version", "before_created_at", "before_assessment_key", "assessed_on"];
     if (!formKey || !getQuestionnaireForm(formKey) ||
       (clientId !== null && !uuid.safeParse(clientId).success) ||
       [...parameters.keys()].some((key) => !allowed.includes(key) || parameters.getAll(key).length !== 1) ||
-      !["snapshot", "assessments", "versions"].includes(mode) ||
+      !["snapshot", "assessments", "versions", "by_date"].includes(mode) ||
       (mode !== "snapshot" && !clientId) ||
-      (mode === "snapshot" && [assessmentKey, beforeVersion, beforeCreatedAt, beforeAssessmentKey].some((value) => value !== null)) ||
-      (mode === "versions" && (!uuid.safeParse(assessmentKey).success || beforeCreatedAt !== null || beforeAssessmentKey !== null ||
+      (mode === "snapshot" && [assessmentKey, beforeVersion, beforeCreatedAt, beforeAssessmentKey, assessedOn].some((value) => value !== null)) ||
+      (mode === "versions" && (!uuid.safeParse(assessmentKey).success || beforeCreatedAt !== null || beforeAssessmentKey !== null || assessedOn !== null ||
         (beforeVersion !== null && (!/^[1-9]\d{0,6}$/u.test(beforeVersion) || Number(beforeVersion) > 1000001)))) ||
-      (mode === "assessments" && (assessmentKey !== null || beforeVersion !== null ||
+      ((mode === "assessments" || mode === "by_date") && (assessmentKey !== null || beforeVersion !== null ||
+        (mode === "assessments" ? assessedOn !== null : !questionnaireAssessedDateSchema.safeParse(assessedOn).success) ||
         (beforeCreatedAt === null) !== (beforeAssessmentKey === null) ||
         (beforeCreatedAt !== null && (!z.string().datetime({ offset: true }).safeParse(beforeCreatedAt).success || !uuid.safeParse(beforeAssessmentKey).success))))) {
       throw new IntegrationError("QUESTIONNAIRE_INVALID", "表單或個案篩選條件無效。", 400);
@@ -99,19 +112,22 @@ export async function GET(request: Request) {
     const actor = await authorize(formKey, "read");
     const supabase = await createServerSupabaseClient();
     if (!supabase) throw new IntegrationError("SERVICE_NOT_CONFIGURED", "正式資料服務尚未設定。", 503);
-    const rpc = mode === "versions" ? "questionnaire_assessment_history" : mode === "assessments" ? "questionnaire_assessment_list" : "questionnaire_assessment_snapshot";
+    const rpc = mode === "versions" ? "questionnaire_assessment_history" : mode === "assessments" ? "questionnaire_assessment_list" :
+      mode === "by_date" ? "questionnaire_assessment_date_lookup" : "questionnaire_assessment_snapshot";
     const { data, error } = await supabase.rpc(rpc, {
       p_expected_organization_id: actor.organizationId,
       p_expected_branch_id: actor.branchId,
       p_form_key: formKey,
       p_client_id: clientId,
       ...(mode === "versions" ? { p_assessment_key: assessmentKey, p_before_version: beforeVersion ? Number(beforeVersion) : null } : {}),
-      ...(mode === "assessments" ? { p_before_created_at: beforeCreatedAt, p_before_assessment_key: beforeAssessmentKey } : {}),
+      ...(mode === "assessments" || mode === "by_date" ? { p_before_created_at: beforeCreatedAt, p_before_assessment_key: beforeAssessmentKey } : {}),
+      ...(mode === "by_date" ? { p_assessed_on: assessedOn } : {}),
     });
-    if (error || !data) throw databaseError(error?.code);
+    if (error || !data) throw mode === "by_date" ? dateLookupError(error?.code) : databaseError(error?.code);
     try {
       const validated = mode === "versions" ? parseQuestionnaireHistoryPage(data, formKey, clientId!, assessmentKey!)
         : mode === "assessments" ? parseQuestionnaireAssessmentPage(data, formKey, clientId!)
+          : mode === "by_date" ? parseQuestionnaireAssessmentDatePage(data, formKey, clientId!, assessedOn!)
           : parseQuestionnaireSnapshot(data, formKey, clientId);
       return ok(validated, 200, requestId);
     } catch { throw databaseFailure("QUESTIONNAIRE_SNAPSHOT_INVALID", "評估清單或版本尚未完整確認，請重新載入。", 503); }

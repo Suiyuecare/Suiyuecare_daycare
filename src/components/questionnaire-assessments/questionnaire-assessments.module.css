@@ -84,7 +84,9 @@
 
 .formPanel {
   padding: clamp(1rem, 2.4vw, 1.75rem);
+  scroll-margin-block-start: 1rem;
 }
+.formPanel:focus { outline: 3px solid var(--brand-strong); outline-offset: 2px; }
 
 .formHeader {
   display: flex;
@@ -479,6 +481,48 @@
 .ruleNotice p {
   margin: .6rem 0;
   line-height: 1.6;
+}
+
+.dateLookup {
+  margin-block: .85rem 1rem;
+  padding: .75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface-soft);
+}
+.dateLookupForm { display: grid; gap: .5rem; }
+.dateLookupForm > label { color: var(--ink); font-size: .9rem; font-weight: 700; }
+.dateLookupControls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.dateLookupControls input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: .5rem .7rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}
+.dateLookupControls button { min-height: 44px; }
+.dateLookupResults ul { display: grid; gap: .5rem; margin: .5rem 0; padding: 0; list-style: none; }
+.dateLookupResults li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  border-top: 1px solid var(--line);
+  padding-block: .5rem 0;
+}
+.dateLookupResults li span { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.dateLookupResults li small { color: var(--ink-muted); }
+.dateLookupResults li button { flex: 0 0 auto; min-height: 44px; }
+
+@media (max-width: 390px) {
+  .dateLookupControls input { flex-basis: 100%; }
+  .dateLookupResults li { align-items: flex-start; }
 }
 
 .recordPicker {
