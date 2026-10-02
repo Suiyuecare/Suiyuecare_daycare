@@ -8,6 +8,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
+import { NavigationLink } from "@/components/app/navigation-link";
 import { IntakeEntryLink } from "@/components/client-intake/intake-entry-link";
 
 import { CaseCenterHistory } from "@/components/core-care/case-center-history";
@@ -23,6 +24,7 @@ import type {
   CaseCenterSnapshot,
 } from "@/lib/case-center/types";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
+import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
 
 const lifecycleLabels: Record<CaseCenterLifecycleFilter, string> = {
   all: "全部生命週期",
@@ -101,36 +103,42 @@ function ClientWorkActions({
   date,
   canOpenAttendance,
   canViewSummary,
+  demoOnly = false,
 }: {
   client: CaseCenterClient;
   date: string;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
+  demoOnly?: boolean;
 }) {
   const canStart = canOpenAttendance && canStartClientWork(client, date);
   return (
     <div className="case-center-actions">
       {canStart ? (
-        <a
+        <NavigationLink
           aria-label={`開始 ${client.displayName} 的當日工作（${formatDate(date)}）`}
           className="button button--primary"
           data-case-client-id={client.id}
           href={dailyWorkflowHref(46, date, client.id)}
+          loadingLabel="當日工作"
+          prefetch={false}
         >
           開始當日工作<ArrowRight aria-hidden="true" />
-        </a>
+        </NavigationLink>
       ) : (
-        <p className="case-center-action-note">{clientWorkNote(client, date)}</p>
+        <p className="case-center-action-note">{demoOnly ? "僅供清單展示，無當日紀錄。" : clientWorkNote(client, date)}</p>
       )}
       {!canStart && canViewSummary && (
-        <a
+        <NavigationLink
           aria-label={`查看 ${client.displayName} 的當日紀錄（${formatDate(date)}）`}
           className="button button--secondary"
           data-case-client-id={client.id}
           href={clientSummaryHref(client, date)}
+          loadingLabel="當日紀錄"
+          prefetch={false}
         >
           查看當日紀錄
-        </a>
+        </NavigationLink>
       )}
     </div>
   );
@@ -193,11 +201,16 @@ export function CaseCenterWorkspace({
     responsible: "all",
     page: 1,
   });
+  // The demo directory intentionally has more people than its six runnable
+  // daily-care fixtures. Never advertise a dead-end action for the extras.
+  const demoDailyIds = snapshot.demo
+    ? new Set(buildDemoDailySnapshot(filters.date).clients.map((client) => client.clientId))
+    : null;
   const canOpenAttendance = allowedDailyPages.includes(46) && snapshot.serviceDate === filters.date;
 
   return (
     <>
-      <CaseCenterHistory />
+      <CaseCenterHistory readyKey={`${caseCenterHref(filters)}:${snapshot.generatedAt}:${snapshot.clients.map((client) => client.id).join(",")}`} />
       <nav aria-label="所在位置" className="context-bar">
         <span>工作台</span>
         <ChevronRight aria-hidden="true" />
@@ -229,7 +242,7 @@ export function CaseCenterWorkspace({
         </span>
       </div>
 
-      <section aria-label="個案摘要" className="metric-grid">
+      <section aria-label="個案摘要，左右捲動可查看五項統計" className="metric-grid case-center-metrics" tabIndex={0}>
         <article className="metric-card">
           <div className="metric-card__top"><span>符合條件</span></div>
           <div className="metric-card__value">
@@ -367,10 +380,11 @@ export function CaseCenterWorkspace({
                       </td>
                       <td>
                         <ClientWorkActions
-                          canOpenAttendance={canOpenAttendance}
-                          canViewSummary={canViewSummary}
+                          canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
+                          canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}
                           client={client}
                           date={filters.date}
+                          demoOnly={Boolean(demoDailyIds && !demoDailyIds.has(client.id))}
                         />
                       </td>
                     </tr>
@@ -392,10 +406,11 @@ export function CaseCenterWorkspace({
                     <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
                   </dl>
                   <ClientWorkActions
-                    canOpenAttendance={canOpenAttendance}
-                    canViewSummary={canViewSummary}
+                    canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
+                    canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}
                     client={client}
                     date={filters.date}
+                    demoOnly={Boolean(demoDailyIds && !demoDailyIds.has(client.id))}
                   />
                 </article>
               ))}
