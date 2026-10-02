@@ -38,6 +38,16 @@ describe("select once and continue the authorized daily workflow", () => {
     expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/service-management/attendance?date=2026-09-10");
     expect(screen.getByRole("link", { name: "此個案的機構自訂表單" })).toHaveAttribute("href", `/app/client-forms?client=${second.clientId}`);
   });
+  it("shows the selected person's primary action before the three-step navigation", () => {
+    const activate = vi.fn();
+    const { container } = render(continuation({ selectedClientId: second.clientId, action: <button type="button" onClick={activate}>登錄出勤</button> }));
+    const action = screen.getByRole("button", { name: "登錄出勤" });
+    const navigation = screen.getByRole("navigation", { name: "個案照顧三步驟" });
+    expect(container.querySelector(".core-client-continuation--selected")).toBeInTheDocument();
+    expect(action.compareDocumentPosition(navigation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(action);
+    expect(activate).toHaveBeenCalledOnce();
+  });
   it("hides custom forms when this client has no care-record source access", () => {
     render(continuation({ selectedClientId: second.clientId, clients: [{ ...second, sourceAccess: { ...snapshot.sourceAccess, careDiaries: false } }] }));
     expect(screen.queryByRole("link", { name: "此個案的機構自訂表單" })).not.toBeInTheDocument();

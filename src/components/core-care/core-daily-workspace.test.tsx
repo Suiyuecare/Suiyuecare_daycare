@@ -72,6 +72,13 @@ describe("daily care selected-client handoff and source boundaries", () => {
     expect(clientInput).toHaveValue(selected.clientId);
     expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
   });
+  it("marks the selected-client heading for compact mobile layout without changing the service date form", () => {
+    const { container } = render(workspace(6, { selectedClientId: selected.clientId }));
+    expect(container.querySelector(".core-care-heading--selected")).toBeInTheDocument();
+    expect(container.querySelector(".core-care-context-bar--selected")).toBeInTheDocument();
+    expect(screen.getByLabelText("服務日期")).toHaveValue("2026-09-10");
+    expect(screen.getByRole("button", { name: "套用日期" })).toBeEnabled();
+  });
   it.each([46, 3, 6])("requires selection in the continuation before opening page %s composer", (page) => {
     render(workspace(page));
     expect(screen.getByRole("combobox", { name: "選擇個案" })).toHaveValue("");

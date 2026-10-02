@@ -66,7 +66,7 @@ describe("shared questionnaire assessment editor", () => {
     expect(screen.getByRole("progressbar", { name: `${form.title}題目與計分條件進度` }))
       .toHaveAttribute("max", "11");
     expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
-    expect(screen.getByText("填寫進度 0／11 項")).toBeVisible();
+    expect(screen.getByRole("button", { name: "從進度前往第 1 題" })).toHaveTextContent("待補 11");
     const group = within(first).getByRole("radiogroup");
     expect(group).toHaveAccessibleName(`1. ${form.questions[0].prompt}`);
     expect(within(group).getAllByRole("radio")).toHaveLength(2);
@@ -87,6 +87,32 @@ describe("shared questionnaire assessment editor", () => {
     expect(within(first).getByText("待答")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "前往第 1 題" }));
     expect(first).toHaveFocus();
+  });
+
+  it("jumps from the sticky progress to the next unanswered question or required scoring field", () => {
+    const form = QUESTIONNAIRE_FORMS.spmsq;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(workspace("spmsq"));
+
+    const first = document.getElementById(`spmsq-${form.questions[0].id}`)!;
+    const second = document.getElementById(`spmsq-${form.questions[1].id}`)!;
+    fireEvent.click(screen.getByRole("button", { name: "從進度前往第 1 題" }));
+    expect(first).toHaveFocus();
+    fireEvent.click(within(first).getAllByRole("radio")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "從進度前往第 2 題" }));
+    expect(second).toHaveFocus();
+
+    for (const question of form.questions.slice(1)) {
+      fireEvent.click(within(document.getElementById(`spmsq-${question.id}`)!).getAllByRole("radio")[0]);
+    }
+    const scoringField = screen.getByRole("combobox", { name: "教育程度（計分調整）（計分必要）" });
+    fireEvent.click(screen.getByRole("button", { name: "從進度前往教育程度（計分調整）" }));
+    expect(scoringField).toHaveFocus();
+    fireEvent.change(scoringField, { target: { value: "grade_school_or_less" } });
+    expect(screen.queryByRole("button", { name: /^從進度前往/u })).not.toBeInTheDocument();
+    expect(screen.getByText("填寫進度 11／11 項")).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not report completion when all SPMSQ answers are present but the scoring condition is missing", () => {
@@ -129,6 +155,8 @@ describe("shared questionnaire assessment editor", () => {
       expect(screen.getByText("題目已處理，待補 1 題不適用原因")).toBeVisible();
       expect(screen.getByText(/待補不適用原因 1 題/u)).toBeVisible();
       expect(screen.queryByText("目前沒有待補項目")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "從進度前往第 1 題不適用原因" }));
+      expect(reason).toHaveFocus();
       fireEvent.click(screen.getByRole("button", { name: "前往第 1 題不適用原因" }));
       expect(reason).toHaveFocus();
 
@@ -195,6 +223,7 @@ describe("shared questionnaire assessment editor", () => {
 
     writable.rerender(workspace("bsrs5", { canManage: false }));
     expect(screen.getByRole("button", { name: "保存草稿" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^從進度前往/u })).not.toBeInTheDocument();
     expect(within(safety).getAllByRole("radio")[0]).toBeDisabled();
     expect(screen.getByText("只有檢視權限；無法編輯或保存草稿。")).toBeVisible();
   });

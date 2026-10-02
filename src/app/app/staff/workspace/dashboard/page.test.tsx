@@ -106,6 +106,7 @@ describe("dedicated dashboard route", () => {
       serviceDate,
       snapshot: { marker: "daily-snapshot" },
       roster: { marker: "roster-snapshot" },
+      resumeScopeKey: expect.stringMatching(/^[0-9a-f]{64}$/u),
     });
     expect(expectedClients.props.children.type).toBe(DailyExpectedClients);
     expect(expectedClients.props.children.props).toEqual({

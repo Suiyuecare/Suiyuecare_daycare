@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRight, Search, X } from "lucide-react";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { filterTodayWorkRows, scopeTodayWorkShift, todayWorkAction, type TodayWorkRow, type WorkFilter, type WorkTask } from "@/lib/core-care/today-work";
@@ -16,10 +16,99 @@ const filters: { id: WorkTask; label: string; access: keyof DailyCareSnapshot["s
   { id: "attention", label: "需留意", access: "careDiaries" },
 ];
 const PAGE_SIZE = 20;
+const RESUME_STATE_KEY = "__daycareTodayResume";
+const RESUME_TTL_MS = 10 * 60_000;
+const SESSION_END_EVENT = "daycare:session-ending";
 
-export function TodayWorkList({ rows, serviceDate, access, roster }: {
+type ResumeState = {
+  scope: string;
+  filter: WorkFilter;
+  search: string;
+  page: number;
+  shift: RosterShift | "all";
+  unassigned: boolean;
+  scrollTop: number;
+  focusClientId: string | null;
+  expiresAt: number;
+};
+
+// Search may contain a person's name. Keep it in this tab's JS memory only:
+// history.state receives an opaque nonce, never the search or a client ID.
+const resumeByNonce = new Map<string, ResumeState>();
+const latestNonceByScope = new Map<string, string>();
+let activeActorScope: string | null = null;
+let resumePruneTimer: ReturnType<typeof setTimeout> | null = null;
+let visibilityPruneRegistered = false;
+
+function clearResumeState() {
+  resumeByNonce.clear(); latestNonceByScope.clear(); activeActorScope = null;
+  if (resumePruneTimer !== null) clearTimeout(resumePruneTimer);
+  resumePruneTimer = null;
+}
+
+function historyNonce(): string | null {
+  const state: unknown = window.history.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) return null;
+  const nonce: unknown = (state as Record<string, unknown>)[RESUME_STATE_KEY];
+  return typeof nonce === "string" && /^[0-9a-f-]{36}$/iu.test(nonce) ? nonce : null;
+}
+
+function removeExpiredResumeState() {
+  const now = Date.now();
+  for (const [nonce, state] of resumeByNonce) if (state.expiresAt <= now) resumeByNonce.delete(nonce);
+  for (const [scope, nonce] of latestNonceByScope) if (!resumeByNonce.has(nonce)) latestNonceByScope.delete(scope);
+}
+
+function scheduleResumePrune() {
+  if (resumePruneTimer !== null) clearTimeout(resumePruneTimer);
+  resumePruneTimer = null;
+  const earliestExpiry = Math.min(...[...resumeByNonce.values()].map((state) => state.expiresAt));
+  if (Number.isFinite(earliestExpiry)) {
+    resumePruneTimer = setTimeout(() => {
+      resumePruneTimer = null;
+      removeExpiredResumeState();
+      scheduleResumePrune();
+    }, Math.max(0, earliestExpiry - Date.now()));
+  }
+  if (!visibilityPruneRegistered) {
+    document.addEventListener("visibilitychange", () => {
+      removeExpiredResumeState();
+      scheduleResumePrune();
+    });
+    document.addEventListener(SESSION_END_EVENT, clearResumeState);
+    visibilityPruneRegistered = true;
+  }
+}
+
+function rememberResume(nonce: string, state: ResumeState) {
+  resumeByNonce.set(nonce, state);
+  latestNonceByScope.set(state.scope, nonce);
+  scheduleResumePrune();
+}
+
+function renewedExpiry() { return Date.now() + RESUME_TTL_MS; }
+
+function resumeFor(scope: string): ResumeState | null {
+  removeExpiredResumeState();
+  const nonce = historyNonce();
+  const sameEntry = nonce ? resumeByNonce.get(nonce) : null;
+  if (sameEntry?.scope === scope) return sameEntry;
+  const latest = latestNonceByScope.get(scope);
+  return latest ? resumeByNonce.get(latest) ?? null : null;
+}
+
+function installHistoryNonce(nonce: string) {
+  const state: unknown = window.history.state;
+  const existing = state && typeof state === "object" && !Array.isArray(state) ? state as Record<string, unknown> : {};
+  if (existing[RESUME_STATE_KEY] === nonce) return;
+  window.history.replaceState({ ...existing, [RESUME_STATE_KEY]: nonce }, "", window.location.href);
+}
+
+export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKey }: {
   rows: readonly TodayWorkRow[]; serviceDate: string; access: DailyCareSnapshot["sourceAccess"];
   roster?: CareRosterSnapshot;
+  /** Server-derived opaque actor + tenant + branch key; absent in isolated component tests. */
+  resumeScopeKey?: string;
 }) {
   const [filter, setFilter] = useState<WorkFilter>("pending");
   const [search, setSearch] = useState("");
@@ -34,7 +123,13 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const resultStatus = useRef<HTMLParagraphElement>(null);
   const list = useRef<HTMLElement>(null);
   const requestedPageFocus = useRef<number | null>(null);
+  const resumeNonce = useRef<string | null>(null);
+  const pendingReturn = useRef<{ scrollTop: number; focusClientId: string | null } | null>(null);
+  const lastSelection = useRef<string | null>(null);
+  const [resumeReady, setResumeReady] = useState(false);
+  const resumeScope = resumeScopeKey ? `${resumeScopeKey}:${serviceDate}` : null;
   const rosterReady = roster?.status === "ready" || roster?.status === "empty";
+  const rosterManager = rosterReady && roster?.manager === true;
   const eligibleClientIds = rosterReady ? new Set(roster.assignments.filter((slot) => slot.state === "scheduled"
     && slot.isServiceEligible === true && slot.serviceEligibility === "eligible").map((slot) => slot.clientId)) : null;
   const authorizedRows = access.clients ? rows.filter((row) => (!eligibleClientIds || eligibleClientIds.has(row.id))
@@ -65,6 +160,80 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
   const activeScope = [shift === "all" ? null : shift === "morning" ? "上午" : "下午", unassigned ? "待指派" : null,
     filter === "all" ? rosterReady ? "全部當班" : "全部在案" : filter === "pending" ? "待處理" : selectedFilter?.label]
     .filter(Boolean).join("・");
+
+  useLayoutEffect(() => {
+    if (!resumeScopeKey || !resumeScope) { queueMicrotask(() => setResumeReady(true)); return; }
+    // A different signed-in actor/tenant/branch must never inherit the prior
+    // person's in-memory search, even when both can see the same clients.
+    if (activeActorScope !== resumeScopeKey) {
+      resumeByNonce.clear(); latestNonceByScope.clear(); activeActorScope = resumeScopeKey;
+      scheduleResumePrune();
+    }
+    const saved = access.clients ? resumeFor(resumeScope) : null;
+    const entryNonce = historyNonce();
+    const nonce = saved && entryNonce && resumeByNonce.get(entryNonce) === saved ? entryNonce : crypto.randomUUID();
+    resumeNonce.current = nonce;
+    if (saved) pendingReturn.current = { scrollTop: saved.scrollTop, focusClientId: saved.focusClientId };
+    installHistoryNonce(nonce);
+    // Run before the next paint without synchronously cascading a layout effect.
+    // The saved query exists only in JS memory, never in HTML or history.state.
+    let live = true;
+    queueMicrotask(() => {
+      if (!live) return;
+      if (saved) {
+        setFilter(saved.filter); setSearch(saved.search); setPage(saved.page);
+        setShift(rosterReady && ["all", "morning", "afternoon"].includes(saved.shift) ? saved.shift : "all");
+        setUnassigned(rosterManager && saved.unassigned);
+      }
+      setResumeReady(true);
+    });
+    return () => { live = false; };
+  }, [access.clients, resumeScope, resumeScopeKey, rosterManager, rosterReady]);
+
+  useEffect(() => {
+    const nonce = resumeNonce.current;
+    if (!resumeReady || !resumeScope || !nonce || !access.clients) return;
+    const key = `${filter}\u0000${search}\u0000${page}\u0000${shift}\u0000${unassigned}`;
+    const prior = resumeByNonce.get(nonce);
+    const changedSelection = lastSelection.current !== null && lastSelection.current !== key;
+    rememberResume(nonce, {
+      scope: resumeScope, filter, search, page, shift, unassigned,
+      scrollTop: changedSelection ? 0 : prior?.scrollTop ?? 0,
+      focusClientId: changedSelection ? null : prior?.focusClientId ?? null,
+      expiresAt: renewedExpiry(),
+    });
+    lastSelection.current = key;
+  }, [access.clients, filter, page, resumeReady, resumeScope, search, shift, unassigned]);
+
+  useLayoutEffect(() => {
+    if (!resumeReady || !pendingReturn.current) return;
+    const request = pendingReturn.current;
+    pendingReturn.current = null;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const scroller = document.querySelector<HTMLElement>(".main-stage");
+        if (!scroller) return;
+        const target = request.focusClientId ? [...scroller.querySelectorAll<HTMLElement>("[data-today-client-id]")]
+          .find((item) => item.dataset.todayClientId === request.focusClientId && item.getClientRects().length > 0) : null;
+        scroller.scrollTop = request.focusClientId && !target ? 0 : request.scrollTop;
+        (target ?? (request.focusClientId ? resultStatus.current : null))?.focus({ preventScroll: true });
+        if (target) target.scrollIntoView?.({ block: "nearest" });
+      });
+    });
+    return () => { window.cancelAnimationFrame(firstFrame); window.cancelAnimationFrame(secondFrame); };
+  }, [resumeReady, currentPage, filtered.length]);
+
+  function rememberBeforeNavigation(clientId: string) {
+    const nonce = resumeNonce.current;
+    if (!resumeScope || !nonce) return;
+    const scroller = document.querySelector<HTMLElement>(".main-stage");
+    rememberResume(nonce, {
+      scope: resumeScope, filter, search, page, shift, unassigned,
+      scrollTop: Math.max(0, Math.round(scroller?.scrollTop ?? 0)),
+      focusClientId: clientId, expiresAt: renewedExpiry(),
+    });
+  }
 
   if (!access.clients) return <section className="empty-card" role="status"><h2>目前無個案查閱權限</h2><p>請由機構管理員確認您的工作指派與資料範圍。</p></section>;
   return <section className="today-work" aria-labelledby="today-list-title" ref={list} tabIndex={-1}>
@@ -114,7 +283,8 @@ export function TodayWorkList({ rows, serviceDate, access, roster }: {
             {row.tasks.includes("attention") && <span className="today-attention">需留意</span>}</div>
           <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{row.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{row.diary}</dd></div></dl>
           {action.page ? <NavigationLink className="button button--secondary today-client__action" loadingLabel={action.label}
-            href={dailyWorkflowHref(action.page, serviceDate, row.id, shift === "all" ? undefined : shift)} aria-label={`${row.name}（${row.code}）：${shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}${action.label}`}>{shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
+            href={dailyWorkflowHref(action.page, serviceDate, row.id, shift === "all" ? undefined : shift)} aria-label={`${row.name}（${row.code}）：${shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}${action.label}`}
+            data-today-client-id={row.id} onClick={() => rememberBeforeNavigation(row.id)}>{shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
             : <p>請聯絡管理員確認工作權限。</p>}
           {plannedShifts && plannedShifts.length > 0 && <details className="today-client__schedule">
             <summary>照顧安排 <span>{plannedShifts.map((slot) => slot.shift === "morning" ? "上午" : "下午").join("、")}{unassignedShifts > 0 ? `・${unassignedShifts} 班待指派` : ""}</span></summary>
