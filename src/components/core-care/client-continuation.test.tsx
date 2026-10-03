@@ -70,6 +70,13 @@ describe("select once and continue the authorized daily workflow", () => {
     expect(screen.getByRole("link", { name: "更換個案" })).toHaveAttribute("href", "/app/staff/daily-care/care-diary?date=2026-09-10&shift=afternoon");
     expect(screen.getByRole("link", { name: /3\. 日誌/u })).toHaveTextContent("當日有簽署・請核對班別");
   });
+  it("does not call an unscoped latest signed diary proof that every shift is complete", () => {
+    const client = { ...second, careDiary: { id: "synthetic", occurredAt: "2026-09-10T09:00:00+08:00", status: "signed" as const, hasAbnormalFlag: false } };
+    render(continuation({ selectedClientId: client.clientId, clients: [client], page: 6 }));
+    const diaryStep = screen.getByRole("link", { name: /3\. 日誌/u });
+    expect(diaryStep).toHaveTextContent("當日有簽署・班別待核對");
+    expect(diaryStep).not.toHaveTextContent("日誌已簽署");
+  });
   it("does not expose unavailable source status or an actionable link", () => {
     render(continuation({ selectedClientId: second.clientId, sourceAccess: { ...snapshot.sourceAccess, measurements: false } }));
     expect(screen.queryByRole("link", { name: /2\. 量測/u })).not.toBeInTheDocument();

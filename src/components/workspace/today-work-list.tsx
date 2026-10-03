@@ -29,6 +29,7 @@ type ResumeState = {
   unassigned: boolean;
   scrollTop: number;
   focusClientId: string | null;
+  focusShift?: RosterShift | "all";
   expiresAt: number;
 };
 
@@ -124,7 +125,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
   const list = useRef<HTMLElement>(null);
   const requestedPageFocus = useRef<number | null>(null);
   const resumeNonce = useRef<string | null>(null);
-  const pendingReturn = useRef<{ scrollTop: number; focusClientId: string | null } | null>(null);
+  const pendingReturn = useRef<{ scrollTop: number; focusClientId: string | null; focusShift?: RosterShift | "all" } | null>(null);
   const lastSelection = useRef<string | null>(null);
   const [resumeReady, setResumeReady] = useState(false);
   const resumeScope = resumeScopeKey ? `${resumeScopeKey}:${serviceDate}` : null;
@@ -180,7 +181,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
     const entryNonce = historyNonce();
     const nonce = saved && entryNonce && resumeByNonce.get(entryNonce) === saved ? entryNonce : crypto.randomUUID();
     resumeNonce.current = nonce;
-    if (saved) pendingReturn.current = { scrollTop: saved.scrollTop, focusClientId: saved.focusClientId };
+    if (saved) pendingReturn.current = { scrollTop: saved.scrollTop, focusClientId: saved.focusClientId, focusShift: saved.focusShift };
     installHistoryNonce(nonce);
     // Run before the next paint without synchronously cascading a layout effect.
     // The saved query exists only in JS memory, never in HTML or history.state.
@@ -207,6 +208,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
       scope: resumeScope, filter, search, page, shift, unassigned,
       scrollTop: changedSelection ? 0 : prior?.scrollTop ?? 0,
       focusClientId: changedSelection ? null : prior?.focusClientId ?? null,
+      focusShift: changedSelection ? undefined : prior?.focusShift,
       expiresAt: renewedExpiry(),
     });
     lastSelection.current = key;
@@ -222,7 +224,8 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
         const scroller = document.querySelector<HTMLElement>(".main-stage");
         if (!scroller) return;
         const target = request.focusClientId ? [...scroller.querySelectorAll<HTMLElement>("[data-today-client-id]")]
-          .find((item) => item.dataset.todayClientId === request.focusClientId && item.getClientRects().length > 0) : null;
+          .find((item) => item.dataset.todayClientId === request.focusClientId &&
+            (!request.focusShift || item.dataset.todayShift === request.focusShift) && item.getClientRects().length > 0) : null;
         scroller.scrollTop = request.focusClientId && !target ? 0 : request.scrollTop;
         (target ?? (request.focusClientId ? resultStatus.current : null))?.focus({ preventScroll: true });
         if (target) target.scrollIntoView?.({ block: "nearest" });
@@ -231,14 +234,14 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
     return () => { window.cancelAnimationFrame(firstFrame); window.cancelAnimationFrame(secondFrame); };
   }, [resumeReady, currentPage, filtered.length]);
 
-  function rememberBeforeNavigation(clientId: string) {
+  function rememberBeforeNavigation(clientId: string, actionShift?: RosterShift) {
     const nonce = resumeNonce.current;
     if (!resumeScope || !nonce) return;
     const scroller = document.querySelector<HTMLElement>(".main-stage");
     rememberResume(nonce, {
       scope: resumeScope, filter, search, page, shift, unassigned,
       scrollTop: Math.max(0, Math.round(scroller?.scrollTop ?? 0)),
-      focusClientId: clientId, expiresAt: renewedExpiry(),
+      focusClientId: clientId, focusShift: actionShift ?? "all", expiresAt: renewedExpiry(),
     });
   }
 
@@ -284,15 +287,26 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
         : `${filter === "all" ? rosterReady ? "全部當班" : "全部在案" : filter === "pending" ? "待處理" : selectedFilter?.label}：${filtered.length} 位${searching ? "（搜尋結果）" : ""}${pageCount > 1 ? `・第 ${currentPage} / ${pageCount} 頁` : ""}`}</p>
       <ul className="today-client-list" id="today-client-list">
         {shown.map((row, index) => { const action = todayWorkAction(row, filter);
+          const actionPage = action.page;
           const plannedShifts = row.plannedShifts?.filter((slot) => shift === "all" || slot.shift === shift);
           const unassignedShifts = plannedShifts?.filter((slot) => !slot.staffUserId).length ?? 0;
+          const diaryContinuation = actionPage === 6 && (filter === "diary" || row.tasks[0] === "diary");
+          const pendingDiaryShifts = shift === "all" && diaryContinuation
+            ? [...new Set(plannedShifts?.filter((slot) => slot.tasks.some((task) => task.kind === "care_diary" && task.status === "pending"))
+              .map((slot) => slot.shift) ?? [])] : [];
+          const actionShifts: (RosterShift | undefined)[] = pendingDiaryShifts.length
+            ? pendingDiaryShifts : [shift === "all" ? undefined : shift];
           return <li className="today-client" key={row.id} ref={index === 0 ? firstRow : undefined} tabIndex={-1}>
           <div className="today-client__identity"><span className="avatar" aria-hidden="true">{row.name.slice(0, 1)}</span><div><h3>{row.name}</h3><small>{row.code}</small></div>
             {row.tasks.includes("attention") && <span className="today-attention">需留意</span>}</div>
           <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{row.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{row.diary}</dd></div></dl>
-          {action.page ? <NavigationLink className="button button--secondary today-client__action" loadingLabel={action.label}
-            href={dailyWorkflowHref(action.page, serviceDate, row.id, shift === "all" ? undefined : shift)} aria-label={`${row.name}（${row.code}）：${shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}${action.label}`}
-            data-today-client-id={row.id} onClick={() => rememberBeforeNavigation(row.id)}>{shift === "all" ? "" : shift === "morning" ? "上午・" : "下午・"}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>
+          {actionPage ? <div className="today-client__actions">{actionShifts.map((actionShift) => {
+            const shiftLabel = actionShift === "morning" ? "上午・" : actionShift === "afternoon" ? "下午・" : "";
+            return <NavigationLink className="button button--secondary today-client__action" loadingLabel={action.label}
+              href={dailyWorkflowHref(actionPage, serviceDate, row.id, actionShift)} aria-label={`${row.name}（${row.code}）：${shiftLabel}${action.label}`}
+              data-today-client-id={row.id} data-today-shift={actionShift ?? "all"} key={actionShift ?? "all"}
+              onClick={() => rememberBeforeNavigation(row.id, actionShift)}>{shiftLabel}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>;
+          })}</div>
             : <p>請聯絡管理員確認工作權限。</p>}
           {plannedShifts && plannedShifts.length > 0 && <details className="today-client__schedule">
             <summary>照顧安排 <span>{plannedShifts.map((slot) => slot.shift === "morning" ? "上午" : "下午").join("、")}{unassignedShifts > 0 ? `・${unassignedShifts} 班待指派` : ""}</span></summary>

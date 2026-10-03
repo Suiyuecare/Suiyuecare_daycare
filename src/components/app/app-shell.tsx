@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Bell,
   BookOpenCheck,
@@ -34,6 +34,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { getScopeChangePendingReason, hasScopeChangePending, useScopeChangePendingReason } from "@/lib/navigation/scope-change-pending";
 import { BranchSwitcher } from "./branch-switcher";
 import { CoreDraftGuardHost, hasCoreDraftBlocked, hasCoreDraftPending, requestCoreDraftLeave, useCoreDraftBlocked, useCoreDraftHeld, useCoreDraftPending } from "./core-draft-guard";
 import { DailyNavigationRegistrationContext, type ValidatedDailySelection } from "./daily-navigation-context";
@@ -145,9 +146,20 @@ export function AppShell({
   const draftBlocked = useCoreDraftBlocked();
   const draftHeld = useCoreDraftHeld();
   const draftPending = useCoreDraftPending();
+  const scopeChangeReason = useScopeChangePendingReason();
+  const portalLeaveBlocked = scopeChangeReason === "busy" || scopeChangeReason === "unknown";
+  const scopeChangeBlockedReason = scopeChangeReason === "unknown" ? "這頁的儲存結果尚未確認，請回表單核對後再離開。"
+    : scopeChangeReason === "busy" ? "這頁正在儲存，請稍候再離開。"
+      : scopeChangeReason === "dirty" ? "這頁有未儲存輸入，請先儲存或在頁內放棄。" : undefined;
+  function guardPortalLeave(event: ReactMouseEvent<HTMLAnchorElement>) {
+    const current = getScopeChangePendingReason();
+    if (current !== "busy" && current !== "unknown") return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
   const logoutBlockedReason = operationPending ? "有一筆操作結果尚待確認，不能登出並清除裝置草稿；請先回原表單核對。"
     : viewPending ? "系統正在更新或切換分支，請稍候再登出。"
-      : draftBlocked ? "資料儲存中或寫入結果未確認，請先完成核對再登出。" : undefined;
+      : draftBlocked ? "資料儲存中或寫入結果未確認，請先完成核對再登出。" : scopeChangeBlockedReason;
   const availablePages = navigation.flatMap((group) => group.pages);
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
@@ -377,13 +389,13 @@ export function AppShell({
 
   async function clearForLogout(snapshot: OfflineLogoutSnapshot | null) {
     if (!logoutReviewRunning.current || logoutReviewClearRunning.current) return;
-    if (hasCoreDraftBlocked() || hasPendingOperations() || hasViewTransition()) { cancelLogoutReview(); return; }
+    if (hasCoreDraftBlocked() || hasScopeChangePending() || hasPendingOperations() || hasViewTransition()) { cancelLogoutReview(); return; }
     logoutReviewClearRunning.current = true;
     const sequence = ++logoutReviewSequence.current;
     setLogoutReview((current) => ({ ...current, status: "clearing" }));
     const clearAttempt: Promise<void | "cleared" | "changed" | "blocked"> = snapshot
       ? clearOfflineDraftsIfUnchanged(snapshot, logoutReviewAbort.current?.signal,
-        () => !hasCoreDraftBlocked() && !hasPendingOperations() && !hasViewTransition())
+        () => !hasCoreDraftBlocked() && !hasScopeChangePending() && !hasPendingOperations() && !hasViewTransition())
       : clearOfflineDrafts(logoutReviewAbort.current?.signal);
     logoutClearResult.current = clearAttempt.then((value) => value === undefined || value === "cleared", () => false);
     const result = await settledWithin(clearAttempt, 10_000);
@@ -416,7 +428,7 @@ export function AppShell({
   }
 
   function beginLogoutReview(trigger: HTMLElement) {
-    if (logoutRunning.current || logoutReviewRunning.current || hasPendingOperations() || hasViewTransition()) return;
+    if (logoutRunning.current || logoutReviewRunning.current || hasScopeChangePending() || hasPendingOperations() || hasViewTransition()) return;
     if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
       document.dispatchEvent(new Event("daycare:session-ending"));
       router.replace("/login"); router.refresh();
@@ -431,18 +443,19 @@ export function AppShell({
   }
 
   function requestLogout(trigger: HTMLElement) {
-    if (logoutRunning.current || logoutReviewRunning.current || hasPendingOperations() || hasViewTransition()) return;
+    if (logoutRunning.current || logoutReviewRunning.current || hasScopeChangePending() || hasPendingOperations() || hasViewTransition()) return;
     requestCoreDraftLeave(() => {
       // A lease can be acquired while the dirty-draft dialog is open.
-      if (hasPendingOperations() || hasViewTransition()) return;
+      if (hasScopeChangePending() || hasPendingOperations() || hasViewTransition()) return;
       beginLogoutReview(trigger);
     }, trigger);
   }
 
   function refreshCurrentPage() {
-    if (hasCoreDraftPending() || hasPendingOperations()) return;
+    if (hasCoreDraftPending() || hasScopeChangePending() || hasPendingOperations()) return;
     const release = tryAcquireViewTransition();
     if (!release) return;
+    if (hasCoreDraftPending() || hasScopeChangePending()) { release(); return; }
     refreshLease.current = release;
     setRefreshEpoch((epoch) => epoch + 1);
     try {
@@ -535,7 +548,8 @@ export function AppShell({
           })}
         </nav>
         <div className="sidebar__footer">
-          <a className="button button--secondary sidebar__module-return" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>
+          {portalLeaveBlocked ? <span aria-disabled="true" className="button button--secondary sidebar__module-return" title={scopeChangeBlockedReason}>回模組頁</span>
+            : <a className="button button--secondary sidebar__module-return" href={companyNavigation.portalUrl} onClick={guardPortalLeave} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>}
           <div className="user-summary">
             <span className="avatar" aria-hidden="true">{context.displayName.slice(0, 1)}</span>
             <span className="user-summary__text"><strong>{context.displayName}</strong><small>{context.demo ? "合成展示" : primaryRoleLabel}</small></span>
@@ -555,8 +569,9 @@ export function AppShell({
           </div>
           {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
           <div className="topbar__actions" role="group" aria-label="系統功能">
-            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending || draftPending} onClick={refreshCurrentPage} title={draftPending ? "有未儲存或結果未確認的輸入，請先儲存或核對再重新整理。" : operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
-            <a className="button button--secondary" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>
+            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending || draftPending || Boolean(scopeChangeReason)} onClick={refreshCurrentPage} title={scopeChangeBlockedReason ?? (draftPending ? "有未儲存或結果未確認的輸入，請先儲存或核對再重新整理。" : operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined)} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
+            {portalLeaveBlocked ? <span aria-disabled="true" className="button button--secondary" title={scopeChangeBlockedReason}>回模組頁</span>
+              : <a className="button button--secondary" href={companyNavigation.portalUrl} onClick={guardPortalLeave} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>}
             <button className="button button--primary" disabled={Boolean(logoutBlockedReason) || logoutReview.status !== "idle"} title={logoutBlockedReason} onClick={(event) => requestLogout(event.currentTarget)} type="button">登出</button>
           </div>
           <div className="topbar__context">
@@ -568,6 +583,7 @@ export function AppShell({
         </header>
         <main className="main-stage" id="main-content" tabIndex={-1}>
           {draftHeld ? <p className="callout" role="status">寫入結果未確認；請保留本頁並回原表單核對，暫時不能離開或登出。</p> : null}
+          {scopeChangeBlockedReason && !draftHeld ? <p className="callout" role="status">{scopeChangeBlockedReason} 暫時不能切換分支、重新整理或登出。</p> : null}
           {children}
         </main>
       </div>

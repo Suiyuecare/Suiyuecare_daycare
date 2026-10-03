@@ -37,6 +37,25 @@ describe("care diary shift continuation", () => {
     expect(screen.getByRole("button", { name: "新增日誌草稿" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("不會自動改成全日");
   });
+  it("requires an explicit shift when the entry did not carry one, without sending a draft", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} enabled demo={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "新增日誌草稿" }));
+    const dialog = screen.getByRole("dialog");
+    const shift = within(dialog).getByRole("combobox", { name: "班別 *" });
+    expect(shift).toHaveValue("");
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(shift).toHaveFocus();
+    expect(shift).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("請先選擇上午、下午或全日");
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(shift, { target: { value: "full_day" } });
+    expect(shift).not.toHaveAttribute("aria-invalid");
+    fireEvent.change(within(dialog).getByLabelText("照顧項目 *"), { target: { value: "合成全日觀察" } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    await within(dialog).findByRole("alert");
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).data.shift).toBe("full_day");
+  });
 });
 const specs = [
   { kind: "attendance", trigger: "登錄出勤", field: /補登理由/u, value: "合成補登原因", time: "事件日期與時間 *", endpoint: "/api/attendance" },
@@ -53,6 +72,7 @@ function open(spec: typeof specs[number]) {
   const dialog = screen.getByRole("dialog");
   const form = dialog.querySelector("form")!;
   const field = within(dialog).getByLabelText(spec.field);
+  if (spec.kind === "diary") fireEvent.change(within(dialog).getByRole("combobox", { name: "班別 *" }), { target: { value: "full_day" } });
   fireEvent.change(field, { target: { value: spec.value } });
   fireEvent.change(within(dialog).getByLabelText(spec.time), { target: { value: `${date}T09:10` } });
   return { dialog, form, field };

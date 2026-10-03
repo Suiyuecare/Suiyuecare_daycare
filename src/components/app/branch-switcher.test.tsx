@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
+import { useScopeChangeDraftRegistration, type ScopeChangeDraftState } from "@/lib/navigation/scope-change-pending";
 
 import { BranchSwitcher } from "./branch-switcher";
 import { useCoreDraftGuard } from "./core-draft-guard";
@@ -191,6 +192,34 @@ describe("BranchSwitcher request boundaries", () => {
     fireEvent.click(other);
     expect(fetch).toHaveBeenCalledOnce();
     expect(window.confirm).not.toHaveBeenCalled();
+    expect(navigation.reload).not.toHaveBeenCalled();
+  });
+  it.each(["dirty", "busy", "unknown"] as const)("blocks branch scope changes for %s intake/questionnaire state", async (reason) => {
+    const fetch = vi.fn().mockResolvedValueOnce(branchList()); vi.stubGlobal("fetch", fetch);
+    let update!: (state: ScopeChangeDraftState) => void;
+    function Draft() { update = useScopeChangeDraftRegistration(); return null; }
+    render(<><BranchSwitcher currentBranchId={branchA} currentBranchName="甲分支" organizationName="測試機構" /><Draft /></>);
+    const trigger = screen.getByRole("button", { name: /目前分支/u });
+    act(() => update({ dirty: reason === "dirty", busy: reason === "busy", unknown: reason === "unknown" }));
+    expect(trigger).toHaveProperty("disabled", true);
+    expect(screen.getByRole("status").textContent).toContain("切換分支");
+    fireEvent.click(trigger);
+    expect(fetch).not.toHaveBeenCalled();
+    act(() => update({ dirty: false, busy: false, unknown: false }));
+    expect(trigger).toHaveProperty("disabled", false);
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("button", { name: "乙分支" })).toBeDefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("rechecks questionnaire/intake uncertainty after clean branch confirmation before POST", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(branchList()); vi.stubGlobal("fetch", fetch);
+    let update!: (state: ScopeChangeDraftState) => void;
+    function Draft() { update = useScopeChangeDraftRegistration(); return null; }
+    vi.stubGlobal("confirm", vi.fn(() => { update({ dirty: false, busy: false, unknown: true }); return true; }));
+    render(<><BranchSwitcher currentBranchId={branchA} currentBranchName="甲分支" organizationName="測試機構" /><Draft /></>);
+    fireEvent.click(screen.getByRole("button", { name: /目前分支/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "乙分支" }));
+    expect(fetch).toHaveBeenCalledOnce();
     expect(navigation.reload).not.toHaveBeenCalled();
   });
   it("rechecks a newly dirty core draft after branch confirmation, before POST", async () => {

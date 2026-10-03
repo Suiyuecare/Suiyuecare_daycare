@@ -4,10 +4,19 @@ import { DOCUMENT_CATEGORIES, DOCUMENT_LABELS, MAX_DOCUMENT_BYTES, documentRecei
 import styles from "./client-documents.module.css";
 import { DocumentHistoryPanel } from "./document-history-panel";
 
-type Props = { clientId: string; canManage: boolean; demo?: boolean; today: string; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void };
+type Props = { clientId: string; canManage: boolean; demo?: boolean; today: string; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void; onUnknown?: (unknown: boolean) => void };
 const LABELS = { missing: "待補件", scanning: "等待上傳完成／安全檢查", needs_review: "待人工覆核", reviewed: "文件已覆核", needs_replacement: "需要補正／換檔", not_applicable: "已確認不適用", restricted: "無此類附件檢視權限" };
 type ApiBody = { status?: string; data?: unknown; errors?: { message?: string }[] };
 class DocumentRequestError extends Error { constructor(message: string, readonly status: number) { super(message); } }
+type PendingReview = {
+  body: string;
+  fingerprint: string;
+  expectedDocumentVersion: number;
+  expectedReviewVersion: number;
+  decision: "reviewed" | "needs_replacement" | "not_applicable";
+  reason: string;
+  everUncertain: boolean;
+};
 async function api(url: string, options?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...options, signal: options?.signal ?? AbortSignal.timeout(25000) });
   const body = await response.json() as ApiBody;
@@ -34,7 +43,7 @@ async function read(clientId: string, signal?: AbortSignal) {
 }
 function demoRows(): DocumentRow[] { return DOCUMENT_CATEGORIES.map((category) => ({ category, accessible: true, canManage: false, documentId: null, documentVersion: 0, reviewVersion: 0, status: "missing", scanStatus: null, canDownload: false, mimeType: null, fileSizeBytes: null, reservedAt: null, reviewReason: null })); }
 export function ClientDocumentsWorkspace(props: Props) { return <DocumentsEditor key={props.clientId} {...props} />; }
-function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, onBusy }: Props) {
+function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, onBusy, onUnknown }: Props) {
   const [snapshot, setSnapshot] = useState<DocumentsSnapshot | null>(demo ? { clientId, generatedAt: `${today}T00:00:00+08:00`, rows: demoRows(), history: [], historyTruncated: false } : null);
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(!demo);
@@ -46,6 +55,7 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
   const [files, setFiles] = useState<Partial<Record<DocumentCategory, File>>>({});
   const [fileErrors, setFileErrors] = useState<Partial<Record<DocumentCategory, string>>>({});
   const [uploadUncertain, setUploadUncertain] = useState<Partial<Record<DocumentCategory, boolean>>>({});
+  const [reviewUncertain, setReviewUncertain] = useState<Partial<Record<DocumentCategory, boolean>>>({});
   const [uploadNeedsRefresh, setUploadNeedsRefresh] = useState<Partial<Record<DocumentCategory, boolean>>>({});
   const [uploadStage, setUploadStage] = useState<"sending" | "verifying" | null>(null);
   const [details, setDetails] = useState<Partial<Record<DocumentCategory, Partial<Record<"documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string>>>>>({});
@@ -53,11 +63,14 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
   const [decisions, setDecisions] = useState<Partial<Record<DocumentCategory, "reviewed" | "needs_replacement" | "not_applicable">>>({});
   const [download, setDownload] = useState<{ category: DocumentCategory; url: string } | null>(null);
   const keys = useRef(new Map<string, string>()); const locked = useRef(false);
+  const pendingReviews = useRef<Partial<Record<DocumentCategory, PendingReview>>>({});
   const callbacks = useRef({ onDirty, onBusy });
   const mounted = useRef(true);
   const hasDraft = historyDirty || Object.values(files).some(Boolean) || Object.values(reasons).some((reason) => Boolean(reason?.trim())) || Object.keys(decisions).length > 0 || Object.keys(details).length > 0;
+  const reviewNeedsConfirmation = Object.values(reviewUncertain).some(Boolean);
   useEffect(() => { callbacks.current = { onDirty, onBusy }; }, [onDirty, onBusy]);
   useEffect(() => { callbacks.current.onDirty?.(hasDraft); }, [hasDraft]);
+  useEffect(() => { onUnknown?.(Object.values(uploadUncertain).some(Boolean) || reviewNeedsConfirmation); return () => onUnknown?.(false); }, [onUnknown, uploadUncertain, reviewNeedsConfirmation]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; callbacks.current.onDirty?.(false); callbacks.current.onBusy?.(false); }; }, []);
   function operationKey(fingerprint: string) { if (!keys.current.has(fingerprint)) keys.current.set(fingerprint, crypto.randomUUID()); return keys.current.get(fingerprint)!; }
   useEffect(() => {
@@ -70,6 +83,28 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
   async function refresh() {
     const data = await read(clientId);
     if (mounted.current) {
+      // An uncertain category review can be cleared by an exact readback, but
+      // a newer/different version must keep the frozen request available.
+      const confirmedReviews = DOCUMENT_CATEGORIES.filter((category) => {
+        const pending = pendingReviews.current[category];
+        if (!pending?.everUncertain) return false;
+        const current = data.snapshot.rows.find((row) => row.category === category);
+        const decision = current?.categoryReviewDecision === undefined ? current?.status : current.categoryReviewDecision;
+        return current?.documentVersion === pending.expectedDocumentVersion &&
+          current.reviewVersion === pending.expectedReviewVersion + 1 &&
+          decision === pending.decision && current.reviewReason === pending.reason;
+      });
+      for (const category of confirmedReviews) {
+        const pending = pendingReviews.current[category];
+        if (pending) keys.current.delete(pending.fingerprint);
+        delete pendingReviews.current[category];
+      }
+      if (confirmedReviews.length) {
+        setReviewUncertain((current) => Object.fromEntries(Object.entries(current).filter(([category]) => !confirmedReviews.includes(category as DocumentCategory))));
+        setReasons((current) => Object.fromEntries(Object.entries(current).filter(([category]) => !confirmedReviews.includes(category as DocumentCategory))));
+        setDecisions((current) => Object.fromEntries(Object.entries(current).filter(([category]) => !confirmedReviews.includes(category as DocumentCategory))));
+        setMessage("已重新讀回原次文件處置，版本與內容一致；沒有再次送出。");
+      }
       const changed = new Set(data.snapshot.rows.filter((row) => {
         const previous = snapshot?.rows.find((item) => item.category === row.category);
         return Boolean(files[row.category] && previous && previous.documentVersion !== row.documentVersion);
@@ -87,11 +122,19 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     }
     return data.snapshot;
   }
-  async function retryRead() { if (locked.current || historyDirty || demo) return; setLoading(true); setError(""); try { await refresh(); } catch { setError("附件清單仍無法取得，請稍後重試。"); } finally { setLoading(false); } }
+  async function retryRead() { if (locked.current || historyDirty || demo) return; setLoading(true); setError(""); try { await refresh();
+    if (Object.values(pendingReviews.current).some((pending) => pending?.everUncertain)) setError("原次文件處置尚未核對一致；請保留本頁，使用原次操作重試，勿另送一筆。");
+  } catch { setError("附件清單仍無法取得，請稍後重試。"); } finally { setLoading(false); } }
   async function execute(row: DocumentRow, action: "upload" | "review" | "download") {
     if (locked.current || historyDirty || summaryStale || demo || !snapshot) return;
+    const unresolvedReview = Object.entries(pendingReviews.current).find(([, pending]) => pending?.everUncertain);
+    if (unresolvedReview && (action !== "review" || row.category !== unresolvedReview[0])) {
+      setError("原次文件處置尚未確認；請先讀回核對或使用原操作重試，暫勿進行其他附件操作。");
+      return;
+    }
     locked.current = true; callbacks.current.onBusy?.(true); setBusy(row.category); setError(""); setMessage(""); setDownload(null);
     let uploadStarted = false;
+    let reviewStarted = false;
     try {
       if (action === "upload") {
         const file = files[row.category]; if (!file) throw new Error("請選擇 PDF、JPEG 或 PNG 檔案。");
@@ -117,18 +160,27 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
         setDetails((value) => { const next = { ...value }; delete next[row.category]; return next; });
         setMessage(receipt.scanStatus === "clean" ? "附件已儲存、通過安全檢查並重新讀回，請繼續人工覆核。" : "附件已隔離，安全檢查未通過；禁止下載，請提供新檔案。");
       } else if (action === "review") {
-        const base = { clientId, category: row.category, expectedDocumentVersion: row.documentVersion, expectedReviewVersion: row.reviewVersion, decision: decisions[row.category] ?? "reviewed", reason: reasons[row.category] ?? "" };
-        const fingerprint = JSON.stringify(base); const parsed = reviewInputSchema.safeParse({ ...base, idempotency_key: operationKey(fingerprint) });
-        if (!parsed.success) throw new Error("請填寫至少三字的覆核／不適用理由。");
-        const data = await api("/api/client-documents", { method: "PATCH", headers: { "content-type": "application/json", "x-client-document-action": "review" }, body: JSON.stringify(parsed.data) }) as { receipt?: unknown };
+        let pending = pendingReviews.current[row.category];
+        if (!pending) {
+          const base = { clientId, category: row.category, expectedDocumentVersion: row.documentVersion, expectedReviewVersion: row.reviewVersion, decision: decisions[row.category] ?? "reviewed", reason: reasons[row.category] ?? "" };
+          const fingerprint = JSON.stringify(base);
+          const parsed = reviewInputSchema.safeParse({ ...base, idempotency_key: operationKey(fingerprint) });
+          if (!parsed.success) throw new Error("請填寫至少三字的覆核／不適用理由。");
+          pending = { body: JSON.stringify(parsed.data), fingerprint, expectedDocumentVersion: parsed.data.expectedDocumentVersion,
+            expectedReviewVersion: parsed.data.expectedReviewVersion, decision: parsed.data.decision, reason: parsed.data.reason, everUncertain: false };
+          pendingReviews.current[row.category] = pending;
+        }
+        reviewStarted = true;
+        const data = await api("/api/client-documents", { method: "PATCH", headers: { "content-type": "application/json", "x-client-document-action": "review" }, body: pending.body }) as { receipt?: unknown };
         const receipt = reviewReceiptSchema.parse(data.receipt);
-        if (receipt.clientId !== clientId || receipt.category !== row.category || receipt.reviewVersion !== row.reviewVersion + 1 || receipt.decision !== base.decision) throw new Error("覆核回條不一致，請使用原操作重試。");
+        if (receipt.clientId !== clientId || receipt.category !== row.category || receipt.reviewVersion !== pending.expectedReviewVersion + 1 || receipt.decision !== pending.decision) throw new Error("覆核回條不一致，請使用原操作重試。");
         const verified = await read(clientId);
         const latest = verified.snapshot.rows.find((item) => item.category === row.category);
         const categoryDecision = latest?.categoryReviewDecision === undefined ? latest?.status : latest.categoryReviewDecision;
-        if (latest?.reviewVersion !== receipt.reviewVersion || categoryDecision !== receipt.decision) throw new Error("覆核後的資料有差異，請重新載入核對。");
+        if (latest?.documentVersion !== pending.expectedDocumentVersion || latest.reviewVersion !== receipt.reviewVersion || categoryDecision !== receipt.decision || latest.reviewReason !== pending.reason) throw new Error("覆核後的資料有差異，請重新載入核對。");
         setSnapshot(verified.snapshot); setConfigured(verified.uploadConfigured);
-        keys.current.delete(fingerprint);
+        keys.current.delete(pending.fingerprint); delete pendingReviews.current[row.category];
+        setReviewUncertain((current) => ({ ...current, [row.category]: false }));
         setReasons((current) => { const next = { ...current }; delete next[row.category]; return next; });
         setDecisions((current) => { const next = { ...current }; delete next[row.category]; return next; });
         setMessage("文件處置已儲存並重新讀回；不代表已核定醫囑或本中心已執行給藥。");
@@ -148,6 +200,17 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
         setUploadUncertain((current) => ({ ...current, [row.category]: true }));
         const detail = reason instanceof Error && !(reason instanceof DOMException) && !(reason instanceof TypeError) && !(reason instanceof SyntaxError) ? ` ${reason.message}` : "";
         setError(`本次上傳結果尚未確認；檔案與輸入已保留。請用原操作重試核對，勿先改選新檔。${detail}`);
+      } else if (action === "review" && reviewStarted) {
+        const pending = pendingReviews.current[row.category];
+        if (knownRejection && pending && !pending.everUncertain) {
+          keys.current.delete(pending.fingerprint); delete pendingReviews.current[row.category];
+          setReviewUncertain((current) => ({ ...current, [row.category]: false }));
+          setError(reason instanceof Error ? reason.message : "文件處置未儲存，請檢查內容後重試。");
+        } else {
+          if (pending) pending.everUncertain = true;
+          setReviewUncertain((current) => ({ ...current, [row.category]: true }));
+          setError("原次文件處置結果尚未確認，內容與操作代碼已保留。請讀回核對，或用原操作重試；核對前不能更改處置或處理其他文件。");
+        }
       } else {
         if (action === "upload" && knownRejection) setUploadUncertain((current) => ({ ...current, [row.category]: false }));
         setError(reason instanceof Error ? reason.message : "附件操作尚未確認；原檔與輸入均保留，請重試。");
@@ -161,9 +224,9 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     {loading ? <p role="status">正在讀取附件清單…</p> : null}
     {error ? <p role="alert" className={styles.notice}>{error}</p> : null}
     {message ? <p role="status" className={styles.notice}>{message}</p> : null}
-    {!demo ? <button type="button" disabled={busy !== null || loading || historyBusy || historyDirty} onClick={() => void retryRead()}>重新載入附件清單</button> : null}
+    {!demo ? <button type="button" disabled={busy !== null || loading || historyBusy || historyDirty} onClick={() => void retryRead()}>{reviewNeedsConfirmation ? "讀回核對原次處置" : "重新載入附件清單"}</button> : null}
     {!snapshot && !loading ? <p>尚未取得附件清單，不能判定是否已完成補件。</p> : null}
-    {snapshot ? <DocumentHistoryPanel clientId={clientId} canManage={canManage} demo={demo} disabled={busy !== null || loading} today={today}
+    {snapshot ? <DocumentHistoryPanel clientId={clientId} canManage={canManage} demo={demo} disabled={busy !== null || loading || reviewNeedsConfirmation} today={today}
       onBusy={(value) => { if (!mounted.current) return; locked.current = value; setHistoryBusy(value); callbacks.current.onBusy?.(value); }}
       onDirty={(value) => { if (!mounted.current) return; setHistoryDirty(value); if (value) callbacks.current.onDirty?.(true); }}
       onChanged={async () => {
@@ -177,6 +240,7 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
     <div className={styles.grid}>{!summaryStale && snapshot?.rows.map((row) => {
       const permitted = canManage && row.canManage && !demo;
       const disabled = busy !== null || loading || historyBusy || historyDirty;
+      const reviewingOriginal = Boolean(reviewUncertain[row.category]);
       const selectedFile = files[row.category];
       return <article className={styles.card} key={row.category} aria-label={DOCUMENT_LABELS[row.category]}>
         <h3>{DOCUMENT_LABELS[row.category]}</h3><p className={styles.status}>{LABELS[row.status]}</p>
@@ -192,23 +256,24 @@ function DocumentsEditor({ clientId, canManage, demo = false, today, onDirty, on
             <div className={styles.metadata}>{([
               ["documentLabel", "文件名稱", "text"], ["provider", "院所／開立單位", "text"], ["documentDate", "文件日期", "date"], ["validUntil", "有效期限", "date"],
               ...(row.category.startsWith("medication_") ? [["periodFrom", "用藥／歷史紀錄起日", "date"], ["periodTo", "用藥／歷史紀錄迄日", "date"]] : []),
-            ] as ["documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string, string][]).map(([key, label, type]) => <label key={key}>{DOCUMENT_LABELS[row.category]}{label}<input type={type} maxLength={type === "text" ? 120 : undefined} disabled={disabled || !permitted || !configured || Boolean(uploadUncertain[row.category])} value={details[row.category]?.[key] ?? (key === "documentLabel" ? DOCUMENT_LABELS[row.category] : "")} onChange={(event) => { callbacks.current.onDirty?.(true); setDetails((current) => ({ ...current, [row.category]: { ...current[row.category], [key]: event.target.value } })); }} /></label>)}</div>
+            ] as ["documentLabel" | "provider" | "documentDate" | "validUntil" | "periodFrom" | "periodTo", string, string][]).map(([key, label, type]) => <label key={key}>{DOCUMENT_LABELS[row.category]}{label}<input type={type} maxLength={type === "text" ? 120 : undefined} disabled={disabled || reviewNeedsConfirmation || !permitted || !configured || Boolean(uploadUncertain[row.category])} value={details[row.category]?.[key] ?? (key === "documentLabel" ? DOCUMENT_LABELS[row.category] : "")} onChange={(event) => { callbacks.current.onDirty?.(true); setDetails((current) => ({ ...current, [row.category]: { ...current[row.category], [key]: event.target.value } })); }} /></label>)}</div>
             <p>未知日期可留空；填寫用藥期間時，起日及迄日須一起提供。</p>
-            <label>{DOCUMENT_LABELS[row.category]}檔案（上限 4MB）<input key={`${row.category}-${row.documentVersion}`} type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || !permitted || !configured || Boolean(uploadUncertain[row.category])} aria-invalid={Boolean(fileErrors[row.category])} aria-describedby={fileErrors[row.category] ? `document-file-error-${row.category}` : undefined} onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; callbacks.current.onDirty?.(true); setError(""); setFiles((current) => ({ ...current, [row.category]: file })); setFileErrors((current) => ({ ...current, [row.category]: selectedFileError(file) ?? undefined })); }} /></label>
+            <label>{DOCUMENT_LABELS[row.category]}檔案（上限 4MB）<input key={`${row.category}-${row.documentVersion}`} type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || reviewNeedsConfirmation || !permitted || !configured || Boolean(uploadUncertain[row.category])} aria-invalid={Boolean(fileErrors[row.category])} aria-describedby={fileErrors[row.category] ? `document-file-error-${row.category}` : undefined} onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; callbacks.current.onDirty?.(true); setError(""); setFiles((current) => ({ ...current, [row.category]: file })); setFileErrors((current) => ({ ...current, [row.category]: selectedFileError(file) ?? undefined })); }} /></label>
             {selectedFile ? <p className={styles.fileSelection}>{selectedFile.name} · {formatFileSize(selectedFile.size)}</p> : null}
             {fileErrors[row.category] ? <p id={`document-file-error-${row.category}`} role="alert" className={styles.fileError}>{fileErrors[row.category]}</p> : null}
             {busy === row.category && uploadStage ? <p role="status" className={styles.operationStatus}>{uploadStage === "sending" ? "正在上傳並安全檢查；請留在此頁。" : "正在核對已保存的附件狀態…"}</p> : null}
-            <button className={styles.uploadButton} type="submit" aria-busy={busy === row.category && uploadStage !== null} disabled={disabled || !permitted || !configured || !files[row.category] || Boolean(fileErrors[row.category]) || Boolean(uploadNeedsRefresh[row.category])}>{busy === row.category && uploadStage ? "處理中…" : uploadNeedsRefresh[row.category] ? "先重新載入核對" : uploadUncertain[row.category] ? "重試確認原次上傳" : row.documentVersion ? "新增文件／新版本" : "上傳附件"}</button>
+            <button className={styles.uploadButton} type="submit" aria-busy={busy === row.category && uploadStage !== null} disabled={disabled || reviewNeedsConfirmation || !permitted || !configured || !files[row.category] || Boolean(fileErrors[row.category]) || Boolean(uploadNeedsRefresh[row.category])}>{busy === row.category && uploadStage ? "處理中…" : uploadNeedsRefresh[row.category] ? "先重新載入核對" : uploadUncertain[row.category] ? "重試確認原次上傳" : row.documentVersion ? "新增文件／新版本" : "上傳附件"}</button>
           </form></details>
           <details><summary>{DOCUMENT_LABELS[row.category]}最新文件處置／本案不適用</summary>
           <form noValidate onSubmit={(event) => { event.preventDefault(); void execute(row, "review"); }}>
-            <label>{DOCUMENT_LABELS[row.category]}處置<select value={decisions[row.category] ?? "reviewed"} disabled={disabled || !permitted} onChange={(event) => { callbacks.current.onDirty?.(true); setDecisions({ ...decisions, [row.category]: event.target.value as "reviewed" | "needs_replacement" | "not_applicable" }); }}>
+            <label>{DOCUMENT_LABELS[row.category]}處置<select value={decisions[row.category] ?? "reviewed"} disabled={disabled || reviewNeedsConfirmation || !permitted} onChange={(event) => { callbacks.current.onDirty?.(true); setDecisions({ ...decisions, [row.category]: event.target.value as "reviewed" | "needs_replacement" | "not_applicable" }); }}>
               <option value="reviewed" disabled={row.scanStatus !== "clean"}>文件內容已核對</option><option value="needs_replacement" disabled={row.scanStatus !== "clean"}>請補正／換檔</option><option value="not_applicable">本案不適用（須理由）</option>
             </select></label>
-            <label>{DOCUMENT_LABELS[row.category]}覆核／不適用理由<textarea minLength={3} maxLength={300} required disabled={disabled || !permitted} value={reasons[row.category] ?? ""} onChange={(event) => { callbacks.current.onDirty?.(true); setReasons({ ...reasons, [row.category]: event.target.value }); }} /></label>
-            <button type="submit" disabled={disabled || !permitted || (row.scanStatus !== "clean" && decisions[row.category] !== "not_applicable")}>儲存文件處置</button>
+            <label>{DOCUMENT_LABELS[row.category]}覆核／不適用理由<textarea minLength={3} maxLength={300} required disabled={disabled || reviewNeedsConfirmation || !permitted} value={reasons[row.category] ?? ""} onChange={(event) => { callbacks.current.onDirty?.(true); setReasons({ ...reasons, [row.category]: event.target.value }); }} /></label>
+            {reviewingOriginal ? <p role="status">原次處置待核對，請勿更改欄位。</p> : null}
+            <button type="submit" disabled={disabled || !permitted || (reviewNeedsConfirmation && !reviewingOriginal) || (!reviewingOriginal && row.scanStatus !== "clean" && decisions[row.category] !== "not_applicable")}>{reviewingOriginal ? "重試確認原次文件處置" : "儲存文件處置"}</button>
           </form></details>
-          <button type="button" disabled={disabled || !row.canDownload || demo} onClick={() => void execute(row, "download")}>取得安全下載連結</button>
+          <button type="button" disabled={disabled || reviewNeedsConfirmation || !row.canDownload || demo} onClick={() => void execute(row, "download")}>取得安全下載連結</button>
           {download?.category === row.category ? <a href={download.url} rel="noreferrer" download>下載 {DOCUMENT_LABELS[row.category]}（一分鐘內有效）</a> : null}
           {!row.canDownload && row.documentId ? <p>目前無法下載，請確認安全檢查狀態及下載權限。</p> : null}
         </> : <p>這類文件包含敏感資料；請由具備對應職務授權的人員處理。</p>}

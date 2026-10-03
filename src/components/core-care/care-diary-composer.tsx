@@ -69,6 +69,7 @@ export function CareDiaryComposer({
   const invalidShift = selectedShift !== undefined && !isDailyWorkflowShift(selectedShift);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shiftError, setShiftError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticePending, setNoticePending] = useState(false);
   const [draftSession, setDraftSession] = useState(0);
@@ -84,6 +85,7 @@ export function CareDiaryComposer({
     setRestoredObservations(undefined);
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
+    setShiftError(null);
     setNotice(null);
     setNoticePending(false);
     dialog.current?.showModal();
@@ -103,6 +105,11 @@ export function CareDiaryComposer({
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
     if (!enabled || unavailableSelection || invalidShift || !clients.some((client) => client.id === clientId)) {
       setError("請重新選擇目前授權的個案；尚未送出日誌草稿。");
+      return;
+    }
+    if (!isDailyWorkflowShift(prior?.body.data.shift ?? String(data.get("shift") ?? ""))) {
+      setShiftError("請先選擇上午、下午或全日；尚未送出日誌草稿。");
+      form.querySelector<HTMLSelectElement>('select[name="shift"]')?.focus();
       return;
     }
     if (!draft.begin()) return;
@@ -192,7 +199,7 @@ export function CareDiaryComposer({
         onClose={() => trigger.current?.focus()}
         ref={dialog}
       >
-        <form className="core-dialog__surface" data-core-care-draft ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "full_day"}`} onChange={() => { if (attempt.current()) return; draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
+        <form className="core-dialog__surface" data-core-care-draft ref={formRef} key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "unselected"}`} onChange={() => { if (attempt.current()) return; draft.changed(); if (error) { idempotencyKey.current = crypto.randomUUID(); setError(null); } void offline.capture(); }} onSubmit={submit}>
           <header className="drawer__header"><div><p className="eyebrow">第 3 步・日誌草稿</p><h2 id="care-diary-dialog-title">新增照顧日誌</h2><p>記下本次觀察與下一步處置；時間以臺北時間顯示。草稿需確認與簽署後才算正式完成。</p></div><button aria-label="關閉" className="icon-button" disabled={pending} onClick={close} type="button"><X aria-hidden="true" /></button></header>
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
           <div className="drawer__body core-dialog__body">
@@ -200,7 +207,12 @@ export function CareDiaryComposer({
             <OfflineCareFormNotice offline={offline} onRestore={(values) => { draft.changed(); setRestoredObservations(values); setDraftSession((value) => value + 1); }} />
             <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>此操作只建立草稿。異常旗標只是提醒工作人員確認，不會產生診斷或自動改變照顧決策。</span></div>
             <label className="field"><span>個案 *</span><select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required><option value="">請選擇個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}（{client.code}）</option>)}</select></label>
-            <label className="field"><span>班別 *</span><select defaultValue={selectedShift ?? "full_day"} name="shift" required><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option></select></label>
+            <label className="field"><span>班別 *</span><select aria-describedby={shiftError ? "care-diary-shift-error" : undefined} aria-invalid={shiftError ? true : undefined}
+              defaultValue={selectedShift ?? ""} name="shift" onChange={() => setShiftError(null)}
+              onInvalid={(event) => { event.preventDefault(); const control = event.currentTarget;
+                setShiftError("請先選擇上午、下午或全日；尚未送出日誌草稿。"); window.requestAnimationFrame(() => control.focus()); }} required>
+              <option value="">請選擇班別</option><option value="morning">上午</option><option value="afternoon">下午</option><option value="full_day">全日</option>
+            </select>{shiftError ? <small className="form-error" id="care-diary-shift-error" role="alert">{shiftError}</small> : null}</label>
             <label className="field"><span>發生日期與時間 *</span><input defaultValue={defaultTaipeiLocal(serviceDate)} name="occurred_at" required type="datetime-local" /></label>
             <label className="field"><span>照顧項目 *</span><input maxLength={120} name="care_item" placeholder="例如：團體活動參與觀察" required /></label>
             <DiaryObservationsFields key={draftSession} restored={restoredObservations} />

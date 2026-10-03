@@ -311,6 +311,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .today-client__status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
 .today-client__status dt { color: var(--ink-muted); font-size: .8rem; }
 .today-client__status dd { margin: 4px 0 0; font-size: .9rem; font-weight: 800; overflow-wrap: anywhere; }
+.today-client__actions { display: grid; gap: 8px; min-width: 0; }
 .today-client__action { white-space: normal; }
 .today-client__schedule { grid-column: 1 / -1; min-width: 0; border-top: 1px solid var(--line); }
 .today-client__schedule summary { display: list-item; min-height: 44px; padding: 11px 0; color: var(--ink); cursor: pointer; font-size: .875rem; font-weight: 800; }

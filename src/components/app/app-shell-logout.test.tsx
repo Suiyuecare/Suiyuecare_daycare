@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import type { TenantContext } from "@/lib/domain/types";
 import { getNavigationGroups } from "@/lib/catalog";
 import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
+import { useScopeChangeDraftRegistration } from "@/lib/navigation/scope-change-pending";
 const mocks = vi.hoisted(() => ({ pathname: "/app/staff/workspace/dashboard", clear: vi.fn(), inspect: vi.fn(), checkedClear: vi.fn(), fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { replace: mocks.replace, refresh: mocks.refresh }; return { usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams(), useRouter: () => router }; });
@@ -40,6 +41,26 @@ describe("staff shell logout privacy", () => {
     }
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it("keeps the module return visible but non-navigable during uncertain writes, including a same-tick click", () => {
+    let prevented = false;
+    function ScopeDraft() {
+      const update = useScopeChangeDraftRegistration();
+      return <><button onClick={() => {
+        update({ dirty: false, busy: false, unknown: true });
+        const portal = document.querySelector<HTMLAnchorElement>("a.sidebar__module-return")!;
+        prevented = !portal.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+      }}>結果未知並點回模組頁</button>
+        <button onClick={() => update({ dirty: false, busy: false, unknown: false })}>核對完成</button></>;
+    }
+    render(<AppShell context={actor} navigation={[]}><ScopeDraft /></AppShell>);
+    fireEvent.click(screen.getByRole("button", { name: "結果未知並點回模組頁" }));
+    expect(prevented).toBe(true);
+    expect(screen.queryByRole("link", { name: "回模組頁" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("回模組頁")).toHaveLength(2);
+    expect(within(screen.getByRole("main")).getByText(/暫時不能切換分支、重新整理或登出/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "核對完成" }));
+    expect(screen.getAllByRole("link", { name: "回模組頁" })).toHaveLength(2);
   });
   it("lets the existing draft guard block a portal departure", () => {
     function DirtyDraft() { const guard = useCoreDraftGuard(); return <button onClick={guard.changed}>合成未儲存草稿</button>; }

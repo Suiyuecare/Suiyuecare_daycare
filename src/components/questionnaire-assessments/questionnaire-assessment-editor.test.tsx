@@ -277,6 +277,69 @@ describe("shared questionnaire assessment editor", () => {
     expect(replace).toHaveBeenCalledWith(`/app/staff/assessments/spmsq?client=${clientB.clientId}`);
   });
 
+  it("holds an unchanged form after an ambiguous save and retries the identical operation", async () => {
+    window.history.replaceState({ __NA: true }, "", window.location.href);
+    const priorState = window.history.state;
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("synthetic network loss"))
+      .mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }))
+      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(workspace("spmsq", { clients: [clientA, clientB] }));
+    const dialog = document.querySelector("dialog") as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => { dialog.open = true; });
+    dialog.close = vi.fn(() => { dialog.open = false; fireEvent(dialog, new Event("close")); });
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(await screen.findByRole("button", { name: "重試同一次保存" })).toBeEnabled();
+    expect(screen.getByText(/上次保存結果尚未確認；欄位已暫時鎖定/u)).toBeVisible();
+    expect(within(document.getElementById("spmsq-spmsq_01")!).getAllByRole("radio")[0]).toBeDisabled();
+    expect(screen.getByLabelText("評估日期")).toBeDisabled();
+    expect(window.history.state.__daycareAssessmentUnsavedGuard).toEqual(expect.any(String));
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    const link = document.createElement("a");
+    link.href = "/app/staff/workspace/case-center";
+    document.body.append(link);
+    expect(link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }))).toBe(false);
+    link.remove();
+    const external = document.createElement("a");
+    external.href = "https://login.suiyuecare.com/synthetic-return";
+    document.body.append(external);
+    expect(external.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }))).toBe(false);
+    external.remove();
+    expect(dialog.open).toBe(false);
+    expect(replace).not.toHaveBeenCalled();
+
+    const client = screen.getByRole("combobox", { name: "個案" });
+    fireEvent.change(client, { target: { value: clientB.clientId } });
+    expect(fireEvent.submit(client.closest("form")!)).toBe(false);
+    expect(client).toHaveValue(clientA.clientId);
+    expect(dialog.open).toBe(false);
+
+    window.history.replaceState(priorState, "", window.location.href);
+    fireEvent(window, new PopStateEvent("popstate", { state: priorState }));
+    expect(window.history.state.__daycareAssessmentUnsavedGuard).toEqual(expect.any(String));
+    expect(dialog.open).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次保存" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const first = fetchMock.mock.calls[0][1] as RequestInit;
+    const second = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(first.body).toBe(second.body);
+    expect((first.headers as Record<string, string>)["idempotency-key"])
+      .toBe((second.headers as Record<string, string>)["idempotency-key"]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "重試同一次保存" })).toBeEnabled());
+    expect(within(document.getElementById("spmsq-spmsq_01")!).getAllByRole("radio")[0]).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次保存" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const third = fetchMock.mock.calls[2][1] as RequestInit;
+    expect(third.body).toBe(first.body);
+    expect((third.headers as Record<string, string>)["idempotency-key"])
+      .toBe((first.headers as Record<string, string>)["idempotency-key"]);
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  });
+
   it("guards browser Back with a non-sensitive same-URL sentinel and keeps answers after cancellation", () => {
     window.history.replaceState({ __NA: true, tree: ["synthetic"] }, "", window.location.href);
     const originalState = window.history.state;

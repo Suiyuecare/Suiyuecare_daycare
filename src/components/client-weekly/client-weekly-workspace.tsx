@@ -6,7 +6,7 @@ import styles from "./client-weekly.module.css";
 
 const WEEKDAYS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
 const STATUS = { scheduled: "應到・尚非出勤", not_scheduled: "未安排", cancelled: "請假／取消", inactive: "服務暫停或已終止", not_admitted: "尚未正式收案／未到收案日", plan_expired: "不在週表生效期間" };
-type Props = { clientId: string; canManage: boolean; demo?: boolean; today: string; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void };
+type Props = { clientId: string; canManage: boolean; demo?: boolean; today: string; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void; onUnknown?: (unknown: boolean) => void };
 type Envelope = { status: string; data?: unknown; errors?: { code?: string; message?: string }[] };
 type PendingWrite = { input: WeeklyInput; body: string; everUncertain: boolean; confirmedVersion?: number };
 
@@ -63,7 +63,7 @@ function DayEditor({ value, onChange, label, disabled }: { value: WeeklyDay; onC
 
 /** Keyed boundary prevents drafts/receipts from leaking across selected clients. */
 export function ClientWeeklyWorkspace(props: Props) { return <WeeklyEditor key={props.clientId} {...props} />; }
-function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBusy }: Props) {
+function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBusy, onUnknown }: Props) {
   const [snapshot, setSnapshot] = useState<WeeklySnapshot | null>(null);
   const [plan, setPlan] = useState(() => emptyPlan(today));
   const [loading, setLoading] = useState(!demo);
@@ -83,6 +83,7 @@ function WeeklyEditor({ clientId, canManage, demo = false, today, onDirty, onBus
   const lock = useRef(false);
   useEffect(() => { onBusy?.(saving); return () => onBusy?.(false); }, [saving, onBusy]);
   useEffect(() => { onDirty?.(dirty || exceptionDirty || recovery !== null); }, [dirty, exceptionDirty, recovery, onDirty]);
+  useEffect(() => { onUnknown?.(recovery === "uncertain"); return () => onUnknown?.(false); }, [recovery, onUnknown]);
   useEffect(() => {
     if (!dirty && !exceptionDirty && !recovery) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();

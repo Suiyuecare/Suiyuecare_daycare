@@ -1,46 +1,73 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import type { TaipeiDraftSnapshot } from "@/lib/taipei-abcd/types";
 import { emptyWorkflow, sectionReviewItems, TAIPEI_WORKFLOW_LABELS, transitionReceiptSchema, transitionSchema, type TaipeiChecklist } from "@/lib/taipei-abcd/workflow";
 import styles from "./taipei-abcd.module.css";
 type Receipt = ReturnType<typeof transitionReceiptSchema.parse>;
-type Props = { snapshot: TaipeiDraftSnapshot; unsavedAnswers: boolean; disabled: boolean; onBusy: (busy: boolean) => void; onDirty: (dirty: boolean) => void; onChanged: (receipt: Receipt) => Promise<void> };
-export function TaipeiAbcdReview({ snapshot, unsavedAnswers, disabled, onBusy, onDirty, onChanged }: Props) {
+type Transition = ReturnType<typeof transitionSchema.parse>;
+type PendingTransition = { payload: Transition; body: string };
+const rejectionSchema = z.object({ status: z.literal("error"), data: z.null(), requestId: z.string().min(1),
+  errors: z.array(z.object({ code: z.string().min(1), message: z.string().min(1) })).min(1) });
+function isDefiniteRejection(status: number, body: unknown) {
+  return status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status) && rejectionSchema.safeParse(body).success;
+}
+type Props = { snapshot: TaipeiDraftSnapshot; unsavedAnswers: boolean; disabled: boolean; onBusy: (busy: boolean) => void; onDirty: (dirty: boolean) => void; onUnknown?: (unknown: boolean) => void; onChanged: (receipt: Receipt) => Promise<void> };
+export function TaipeiAbcdReview({ snapshot, unsavedAnswers, disabled, onBusy, onDirty, onUnknown, onChanged }: Props) {
   const [reason, setReason] = useState(""); const [checklist, setChecklist] = useState<TaipeiChecklist>({});
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
-  const pending = useRef<ReturnType<typeof transitionSchema.parse> | null>(null); const locked = useRef(false);
+  const [unknown, setUnknown] = useState(false); const [retryAction, setRetryAction] = useState<Transition["action"] | null>(null);
+  const pending = useRef<PendingTransition | null>(null); const locked = useRef(false);
   const [pdf, setPdf] = useState<{ url: string; hash: string; snapshotId: string } | null>(null);
   const exportKey = useRef<string | null>(null);
-  const callbacks = useRef({ onBusy, onDirty, onChanged });
-  useEffect(() => { callbacks.current = { onBusy, onDirty, onChanged }; }, [onBusy, onDirty, onChanged]);
+  const callbacks = useRef({ onBusy, onDirty, onUnknown, onChanged });
+  useEffect(() => { callbacks.current = { onBusy, onDirty, onUnknown, onChanged }; }, [onBusy, onDirty, onUnknown, onChanged]);
   useEffect(() => { callbacks.current.onDirty(Boolean(reason || Object.keys(checklist).length)); }, [reason, checklist]);
-  useEffect(() => () => { callbacks.current.onDirty(false); callbacks.current.onBusy(false); }, []);
+  useEffect(() => () => { callbacks.current.onDirty(false); callbacks.current.onBusy(false); callbacks.current.onUnknown?.(false); }, []);
   useEffect(() => { if (!pdf) return; const timer = setTimeout(() => setPdf(null), 5 * 60000); return () => { clearTimeout(timer); URL.revokeObjectURL(pdf.url); }; }, [pdf]);
   const workflow = snapshot.workflow ?? emptyWorkflow;
   const row = snapshot.latest; const sections = sectionReviewItems(snapshot.form, row?.answers ?? {});
   const blocked = disabled || busy || unsavedAnswers || !row;
-  function edit(nextReason: string, nextChecklist = checklist) { setReason(nextReason); setChecklist(nextChecklist); pending.current = null; setMessage(""); }
+  const editBlocked = blocked || unknown;
+  function edit(nextReason: string, nextChecklist = checklist) { if (unknown || locked.current) return; setReason(nextReason); setChecklist(nextChecklist); setMessage(""); }
   async function transition(action: "submit" | "return" | "approve" | "correct") {
-    if (blocked || locked.current || !row) return;
+    if (blocked || locked.current || !row || (unknown && pending.current?.payload.action !== action)) return;
     locked.current = true; setBusy(true); callbacks.current.onBusy(true); setError(""); setMessage("");
+    let requestSent = false; let definiteRejection = false;
     try {
-      const payload = pending.current ?? transitionSchema.parse({ clientId: row.clientId, draftId: row.id, contentHash: row.contentHash, expectedSequence: workflow.sequence,
-        action, reason, checklist: action === "submit" ? checklist : {}, idempotency_key: crypto.randomUUID() });
-      if (payload.action !== action) throw new Error("先重試原處置，或調整理由後再改變操作。");
-      pending.current = payload;
-      const response = await fetchWithTimeout("/api/taipei-abcd/workflow", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": payload.idempotency_key }, body: JSON.stringify(payload), cache: "no-store" });
-      const body = await response.json(); if (!response.ok) throw new Error(body.errors?.[0]?.message ?? "尚未確認行政審核結果，請以原操作重試。");
-      const receipt = transitionReceiptSchema.parse(body.data);
-      if (receipt.idempotencyKey !== payload.idempotency_key || (action !== "correct" && receipt.draftId !== row.id)) throw new Error("回條不一致，請以原操作重試。");
+      if (!unknown) {
+        const payload = transitionSchema.parse({ clientId: row.clientId, draftId: row.id, contentHash: row.contentHash, expectedSequence: workflow.sequence,
+          action, reason, checklist: action === "submit" ? checklist : {}, idempotency_key: crypto.randomUUID() });
+        pending.current = { payload, body: JSON.stringify(payload) };
+      }
+      const operation = pending.current;
+      if (!operation || operation.payload.action !== action) return;
+      requestSent = true;
+      const response = await fetchWithTimeout("/api/taipei-abcd/workflow", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": operation.payload.idempotency_key }, body: operation.body, cache: "no-store" });
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const rejected = rejectionSchema.safeParse(body);
+        definiteRejection = isDefiniteRejection(response.status, body);
+        throw new Error(rejected.success ? rejected.data.errors[0].message : "尚未確認行政審核結果，請以原操作重試。");
+      }
+      const receipt = transitionReceiptSchema.parse(body && typeof body === "object" && "data" in body ? body.data : undefined);
+      if (receipt.idempotencyKey !== operation.payload.idempotency_key || (action !== "correct" && receipt.draftId !== operation.payload.draftId)) throw new Error("回條不一致，請以原操作重試。");
       await callbacks.current.onChanged(receipt);
-      pending.current = null; setChecklist({}); setReason(""); setPdf(null); exportKey.current = null;
+      pending.current = null; setUnknown(false); setRetryAction(null); callbacks.current.onUnknown?.(false);
+      setChecklist({}); setReason(""); setPdf(null); exportKey.current = null;
       setMessage(`${TAIPEI_WORKFLOW_LABELS[receipt.state]}，已重新讀回核對；不代表官方表單完整或已電子簽署。`);
-    } catch (cause) { setError(cause instanceof Error && cause.name !== "ZodError" ? cause.message : "請確認所有區段，填寫至少三字的理由；有未填欄位的區段須說明待補原因。"); }
+    } catch (cause) {
+      const remainsUnknown = unknown || (requestSent && !definiteRejection);
+      if (remainsUnknown) { setUnknown(true); setRetryAction(action); callbacks.current.onUnknown?.(true); }
+      else { pending.current = null; setUnknown(false); setRetryAction(null); callbacks.current.onUnknown?.(false); }
+      setError(cause instanceof Error && cause.name !== "ZodError" ? cause.message : requestSent
+        ? "審核回條尚未通過核對，請以原操作重試。" : "請確認所有區段，填寫至少三字的理由；有未填欄位的區段須說明待補原因。");
+    }
     finally { locked.current = false; setBusy(false); callbacks.current.onBusy(false); }
   }
   async function createPdf() {
-    if (blocked || locked.current || !row) return;
+    if (blocked || unknown || locked.current || !row) return;
     locked.current = true; setBusy(true); callbacks.current.onBusy(true); setError("");
     try {
       exportKey.current ??= crypto.randomUUID();
@@ -60,18 +87,19 @@ export function TaipeiAbcdReview({ snapshot, unsavedAnswers, disabled, onBusy, o
     <h3>送審與覆核</h3><p>目前：{TAIPEI_WORKFLOW_LABELS[workflow.state]} · 審核紀錄第 {workflow.sequence} 版</p>
     <p>這是機構行政審核，不是護理、社工或主管電子簽署，也不會將未填內容視為完整。送審後該版凍結；退回可續填，核准後需建立有理由的更正版。</p>
     {unsavedAnswers && <p role="status">先儲存上方表單內容，才能對指定版本送審或輸出。</p>}
+    {unknown && <p role="status">行政審核結果尚未確認，理由與逐區核對已鎖定。請只重試原處置；核對讀回前勿改做其他審核或輸出。</p>}
     {error && <p role="alert" className={styles.error}>{error}</p>}{message && <p role="status">{message}</p>}
     {snapshot.canSubmit && <details><summary>送審前：逐區核對已填與待補內容</summary><div className={styles.sectionBody}>{sections.map(section => <div key={section.code} className={styles.field}>
-      <label><input type="checkbox" checked={checklist[section.code]?.confirmed ?? false} disabled={blocked} onChange={e => edit(reason, { ...checklist, [section.code]: { confirmed: e.target.checked, pendingReason: section.missing ? checklist[section.code]?.pendingReason ?? "" : null } })} />{section.code} {section.title}：已核對現有資料及適用性</label>
+      <label><input type="checkbox" checked={checklist[section.code]?.confirmed ?? false} disabled={editBlocked} onChange={e => edit(reason, { ...checklist, [section.code]: { confirmed: e.target.checked, pendingReason: section.missing ? checklist[section.code]?.pendingReason ?? "" : null } })} />{section.code} {section.title}：已核對現有資料及適用性</label>
       <p>未填 {section.missing} 項 · 來源待核對 {section.unconfirmed} 項</p>
-      {section.missing > 0 && <label>{section.code} 待補原因與後續處理<textarea value={checklist[section.code]?.pendingReason ?? ""} minLength={3} maxLength={1000} disabled={blocked} onChange={e => edit(reason, { ...checklist, [section.code]: { confirmed: checklist[section.code]?.confirmed ?? false, pendingReason: e.target.value } })} /></label>}
+      {section.missing > 0 && <label>{section.code} 待補原因與後續處理<textarea value={checklist[section.code]?.pendingReason ?? ""} minLength={3} maxLength={1000} disabled={editBlocked} onChange={e => edit(reason, { ...checklist, [section.code]: { confirmed: checklist[section.code]?.confirmed ?? false, pendingReason: e.target.value } })} /></label>}
     </div>)}</div></details>}
-    {(snapshot.canSubmit || snapshot.canReview || snapshot.canCorrect) && <label>送審／退回／核准／更正理由（至少三字）<textarea value={reason} maxLength={1000} disabled={blocked} onChange={e => edit(e.target.value)} /></label>}
+    {(snapshot.canSubmit || snapshot.canReview || snapshot.canCorrect) && <label>送審／退回／核准／更正理由（至少三字）<textarea value={reason} maxLength={1000} disabled={editBlocked} onChange={e => edit(e.target.value)} /></label>}
     <div className={styles.toolbar}>
-      {snapshot.canSubmit && <button type="button" disabled={blocked} onClick={() => void transition("submit")}>送行政審核</button>}
-      {snapshot.canReview && <><button type="button" disabled={blocked} onClick={() => void transition("return")}>退回補件</button><button type="button" disabled={blocked} onClick={() => void transition("approve")}>行政核准（非簽署）</button></>}
-      {snapshot.canCorrect && <button type="button" disabled={blocked} onClick={() => void transition("correct")}>建立更正版</button>}
-      <button type="button" disabled={blocked || !snapshot.canExport} onClick={() => void createPdf()}>產生同版預覽／列印 PDF</button>
+      {snapshot.canSubmit && <button type="button" disabled={blocked || (unknown && retryAction !== "submit")} onClick={() => void transition("submit")}>送行政審核</button>}
+      {snapshot.canReview && <><button type="button" disabled={blocked || (unknown && retryAction !== "return")} onClick={() => void transition("return")}>退回補件</button><button type="button" disabled={blocked || (unknown && retryAction !== "approve")} onClick={() => void transition("approve")}>行政核准（非簽署）</button></>}
+      {snapshot.canCorrect && <button type="button" disabled={blocked || (unknown && retryAction !== "correct")} onClick={() => void transition("correct")}>建立更正版</button>}
+      <button type="button" disabled={blocked || unknown || !snapshot.canExport} onClick={() => void createPdf()}>產生同版預覽／列印 PDF</button>
     </div>
     {!snapshot.canExport && <p className={styles.muted}>輸出含敏感資料，需文件輸出權限與近期額外身分確認；不影響一般草稿填寫及行政送審。</p>}
     {pdf && <div className={styles.pdf}><a href={pdf.url} target="_blank" rel="noreferrer">開啟同一份 PDF 預覽與列印</a><a href={pdf.url} download={`taipei-${snapshot.form}-${pdf.snapshotId}.pdf`}>下載同一份 PDF</a><p>官方欄位對照副本，非官方原稿版面，未電子簽署。</p><p className={styles.muted}>PDF SHA-256：{pdf.hash}</p></div>}

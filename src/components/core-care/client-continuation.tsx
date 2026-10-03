@@ -23,7 +23,7 @@ function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?:
   if (shift && page === 6 && client.careDiary && ["signed", "corrected"].includes(client.careDiary.status)) return "當日有簽署・請核對班別";
   if (page === 3) return client.vitalSigns ? "已有量測" : "待量測";
   return !client.careDiary || client.careDiary.status === "voided" ? "待登錄"
-    : client.careDiary.status === "signed" || client.careDiary.status === "corrected" ? "已簽署"
+    : client.careDiary.status === "signed" || client.careDiary.status === "corrected" ? "當日有簽署・班別待核對"
       : client.careDiary.status === "draft" ? "已有草稿・未簽署" : "待簽署";
 }
 
