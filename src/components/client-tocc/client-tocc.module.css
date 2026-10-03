@@ -153,6 +153,128 @@
   font-weight: 700;
 }
 
+.draftFeedback {
+  margin: 12px 18px;
+  border-left: 4px solid var(--brand-strong);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: .78rem;
+  line-height: 1.55;
+}
+
+.draftFeedbackError {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.draftFeedbackSuccess {
+  border-color: var(--success);
+  background: var(--surface-soft);
+  color: var(--success);
+}
+
+.draftEditor {
+  padding: 16px 18px 4px;
+}
+
+.draftEditor h3 {
+  margin: 0 0 12px;
+  font-size: .95rem;
+}
+
+.draftEditor .conflictCard {
+  margin: 16px 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.draftFields {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.draftActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.draftUnavailable {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: .76rem;
+  line-height: 1.5;
+}
+
+.draftNavigationNotice {
+  margin: 12px 16px;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  padding: 10px 12px;
+  color: var(--ink);
+  font-size: .78rem;
+  line-height: 1.55;
+}
+
+.reviewCard,
+.conflictCard {
+  min-width: 0;
+  margin: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--card-radius);
+  background: var(--surface-soft);
+  padding: 16px;
+}
+
+.reviewCard h3,
+.conflictCard h4,
+.conflictCard h5 {
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.reviewCard p,
+.conflictCard p {
+  line-height: 1.55;
+}
+
+.reviewGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.reviewGrid div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.reviewGrid dt {
+  color: var(--ink-muted);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.reviewGrid dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: .82rem;
+}
+
 .batchList {
   display: grid;
   gap: 14px;
@@ -254,9 +376,29 @@
 }
 
 @media (max-width: 760px) {
+  .draftFeedback {
+    margin: 12px;
+  }
+
+  .draftEditor {
+    padding: 14px 12px 4px;
+  }
+
   .ruleGrid,
-  .fields {
+  .fields,
+  .reviewGrid {
     grid-template-columns: 1fr;
+  }
+
+  .reviewCard,
+  .conflictCard {
+    margin: 12px;
+    padding: 14px;
+  }
+
+  .draftActions,
+  .draftActions button {
+    width: 100%;
   }
 
   .wideField,

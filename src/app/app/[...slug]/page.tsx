@@ -39,6 +39,8 @@ import { AuthorizedCarePlanViewSnapshotError, loadAuthorizedCarePlanViewSnapshot
 import { BloodGlucoseWorkspace } from "@/components/blood-glucose/blood-glucose-workspace";
 import { InsulinAdministrationsWorkspace } from "@/components/insulin-administrations/insulin-administrations-workspace";
 import { ClientToccWorkspace } from "@/components/client-tocc/client-tocc-workspace";
+import { canSignToccDraft, canUseToccDraft } from "@/lib/auth/tocc-draft";
+import { loadToccDraftSnapshot, ToccDraftSnapshotError } from "@/lib/client-tocc/draft-snapshot";
 import { MedicationRecordsWorkspace } from "@/components/medications/medication-records-workspace";
 import { MedicationPlansWorkspace } from "@/components/medication-plans/medication-plans-workspace";
 import { ClaimsWorkspace } from "@/components/service-management/claims-workspace";
@@ -888,6 +890,9 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 9) {
+    const draftPageRaw = typeof query.draft_page === "string" ? query.draft_page : "0";
+    const draftPageNumber = /^\d{1,6}$/u.test(draftPageRaw) ? Number(draftPageRaw) : 0;
+    const draftPage = draftPageNumber <= 100_000 ? draftPageNumber : 0;
     const searchQuery =
       typeof query.q === "string" ? query.q.slice(0, 120) : "";
     const requestedValidity =
@@ -916,12 +921,25 @@ export default async function StaffCatalogPage({
     let snapshot = null;
     let allClients: ClientToccOption[] = [];
     let recentAal2 = false;
+    let canDraft = false;
+    let canSign = false;
+    let drafts: Awaited<ReturnType<typeof loadToccDraftSnapshot>>["drafts"] = [];
+    let hasMoreDrafts = false;
     let loadError = false;
     try {
-      const [unfiltered, aal2] = await Promise.all([
+      const [unfiltered, aal2, draftAccess, signAccess] = await Promise.all([
         loadClientToccSnapshot(context),
         canWrite ? hasRecentAal2() : Promise.resolve(false),
+        canUseToccDraft(context, null, true),
+        canSignToccDraft(context),
       ]);
+      canDraft = draftAccess;
+      canSign = signAccess;
+      if (draftAccess || signAccess) {
+        const draftSnapshot = await loadToccDraftSnapshot(context, draftPage);
+        drafts = draftSnapshot.drafts;
+        hasMoreDrafts = draftSnapshot.hasMore;
+      }
       allClients = unfiltered.clients.map((client) => ({
         id: client.clientId,
         code: client.clientCode,
@@ -938,13 +956,18 @@ export default async function StaffCatalogPage({
       });
       recentAal2 = aal2;
     } catch (error) {
-      if (!(error instanceof ClientToccSnapshotError)) throw error;
+      if (!(error instanceof ClientToccSnapshotError || error instanceof ToccDraftSnapshotError)) throw error;
       loadError = true;
     }
     return (
       <ClientToccWorkspace
         allClients={allClients}
         canWrite={canWrite}
+        canDraft={canDraft}
+        canSign={canSign}
+        drafts={drafts}
+        draftPage={draftPage}
+        hasMoreDrafts={hasMoreDrafts}
         hasRecentAal2={recentAal2}
         loadError={loadError}
         page={page}
