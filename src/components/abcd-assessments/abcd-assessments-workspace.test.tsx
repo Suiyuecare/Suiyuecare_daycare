@@ -63,6 +63,8 @@ describe("Page 21 ABCD candidate workspace", () => {
     }
     expect(screen.getByText(/正式 A／B／C／D 題本、公式、代碼與授權來源尚未配置/u)).toBeInTheDocument();
     expect(screen.getByText(/不產生分數、診斷、自動複評或照顧決策/u)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "填寫臺北市 A／B／C 表" }))
+      .toHaveAttribute("href", "/app/client-intake?step=abcd");
     expect(container.textContent).not.toMatch(/\b(?:SQL|RPC|UUID|formal_rule_status|not_configured)\b/u);
   });
 

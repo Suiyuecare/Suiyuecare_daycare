@@ -93,7 +93,8 @@ export type InsulinAdministrationSnapshot = {
   itemsTruncated: boolean;
   clientOptions: readonly InsulinClientOption[];
   governanceStatus: "not_configured" | "published";
-  planDesignationStatus: "not_configured" | "published";
+  /** A Google read-only session never reveals branch-wide designation state. */
+  planDesignationStatus: "not_configured" | "published" | "restricted";
   qualificationStatus: "not_configured" | "published";
   doseRuleStatus: "not_configured" | "published";
   lateEntryRuleStatus: "not_configured" | "published";

@@ -197,6 +197,22 @@ describe("Page 5 insulin parser and projection", () => {
       qualificationStatus: "not_configured", canExecute: false, items: [] });
   });
 
+  it("accepts an AAL1 read-only designation without exposing branch-wide plan state", () => {
+    const projected = projectInsulinAdministrationSnapshot(source({
+      governance_status: "published", plan_designation_status: "restricted",
+      qualification_status: "published", dose_rule_status: "published",
+      late_entry_rule_status: "published", items: [scheduledItem],
+      matching_total: 1, scheduled_total: 1,
+      client_options: [{ client_id: clientId, client_code: "SYN-I01", display_name: "合成個案甲" }],
+    }));
+    expect(projected).toMatchObject({ planDesignationStatus: "restricted",
+      canExecute: false, canReview: false, canAuthorizeLate: false });
+    expect(projected.items).toHaveLength(1);
+    expect(() => projectInsulinAdministrationSnapshot(source({
+      plan_designation_status: "restricted", can_execute: true,
+    }))).toThrow("INVALID_INSULIN_ADMINISTRATION_SNAPSHOT");
+  });
+
   it("projects a configured scheduled Page-8 slot", () => {
     const projected = projectInsulinAdministrationSnapshot(source({
       items: [scheduledItem], matching_total: 1, scheduled_total: 1,

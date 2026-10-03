@@ -53,6 +53,14 @@ describe("Page 5 insulin workspace and actions", () => {
       .toBeInTheDocument();
   });
 
+  it("labels a restricted Google read-only plan without claiming no plan exists", () => {
+    render(<InsulinAdministrationsWorkspace filters={filters} loadError={false} page={page}
+      snapshot={{ ...snapshot, demo: false, planDesignationStatus: "restricted" }} />);
+    expect(screen.getByText("僅供查看；施打與覆核未授權")).toBeInTheDocument();
+    expect(screen.getByText(/胰島素計畫指定 依個案授權顯示/u)).toBeInTheDocument();
+    expect(screen.queryByText(/胰島素計畫指定 not_configured/u)).not.toBeInTheDocument();
+  });
+
   it("shows exact Page-8 evidence and immutable history", () => {
     render(<InsulinAdministrationsWorkspace filters={filters} loadError={false}
       page={page} snapshot={snapshot} />);

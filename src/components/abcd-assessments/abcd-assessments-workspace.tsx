@@ -1,4 +1,4 @@
-import { AlertTriangle, Brain, CalendarClock, Clock3, FileWarning, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Brain, CalendarClock, Clock3, FileCheck2, FileWarning, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
@@ -52,18 +52,22 @@ export function AbcdAssessmentsWorkspace({ page, snapshot, filters, loadError, c
     { label: "草稿", value: snapshot.metrics.draftTotal }, { label: "已簽／更正", value: snapshot.metrics.signedTotal }];
   return <div className="workspace-page"><header className="page-heading core-care-heading"><div>
     <p className="eyebrow">評估量表・Page 21</p><h1>{page.title}</h1>
-    <p className="page-heading__description">{page.description} 個案、年度與 A／B／C／D 類型共同定義一條獨立且不可變的版本鏈。</p></div>
+    <p className="page-heading__description">選擇個案後填寫臺北市 A／B／C 表，或查閱既有紀錄。</p></div>
     <div className={`page-heading__actions ${styles.headerMeta}`}><span><ShieldCheck aria-hidden="true" /> 指派個案隔離</span>
       <span><Clock3 aria-hidden="true" /> 更新 {taipei(snapshot.generatedAt)}</span></div></header>
-    <section aria-label="ABCD 評估規則邊界" className={styles.boundary}><AlertTriangle aria-hidden="true" />
-      <div><strong>人工、非標準化候選紀錄</strong><p>正式 A／B／C／D 題本、公式、代碼與授權來源尚未配置。</p>
-      <p>此頁只保存人工摘要、結果三態／理由及人工複評日期三態／依據；不冒充正式評估，也不產生分數、診斷、自動複評或照顧決策。</p>
-      <p>附件、通知、匯出與離線功能也尚未配置；相關正式操作目前不開放。</p></div></section>
     {snapshot.demo ? <p className="demo-banner">目前為合成展示資料；所有正式寫入操作均關閉。</p> : null}
+    <Link className="button button--primary" href={`/app/client-intake?step=abcd${filters.clientId ? `&client=${encodeURIComponent(filters.clientId)}` : ""}`}>
+      <FileCheck2 aria-hidden="true" />填寫臺北市 A／B／C 表
+    </Link>
+    <section aria-label="ABCD 評估規則邊界" className={styles.boundary}><AlertTriangle aria-hidden="true" />
+      <details><summary>人工、非標準化候選紀錄（非正式評估）</summary>
+        <p>正式 A／B／C／D 題本、公式、代碼與授權來源尚未配置。此處只保存人工摘要、結果與複評日期；不產生分數、診斷、自動複評或照顧決策。</p>
+        <p>附件、通知、匯出與離線功能尚未配置。請使用上方入口填寫臺北市 A／B／C 表。</p>
+      </details></section>
     <CreateAbcdAssessment canManage={canManage} snapshot={snapshot} />
     <section aria-label="ABCD 候選評估統計" className={`metric-grid ${styles.metrics}`}>{metrics.map((item) =>
       <article className="metric-card" key={item.label}><span>{item.label}</span><strong>{item.value}</strong>
-        <small>完整符合集合</small></article>)}</section>
+        </article>)}</section>
     <form action={basePath} className={styles.filters} method="get">
       <label><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部授權個案</option>
         {snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName}</option>)}</select></label>

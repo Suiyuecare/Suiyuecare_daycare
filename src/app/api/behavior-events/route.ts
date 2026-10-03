@@ -1,4 +1,5 @@
 import { ok } from "@/lib/api/response";
+import { canUseAssessmentDraft } from "@/lib/auth/assessment-draft";
 import type { TenantContext } from "@/lib/domain/types";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { authorizeStaffRequest, databaseFailure, handleIntegrationRoute,
@@ -32,14 +33,15 @@ function matches(operation: Operation, input: BehaviorEventMutationInput) {
 }
 
 async function authorize(operation: Operation): Promise<TenantContext> {
-  const actor = await authorizeStaffRequest();
+  const signing = operation === "sign" || operation === "correct" || operation === "void";
+  const actor = await authorizeStaffRequest(signing ? {} : { assessmentDraft: "behavior" });
   if (actor.demo) throw new IntegrationError("DEMO_READ_ONLY",
     "展示模式僅顯示合成事件，不會寫入正式紀錄。", 403);
   const required = ["clients.read", "behavior_events.read",
     operation === "create" || operation === "revise" ? "behavior_events.manage" : "behavior_events.sign"];
   if (required.some((scope) => !actor.scopes.includes(scope))) throw new IntegrationError(
     "BEHAVIOR_EVENT_NOT_AUTHORIZED", "目前角色沒有完整的行為事件操作權限。", 403);
-  if (["sign", "correct", "void"].includes(operation)) await requireRecentAal2(actor);
+  if (signing) await requireRecentAal2(actor);
   return actor;
 }
 
@@ -67,6 +69,10 @@ export async function POST(request: Request) {
       request.headers.get("idempotency-key"));
     if (!matches(operation, input)) throw new IntegrationError("INVALID_BEHAVIOR_EVENT_OPERATION",
       "受治理操作標頭與事件內容不一致。", 400);
+    if ((operation === "create" || operation === "revise") && actor.assuranceLevel === "aal1" &&
+      !(await canUseAssessmentDraft(actor, "behavior", input.clientId))) {
+      throw new IntegrationError("BEHAVIOR_EVENT_NOT_AUTHORIZED", "此個案未指派給您，或事件草稿權限已失效。", 403);
+    }
     const supabase = await createServerSupabaseClient();
     if (!supabase) throw databaseFailure("SERVICE_NOT_CONFIGURED", "正式行為事件服務尚未設定。", 503);
     const { data, error } = await supabase.rpc("mutate_behavior_event", {
