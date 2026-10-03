@@ -1,6 +1,6 @@
 begin;
 
-select plan(21);
+select plan(23);
 
 select ok(
   has_function_privilege(
@@ -252,14 +252,35 @@ select throws_ok(
   'branch-bound caller cannot select another branch directory'
 );
 
+select results_eq(
+  $$select client_code collate "C"
+    from public.client_directory_snapshot(
+      '84710000-0000-4000-8000-000000000001',
+      '84720000-0000-4000-8000-000000000001',
+      'case_center', 500, null, null, null
+    )$$,
+  $$values ('B-002'::text collate "C")$$,
+  '500-row case-center page retains the assigned-client scope'
+);
+
 select throws_ok(
   $$select * from public.client_directory_snapshot(
     '84710000-0000-4000-8000-000000000001',
     '84720000-0000-4000-8000-000000000001',
-    'case_center', 201, null, null, null
+    'case_center', 501, null, null, null
   )$$,
   '42501', null,
-  'directory page size is server bounded'
+  'case-center directory page size remains server bounded at 500'
+);
+
+select throws_ok(
+  $$select * from public.client_directory_snapshot(
+    '84710000-0000-4000-8000-000000000001',
+    '84720000-0000-4000-8000-000000000001',
+    'client_registry', 201, null, null, null
+  )$$,
+  '42501', null,
+  'other directory purposes retain the 200-row server bound'
 );
 
 select set_config(
@@ -332,7 +353,7 @@ select is(
    from public.audit_events
    where table_name = 'clients'
      and metadata ->> 'projection' = 'client_directory_minimal'),
-  4,
+  5,
   'every successful directory page, including an empty exact lookup, is audited once'
 );
 

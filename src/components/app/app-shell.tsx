@@ -19,7 +19,6 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -41,6 +40,7 @@ import { DailyNavigationRegistrationContext, type ValidatedDailySelection } from
 import { NavigationLink } from "./navigation-link";
 import { TaipeiClock } from "./taipei-clock";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
+import { DAILY_SERVICE_SUMMARY_PATH } from "@/lib/daily-service-summary/query";
 
 const moduleIcons = {
   workspace: LayoutDashboard,
@@ -114,6 +114,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const sensitiveDocument = pathname === DAILY_SERVICE_SUMMARY_PATH;
   const searchParams = useSearchParams();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -491,10 +492,11 @@ export function AppShell({
       />
       <aside aria-label="主要功能" aria-modal={compactNavigation && menuOpen ? true : undefined} role={compactNavigation && menuOpen ? "dialog" : undefined} className="sidebar" data-open={menuOpen} inert={compactNavigation && !menuOpen ? true : undefined} ref={sidebar}>
         <div className="sidebar__header">
-          <Link className="brand-lockup" href="/app/staff/workspace/dashboard">
+          <NavigationLink className="brand-lockup" fullDocument={sensitiveDocument}
+            href="/app/staff/workspace/dashboard" loadingLabel="工作儀表板">
             <span className="brand-mark" aria-hidden="true"><Image src="/suiyue-logo-transparent.png" alt="" width={58} height={58} unoptimized /></span>
             <span><strong>歲悅長照集團</strong><small>DAYCARE OS V4</small></span>
-          </Link>
+          </NavigationLink>
           <button className="icon-button mobile-menu-button" aria-label="關閉功能選單" onClick={() => closeMenu()} ref={menuClose} type="button">
             <X />
           </button>
@@ -513,7 +515,7 @@ export function AppShell({
               </button>
               {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
                 const href = `/app/${page.slug}`;
-                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
                   <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
                 </NavigationLink>;
               })}</div> : null}
@@ -521,12 +523,12 @@ export function AppShell({
           })}
           {showClientIntake ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">個案管理</div>
-            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
+            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
           </section> : null}
           {showStoreOverview ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">主管檢視</div>
             <div className="nav-group__items"><NavigationLink aria-current={pathname === STORE_OVERVIEW_PATH ? "page" : undefined}
-              className="nav-link" href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
+              className="nav-link" fullDocument={sensitiveDocument} href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
               onClick={() => closeMenu({ returnFocus: false })}>
               <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
             </NavigationLink></div>
@@ -540,7 +542,7 @@ export function AppShell({
               </button>
               {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
                 const href = `/app/${page.slug}`;
-                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
                   <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
                 </NavigationLink>;
               })}</div> : null}
@@ -567,7 +569,7 @@ export function AppShell({
             <span className="topbar__system">日照系統</span><span className="topbar__divider" aria-hidden="true">／</span>
             <span className="topbar__title">{pageTitle}</span>
           </div>
-          {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
+          {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" fullDocument={sensitiveDocument} href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
           <div className="topbar__actions" role="group" aria-label="系統功能">
             <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending || draftPending || Boolean(scopeChangeReason)} onClick={refreshCurrentPage} title={scopeChangeBlockedReason ?? (draftPending ? "有未儲存或結果未確認的輸入，請先儲存或核對再重新整理。" : operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined)} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
             {portalLeaveBlocked ? <span aria-disabled="true" className="button button--secondary" title={scopeChangeBlockedReason}>回模組頁</span>
@@ -592,7 +594,7 @@ export function AppShell({
           const Icon = moduleIcons[page.moduleId];
           const label = mobileShortLabels[page.number] ?? page.title;
           const contextual = page.number === 3 && currentDailyNavigation;
-          return <NavigationLink href={contextual ? dailyWorkflowHref(3, contextual.serviceDate, contextual.clientId, contextual.shift) : `/app/${page.slug}`}
+          return <NavigationLink fullDocument={sensitiveDocument} href={contextual ? dailyWorkflowHref(3, contextual.serviceDate, contextual.clientId, contextual.shift) : `/app/${page.slug}`}
             aria-label={contextual ? "目前個案的生命徵象紀錄" : page.title} title={page.title}
             aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title}
             prefetch={contextual || page.number > 3 ? false : undefined} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;

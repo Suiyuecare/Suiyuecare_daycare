@@ -247,6 +247,29 @@ describe("NavigationLink delegates navigation and tracks only Next pending state
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  it("loads the daily summary as a new document without Next's visited-page cache", () => {
+    const href = "/app/staff/service-management/daily-summary?date=2026-09-07";
+    const onClick = vi.fn((event: MouseEvent<HTMLAnchorElement>) => event.preventDefault());
+    render(<NavigationLink aria-label="查看合成個案當日紀錄" className="nav-link"
+      data-case-client-id="synthetic-01" href={href} loadingLabel="每日服務彙整"
+      onClick={onClick} prefetch={false}>每日服務彙整</NavigationLink>);
+    const link = screen.getByRole("link", { name: "查看合成個案當日紀錄" });
+    expect(link.getAttribute("href")).toBe(href);
+    expect(link.getAttribute("data-case-client-id")).toBe("synthetic-01");
+    expect(link.hasAttribute("prefetch")).toBe(false);
+    expect(nextLink.render).not.toHaveBeenCalled();
+    fireEvent.click(link);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the daily summary through a native link when requested", () => {
+    render(<NavigationLink fullDocument href="/app/staff/workspace/dashboard"
+      loadingLabel="工作儀表板">工作儀表板</NavigationLink>);
+    expect(screen.getByRole("link", { name: "工作儀表板" }).getAttribute("href"))
+      .toBe("/app/staff/workspace/dashboard");
+    expect(nextLink.render).not.toHaveBeenCalled();
+  });
+
   it("follows per-link pending changes without leaving a previous overlay behind", () => {
     const secondHref = "/app/staff/governance/integrations-audit";
     const links = () => <>

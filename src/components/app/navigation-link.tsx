@@ -4,6 +4,7 @@ import { useEffect, type ComponentProps } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { createPortal } from "react-dom";
 import { ModuleLoading } from "./module-loading";
+import { DAILY_SERVICE_SUMMARY_PATH } from "@/lib/daily-service-summary/query";
 
 const pendingMainLocks = new WeakMap<HTMLElement, {
   owners: number;
@@ -38,7 +39,25 @@ function NavigationPending({ label }: { label: string }) {
   return pending ? createPortal(<ModuleLoading title={`正在載入${label}`} transition />, document.body) : null;
 }
 
-/** Keep Next's native cancellation, modifier keys, prefetch and error lifecycle. */
-export function NavigationLink({ children, loadingLabel, ...props }: ComponentProps<typeof Link> & { loadingLabel: string }) {
+/** Keep Next navigation for ordinary pages; isolate sensitive summary snapshots in a new document. */
+export function NavigationLink({ children, loadingLabel, fullDocument = false, ...props }: ComponentProps<typeof Link> & {
+  loadingLabel: string;
+  fullDocument?: boolean;
+}) {
+  if (typeof props.href === "string" && (fullDocument || props.href === DAILY_SERVICE_SUMMARY_PATH ||
+    props.href.startsWith(`${DAILY_SERVICE_SUMMARY_PATH}?`) ||
+    props.href.startsWith(`${DAILY_SERVICE_SUMMARY_PATH}#`))) {
+    const anchorProps = { ...props };
+    delete anchorProps.prefetch;
+    delete anchorProps.scroll;
+    delete anchorProps.replace;
+    delete anchorProps.shallow;
+    delete anchorProps.locale;
+    delete anchorProps.legacyBehavior;
+    delete anchorProps.passHref;
+    delete anchorProps.as;
+    delete anchorProps.onNavigate;
+    return <a {...anchorProps} href={props.href}>{children}</a>;
+  }
   return <Link {...props}>{children}<NavigationPending label={loadingLabel} /></Link>;
 }
