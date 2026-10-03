@@ -33,6 +33,7 @@ describe("client directory result contract", () => {
         value: [row()],
         expectedOrganizationId: organizationId,
         expectedBranchId: branchId,
+        purpose: "case_center",
         pageSize: 1,
       }),
     ).toEqual({
@@ -65,6 +66,7 @@ describe("client directory result contract", () => {
         value,
         expectedOrganizationId: organizationId,
         expectedBranchId: branchId,
+        purpose: "case_center",
         pageSize: 1,
       }),
     ).toThrow(ClientDirectoryContractError);
@@ -76,8 +78,22 @@ describe("client directory result contract", () => {
         value: [],
         expectedOrganizationId: organizationId,
         expectedBranchId: branchId,
+        purpose: "case_center",
         pageSize: 1,
       }),
     ).toEqual({ rows: [], visibleCount: 0, hasMore: false });
+  });
+
+  it("allows 500-row case-center pages but keeps other directory purposes at 200", () => {
+    const input = {
+      value: [row({ visible_count: 1, has_more: false })],
+      expectedOrganizationId: organizationId,
+      expectedBranchId: branchId,
+    };
+    expect(parseClientDirectoryPage({ ...input, purpose: "case_center", pageSize: 500 }).rows).toHaveLength(1);
+    expect(() => parseClientDirectoryPage({ ...input, purpose: "case_center", pageSize: 501 }))
+      .toThrow(ClientDirectoryContractError);
+    expect(() => parseClientDirectoryPage({ ...input, purpose: "client_registry", pageSize: 201 }))
+      .toThrow(ClientDirectoryContractError);
   });
 });

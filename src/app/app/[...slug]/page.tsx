@@ -65,7 +65,6 @@ import { PhysicalTherapyAssessmentsWorkspace } from "@/components/physical-thera
 import { PhysicalTherapyServicesWorkspace } from "@/components/physical-therapy-services/physical-therapy-services-workspace";
 import { OccupationalTherapyServicesWorkspace } from "@/components/occupational-therapy-services/occupational-therapy-services-workspace";
 import { ProfessionalServiceSummaryWorkspace } from "@/components/professional-service-summary/professional-service-summary-workspace";
-import { DailyServiceSummaryWorkspace } from "@/components/daily-service-summary/daily-service-summary-workspace";
 import { SpmsqAssessmentsWorkspace } from "@/components/spmsq-assessments/spmsq-assessments-workspace";
 import { GdsAssessmentsWorkspace } from "@/components/gds-assessments/gds-assessments-workspace";
 import { FallRiskAssessmentsWorkspace } from "@/components/fall-risk-assessments/fall-risk-assessments-workspace";
@@ -385,11 +384,6 @@ import {
 } from "@/lib/professional-service-summary/snapshot";
 import { parseProfessionalServiceSummaryQuery } from "@/lib/professional-service-summary/query";
 import {
-  DailyServiceSummarySnapshotError,
-  loadDailyServiceSummarySnapshot,
-} from "@/lib/daily-service-summary/snapshot";
-import { parseDailyServiceSummaryQuery } from "@/lib/daily-service-summary/query";
-import {
   loadSpmsqAssessmentSnapshot,
   SpmsqAssessmentSnapshotError,
 } from "@/lib/spmsq-assessments/snapshot";
@@ -656,7 +650,7 @@ import {
 
 export function generateStaticParams() {
   return staffPages
-    .filter((page) => ![1, 2, 3, 6, 46].includes(page.number))
+    .filter((page) => ![1, 2, 3, 6, 46, 54].includes(page.number))
     .map((page) => ({ slug: page.slug.split("/") }));
 }
 
@@ -1354,32 +1348,6 @@ export default async function StaffCatalogPage({
       }
     }
     return <ClientVaccinationsWorkspace canManage={canManage}
-      filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
-      page={page} snapshot={snapshot} />;
-  }
-
-  if (page.number === 54) {
-    const { filters, invalid } = parseDailyServiceSummaryQuery(query);
-    const canExport = context.demo || (
-      context.scopes.includes("clients.read") &&
-      context.scopes.includes("daily_service_summary.read") &&
-      context.scopes.includes("daily_service_summary.export")
-    );
-    let snapshot = null;
-    let recentAal2 = context.demo;
-    let loadError = invalid;
-    if (!invalid) {
-      try {
-        [snapshot, recentAal2] = await Promise.all([
-          loadDailyServiceSummarySnapshot(context, filters),
-          canExport ? hasRecentAal2() : Promise.resolve(false),
-        ]);
-      } catch (error) {
-        if (!(error instanceof DailyServiceSummarySnapshotError)) throw error;
-        loadError = true;
-      }
-    }
-    return <DailyServiceSummaryWorkspace canExport={canExport}
       filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
       page={page} snapshot={snapshot} />;
   }

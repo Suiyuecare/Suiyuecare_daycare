@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { staffPages } from "@/lib/catalog";
@@ -34,13 +34,31 @@ describe("Page 54 workspace", () => {
   });
 
   it("uses source evidence rather than label fragments for cell tones", () => {
-    render(workspace());
-    expect(screen.getAllByText("1 筆待完成").every((pill) =>
+    const { container } = render(workspace());
+    const pills = Array.from(container.querySelectorAll(".status-pill"));
+    expect(pills.filter((pill) => pill.textContent === "1 筆待完成").every((pill) =>
       pill.classList.contains("status-pill--warning"))).toBe(true);
-    expect(screen.getAllByText("有 1 項例外").every((pill) =>
+    expect(pills.filter((pill) => pill.textContent === "有 1 項例外").every((pill) =>
       pill.classList.contains("status-pill--danger"))).toBe(true);
-    expect(screen.getAllByText("未授權・未知").every((pill) =>
+    expect(pills.filter((pill) => pill.textContent === "未授權・未知").every((pill) =>
       pill.classList.contains("status-pill--neutral"))).toBe(true);
+  });
+
+  it("puts mobile exceptions and unknowns before the eight full source rows", () => {
+    const { container } = render(workspace());
+    const cards = Array.from(container.querySelectorAll("article.record-card"));
+    expect(cards).toHaveLength(snapshot.rows.length);
+    expect(cards[0]).toHaveTextContent("當日無紀錄異常事件");
+    expect(cards[1]).toHaveTextContent("需留意・4 項來源");
+    expect(cards[1]).toHaveTextContent("無法確認餐食、接送（未授權或未配置）");
+    for (const card of cards) {
+      const disclosure = card.querySelector("details");
+      expect(disclosure).toHaveTextContent("查看 8 項來源與快照證據");
+      expect(disclosure?.querySelectorAll("section")).toHaveLength(8);
+      expect(disclosure?.querySelectorAll('a[aria-label*="來源"]')).toHaveLength(8);
+    }
+    fireEvent.click(cards[1]!.querySelector("details > summary")!);
+    expect(cards[1]!.querySelector("details")?.open).toBe(true);
   });
 
   it("provides a whitelisted internal drilldown for every desktop and mobile cell", () => {
@@ -59,9 +77,26 @@ describe("Page 54 workspace", () => {
     expect(screen.getByRole("button", { name: "重新驗證後匯出" })).toBeDisabled();
   });
 
+  it("offers a native GET filter and focuses the new results anchor", () => {
+    const { container } = render(workspace());
+    const form = container.querySelector("form");
+    expect(form).toHaveAttribute("action", "/app/staff/service-management/daily-summary#daily-summary-results");
+    expect(form).toHaveAttribute("method", "get");
+    expect(form).toHaveAttribute("novalidate");
+    expect(form?.querySelectorAll("select")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "2026-09-07 服務明細" })).toHaveAttribute("id", "daily-summary-results");
+    expect(screen.getByRole("link", { name: "匯出同一快照" }))
+      .toHaveAttribute("href", expect.stringContaining(`snapshot=${snapshot.snapshotId}`));
+  });
+
   it("fails closed without demo substitution", () => {
-    render(workspace({ snapshot: null, loadError: true }));
+    render(workspace({ snapshot: null, loadError: true, filters: {
+      serviceDate: "2026-09-07", clientId: "11111111-1111-4111-8111-111111111111",
+      completeness: "incomplete",
+    } }));
     expect(screen.getByRole("alert")).toHaveTextContent("每日服務彙整暫時無法載入");
     expect(screen.queryByText("合成個案・晨光")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "依原條件重試" }))
+      .toHaveAttribute("href", "/app/staff/service-management/daily-summary?date=2026-09-07&client=11111111-1111-4111-8111-111111111111&completeness=incomplete");
   });
 });

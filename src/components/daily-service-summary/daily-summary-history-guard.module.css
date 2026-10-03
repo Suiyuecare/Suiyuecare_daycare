@@ -1,0 +1,36 @@
+.content {
+  display: contents;
+}
+
+.cover {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 1.5rem;
+  background: var(--canvas, #f7f3ec);
+  color: var(--ink, #2f2823);
+  text-align: center;
+}
+
+.cover[hidden] {
+  display: none !important;
+}
+
+.message {
+  max-width: 28rem;
+}
+
+.message strong {
+  display: block;
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
+  line-height: 1.4;
+}
+
+.message p {
+  margin: 0.75rem 0 0;
+  line-height: 1.6;
+}

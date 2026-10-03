@@ -40,6 +40,10 @@ export const CLIENT_DIRECTORY_PURPOSES = Object.freeze([
 export type ClientDirectoryPurpose =
   (typeof CLIENT_DIRECTORY_PURPOSES)[number];
 
+export function clientDirectoryPageLimit(purpose: ClientDirectoryPurpose) {
+  return purpose === "case_center" ? 500 : 200;
+}
+
 export type ClientDirectoryRow = {
   id: string;
   organization_id: string;
@@ -123,11 +127,12 @@ export function parseClientDirectoryPage(input: {
   value: unknown;
   expectedOrganizationId: string;
   expectedBranchId: string;
+  purpose: ClientDirectoryPurpose;
   pageSize: number;
 }): ClientDirectoryPage {
   const organizationId = uuid(input.expectedOrganizationId);
   const branchId = uuid(input.expectedBranchId);
-  if (!Number.isSafeInteger(input.pageSize) || input.pageSize < 1 || input.pageSize > 200) {
+  if (!Number.isSafeInteger(input.pageSize) || input.pageSize < 1 || input.pageSize > clientDirectoryPageLimit(input.purpose)) {
     invalid();
   }
   if (!Array.isArray(input.value)) invalid();

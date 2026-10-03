@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 import {
   ClientDirectoryContractError,
+  clientDirectoryPageLimit,
   parseClientDirectoryPage,
   type ClientDirectoryPage,
   type ClientDirectoryPurpose,
@@ -56,6 +57,7 @@ export async function loadClientDirectoryPage(
       value: result.data,
       expectedOrganizationId: context.organizationId,
       expectedBranchId: context.branchId,
+      purpose: options.purpose,
       pageSize,
     });
   } catch (error) {
@@ -82,7 +84,7 @@ export async function loadAllClientDirectoryRows(
   while (true) {
     const page = await loadClientDirectoryPage(supabase, context, {
       purpose,
-      pageSize: DIRECTORY_PAGE_SIZE,
+      pageSize: clientDirectoryPageLimit(purpose),
       afterClientCode,
       afterClientId,
     });
