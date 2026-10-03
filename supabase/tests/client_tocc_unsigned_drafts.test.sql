@@ -1,5 +1,5 @@
 begin;
-select plan(53);
+select plan(58);
 
 -- Synthetic, owner-approved Google identities only. No production session or data.
 select set_config('test.tocc_amr',floor(extract(epoch from clock_timestamp()-interval '2 minutes'))::text,true);
@@ -154,6 +154,19 @@ select is(public.has_client_tocc_draft_access('e0500000-0000-4000-8000-000000000
 select throws_ok($$select pg_temp.save('create',pg_temp.payload(
  'e0800000-0000-4000-8000-000000000002'),gen_random_uuid())$$,
  '42501',null,'direct RPC rejects view_all writer lacking current case assignment');
+select is(pg_temp.claims('aal2'),true,'view_all worker can also hold a genuine AAL2 session');
+select is(public.has_client_tocc_draft_access('e0500000-0000-4000-8000-000000000001',
+ 'e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000002',false),true,
+ 'AAL2 view_all retains read access to an unassigned client');
+select is(public.has_client_tocc_draft_access('e0500000-0000-4000-8000-000000000001',
+ 'e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000002',true),false,
+ 'AAL2 view_all cannot write an unassigned unsigned draft');
+select throws_ok($$select pg_temp.save('create',pg_temp.payload(
+ 'e0800000-0000-4000-8000-000000000002'),gen_random_uuid())$$,
+ '42501',null,'AAL2 direct RPC rejects unassigned view_all draft writer');
+select is(pg_temp.claims(),true,'restore AAL1 worker after AAL2 negative tests');
 reset role;
 delete from public.role_permissions where role_id='10000000-0000-4000-8000-000000000006'
  and permission_id=(select id from public.permissions where permission_key='clients.view_all');

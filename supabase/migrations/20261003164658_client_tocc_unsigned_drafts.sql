@@ -136,20 +136,20 @@ create function private.client_tocc_draft_access(
     and exists(select 1 from public.branches b where b.id=p_branch and b.organization_id=p_org and b.is_active)
     and (p_client is null or exists(select 1 from public.clients c where c.id=p_client
       and c.organization_id=p_org and c.branch_id=p_branch))
+    -- Every unsigned-draft write needs a current case assignment, including
+    -- AAL2 staff whose view_all grant may otherwise permit client access.
+    and (not p_write or p_client is null or exists(select 1 from public.client_assignments assignment
+      where assignment.client_id=p_client and assignment.organization_id=p_org
+        and assignment.branch_id=p_branch and assignment.assignee_user_id=auth.uid()
+        and assignment.starts_at<=clock_timestamp()
+        and (assignment.ends_at is null or assignment.ends_at>clock_timestamp())))
     and (
       (private.is_staff_google_session_allowed()
         and private.has_routine_staff_permission(p_org,p_branch,'clients.read')
         and private.has_routine_staff_permission(p_org,p_branch,'health.read')
         and (not p_write or private.has_routine_staff_permission(p_org,p_branch,'health.write'))
         and (p_client is null or (private.can_routine_staff_access_client(p_client,'health.read')
-          and (not p_write or (private.can_routine_staff_access_client(p_client,'health.write')
-            -- A branch-wide view_all grant permits reading, never writing an
-            -- unassigned client's unsigned clinical draft.
-            and exists(select 1 from public.client_assignments assignment
-              where assignment.client_id=p_client and assignment.organization_id=p_org
-                and assignment.branch_id=p_branch and assignment.assignee_user_id=auth.uid()
-                and assignment.starts_at<=clock_timestamp()
-                and (assignment.ends_at is null or assignment.ends_at>clock_timestamp())))))))
+          and (not p_write or private.can_routine_staff_access_client(p_client,'health.write')))))
       or (auth.jwt()->>'aal'='aal2'
         and private.has_permission(p_org,p_branch,'clients.read')
         and private.has_permission(p_org,p_branch,'health.read')
