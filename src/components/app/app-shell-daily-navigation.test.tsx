@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type Link from "next/link";
@@ -12,7 +12,7 @@ import type { TenantContext } from "@/lib/domain/types";
 import { ClientContinuation } from "@/components/core-care/client-continuation";
 import type { DailyNavigationScope } from "./daily-navigation-context";
 
-const mocks = vi.hoisted(() => ({ pathname: "/app/staff/daily-care/care-diary", query: "", clear: vi.fn(),
+const mocks = vi.hoisted(() => ({ pathname: "/app/staff/daily-care/care-diary", query: "", clear: vi.fn(), inspect: vi.fn(), checkedClear: vi.fn(),
   fetch: vi.fn(), signOut: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams(mocks.query),
@@ -22,7 +22,7 @@ vi.mock("next/link", () => ({
     aria-label={props["aria-label"]} aria-current={props["aria-current"]} onClick={props.onClick}>{children}</a>,
   useLinkStatus: () => ({ pending: false }),
 }));
-vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear }));
+vi.mock("@/lib/offline/draft-store", () => ({ clearOfflineDrafts: mocks.clear, inspectOfflineDraftsForLogout: mocks.inspect, clearOfflineDraftsIfUnchanged: mocks.checkedClear }));
 vi.mock("@/lib/api/client-fetch", () => ({ fetchWithTimeout: mocks.fetch }));
 vi.mock("@/lib/supabase/browser", () => ({ createBrowserSupabaseClient: () => ({ auth: { signOut: mocks.signOut } }) }));
 vi.mock("./branch-switcher", () => ({ BranchSwitcher: () => <span>合成分支選單</span> }));
@@ -37,6 +37,10 @@ const actor: TenantContext = { organizationId: "org-a", branchId: "branch-a", us
 const scope: DailyNavigationScope = { organizationId: actor.organizationId, branchId: actor.branchId, userId: actor.userId };
 const navigation = getNavigationGroups("staff");
 const readableClientSources = { attendance: true, measurements: true, careDiaries: true, serviceEvents: true };
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
+});
 
 function shell({ context = actor, validatedScope = scope, clientId = client.clientId, sourceAccess = snapshot.sourceAccess,
   clientSourceAccess = client.sourceAccess, shift }: {
@@ -58,6 +62,8 @@ beforeEach(() => {
   mocks.pathname = "/app/staff/daily-care/care-diary";
   mocks.query = `date=2026-09-10&client=${client.clientId}`;
   mocks.clear.mockResolvedValue(undefined);
+  mocks.inspect.mockResolvedValue({ generation: "g1", revision: "r1", count: 0 });
+  mocks.checkedClear.mockResolvedValue("cleared");
   mocks.signOut.mockResolvedValue({ error: null });
   mocks.fetch.mockResolvedValue(Response.json({ status: "ok", data: { cleared: true } }));
   window.matchMedia = vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() });
@@ -127,7 +133,7 @@ describe("mobile daily navigation uses only a server-validated current selection
     await waitFor(() => expect(mobileMeasureLink()).toHaveAttribute("href", dailyWorkflowHref(3, snapshot.serviceDate, client.clientId)));
     expect(screen.getByRole("heading", { name: `${client.displayName}的接續工作` })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "登出" })[0]);
-    expect(screen.queryByRole("navigation", { name: "常用功能" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("navigation", { name: "常用功能" })).not.toBeInTheDocument());
     expect(screen.queryByRole("heading", { name: `${client.displayName}的接續工作` })).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
   });

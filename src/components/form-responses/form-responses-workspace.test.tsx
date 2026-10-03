@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import * as leases from "@/lib/navigation/pending-operation-lock";
 import type { ResponseInput, ResponseRecord, ResponseSnapshot } from "@/lib/custom-form-responses/contract";
 import { FormResponsesWorkspace } from "./form-responses-workspace";
+import { CoreDraftGuardHost } from "@/components/app/core-draft-guard";
 
 const clientId = "e1100000-0000-4000-8000-000000000001";
 const formId = "e1200000-0000-4000-8000-000000000001";
@@ -29,6 +30,10 @@ const writeReply = (value: ResponseRecord, replayed = false) => ok({ receipt: { 
 const errorReply = (status: number, code = "CUSTOM_RESPONSE_FORBIDDEN") => Response.json({ requestId: actorId, status: "error", data: null, errors: [{ code, message: "合成拒絕，請核對" }] }, { status });
 const acquire = leases.tryAcquirePendingOperation;
 const operationReleases: Mock<() => void>[] = [];
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
+});
 beforeEach(() => {
   vi.spyOn(leases, "tryAcquirePendingOperation").mockImplementation(() => {
     const release = acquire(); if (!release) return null;
@@ -40,7 +45,7 @@ afterEach(() => { cleanup(); operationReleases.splice(0).forEach((release) => re
 
 async function open(fetchMock: ReturnType<typeof vi.fn>, value = snapshot, extra: Partial<typeof props> = {}) {
   fetchMock.mockResolvedValueOnce(readReply(value)); vi.stubGlobal("fetch", fetchMock);
-  const view = render(<FormResponsesWorkspace {...props} {...extra} />);
+  const view = render(<><CoreDraftGuardHost /><FormResponsesWorkspace {...props} {...extra} /></>);
   fireEvent.click(screen.getByRole("button", { name: "載入個案表單" }));
   await screen.findByRole("button", { name: "查看／接續處理" });
   fireEvent.click(screen.getByRole("button", { name: "查看／接續處理" }));
@@ -49,7 +54,7 @@ async function open(fetchMock: ReturnType<typeof vi.fn>, value = snapshot, extra
 const save = () => fireEvent.click(screen.getByRole("button", { name: "儲存填答草稿" }));
 function externalLink() {
   const link = document.createElement("a"); link.href = "/app/other"; document.body.append(link);
-  const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }); link.dispatchEvent(event); link.remove(); return event;
+  const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }); fireEvent(link, event); link.remove(); return event;
 }
 
 describe("custom form response interaction and receipt safety", () => {
@@ -115,7 +120,9 @@ describe("custom form response interaction and receipt safety", () => {
     const fetchMock = vi.fn(); await open(fetchMock, { ...snapshot, records: [signedRecord] });
     fireEvent.change(screen.getByLabelText("更正原因"), { target: { value: "核對後補充" } });
     expect(screen.getByLabelText("個案")).toBeDisabled(); expect(externalLink().defaultPrevented).toBe(true);
-    expect(window.confirm).toHaveBeenCalledOnce(); expect(screen.getByLabelText("更正原因")).toHaveValue("核對後補充");
+    const leave = screen.getByRole("alertdialog"); expect(leave).toHaveAttribute("open");
+    fireEvent.click(within(leave).getByRole("button", { name: "繼續填寫" }));
+    expect(window.confirm).not.toHaveBeenCalled(); expect(screen.getByLabelText("更正原因")).toHaveValue("核對後補充");
     const corrected = { ...signedRecord, id: actorId, revision: 3, previousId: signedRecord.id, correctionSourceId: signedRecord.id,
       status: "draft" as const, signatureEvidence: null, reason: "核對後補充" };
     fetchMock.mockResolvedValueOnce(writeReply(corrected)); fireEvent.click(screen.getByRole("button", { name: "建立更正版" }));

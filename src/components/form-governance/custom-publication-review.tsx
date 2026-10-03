@@ -48,7 +48,7 @@ export function CustomPublicationReview({ version, instance, enabled, canAct, di
   const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
   const heading = `publication-review-${instance}-${version.id}`;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (!attempt.current) { operationLease.current?.(); operationLease.current = null; } readLease.current?.(); readLease.current = null; }; }, []);
-  function releaseKnown() { operationLease.current?.(); operationLease.current = null; attempt.current = null; guard.finish(); }
+  function releaseKnown() { operationLease.current?.(); operationLease.current = null; attempt.current = null; guard.finish(); guard.unhold(); }
   async function load() {
     if (lock.current || attempt.current) return;
     const lease = tryAcquireViewTransition(); if (!lease) { setError("另有操作尚待確認，請先完成後再載入審閱內容。"); return; }
@@ -69,7 +69,7 @@ export function CustomPublicationReview({ version, instance, enabled, canAct, di
     const visible = Array.from(document.querySelectorAll<HTMLButtonElement>(`button[data-publication-review="${version.id}"]`)).find(button => button.getClientRects().length > 0);
     (visible ?? trigger.current)?.focus();
   }
-  function close() { if (!lock.current && !attempt.current && guard.discard()) { dialog.current?.close(); returnFocus(); } }
+  function close() { if (!lock.current && !attempt.current) guard.discard(() => { dialog.current?.close(); returnFocus(); }); }
   const latest = history?.requests[0];
   const pending = latest?.status === "pending" ? latest : null;
   const currentSelection = Boolean(history && selected === (history.currentDraft ? "draft" : latest?.id));
@@ -120,14 +120,14 @@ export function CustomPublicationReview({ version, instance, enabled, canAct, di
         router.refresh();
       }
     } catch {
-      if (attempt.current) { attempt.current.ambiguous = true; if (mounted.current) setUncertain(true); }
+      if (attempt.current) { attempt.current.ambiguous = true; guard.hold(); if (mounted.current) setUncertain(true); }
       if (mounted.current) setError("操作結果尚未確認。請勿離開，按「以原操作重試」；會沿用原內容與識別碼，不會重複送審。");
     } finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   return <>
     <button className="button button--secondary" type="button" ref={trigger} data-publication-review={version.id} disabled={!enabled} title={disabledReason} onClick={open}>審閱欄位／送審歷程</button>
     {hydrated ? createPortal(<dialog className={`drawer ${styles.dialog}`} ref={dialog} aria-labelledby={heading}
-      onCancel={event => { if (lock.current || attempt.current || !guard.discard()) event.preventDefault(); }} onClose={returnFocus}>
+      onCancel={event => { event.preventDefault(); close(); }} onClose={returnFocus}>
       <header className="drawer__header"><h2 id={heading}>{version.name} v{version.version}：審閱與送審</h2><button className="button button--quiet" type="button" disabled={busy || uncertain} onClick={close}>關閉</button></header>
       <div className={`drawer__body ${styles.body}`}>
         <p>請逐項核對實際欄位與生效日。送審後固定本輪內容；撤回或退回不刪除歷史，儲存修改後才能重新送審。申請人不能核准或退回自己的申請。</p>

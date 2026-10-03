@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CareDiaryLifecycle } from "./care-diary-lifecycle";
+import { CoreDraftGuardHost } from "@/components/app/core-draft-guard";
 import type { DiaryRecord } from "@/lib/care-diary/schema";
 import { notifyConfirmedDiaryDraft } from "@/lib/core-care/diary-draft-event";
 const refresh = vi.fn();
@@ -148,15 +149,17 @@ describe("care diary completion UI", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
   it("keeps invalid edit values and permits confirmed cancellation", async () => {
-    const fetch = vi.fn().mockResolvedValue(snapshot()); vi.stubGlobal("fetch", fetch); mount();
+    const fetch = vi.fn().mockResolvedValue(snapshot()); vi.stubGlobal("fetch", fetch); render(<><CoreDraftGuardHost/><CareDiaryLifecycle clientId={id} serviceDate="2026-09-12" enabled canSign demo={false}/></>);
     fireEvent.click(await screen.findByRole("button", { name: "繼續編輯草稿" }));
     const input = screen.getByLabelText("照顧項目"); fireEvent.change(input, { target: { value: " " } });
     fireEvent.submit(input.closest("form")!);
     expect(await screen.findByRole("alert")).toHaveTextContent("請確認照顧項目");
     expect(fetch).toHaveBeenCalledOnce(); expect(input).toHaveValue(" ");
-    const discard = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const discard = vi.spyOn(window, "confirm");
     fireEvent.click(screen.getByRole("button", { name: "取消編輯" }));
-    expect(discard).toHaveBeenCalled(); expect(screen.queryByLabelText("照顧項目")).not.toBeInTheDocument();
+    const leave = screen.getByRole("alertdialog", { name: "放棄未儲存的輸入？" });
+    fireEvent.click(within(leave).getByRole("button", { name: "放棄本次輸入" }));
+    expect(discard).not.toHaveBeenCalled(); expect(screen.queryByLabelText("照顧項目")).not.toBeInTheDocument();
   });
   it("offers returning submitted records to draft without signing", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(snapshot({ ...record, status: "submitted" }))); mount();

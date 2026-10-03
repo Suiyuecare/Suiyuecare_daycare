@@ -33,8 +33,10 @@ function Form({ demo = false }: { demo?: boolean }) {
   </form>;
 }
 function View({ actor = context }: { actor?: TenantContext }) { return <OfflineCareProvider context={actor}><Form demo={actor.demo} /></OfflineCareProvider>; }
+const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
 beforeEach(() => {
   vi.clearAllMocks(); mocks.records.clear(); vi.stubGlobal("crypto", webcrypto);
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: (_name: string, _options: unknown, operation: (lock: { name: string }) => Promise<unknown>) => operation({ name: "synthetic-lock" }) } });
   mocks.load.mockImplementation(async (scope) => [...(mocks.records.get(scopeKey(scope))?.values() ?? [])]);
   mocks.save.mockImplementation(async (scope, item) => {
     const items = mocks.records.get(scopeKey(scope)) ?? new Map();
@@ -47,7 +49,11 @@ beforeEach(() => {
   mocks.remove.mockImplementation(async (scope, id) => { mocks.records.get(scopeKey(scope))?.delete(id); });
   vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  if (originalLocks) Object.defineProperty(navigator, "locks", originalLocks);
+  else Reflect.deleteProperty(navigator, "locks");
+});
 
 describe("care form local drafts", () => {
   it("auto-saves scoped local drafts and recovers exact original contents and key", async () => {

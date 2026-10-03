@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AttendanceComposer } from "./attendance-composer";
 import { VitalSignComposer } from "./vital-sign-composer";
 import { CareDiaryComposer } from "./care-diary-composer";
+import { CoreDraftGuardHost } from "@/components/app/core-draft-guard";
 import { taipeiServiceDateOf } from "@/lib/core-care/date";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -45,7 +46,7 @@ const specs = [
 
 function mount(kind: string, selected: string | undefined = selectedClientId) {
   const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId: selected };
-  render(kind === "attendance" ? <AttendanceComposer {...props} /> : kind === "vitals" ? <VitalSignComposer {...props} /> : <CareDiaryComposer {...props} />);
+  render(<><CoreDraftGuardHost />{kind === "attendance" ? <AttendanceComposer {...props} /> : kind === "vitals" ? <VitalSignComposer {...props} /> : <CareDiaryComposer {...props} />}</>);
 }
 function open(spec: typeof specs[number]) {
   fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
@@ -139,17 +140,20 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
   it("keeps values after rejecting Cancel, Escape and backdrop discard; accepting resets on reopen", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirm = vi.spyOn(window, "confirm");
     mount(spec.kind);
     const { dialog, field } = open(spec);
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "繼續填寫" }));
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "繼續填寫" }));
     fireEvent.click(dialog);
-    expect(confirm).toHaveBeenCalledTimes(3);
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "繼續填寫" }));
+    expect(confirm).not.toHaveBeenCalled();
     expect(dialog).toHaveAttribute("open");
     expect(field).toHaveValue(spec.kind === "vitals" ? 75 : spec.value);
-    confirm.mockReturnValue(true);
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "放棄本次輸入" }));
     expect(dialog).not.toHaveAttribute("open");
     fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
     expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);

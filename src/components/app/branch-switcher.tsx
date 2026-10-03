@@ -11,6 +11,7 @@ import {
   type BranchClientOption,
 } from "@/lib/auth/branch-client";
 import { reloadCurrentStaffRoute } from "./branch-navigation";
+import { hasCoreDraftPending, useCoreDraftPending } from "./core-draft-guard";
 import styles from "./branch-switcher.module.css";
 
 type Branch = BranchClientOption;
@@ -39,6 +40,7 @@ export function BranchSwitcher({
   const switchLock = useRef(false);
   const operationPending = usePendingOperations();
   const viewPending = useViewTransitionPending();
+  const coreDraftPending = useCoreDraftPending();
   const viewLease = useRef<(() => void) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const reloadButton = useRef<HTMLButtonElement>(null);
@@ -46,6 +48,10 @@ export function BranchSwitcher({
   useEffect(() => () => { viewLease.current?.(); viewLease.current = null; }, []);
 
   function pendingGuard() {
+    if (hasCoreDraftPending()) {
+      setError("有未儲存或結果未確認的輸入，請先回原表單儲存或核對；目前不能切換分支。");
+      return true;
+    }
     if (!hasPendingOperations() && !hasViewTransition()) return false;
     setError(hasPendingOperations() ? "有儲存結果尚待確認，請先回原表單確認；目前不能切換分支。" : "工作清單正在更新，請完成後再切換分支。");
     return true;
@@ -86,6 +92,7 @@ export function BranchSwitcher({
       return;
     }
     if (!window.confirm("切換分支會重新載入系統，未儲存的輸入將不會保留。確定切換分支嗎？")) return;
+    if (pendingGuard()) return;
     // A write may have started while confirmation was open. Acquire again at
     // the actual scope-change boundary, before changing any cookie or view.
     const release = tryAcquireViewTransition();
@@ -125,7 +132,7 @@ export function BranchSwitcher({
 
   return (
     <div className={`branch-switcher${compact ? " branch-switcher--compact" : ""}`}>
-      <button aria-label={`${organizationName}，目前分支：${currentBranchName}`} aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending} onClick={toggle} type="button">
+      <button aria-label={`${organizationName}，目前分支：${currentBranchName}`} aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending || coreDraftPending} onClick={toggle} type="button">
         <span>
           <small>機構全銜</small>
           <strong className="branch-switcher__organization-name">{pending ? "讀取中…" : organizationName}</strong>
@@ -134,8 +141,8 @@ export function BranchSwitcher({
         <ChevronsUpDown aria-hidden="true" />
       </button>
       {readOnly ? <small>固定合成分支 · 不切換真實機構</small> : null}
-      {!readOnly && operationPending ? <small role="status">有儲存結果尚待確認，暫停切換分支；請先回原表單確認。</small> : !readOnly && viewPending && switchState === "idle" ? <small role="status">系統正在更新，暫停切換分支。</small> : null}
-      {open ? <div className="branch-switcher__menu">{branches.map((branch) => <button aria-current={branch.id === currentBranchId ? "true" : undefined} disabled={switchState !== "idle" || operationPending || viewPending} key={branch.id} onClick={() => select(branch)} type="button"><span>{branch.name}</span>{branch.id === currentBranchId ? <Check aria-hidden="true" /> : null}</button>)}</div> : null}
+      {!readOnly && coreDraftPending ? <small role="status">有未儲存或結果未確認的輸入，暫停切換分支；請先回原表單儲存或核對。</small> : !readOnly && operationPending ? <small role="status">有儲存結果尚待確認，暫停切換分支；請先回原表單確認。</small> : !readOnly && viewPending && switchState === "idle" ? <small role="status">系統正在更新，暫停切換分支。</small> : null}
+      {open ? <div className="branch-switcher__menu">{branches.map((branch) => <button aria-current={branch.id === currentBranchId ? "true" : undefined} disabled={switchState !== "idle" || operationPending || viewPending || coreDraftPending} key={branch.id} onClick={() => select(branch)} type="button"><span>{branch.name}</span>{branch.id === currentBranchId ? <Check aria-hidden="true" /> : null}</button>)}</div> : null}
       {error && switchState === "idle" ? <small className="branch-switcher__error" role="alert">{error}</small> : null}
       <dialog ref={dialog} className={styles.guard} aria-labelledby={dialogTitleId} aria-describedby={dialogDescriptionId} onCancel={(event) => event.preventDefault()}>
         <h2 id={dialogTitleId}>{switchState === "uncertain" ? "請先確認目前分支" : "正在安全切換分支"}</h2>

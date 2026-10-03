@@ -33,7 +33,7 @@ const snapshotSchema = z.object({ status: z.literal("ok"), requestId: z.string()
 }) });
 const receiptSchema = z.object({ status: z.literal("ok"), requestId: z.string().min(1), errors: z.array(z.never()).length(0), data: z.object({ record: diaryRecordSchema, replayed: z.boolean(), demo: z.literal(false), persisted: z.literal(true) }) });
 
-function DiaryEditor({ record, pending, locked, onSave, onCancel }: { record: DiaryRecord; pending: boolean; locked: boolean; onSave: (fields: unknown) => Promise<boolean>; onCancel: () => void }) {
+function DiaryEditor({ record, pending, locked, unresolved, onSave, onCancel }: { record: DiaryRecord; pending: boolean; locked: boolean; unresolved: () => boolean; onSave: (fields: unknown) => Promise<boolean>; onCancel: () => void }) {
   const draft = useCoreDraftGuard();
   const [error, setError] = useState<string | null>(null);
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -45,7 +45,8 @@ function DiaryEditor({ record, pending, locked, onSave, onCancel }: { record: Di
       if (!fields.success) { setError("請確認照顧項目與本次觀察結果，內容尚未送出。"); return; }
       setError(null);
       if (await onSave(fields.data)) draft.saved();
-    } catch { setError("請檢查本次觀察結果，內容仍保留在畫面，尚未送出。");
+      else if (unresolved()) draft.hold(); else draft.unhold();
+    } catch { if (unresolved()) draft.hold(); else draft.unhold(); setError("請檢查本次觀察結果，內容仍保留在畫面，尚未送出。");
     } finally { draft.finish(); }
   }
   return <form data-core-care-draft onChange={draft.changed} onSubmit={save}><fieldset disabled={pending || locked} className="core-dialog__fields">
@@ -57,7 +58,7 @@ function DiaryEditor({ record, pending, locked, onSave, onCancel }: { record: Di
     <label className="field"><span>後續行動</span><textarea name="follow_up" maxLength={1000} defaultValue={record.fields.follow_up} /></label>
     <label className="check-field"><input name="abnormal" type="checkbox" defaultChecked={record.fields.abnormal} />標記為需留意</label>
     <button type="submit" className="button button--primary">{pending ? "儲存中…" : "儲存草稿修訂"}</button>
-    <button type="button" className="button button--secondary" onClick={() => { if (draft.discard()) onCancel(); }}>取消編輯</button>
+    <button type="button" className="button button--secondary" onClick={(event) => { draft.discard(onCancel, event.currentTarget); }}>取消編輯</button>
     {error ? <p role="alert">{error}</p> : null}
   </fieldset></form>;
 }
@@ -217,7 +218,7 @@ function CareDiaryClientLifecycle({ clientId, clientName, clientCode, serviceDat
       readback.current = { record: receipt.record, notice: kind === "sign" ? "已重新讀回這個正式簽署版本。" : kind === "submit" ? "已重新讀回提交版本，仍待簽署，不會計為正式完成。" : kind === "correct" ? "已重新讀回更正草稿。請逐項檢查同一事件的內容，再提交簽署。" : "已重新讀回草稿修訂；尚未正式完成。" };
       setNotice("系統已回覆儲存，正在重新讀取確認；尚未完成讀回核對。");
       attempt.confirmed(); actionDraft.saved(); setLoading(true); setRecords([]); setHistory([]); setEditingId(null); setReload((value) => value + 1); router.refresh(); return true;
-    } catch (caught) { attempt.failed(); if (activeClient.current === clientId) setError(caught instanceof Error && !(caught instanceof TypeError) ? caught.message : "尚未確認完成，請保留內容並重試同一次操作。"); return false; }
+    } catch (caught) { const uncertain = attempt.failed(); if (kind !== "edit") { if (uncertain) actionDraft.hold(); else actionDraft.unhold(); } if (activeClient.current === clientId) setError(caught instanceof Error && !(caught instanceof TypeError) ? caught.message : "尚未確認完成，請保留內容並重試同一次操作。"); return false; }
     finally { actionDraft.finish(); inFlight.current = false; setPending(false); }
   }
 
@@ -231,7 +232,7 @@ function CareDiaryClientLifecycle({ clientId, clientName, clientCode, serviceDat
       {record.fields.abnormal ? <p>需留意：{record.fields.follow_up || "請補充後續行動"}</p> : null}
       {record.fields.observations ? <details><summary>查看本次快速紀錄</summary><DiaryObservationSummary observations={record.fields.observations} /></details> : null}
       {record.signed_at ? <p>簽署時間：{new Date(record.signed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}。原內容不可覆寫。</p> : null}
-      {editingId === record.id ? <DiaryEditor key={record.id} record={record} pending={pending} locked={attempt.locked} onSave={(fields) => action(record, "edit", { data: fields })} onCancel={() => { if (!attempt.current()) setEditingId(null); }} /> : null}
+      {editingId === record.id ? <DiaryEditor key={record.id} record={record} pending={pending} locked={attempt.locked} unresolved={() => Boolean(attempt.current())} onSave={(fields) => action(record, "edit", { data: fields })} onCancel={() => { if (!attempt.current()) setEditingId(null); }} /> : null}
       <div className="action-row">{record.status === "draft" ? <><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => setEditingId(record.id)} type="button">繼續編輯草稿</button><button className="button button--primary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => requestAction(record, "submit")} type="button">提交已儲存版本</button></> : record.status === "submitted" ? <><button className="button button--primary" disabled={pending || attempt.locked || !canSign || demo || editingId !== null} onClick={() => requestAction(record, "sign")} type="button">確認內容並簽署</button><form data-core-care-draft onSubmit={(event) => { event.preventDefault(); requestAction(record, "reopen", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>退回理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">退回草稿修訂</button></form></> : <form data-core-care-draft onSubmit={(event) => { event.preventDefault(); requestAction(record, "correct", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>更正理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">建立更正草稿</button></form>}</div>
       <details><summary>版本與更正歷程</summary><ol>{history.filter((item) => item.record_key === record.record_key).map((item) => <li key={item.id}>第 {item.version} 版 · {statusLabels[item.status as keyof typeof statusLabels] ?? item.status}{item.correction_reason ? ` · ${item.correction_reason}` : ""}</li>)}</ol></details>
     </article>;

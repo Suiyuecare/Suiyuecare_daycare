@@ -41,6 +41,7 @@ export function RosterComposer({ roster, clients, serviceDate }: {
   function releaseKnownOperation() {
     operationLease.current?.(); operationLease.current = null;
     unresolvedOperation.current = false;
+    draftGuard.unhold();
   }
   useEffect(() => {
     mounted.current = true;
@@ -101,8 +102,10 @@ export function RosterComposer({ roster, clients, serviceDate }: {
     choices.set(row.clientId, { id: row.clientId, ...row.clientIdentity });
   }
   function selectAssignment(row: CareRosterAssignment) {
-    if (locked || !choices.has(row.clientId) || !draftGuard.discard()) return;
-    setClientId(row.clientId); setShift(row.shift); setPrevious(row); setMessage(""); setNeedsReauth(false);
+    if (locked || !choices.has(row.clientId)) return;
+    draftGuard.discard(() => {
+      setClientId(row.clientId); setShift(row.shift); setPrevious(row); setMessage(""); setNeedsReauth(false);
+    });
   }
   return <details className={`panel today-management ${styles.composer}`}><summary>主管：安排／調整每日照顧分工</summary>
     <p>已核准的主管 Google 帳號可依已確認的照顧計畫安排上午／下午工作。儲存時重新核對分支、主管權限與人員的個案授權；分工不取代人員資格與工時排班審核。</p>
@@ -161,18 +164,20 @@ export function RosterComposer({ roster, clients, serviceDate }: {
           setOperation(null); setNeedsReload(outcome.needsReload); setNeedsReauth(outcome.needsReauth); setMessage(outcome.message); return;
         }
         if (!mounted.current) return;
+        draftGuard.hold();
         setOperation({ ...pending, hadUnknown: true });
         setMessage("儲存結果仍未知，輸入已鎖定。請以原內容重試確認，不要改選個案、班別或另建分工。後續拒絕也不代表前一次未完成。");
       } catch {
         if (!mounted.current) return;
+        draftGuard.hold();
         setOperation({ ...pending, hadUnknown: true });
         setMessage("連線中斷，儲存結果未知。輸入已鎖定，請以原內容重試確認。");
       }
       finally { lock.current = false; if (mounted.current) { draftGuard.finish(); setBusy(false); } }
     }}>
       <div className="form-grid">
-        <label className="field"><span>個案</span><select required value={clientId} disabled={locked} onChange={(e) => { if (!locked && draftGuard.discard()) { setClientId(e.target.value); setPrevious(roster.assignments.find((row) => row.clientId === e.target.value && row.shift === shift) ?? null); setMessage(""); } e.stopPropagation(); }}><option value="">選擇個案</option>{Array.from(choices.values()).map((client) => <option key={client.id} value={client.id}>{client.displayName}（{client.clientCode}）</option>)}</select></label>
-        <label className="field"><span>班別</span><select value={shift} disabled={locked} onChange={(e) => { if (!locked && draftGuard.discard()) { setShift(e.target.value as RosterShift); setPrevious(roster.assignments.find((row) => row.clientId === clientId && row.shift === e.target.value) ?? null); setMessage(""); } e.stopPropagation(); }}><option value="morning">上午（00:00–12:00）</option><option value="afternoon">下午（12:00–24:00）</option></select></label>
+        <label className="field"><span>個案</span><select required value={clientId} disabled={locked} onChange={(e) => { const next = e.currentTarget.value; e.currentTarget.value = clientId; if (!locked) draftGuard.discard(() => { setClientId(next); setPrevious(roster.assignments.find((row) => row.clientId === next && row.shift === shift) ?? null); setMessage(""); }, e.currentTarget); e.stopPropagation(); }}><option value="">選擇個案</option>{Array.from(choices.values()).map((client) => <option key={client.id} value={client.id}>{client.displayName}（{client.clientCode}）</option>)}</select></label>
+        <label className="field"><span>班別</span><select value={shift} disabled={locked} onChange={(e) => { const next = e.currentTarget.value as RosterShift; e.currentTarget.value = shift; if (!locked) draftGuard.discard(() => { setShift(next); setPrevious(roster.assignments.find((row) => row.clientId === clientId && row.shift === next) ?? null); setMessage(""); }, e.currentTarget); e.stopPropagation(); }}><option value="morning">上午（00:00–12:00）</option><option value="afternoon">下午（12:00–24:00）</option></select></label>
       </div>
       {cannotCreate && <p role="alert">此個案尚不可安排當日服務，這個班別也沒有可取消的既有分工。請先確認正式收案與服務期間。</p>}
       <fieldset key={`${clientId}:${shift}:${previous?.version ?? 0}`} disabled={locked || !clientId || cannotCreate} className="form-grid">

@@ -1,89 +1,13 @@
 "use client";
 
-import { useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useId, useState, type ReactNode } from "react";
 
 import { DailyNavigationRegistrationContext, type DailyNavigationScope } from "@/components/app/daily-navigation-context";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { DAILY_WORKFLOW_STEPS, dailyWorkflowHref, type DailyWorkflowPage, type DailyWorkflowShift } from "@/lib/core-care/workflow-links";
 import type { DailyCareSnapshot, DailyClientSummary } from "@/lib/core-care/types";
 
-const discardMessage = "還有尚未確認儲存的內容。確定要離開並放棄這次填寫嗎？";
-
-type DraftGuardState = { dirty: boolean; busy: boolean };
-
-// Several forms can be mounted on one page. A single document listener must
-// inspect every guard before asking to leave, or an earlier guard may discard
-// its draft before a later busy guard cancels the navigation.
-const activeDraftGuards = new Set<DraftGuardState>();
-function anyBusy() {
-  for (const guard of activeDraftGuards) if (guard.busy) return true;
-  return false;
-}
-function anyDirty() {
-  for (const guard of activeDraftGuards) if (guard.dirty) return true;
-  return false;
-}
-
-function mayLeavePage() {
-  if (anyBusy()) return false;
-  if (anyDirty() && !window.confirm(discardMessage)) return false;
-  // Do not clear dirty here. A Link/onSubmit handler later in the event path
-  // can still cancel navigation; unmount or a confirmed save owns cleanup.
-  return true;
-}
-
-function guardUnload(event: BeforeUnloadEvent) {
-  if (!anyDirty() && !anyBusy()) return;
-  event.preventDefault();
-  event.returnValue = "";
-}
-
-function guardLinkClick(event: MouseEvent) {
-  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-  if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
-  if (new URL(link.href, window.location.href).href === window.location.href) return;
-  if (!mayLeavePage()) { event.preventDefault(); event.stopPropagation(); }
-}
-
-function guardGetSubmit(event: SubmitEvent) {
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement) || form.hasAttribute("data-core-care-draft") || form.method.toLowerCase() !== "get") return;
-  if (!mayLeavePage()) { event.preventDefault(); event.stopPropagation(); }
-}
-
-function registerDraftGuard(guard: DraftGuardState) {
-  if (activeDraftGuards.size === 0) {
-    window.addEventListener("beforeunload", guardUnload);
-    document.addEventListener("click", guardLinkClick, true);
-    document.addEventListener("submit", guardGetSubmit, true);
-  }
-  activeDraftGuards.add(guard);
-  return () => {
-    activeDraftGuards.delete(guard);
-    if (activeDraftGuards.size > 0) return;
-    window.removeEventListener("beforeunload", guardUnload);
-    document.removeEventListener("click", guardLinkClick, true);
-    document.removeEventListener("submit", guardGetSubmit, true);
-  };
-}
-
-/** Protect modal cancellation, link/GET navigation and full-document unloads. */
-export function useCoreDraftGuard() {
-  const guard = useRef<DraftGuardState>({ dirty: false, busy: false });
-  useEffect(() => registerDraftGuard(guard.current), []);
-  return {
-    changed() { guard.current.dirty = true; },
-    begin() { if (guard.current.busy) return false; guard.current.busy = true; guard.current.dirty = true; return true; },
-    finish() { guard.current.busy = false; },
-    saved() { guard.current.dirty = false; },
-    discard() {
-      if (anyBusy() || (guard.current.dirty && !window.confirm(discardMessage))) return false;
-      guard.current.dirty = false;
-      return true;
-    },
-  };
-}
+export { useCoreDraftGuard } from "@/components/app/core-draft-guard";
 
 function stepStatus(page: DailyWorkflowPage, client: DailyClientSummary, shift?: DailyWorkflowShift) {
   const existing = page === 46 ? client.attendance : page === 3 ? client.vitalSigns : client.careDiary;

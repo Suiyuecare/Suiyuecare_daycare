@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import {
   Bell,
   BookOpenCheck,
@@ -29,12 +29,13 @@ import { appBranding } from "@/lib/config/branding";
 import { companyNavigation } from "@/lib/config/company-navigation";
 import type { TenantContext } from "@/lib/domain/types";
 import { STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE } from "@/lib/store-overview/types";
-import { clearOfflineDrafts } from "@/lib/offline/draft-store";
+import { clearOfflineDrafts, clearOfflineDraftsIfUnchanged, inspectOfflineDraftsForLogout, type OfflineLogoutSnapshot } from "@/lib/offline/draft-store";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { runLogoutTasks, type LogoutResult } from "@/lib/auth/logout-tasks";
 import { roleDisplayName } from "@/lib/domain/roles";
-import { hasPendingOperations, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
 import { BranchSwitcher } from "./branch-switcher";
+import { CoreDraftGuardHost, hasCoreDraftBlocked, hasCoreDraftPending, requestCoreDraftLeave, useCoreDraftBlocked, useCoreDraftHeld, useCoreDraftPending } from "./core-draft-guard";
 import { DailyNavigationRegistrationContext, type ValidatedDailySelection } from "./daily-navigation-context";
 import { NavigationLink } from "./navigation-link";
 import { TaipeiClock } from "./taipei-clock";
@@ -77,6 +78,17 @@ const mobileShortLabels: Record<number, string> = {
   49: "申報", 51: "護評", 54: "彙整", 63: "排班", 64: "帳務", 83: "稽核",
 };
 
+type LogoutReview = { status: "idle" | "checking" | "review" | "clearing"; snapshot: OfflineLogoutSnapshot | null; unknown: boolean; changed: boolean };
+const IDLE_LOGOUT_REVIEW: LogoutReview = { status: "idle", snapshot: null, unknown: false, changed: false };
+
+function settledWithin<T>(promise: Promise<T>, milliseconds: number): Promise<{ ok: true; value: T } | { ok: false }> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve({ ok: false }), milliseconds);
+    promise.then((value) => resolve({ ok: true, value }), () => resolve({ ok: false }))
+      .finally(() => window.clearTimeout(timer));
+  });
+}
+
 function mobilePrimaryPages(navigation: readonly NavigationGroup[], roles: TenantContext["roles"]) {
   const pages = new Map(navigation.flatMap((group) => group.pages).map((page) => [page.number, page]));
   const priorities = [1, 2,
@@ -107,10 +119,22 @@ export function AppShell({
   const [compactNavigation, setCompactNavigation] = useState(false);
   const [logoutState, setLogoutState] = useState<"idle" | "working" | "attention">("idle");
   const [logoutResult, setLogoutResult] = useState<LogoutResult | null>(null);
+  const [logoutReview, setLogoutReview] = useState<LogoutReview>(IDLE_LOGOUT_REVIEW);
   const [dailyNavigation, setDailyNavigation] = useState<(ValidatedDailySelection & { registration: symbol }) | null>(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const logoutRunning = useRef(false);
+  const logoutReviewRunning = useRef(false);
+  const logoutReviewClearRunning = useRef(false);
+  const logoutReviewAbort = useRef<AbortController | null>(null);
+  const logoutClearResult = useRef<Promise<boolean> | null>(null);
+  const shellMounted = useRef(true);
+  const logoutReviewSequence = useRef(0);
+  const logoutReviewDialog = useRef<HTMLDialogElement>(null);
+  const logoutReviewCancel = useRef<HTMLButtonElement>(null);
+  const logoutReviewConfirm = useRef<HTMLButtonElement>(null);
+  const logoutReviewTrigger = useRef<HTMLElement | null>(null);
+  const logoutReviewTitleId = useId();
   const refreshLease = useRef<(() => void) | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuOpener = useRef<HTMLButtonElement | null>(null);
@@ -118,6 +142,12 @@ export function AppShell({
   const sidebar = useRef<HTMLElement>(null);
   const operationPending = usePendingOperations();
   const viewPending = useViewTransitionPending();
+  const draftBlocked = useCoreDraftBlocked();
+  const draftHeld = useCoreDraftHeld();
+  const draftPending = useCoreDraftPending();
+  const logoutBlockedReason = operationPending ? "有一筆操作結果尚待確認，不能登出並清除裝置草稿；請先回原表單核對。"
+    : viewPending ? "系統正在更新或切換分支，請稍候再登出。"
+      : draftBlocked ? "資料儲存中或寫入結果未確認，請先完成核對再登出。" : undefined;
   const availablePages = navigation.flatMap((group) => group.pages);
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
   const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
@@ -166,6 +196,40 @@ export function AppShell({
     refreshLease.current?.();
     refreshLease.current = null;
   }, []);
+  useEffect(() => {
+    shellMounted.current = true;
+    return () => {
+      shellMounted.current = false;
+      logoutReviewRunning.current = false;
+      logoutReviewSequence.current += 1;
+      logoutReviewAbort.current?.abort();
+      logoutReviewAbort.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    const dialog = logoutReviewDialog.current;
+    if (!dialog) return;
+    if (logoutReview.status !== "idle" && !dialog.open) {
+      try { dialog.showModal(); logoutReviewCancel.current?.focus(); }
+      catch {
+        // A failed native modal must not strand the user behind an invisible
+        // confirmation. Keep the device data and return to the safe shell.
+        logoutReviewSequence.current += 1;
+        logoutReviewRunning.current = false;
+        logoutReviewAbort.current?.abort();
+        logoutReviewAbort.current = null;
+        window.setTimeout(() => {
+          if (!shellMounted.current) return;
+          setLogoutReview(IDLE_LOGOUT_REVIEW);
+          logoutReviewTrigger.current?.focus();
+        }, 0);
+      }
+    } else if (logoutReview.status === "idle" && dialog.open) dialog.close();
+  }, [logoutReview.status]);
+
+  useEffect(() => {
+    if (logoutReview.status === "checking" || logoutReview.status === "review") logoutReviewCancel.current?.focus();
+  }, [logoutReview.status, logoutReview.snapshot]);
 
   // Derive a newly active module during navigation without an effect-driven flash.
   // This never changes the server-filtered navigation or grants access to a page.
@@ -239,22 +303,29 @@ export function AppShell({
     return () => { document.body.style.overflow = previous; };
   }, [compactNavigation, menuOpen]);
 
-  async function logout() {
-    setDailyNavigation(null);
-    if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
-      document.dispatchEvent(new Event("daycare:session-ending"));
-      router.replace("/login");
-      router.refresh();
-      return;
-    }
+  async function performLogout(clearCache: () => Promise<boolean>, afterConfirmedClear = false) {
+    const visible = shellMounted.current;
+    if (!visible && !afterConfirmedClear) return;
     if (logoutRunning.current) return;
     logoutRunning.current = true;
+    logoutReviewRunning.current = false;
+    logoutReviewClearRunning.current = false;
+    logoutReviewSequence.current += 1;
+    logoutReviewAbort.current?.abort();
+    logoutReviewAbort.current = null;
+    // Also clear tab-local search/selection when an already-confirmed logout
+    // finishes after this shell has unmounted.
     document.dispatchEvent(new Event("daycare:session-ending"));
-    // Remove the entire patient/employee shell immediately, before network or
-    // IndexedDB work. A failed cleanup never restores the old sensitive view.
-    setMenuOpen(false); setLogoutState("working"); setLogoutResult(null);
+    if (visible) {
+      setDailyNavigation(null);
+      logoutReviewDialog.current?.close();
+      setLogoutReview(IDLE_LOGOUT_REVIEW);
+      // Remove the entire patient/employee shell immediately, before network or
+      // IndexedDB work. A failed cleanup never restores the old sensitive view.
+      setMenuOpen(false); setLogoutState("working"); setLogoutResult(null);
+    }
     const result = await runLogoutTasks({
-      clearCache: async () => { await clearOfflineDrafts(); return true; },
+      clearCache,
       clearBranch: async () => {
         const response = await fetchWithTimeout("/api/context/branch", { method: "DELETE" }, 10_000);
         if (!response.ok) return false;
@@ -269,13 +340,107 @@ export function AppShell({
       },
     });
     logoutRunning.current = false;
+    if (!shellMounted.current) return;
     if (result.cacheCleared && result.branchCleared && result.signedOut) {
       router.replace("/login"); router.refresh();
     } else { setLogoutResult(result); setLogoutState("attention"); }
   }
 
+  function cancelLogoutReview() {
+    if (logoutReviewClearRunning.current) return;
+    logoutReviewSequence.current += 1;
+    logoutReviewRunning.current = false;
+    logoutReviewAbort.current?.abort();
+    logoutReviewAbort.current = null;
+    logoutClearResult.current = null;
+    setLogoutReview(IDLE_LOGOUT_REVIEW);
+    logoutReviewDialog.current?.close();
+    const trigger = logoutReviewTrigger.current;
+    window.setTimeout(() => { if (trigger?.isConnected) trigger.focus(); }, 0);
+  }
+
+  async function inspectForLogout(changed = false) {
+    const sequence = ++logoutReviewSequence.current;
+    setLogoutReview({ status: "checking", snapshot: null, unknown: false, changed });
+    const result = await settledWithin(inspectOfflineDraftsForLogout(logoutReviewAbort.current?.signal), 5_000);
+    if (sequence !== logoutReviewSequence.current || !logoutReviewRunning.current || !shellMounted.current) return;
+    if (!result.ok) {
+      setLogoutReview({ status: "review", snapshot: null, unknown: true, changed });
+      return;
+    }
+    if (result.value.count > 0 || changed) {
+      setLogoutReview({ status: "review", snapshot: result.value, unknown: false, changed });
+      return;
+    }
+    await clearForLogout(result.value);
+  }
+
+  async function clearForLogout(snapshot: OfflineLogoutSnapshot | null) {
+    if (!logoutReviewRunning.current || logoutReviewClearRunning.current) return;
+    if (hasCoreDraftBlocked() || hasPendingOperations() || hasViewTransition()) { cancelLogoutReview(); return; }
+    logoutReviewClearRunning.current = true;
+    const sequence = ++logoutReviewSequence.current;
+    setLogoutReview((current) => ({ ...current, status: "clearing" }));
+    const clearAttempt: Promise<void | "cleared" | "changed" | "blocked"> = snapshot
+      ? clearOfflineDraftsIfUnchanged(snapshot, logoutReviewAbort.current?.signal,
+        () => !hasCoreDraftBlocked() && !hasPendingOperations() && !hasViewTransition())
+      : clearOfflineDrafts(logoutReviewAbort.current?.signal);
+    logoutClearResult.current = clearAttempt.then((value) => value === undefined || value === "cleared", () => false);
+    const result = await settledWithin(clearAttempt, 10_000);
+    if (sequence !== logoutReviewSequence.current || !logoutReviewRunning.current || !shellMounted.current) {
+      logoutReviewClearRunning.current = false;
+      // Once the person has entered the clear phase, an unmounted shell must
+      // still revoke the session. A failed/aborted clear remains unconfirmed.
+      if (!shellMounted.current && !(result.ok && (result.value === "changed" || result.value === "blocked"))) {
+        void performLogout(async () => result.ok && (result.value === undefined || result.value === "cleared"), true);
+      } else if (result.ok && (result.value === undefined || result.value === "cleared")) {
+        // showModal failure can cancel the visible review after commit.
+        void performLogout(async () => true, true);
+      }
+      return;
+    }
+    if (result.ok && result.value === "changed") {
+      // The checked clear did not rotate the generation or delete anything.
+      // The person must review the newest inventory before a new attempt.
+      logoutReviewClearRunning.current = false;
+      logoutClearResult.current = null;
+      await inspectForLogout(true);
+      return;
+    }
+    if (result.ok && result.value === "blocked") {
+      logoutReviewClearRunning.current = false;
+      cancelLogoutReview();
+      return;
+    }
+    void performLogout(async () => result.ok && (result.value === undefined || result.value === "cleared"));
+  }
+
+  function beginLogoutReview(trigger: HTMLElement) {
+    if (logoutRunning.current || logoutReviewRunning.current || hasPendingOperations() || hasViewTransition()) return;
+    if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") {
+      document.dispatchEvent(new Event("daycare:session-ending"));
+      router.replace("/login"); router.refresh();
+      return;
+    }
+    logoutReviewRunning.current = true;
+    logoutReviewClearRunning.current = false;
+    logoutClearResult.current = null;
+    logoutReviewAbort.current = new AbortController();
+    logoutReviewTrigger.current = trigger;
+    void inspectForLogout();
+  }
+
+  function requestLogout(trigger: HTMLElement) {
+    if (logoutRunning.current || logoutReviewRunning.current || hasPendingOperations() || hasViewTransition()) return;
+    requestCoreDraftLeave(() => {
+      // A lease can be acquired while the dirty-draft dialog is open.
+      if (hasPendingOperations() || hasViewTransition()) return;
+      beginLogoutReview(trigger);
+    }, trigger);
+  }
+
   function refreshCurrentPage() {
-    if (hasPendingOperations()) return;
+    if (hasCoreDraftPending() || hasPendingOperations()) return;
     const release = tryAcquireViewTransition();
     if (!release) return;
     refreshLease.current = release;
@@ -293,10 +458,10 @@ export function AppShell({
       <h1>{logoutState === "working" ? "正在安全登出" : "登出尚有事項需要確認"}</h1>
       <p>本分頁已停止顯示個案與員工資料。</p>
       {logoutState === "working" ? <p>正在清理裝置資料並結束登入；請稍候。</p> : <>
-        {!logoutResult?.cacheCleared && <p>裝置草稿尚未確認清除。請先重試；若仍失敗，請關閉其他日照系統分頁，並在瀏覽器設定中清除此網站的資料。完成前請勿將裝置交給他人或重新登入。</p>}
+        {!logoutResult?.cacheCleared && <p>裝置資料尚未確認清除。請先關閉其他日照系統分頁，再檢查原清理結果；系統不會重複刪除。若原清理程序已失敗，請在瀏覽器設定中清除此網站的資料。完成前請勿將裝置交給他人或重新登入。</p>}
         {!logoutResult?.signedOut && <p>尚未確認登入已結束，請保持此畫面並重試登出。</p>}
         {!logoutResult?.branchCleared && <p>尚未確認作業分支狀態已清除，請一併重試。</p>}
-        <button className="button button--primary" type="button" onClick={logout}>重試清理並登出</button>
+        <button className="button button--primary" type="button" onClick={() => { void performLogout(() => logoutClearResult.current ?? Promise.resolve(false)); }}>檢查清理狀態並重試登出</button>
       </>}
     </section>
   </main>;
@@ -374,8 +539,11 @@ export function AppShell({
           <div className="user-summary">
             <span className="avatar" aria-hidden="true">{context.displayName.slice(0, 1)}</span>
             <span className="user-summary__text"><strong>{context.displayName}</strong><small>{context.demo ? "合成展示" : primaryRoleLabel}</small></span>
-            <button aria-label={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true" ? "返回試用入口" : "登出"} className="icon-button" onClick={logout} type="button"><LogOut /></button>
+            <button aria-label={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true" ? "返回試用入口" : "登出"} className="icon-button" disabled={Boolean(logoutBlockedReason) || logoutReview.status !== "idle"} title={logoutBlockedReason} onClick={(event) => requestLogout(event.currentTarget)} type="button"><LogOut /></button>
           </div>
+          {operationPending ? <small role="status">有一筆操作結果尚待確認，不能登出並清除裝置草稿；請先回原表單核對。</small> : viewPending ? <small role="status">系統正在更新或切換分支，請稍候再登出。</small> : null}
+          {draftBlocked ? <small role="status">{draftHeld ? "寫入結果未確認；請回原表單核對，再登出。" : "資料儲存中，請稍候再登出。"}</small> : null}
+          {draftPending && !draftBlocked ? <small role="status">有未儲存輸入，請先儲存或捨棄，才能重新整理或切換分支。</small> : null}
         </div>
       </aside>
       <div className="app-main" inert={compactNavigation && menuOpen ? true : undefined}>
@@ -387,9 +555,9 @@ export function AppShell({
           </div>
           {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
           <div className="topbar__actions" role="group" aria-label="系統功能">
-            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending} onClick={refreshCurrentPage} title={operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
+            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending || draftPending} onClick={refreshCurrentPage} title={draftPending ? "有未儲存或結果未確認的輸入，請先儲存或核對再重新整理。" : operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
             <a className="button button--secondary" href={companyNavigation.portalUrl} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>
-            <button className="button button--primary" onClick={logout} type="button">登出</button>
+            <button className="button button--primary" disabled={Boolean(logoutBlockedReason) || logoutReview.status !== "idle"} title={logoutBlockedReason} onClick={(event) => requestLogout(event.currentTarget)} type="button">登出</button>
           </div>
           <div className="topbar__context">
             <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>
@@ -398,7 +566,10 @@ export function AppShell({
           </div>
           <button aria-label="開啟功能選單" aria-expanded={menuOpen} className="icon-button mobile-menu-button" onClick={(event) => openMenu(event.currentTarget)} ref={menuTrigger} type="button"><Menu /></button>
         </header>
-        <main className="main-stage" id="main-content" tabIndex={-1}>{children}</main>
+        <main className="main-stage" id="main-content" tabIndex={-1}>
+          {draftHeld ? <p className="callout" role="status">寫入結果未確認；請保留本頁並回原表單核對，暫時不能離開或登出。</p> : null}
+          {children}
+        </main>
       </div>
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
         {mobilePages.map((page) => {
@@ -414,6 +585,34 @@ export function AppShell({
           aria-expanded={menuOpen} data-current={mobileCurrentInMore ? "true" : undefined}
           onClick={(event) => openMenu(event.currentTarget)}><Menu aria-hidden="true" /><span>更多</span></button>
       </nav>
+      <dialog aria-describedby={`${logoutReviewTitleId}-description`} aria-labelledby={logoutReviewTitleId}
+        className="core-dialog logout-review-dialog" onCancel={(event) => { event.preventDefault(); cancelLogoutReview(); }}
+        onClose={() => { if (logoutReviewRunning.current && logoutReview.status !== "clearing") cancelLogoutReview(); }}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          const first = logoutReviewCancel.current;
+          const last = logoutReview.status === "review" ? logoutReviewConfirm.current : first;
+          if (!first || !last) return;
+          const outside = !logoutReviewDialog.current?.contains(document.activeElement);
+          if (event.shiftKey && (document.activeElement === first || outside)) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && (document.activeElement === last || outside)) { event.preventDefault(); first.focus(); }
+        }} ref={logoutReviewDialog} role="alertdialog">
+        <div className="core-dialog__surface">
+          <header className="drawer__header"><h2 id={logoutReviewTitleId}>{logoutReview.status === "checking" ? "檢查此裝置的本機紀錄" : logoutReview.status === "clearing" ? "正在安全登出" : logoutReview.unknown ? "無法確認此裝置的本機紀錄筆數" : logoutReview.snapshot?.count ? `此裝置仍有 ${logoutReview.snapshot.count} 筆本機紀錄` : "此裝置的本機紀錄剛有變動"}</h2></header>
+          <div className="drawer__body core-dialog__body" id={`${logoutReviewTitleId}-description`}>
+            {logoutReview.status === "checking" ? <p role="status">正在確認此裝置的本機紀錄，請稍候。</p>
+              : logoutReview.status === "clearing" ? <p role="status">正在清理裝置資料，請勿關閉此頁。</p>
+                : logoutReview.unknown ? <p>此裝置的本機紀錄目前無法讀取，筆數不明。若登出，系統會嘗試清除本機資料；清理失敗時會停留在安全提醒畫面。</p>
+                  : <p>{logoutReview.snapshot?.count ? "此裝置的本機紀錄可能包含未送出或待核對內容。登出會永久清除裝置副本；未送出的內容不會在重新登入後自動補送。" : "另一個分頁剛更新了此裝置的本機紀錄；請再次確認後登出。"}</p>}
+            {logoutReview.changed && logoutReview.status === "review" ? <p role="status">裝置紀錄已變動，請依目前筆數重新決定。</p> : null}
+          </div>
+          <footer className="drawer__footer">
+            <button autoFocus className="button button--secondary" disabled={logoutReview.status === "clearing"} onClick={cancelLogoutReview} ref={logoutReviewCancel} type="button">返回核對／同步</button>
+            {logoutReview.status === "review" ? <button className="button button--danger" disabled={Boolean(logoutBlockedReason)} onClick={() => { void clearForLogout(logoutReview.snapshot); }} ref={logoutReviewConfirm} type="button">{logoutReview.snapshot?.count === 0 ? "確認並登出" : "放棄裝置紀錄並登出"}</button> : null}
+          </footer>
+        </div>
+      </dialog>
+      <CoreDraftGuardHost />
     </div>
     </DailyNavigationRegistrationContext.Provider>
   );
