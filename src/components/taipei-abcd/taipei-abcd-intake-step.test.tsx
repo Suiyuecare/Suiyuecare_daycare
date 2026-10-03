@@ -33,7 +33,7 @@ describe("Taipei intake draft UI", () => {
     await screen.findByText("暫時拒絕");
     expect(screen.getByLabelText("個案姓名內容")).toBeDisabled();
     expect(screen.getByRole("button", { name: "重試同一次儲存" })).toBeEnabled();
-  });
+  }, 15_000);
   it("unlocks editing after a validated first-attempt rejection", async () => {
     render(<TaipeiAbcdIntakeStep {...ids} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());

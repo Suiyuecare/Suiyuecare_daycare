@@ -1,4 +1,5 @@
 import { ok } from "@/lib/api/response";
+import { canUseAssessmentDraft } from "@/lib/auth/assessment-draft";
 import type { TenantContext } from "@/lib/domain/types";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { authorizeStaffRequest, databaseFailure, handleIntegrationRoute,
@@ -32,13 +33,14 @@ function matches(operation: Operation, input: AbcdAssessmentMutationInput) {
 }
 
 async function authorize(operation: Operation): Promise<TenantContext> {
-  const actor = await authorizeStaffRequest();
+  const signing = operation === "sign" || operation === "correct";
+  const actor = await authorizeStaffRequest(signing ? {} : { assessmentDraft: "abcd" });
   if (actor.demo) throw new IntegrationError("DEMO_READ_ONLY",
     "展示模式僅顯示合成 ABCD 候選紀錄，不會寫入正式資料。", 403);
   const required = ["clients.read", "abcd_assessments.read", "abcd_assessments.manage"];
   if (required.some((scope) => !actor.scopes.includes(scope))) throw new IntegrationError(
     "ABCD_ASSESSMENT_NOT_AUTHORIZED", "目前角色沒有完整的 ABCD 候選評估操作權限。", 403);
-  if (["sign", "correct"].includes(operation)) await requireRecentAal2(actor);
+  if (signing) await requireRecentAal2(actor);
   return actor;
 }
 
@@ -66,6 +68,10 @@ export async function POST(request: Request) {
       request.headers.get("idempotency-key"));
     if (!matches(operation, input)) throw new IntegrationError("INVALID_ABCD_ASSESSMENT_OPERATION",
       "受治理操作標頭與 ABCD 候選評估內容不一致。", 400);
+    if ((operation === "create" || operation === "revise") && actor.assuranceLevel === "aal1" &&
+      !(await canUseAssessmentDraft(actor, "abcd", input.clientId))) {
+      throw new IntegrationError("ABCD_ASSESSMENT_NOT_AUTHORIZED", "此個案未指派給您，或評估草稿權限已失效。", 403);
+    }
     const supabase = await createServerSupabaseClient();
     if (!supabase) throw databaseFailure("SERVICE_NOT_CONFIGURED", "正式 ABCD 候選評估服務尚未設定。", 503);
     const { data, error } = await supabase.rpc("mutate_abcd_assessment", {

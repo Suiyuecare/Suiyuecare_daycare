@@ -6,6 +6,8 @@ import type { TenantContext } from "@/lib/domain/types";
 import { fail } from "@/lib/api/response";
 import { getTenantContext, hasRecentAal2 } from "@/lib/auth/context";
 import { canUseRoutineCare, type RoutineCarePermission } from "@/lib/auth/routine-care";
+import { canUseAssessmentDraft, hasRecentBodyAssessmentAal2,
+  type AssessmentDraftKind } from "@/lib/auth/assessment-draft";
 import {
   hasSupabaseAdminConfiguration,
   hasSupabaseConfiguration,
@@ -59,7 +61,7 @@ export async function readJsonObject(
 }
 
 export async function authorizeStaffRequest(
-  options: { routinePermission?: RoutineCarePermission } = {},
+  options: { routinePermission?: RoutineCarePermission; assessmentDraft?: AssessmentDraftKind } = {},
 ): Promise<TenantContext> {
   if (!isDemoMode() && !hasSupabaseConfiguration()) {
     throw new IntegrationError(
@@ -73,12 +75,17 @@ export async function authorizeStaffRequest(
     throw new IntegrationError("AUTH_REQUIRED", "請先登入。", 401);
   }
   if (!actor.demo && actor.assuranceLevel !== "aal2" &&
-    (!options.routinePermission || !(await canUseRoutineCare(actor, options.routinePermission)))) {
+    !(options.assessmentDraft
+      ? await canUseAssessmentDraft(actor, options.assessmentDraft)
+      : options.routinePermission && await canUseRoutineCare(actor, options.routinePermission))) {
     throw new IntegrationError(
-      options.routinePermission ? "ROUTINE_CARE_NOT_AUTHORIZED" : "AAL2_REQUIRED",
-      options.routinePermission
-        ? "這個帳號尚未獲准處理此分支的日常紀錄，請聯絡主管確認授權。"
-        : "這項操作需要額外身分確認；一般照顧紀錄請使用今日工作入口。",
+      options.assessmentDraft ? "ASSESSMENT_DRAFT_NOT_AUTHORIZED"
+        : options.routinePermission ? "ROUTINE_CARE_NOT_AUTHORIZED" : "AAL2_REQUIRED",
+      options.assessmentDraft
+        ? "尚未獲准填寫此分支的評估草稿，請聯絡主管確認角色及個案指派。"
+        : options.routinePermission
+          ? "這個帳號尚未獲准處理此分支的日常紀錄，請聯絡主管確認授權。"
+          : "這項操作需要額外身分確認；一般照顧紀錄請使用今日工作入口。",
       403,
     );
   }
@@ -98,6 +105,16 @@ export async function requireRecentAal2(actor: TenantContext) {
     throw new IntegrationError(
       "AAL2_REQUIRED",
       "這項操作需要在最近 15 分鐘內重新完成雙因素驗證。",
+      403,
+    );
+  }
+}
+
+export async function requireRecentBodyAssessmentAal2(actor: TenantContext) {
+  if (!(await hasRecentBodyAssessmentAal2(actor))) {
+    throw new IntegrationError(
+      "AAL2_REQUIRED",
+      "簽署身體評估前，請用已核准的公司 Google 帳號完成最近 15 分鐘內的雙因素驗證。",
       403,
     );
   }

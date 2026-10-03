@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const stubs = vi.hoisted(() => ({ authorizeStaffRequest: vi.fn(), readJsonObject: vi.fn(),
-  requireRecentAal2: vi.fn(), createServerSupabaseClient: vi.fn(), rpc: vi.fn(), maybeSingle: vi.fn() }));
+  requireRecentAal2: vi.fn(), draft: vi.fn(), createServerSupabaseClient: vi.fn(), rpc: vi.fn(), maybeSingle: vi.fn() }));
+vi.mock("@/lib/auth/assessment-draft", () => ({ canUseAssessmentDraft: stubs.draft }));
 
 vi.mock("@/lib/integrations/http", () => ({
   authorizeStaffRequest: stubs.authorizeStaffRequest, readJsonObject: stubs.readJsonObject,
@@ -62,6 +63,7 @@ function request(operation?: string) {
 describe("Page 21 ABCD assessment API boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks(); stubs.authorizeStaffRequest.mockResolvedValue(actor);
+    stubs.draft.mockResolvedValue(true);
     stubs.requireRecentAal2.mockResolvedValue(undefined); stubs.readJsonObject.mockResolvedValue(body);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
@@ -103,6 +105,17 @@ describe("Page 21 ABCD assessment API boundary", () => {
     const sent = stubs.rpc.mock.calls[0]?.[1].p_payload;
     expect(sent).not.toHaveProperty("score"); expect(sent).not.toHaveProperty("diagnosis");
     expect((await response.json()).data).toMatchObject({ assessmentKey, persisted: true, demo: false });
+  });
+  it("preflights AAL1 draft against the exact client, never the signature path", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, assuranceLevel: "aal1" });
+    expect((await POST(request("create"))).status).toBe(201);
+    expect(stubs.authorizeStaffRequest).toHaveBeenCalledWith({ assessmentDraft: "abcd" });
+    expect(stubs.draft).toHaveBeenCalledWith(expect.objectContaining({ assuranceLevel: "aal1" }), "abcd", clientId);
+    stubs.draft.mockResolvedValue(false);
+    expect((await POST(request("create"))).status).toBe(403);
+    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("reauth"), { code: "AAL2_REQUIRED", httpStatus: 403 }));
+    expect((await POST(request("sign"))).status).toBe(403);
+    expect(stubs.authorizeStaffRequest).toHaveBeenLastCalledWith({});
   });
 
   it("rejects header and body disagreement without touching the database", async () => {

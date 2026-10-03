@@ -100,7 +100,7 @@ const sourceSchema = z.object({
     display_name: safeText(120),
   }).strict()).max(500),
   governance_status: z.enum(["not_configured", "published"]),
-  plan_designation_status: z.enum(["not_configured", "published"]),
+  plan_designation_status: z.enum(["not_configured", "published", "restricted"]),
   qualification_status: z.enum(["not_configured", "published"]),
   dose_rule_status: z.enum(["not_configured", "published"]),
   late_entry_rule_status: z.enum(["not_configured", "published"]),
@@ -255,7 +255,7 @@ export function projectInsulinAdministrationSnapshot(
       (!value.items_truncated && items.length !== value.matching_total) ||
       !unique(value.client_options.map((entry) => entry.client_id)) ||
       (!configured && (
-        value.plan_designation_status !== "not_configured" ||
+        !["not_configured", "restricted"].includes(value.plan_designation_status) ||
         value.qualification_status !== "not_configured" ||
         value.dose_rule_status !== "not_configured" ||
         value.late_entry_rule_status !== "not_configured" ||
@@ -265,6 +265,9 @@ export function projectInsulinAdministrationSnapshot(
       (value.plan_designation_status === "not_configured" && (
         value.matching_total !== 0 || items.length !== 0 || value.can_execute ||
         value.can_review || value.can_authorize_late
+      )) ||
+      (value.plan_designation_status === "restricted" && (
+        value.can_execute || value.can_review || value.can_authorize_late
       )) ||
       (configured && (
         value.qualification_status !== "published" ||

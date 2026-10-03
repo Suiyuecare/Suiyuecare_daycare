@@ -1,5 +1,5 @@
 begin;
-select plan(37);
+select plan(43);
 select set_config('test.activation_amr',floor(extract(epoch from now()-interval '2 minutes'))::text,true);
 insert into auth.users(id,email,email_confirmed_at) values
  ('db010000-0000-4000-8000-000000000001','manager@care.example.invalid',now()),
@@ -105,5 +105,36 @@ select ok(not exists(select 1 from public.audit_events where table_name='private
  and metadata::text like '%manager@%'),'audit contains no raw email');
 select ok((select count(*)=2 from public.audit_events where table_name='private.pending_staff_google_activations'),'approval and activation both audited');
 select throws_ok($$delete from private.pending_staff_google_activations$$,'23514',null,'approval history cannot be deleted');
+
+-- A separately approved director has only the single-site, read-only
+-- template. Verified Google self-activation must not turn it into nursing,
+-- social-work, or multi-site management access.
+insert into auth.users(id,email,email_confirmed_at) values
+ ('db010000-0000-4000-8000-000000000003','director@care.example.invalid',now());
+insert into auth.identities(id,provider_id,user_id,provider,identity_data) values
+ ('db020000-0000-4000-8000-000000000003','synthetic-director','db010000-0000-4000-8000-000000000003','google',
+ '{"sub":"synthetic-director","email":"director@care.example.invalid","email_verified":true}');
+insert into auth.sessions(id,user_id,created_at,aal) values
+ ('db030000-0000-4000-8000-000000000003','db010000-0000-4000-8000-000000000003',now()-interval '3 minutes','aal1');
+insert into auth.mfa_amr_claims(id,session_id,created_at,updated_at,authentication_method) values
+ (gen_random_uuid(),'db030000-0000-4000-8000-000000000003',to_timestamp(current_setting('test.activation_amr')::bigint),to_timestamp(current_setting('test.activation_amr')::bigint),'oauth');
+insert into private.pending_staff_google_activations(user_id,organization_id,branch_id,role_id,allowed_email,display_name,approval_reference)
+ select 'db010000-0000-4000-8000-000000000003','db040000-0000-4000-8000-000000000001','db050000-0000-4000-8000-000000000001',id,
+ 'director@care.example.invalid','Synthetic director','Synthetic director owner approval'
+ from public.roles where role_key='branch_director' and is_system;
+set local role authenticated;
+select pg_temp.activation_claims('{"sub":"db010000-0000-4000-8000-000000000003","session_id":"db030000-0000-4000-8000-000000000003","email":"director@care.example.invalid"}');
+select is(public.activate_approved_staff_google_account(),true,'approved Google director activates once');
+select is(public.is_staff_login_allowed(),true,'activated director may sign in');
+select is((select count(*)::int from public.branches),1,'director sees only approved branch');
+select is(public.activate_approved_staff_google_account(),true,'director activation replay is safe');
+reset role;
+select is((select count(*)::int from public.membership_roles mr join public.memberships m on m.id=mr.membership_id
+ join public.roles r on r.id=mr.role_id where m.profile_id='db010000-0000-4000-8000-000000000003'
+ and r.role_key='branch_director'),1,'director receives exact approved role');
+select is((select count(*)::int from public.membership_roles mr join public.memberships m on m.id=mr.membership_id
+ join public.roles r on r.id=mr.role_id where m.profile_id='db010000-0000-4000-8000-000000000003'
+ and r.role_key in ('nurse','case_manager_social_worker','branch_supervisor','organization_manager')),0,
+ 'director gets no implied clinical or broader role');
 select * from finish();
 rollback;

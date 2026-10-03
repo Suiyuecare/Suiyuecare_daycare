@@ -1,6 +1,7 @@
 import { ok } from "@/lib/api/response";
+import { canUseAssessmentDraft } from "@/lib/auth/assessment-draft";
 import { IntegrationError } from "@/lib/integrations/errors";
-import { authorizeStaffRequest, databaseFailure, handleIntegrationRoute, readJsonObject, requireRecentAal2 } from "@/lib/integrations/http";
+import { authorizeStaffRequest, databaseFailure, handleIntegrationRoute, readJsonObject, requireRecentBodyAssessmentAal2 } from "@/lib/integrations/http";
 import { BODY_MUTATION_MAX_BYTES, parseBodyAssessmentMutation, parseBodyAssessmentReceipt } from "@/lib/body-assessments/parser";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
@@ -10,14 +11,18 @@ export async function POST(request: Request) {
     const operation = request.headers.get("x-body-assessment-operation");
     if (!operation || !["create", "revise", "sign", "correct"].includes(operation)) throw new IntegrationError(
       "INVALID_BODY_ASSESSMENT_OPERATION", "缺少身體評估操作標頭。", 400);
-    const actor = await authorizeStaffRequest();
-    if (actor.demo) throw new IntegrationError("DEMO_READ_ONLY", "展示模式僅提供合成資料閱讀。", 403);
     const signing = operation === "sign" || operation === "correct";
+    const actor = await authorizeStaffRequest(signing ? {} : { assessmentDraft: "body" });
+    if (actor.demo) throw new IntegrationError("DEMO_READ_ONLY", "展示模式僅提供合成資料閱讀。", 403);
     if (!["clients.read", "body_assessments.read", signing ? "body_assessments.sign" : "body_assessments.manage"]
       .every((s) => actor.scopes.includes(s))) throw new IntegrationError("BODY_ASSESSMENT_NOT_AUTHORIZED", "缺少完整身體評估操作權限。", 403);
-    if (signing) await requireRecentAal2(actor);
+    if (signing) await requireRecentBodyAssessmentAal2(actor);
     const input = parseBodyAssessmentMutation(await readJsonObject(request, BODY_MUTATION_MAX_BYTES), request.headers.get("idempotency-key"));
     if (input.payload.action !== operation) throw new IntegrationError("INVALID_BODY_ASSESSMENT_OPERATION", "操作標頭與內容不一致。", 400);
+    if (!signing && actor.assuranceLevel === "aal1" &&
+      !(await canUseAssessmentDraft(actor, "body", input.payload.client_id))) {
+      throw new IntegrationError("BODY_ASSESSMENT_NOT_AUTHORIZED", "此個案未指派給您，或評估草稿權限已失效。", 403);
+    }
     const supabase = await createServerSupabaseClient();
     if (!supabase) throw databaseFailure("SERVICE_NOT_CONFIGURED", "正式身體評估服務尚未設定。", 503);
     const { data, error } = await supabase.rpc("mutate_body_assessment", { p_expected_organization_id: actor.organizationId,

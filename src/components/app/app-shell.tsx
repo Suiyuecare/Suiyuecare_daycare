@@ -3,19 +3,10 @@
 import { useCallback, useEffect, useId, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Bell,
-  BookOpenCheck,
-  BriefcaseMedical,
   Building2,
   ChevronDown,
-  ClipboardCheck,
-  HeartHandshake,
-  LayoutDashboard,
   LogOut,
   Menu,
-  MessageCircleMore,
-  Settings2,
-  ShieldCheck,
-  Stethoscope,
   UsersRound,
   X,
 } from "lucide-react";
@@ -41,20 +32,7 @@ import { NavigationLink } from "./navigation-link";
 import { TaipeiClock } from "./taipei-clock";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 import { DAILY_SERVICE_SUMMARY_PATH } from "@/lib/daily-service-summary/query";
-
-const moduleIcons = {
-  workspace: LayoutDashboard,
-  "daily-care": HeartHandshake,
-  assessments: ClipboardCheck,
-  quality: ShieldCheck,
-  "social-work": UsersRound,
-  "professional-care": Stethoscope,
-  communication: MessageCircleMore,
-  "service-management": BriefcaseMedical,
-  operations: Building2,
-  governance: Settings2,
-  "family-portal": BookOpenCheck,
-} as const;
+import { iconForPage } from "./page-icons";
 
 // Keep the shared entry points stable. The third slot is a familiar task for
 // the person's approved role, selected only from server-filtered navigation.
@@ -507,7 +485,6 @@ export function AppShell({
         </div>
         <nav className="sidebar__nav">
           {navigation.filter((group) => group.id === "workspace").map((group) => {
-            const Icon = moduleIcons[group.id];
             const expanded = openGroups.has(group.id);
             return <section className="nav-group" key={group.id}>
               <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
@@ -515,6 +492,7 @@ export function AppShell({
               </button>
               {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
                 const href = `/app/${page.slug}`;
+                const Icon = iconForPage(page);
                 return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
                   <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
                 </NavigationLink>;
@@ -534,7 +512,6 @@ export function AppShell({
             </NavigationLink></div>
           </section> : null}
           {navigation.filter((group) => group.id !== "workspace").map((group) => {
-            const Icon = moduleIcons[group.id];
             const expanded = openGroups.has(group.id);
             return <section className="nav-group" key={group.id}>
               <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
@@ -542,6 +519,7 @@ export function AppShell({
               </button>
               {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
                 const href = `/app/${page.slug}`;
+                const Icon = iconForPage(page);
                 return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
                   <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
                 </NavigationLink>;
@@ -591,7 +569,7 @@ export function AppShell({
       </div>
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
         {mobilePages.map((page) => {
-          const Icon = moduleIcons[page.moduleId];
+          const Icon = iconForPage(page);
           const label = mobileShortLabels[page.number] ?? page.title;
           const contextual = page.number === 3 && currentDailyNavigation;
           return <NavigationLink fullDocument={sensitiveDocument} href={contextual ? dailyWorkflowHref(3, contextual.serviceDate, contextual.clientId, contextual.shift) : `/app/${page.slug}`}

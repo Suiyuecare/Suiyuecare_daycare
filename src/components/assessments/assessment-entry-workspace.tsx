@@ -5,6 +5,7 @@ import type { PageCatalogEntry } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
 import type { ExternalAssessmentInstrument } from "@/lib/external-assessment-results/contract";
 import { ExternalAssessmentResultsWorkspace } from "@/components/external-assessment-results/external-assessment-results-workspace";
+import { iconForPage } from "@/components/app/page-icons";
 
 import styles from "./assessment-entry-workspace.module.css";
 
@@ -86,40 +87,44 @@ export function AssessmentEntryWorkspace({
       {pages.length ? <>
         {candidateDrafts.length ? <section aria-label="候選量表草稿">
           <h3 className={styles.groupTitle}>可填寫量表草稿</h3>
-          <ul className={styles.cards}>{candidateDrafts.map((page) => <li key={page.slug}>
+          <ul className={styles.cards}>{candidateDrafts.map((page) => { const Icon = iconForPage(page); return <li key={page.slug}>
             <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
+              <Icon aria-hidden="true" className={styles.pictogram} />
               <span>{page.title}<small>{candidateDescription(page.number)}</small></span>
               <ArrowRight aria-hidden="true" />
             </Link>
-          </li>)}</ul>
+          </li>; })}</ul>
         </section> : null}
         {observationDrafts.length ? <section aria-label="人工觀察草稿">
           <h3 className={styles.groupTitle}>人工觀察草稿</h3>
-          <ul className={styles.cards}>{observationDrafts.map((page) => <li key={page.slug}>
+          <ul className={styles.cards}>{observationDrafts.map((page) => { const Icon = iconForPage(page); return <li key={page.slug}>
             <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
+              <Icon aria-hidden="true" className={styles.pictogram} />
               <span>{page.title}<small>人工觀察・不自動計分</small></span>
               <ArrowRight aria-hidden="true" />
             </Link>
-          </li>)}</ul>
+          </li>; })}</ul>
         </section> : null}
         {manualRecords.length ? <section aria-label="人工評估紀錄">
           <h3 className={styles.groupTitle}>人工評估與照顧紀錄</h3>
-          <ul className={styles.cards}>{manualRecords.map((page) => <li key={page.slug}>
+          <ul className={styles.cards}>{manualRecords.map((page) => { const Icon = iconForPage(page); return <li key={page.slug}>
             <Link href={`/app/${page.slug}?client=${encodeURIComponent(selectedClient.id)}`}>
+              <Icon aria-hidden="true" className={styles.pictogram} />
               <span>{page.title}<small>人工紀錄 · 不自動計分</small></span>
               <ArrowRight aria-hidden="true" />
             </Link>
-          </li>)}</ul>
+          </li>; })}</ul>
         </section> : null}
       </> : <p className={styles.empty} role="status">此帳號目前沒有可開啟的評估表單。</p>}
       {unavailablePages.length ? <section aria-label="尚未開放的正式量表">
         <h3 className={styles.groupTitle}>尚未開放正式填寫</h3>
-        <ul className={`${styles.cards} ${styles.unavailableCards}`}>{unavailablePages.map((page) => <li key={page.slug}>
+        <ul className={`${styles.cards} ${styles.unavailableCards}`}>{unavailablePages.map((page) => { const Icon = iconForPage(page); return <li key={page.slug}>
           <Link className={styles.unavailable} href={`/app/staff/assessments/swallowing?client=${encodeURIComponent(selectedClient.id)}&externalInstrument=${instrumentForPage(page.number)}#external-result-entry`}>
+            <Icon aria-hidden="true" className={styles.pictogram} />
             <span>{page.title}<small>{unavailableReason(page.number)}</small></span>
             <span className={styles.lockedLabel}>登錄外部結果</span>
           </Link>
-        </li>)}</ul>
+        </li>; })}</ul>
       </section> : null}
       <p className={styles.note}>答案會以草稿版本保存；請核對每題與結果，再由具權限人員作專業判讀及後續決定。</p>
       {canReadExternalResults

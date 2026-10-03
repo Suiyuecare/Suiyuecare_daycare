@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { StaffAccessDenied } from "@/components/app/staff-access-denied";
 import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canUseRoutineCompletion } from "@/lib/auth/routine-completion";
+import { canUseAssessmentDraft, hasRecentBodyAssessmentAal2 } from "@/lib/auth/assessment-draft";
 import { OpeningReadinessWorkspace } from "@/components/opening-readiness/opening-readiness-workspace";
 import { loadOpeningReadinessSnapshot } from "@/lib/opening-readiness/snapshot";
 import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
@@ -1243,10 +1244,12 @@ export default async function StaffCatalogPage({
     let loadError = false;
     try { filters = parseBehaviorEventFilters(parameters); }
     catch { loadError = true; }
-    const baseAuthority = !context.demo && context.assuranceLevel === "aal2" &&
+    const baseAuthority = !context.demo &&
       context.scopes.includes("clients.read") && context.scopes.includes("behavior_events.read");
-    const canManage = baseAuthority && context.scopes.includes("behavior_events.manage");
-    const canSign = baseAuthority && context.scopes.includes("behavior_events.sign");
+    const aal2Authority = baseAuthority && context.assuranceLevel === "aal2";
+    const canManage = baseAuthority && context.scopes.includes("behavior_events.manage") &&
+      (aal2Authority || await canUseAssessmentDraft(context, "behavior"));
+    const canSign = aal2Authority && context.scopes.includes("behavior_events.sign");
     let snapshot = null;
     let recentAal2 = false;
     if (!loadError) {
@@ -1275,9 +1278,9 @@ export default async function StaffCatalogPage({
     let loadError = false;
     try { filters = parseAbcdAssessmentFilters(parameters); }
     catch { loadError = true; }
-    const canManage = !context.demo && context.assuranceLevel === "aal2" &&
-      context.scopes.includes("clients.read") && context.scopes.includes("abcd_assessments.read") &&
-      context.scopes.includes("abcd_assessments.manage");
+    const canManage = !context.demo && context.scopes.includes("clients.read") &&
+      context.scopes.includes("abcd_assessments.read") && context.scopes.includes("abcd_assessments.manage") &&
+      (context.assuranceLevel === "aal2" || await canUseAssessmentDraft(context, "abcd"));
     let snapshot = null;
     let recentAal2 = false;
     if (!loadError) {
@@ -3860,9 +3863,11 @@ export default async function StaffCatalogPage({
         <p>資料未取得；不會以展示資料或其他分支補位。</p>
         <a className="button button--secondary" href="?">重新載入</a></section>;
     }
-    const recentAal2 = !context.demo && await hasRecentAal2();
+    const recentAal2 = !context.demo && await hasRecentBodyAssessmentAal2(context);
+    const canManageDraft = !context.demo && context.scopes.includes("body_assessments.manage") &&
+      (context.assuranceLevel === "aal2" || await canUseAssessmentDraft(context, "body"));
     return <BodyAssessmentsWorkspace page={page} snapshot={snapshot} actorUserId={context.userId}
-      canManage={!context.demo && context.scopes.includes("body_assessments.manage")}
+      canManage={canManageDraft}
       canSign={recentAal2 && context.scopes.includes("body_assessments.sign")} />;
   }
 

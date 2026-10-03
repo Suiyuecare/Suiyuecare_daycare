@@ -40,17 +40,18 @@ function formatTaipei(value: string | null) {
 }
 
 function ConfigurationNotice({ snapshot }: { snapshot: InsulinAdministrationSnapshot }) {
+  const readOnly = snapshot.planDesignationStatus === "restricted";
   const ready = snapshot.governanceStatus === "published" &&
     snapshot.planDesignationStatus === "published" &&
     snapshot.qualificationStatus === "published" &&
     snapshot.doseRuleStatus === "published" &&
     snapshot.lateEntryRuleStatus === "published";
-  return <div className={ready ? styles.notice : styles.blocked} role="status">
+  return <div className={ready || readOnly ? styles.notice : styles.blocked} role="status">
     <ShieldCheck aria-hidden="true" />
-    <div><strong>{ready ? "治理版本已發布" : "正式流程尚未配置完成"}</strong>
-      <p>資格 {snapshot.qualificationStatus} · 胰島素計畫指定 {snapshot.planDesignationStatus}
+    <div><strong>{readOnly ? "僅供查看；施打與覆核未授權" : ready ? "治理版本已發布" : "正式流程尚未配置完成"}</strong>
+      <p>資格 {snapshot.qualificationStatus} · 胰島素計畫指定 {readOnly ? "依個案授權顯示" : snapshot.planDesignationStatus}
         · 劑量規則 {snapshot.doseRuleStatus} · 補登規則 {snapshot.lateEntryRuleStatus}</p>
-      {!ready ? <p>缺少任一項時，正式 API 與資料庫一律拒絕施打、覆核及補登授權。</p> : null}
+      {!ready && !readOnly ? <p>缺少任一項時，正式 API 與資料庫一律拒絕施打、覆核及補登授權。</p> : null}
     </div>
   </div>;
 }
