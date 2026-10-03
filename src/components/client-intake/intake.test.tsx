@@ -177,7 +177,7 @@ describe("intake usability and truthful writes", () => {
     fireEvent.click(screen.getByRole("button", { name: "放棄輸入並離開" }));
     expect(routerReplace).toHaveBeenCalledWith("/app/staff/workspace/case-center");
     expect(routerReplace).toHaveBeenCalledTimes(1);
-    expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined();
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined());
     expect(window.history.state.__NA).toBe(true);
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
     expect(confirm).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ describe("intake usability and truthful writes", () => {
     await waitFor(() => expect(window.location.search).toBe(`?client=${id}`));
     expect(window.history.state.__NA).toBe(true);
     expect(window.history.state.__PRIVATE_NEXTJS_INTERNALS_TREE).toEqual({ synthetic: true });
-    expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined();
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toBeUndefined());
     expect(fetch).toHaveBeenCalledTimes(2);
   });
   it("does not offer unknown-case CMS staging to assigned-only staff", () => {
@@ -273,14 +273,52 @@ describe("intake usability and truthful writes", () => {
   });
   it("retains fields and idempotency key when an uncertain request is retried", async () => {
     const fetch = vi.fn().mockRejectedValueOnce(new Error("連線中斷"))
+      .mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }))
       .mockResolvedValueOnce(Response.json({ status: "ok", data: { clientId: id, persisted: true } }));
     vi.stubGlobal("fetch", fetch); const onSaved = vi.fn().mockResolvedValue(undefined);
     render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={onSaved} onDirty={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成測試個案" } }); fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
     fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); expect(await screen.findByRole("alert")).toHaveTextContent("連線中斷");
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成測試個案");
-    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" })); await waitFor(() => expect(onSaved).toHaveBeenCalledWith(id));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重試同一次儲存" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次儲存" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("暫時拒絕"));
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次儲存" })); await waitFor(() => expect(onSaved).toHaveBeenCalledWith(id));
     expect(JSON.parse(fetch.mock.calls[0][1].body).idempotency_key).toBe(JSON.parse(fetch.mock.calls[1][1].body).idempotency_key);
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(fetch.mock.calls[1][1].body).toBe(fetch.mock.calls[2][1].body);
+  });
+  it("releases a first-attempt validated rejection without claiming an ambiguous retry is safe", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "欄位需修正" }] }, { status: 400 }));
+    vi.stubGlobal("fetch", fetch);
+    const onUnknown = vi.fn();
+    render(<IntakeProfileForm initial={null} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} onUnknown={onUnknown} />);
+    fireEvent.change(screen.getByLabelText("姓名／顯示稱呼（必填）"), { target: { value: "合成個案" } });
+    fireEvent.change(screen.getByLabelText("機構個案編號（必填）"), { target: { value: "TEST-001" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立待收案個案" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("欄位需修正");
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled();
+    expect(onUnknown).not.toHaveBeenCalledWith(true);
+  });
+
+  it("blocks changing client after an ambiguous profile write", async () => {
+    const other = "c1600000-0000-4000-8000-000000000002";
+    const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成既有個案", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null };
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("synthetic network loss")));
+    render(<IntakeWorkspace context={newCaseContext} clients={[{ id, displayName: "合成既有個案", clientCode: "TEST-001" }, { id: other, displayName: "合成另一個案", clientCode: "TEST-002" }]} initialSnapshot={snapshot} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("個案電話"), { target: { value: "合成電話" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存基本資料" }));
+    expect(await screen.findByRole("button", { name: "重試同一次儲存" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /1\s*匯入與建檔/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /3\s*每週到站與接送/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("目前處理的個案"), { target: { value: other } });
+    expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("alert").some((element) => element.textContent?.includes("結果尚未確認"))).toBe(true);
+    expect(screen.getByLabelText("個案電話")).toHaveValue("合成電話");
   });
   it("central identity stays locked while local contact fields remain editable", () => {
     render(<IntakeProfileForm initial={{ clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成中央個案", clientCode: "TEST-001" }, fieldAuthority: { displayName: "central" }, sourceBatchId: id }} canManage demo={false} today="2026-09-14" onSaved={vi.fn()} onDirty={vi.fn()} />);
@@ -409,6 +447,13 @@ describe("intake usability and truthful writes", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
     rejectWrite(new Error("synthetic network failure"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "重試同一次儲存" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("link", { name: "個案中心" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(routerReplace).not.toHaveBeenCalled();
+    window.history.back();
+    await waitFor(() => expect(window.history.state.__daycareIntakeUnsavedGuard).toBe(marker));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("合成未儲存名字");
   });
 });

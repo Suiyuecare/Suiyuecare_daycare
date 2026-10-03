@@ -2,16 +2,18 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { emptyIntakeProfile, intakeProfileSchema, intakeMissingItems, isCalendarDate, type IntakeProfile, type IntakeSnapshot } from "@/lib/client-intake/model";
-import { intakeErrorMessage, intakeRequest } from "@/lib/client-intake/client";
+import { intakeErrorMessage, intakeRequest, isDefiniteIntakeRejection } from "@/lib/client-intake/client";
 import styles from "./intake.module.css";
 
-export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, onDirty, onBusy }: {
+export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, onDirty, onBusy, onUnknown }: {
   initial: IntakeSnapshot | null; canManage: boolean; demo: boolean; today: string;
   onSaved: (clientId: string) => Promise<void>; onDirty: (dirty: boolean) => void;
   onBusy?: (busy: boolean) => void;
+  onUnknown?: (unknown: boolean) => void;
 }) {
   const [profile, setProfile] = useState<IntakeProfile>(() => structuredClone(initial?.profile ?? emptyIntakeProfile));
   const [busy, setBusy] = useState(false);
+  const [writeUnknown, setWriteUnknown] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [invalid, setInvalid] = useState<string[]>([]);
@@ -21,7 +23,10 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
   const operation = useRef<{ payload: string; key: string } | null>(null);
   const inFlight = useRef(false);
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
+  useEffect(() => () => onUnknown?.(false), [onUnknown]);
   const disabled = !canManage || demo || busy;
+  const inputsDisabled = disabled || writeUnknown;
+  function markUnknown(value: boolean) { setWriteUnknown(value); onUnknown?.(value); }
   function focusField(name: string) {
     const control = formRef.current?.elements.namedItem(name);
     if (control instanceof HTMLElement) control.focus();
@@ -35,6 +40,7 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
   function hintId(path: string) { return `${errorId}-${path.replaceAll(".", "-")}`; }
   function errorAttributes(path: string) { return { "aria-invalid": invalid.includes(path), "aria-describedby": invalid.includes(path) ? fieldHints[path] ? hintId(path) : errorId : undefined }; }
   function update<K extends keyof IntakeProfile>(key: K, value: IntakeProfile[K]) {
+    if (writeUnknown) return;
     setProfile((p) => ({ ...p, [key]: value })); onDirty(true); setMessage("");
     if (key === "dateOfBirth" || key === "consent") {
       const path = key === "consent" ? "consent.confirmedOn" : "dateOfBirth";
@@ -43,7 +49,7 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
     }
   }
   function locked(key: keyof IntakeProfile) {
-    return disabled || initial?.fieldAuthority[key] === "central" && ["displayName", "identityNumber", "dateOfBirth", "sex", "cmsLevel", "disability"].includes(key) || key === "identityNumber" && Boolean(initial?.profile.identityNumber);
+    return inputsDisabled || initial?.fieldAuthority[key] === "central" && ["displayName", "identityNumber", "dateOfBirth", "sex", "cmsLevel", "disability"].includes(key) || key === "identityNumber" && Boolean(initial?.profile.identityNumber);
   }
   function field(key: "displayName" | "clientCode" | "dateOfBirth" | "identityNumber" | "phone" | "registeredAddress" | "residentialAddress" | "disability", label: string, type = "text", required = false) {
     return <label>{label}{required ? "（必填）" : ""}
@@ -64,19 +70,31 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
     if (invalidPaths.length) { setInvalid(invalidPaths); setFieldHints(dateHints); setError("以下欄位尚需修正，資料尚未儲存。"); focusField(invalidPaths[0]); return; }
     if (!parsed.success) return;
     const payload = JSON.stringify({ action: initial ? "update" : "create", profile: parsed.data, ...(initial ? { clientId: initial.clientId, expectedVersion: initial.profileVersion, expectedClientVersion: initial.clientRowVersion } : {}) });
-    if (operation.current?.payload !== payload) operation.current = { payload, key: crypto.randomUUID() };
+    if (writeUnknown && !operation.current) { setError("上次儲存結果尚未確認；請保留畫面並聯絡管理員核對。"); return; }
+    if (!writeUnknown && operation.current?.payload !== payload) operation.current = { payload, key: crypto.randomUUID() };
+    const retry = operation.current;
+    if (!retry) return;
+    const wasUnknown = writeUnknown;
     inFlight.current = true; setBusy(true);
+    let writeConfirmed = false;
     try {
-      const receipt = z.object({ clientId: z.uuid(), persisted: z.literal(true) }).parse(await intakeRequest("/api/client-intake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...JSON.parse(payload), idempotency_key: operation.current.key }) }));
+      const receipt = z.object({ clientId: z.uuid(), persisted: z.literal(true) }).parse(await intakeRequest("/api/client-intake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...JSON.parse(retry.payload), idempotency_key: retry.key }) }));
       if (initial && receipt.clientId !== initial.clientId) throw new Error("儲存回條與目前個案不一致，請保留輸入並重試，不要另建個案。");
+      writeConfirmed = true; operation.current = null; markUnknown(false);
       onDirty(false); setMessage("基本資料已儲存，正在重新讀取。建檔不代表已核准收案。");
       await onSaved(receipt.clientId);
-    } catch (e) { setError(intakeErrorMessage(e)); } finally { inFlight.current = false; setBusy(false); }
+    } catch (e) {
+      if (!writeConfirmed) {
+        if (!wasUnknown && isDefiniteIntakeRejection(e)) { operation.current = null; markUnknown(false); }
+        else markUnknown(true);
+      }
+      setError(intakeErrorMessage(e));
+    } finally { inFlight.current = false; setBusy(false); }
   }
   return <form ref={formRef} onSubmit={save} noValidate className={styles.form}>
     <div><h2>{initial ? "核對個案基本資料" : "手動建立待收案個案"}</h2><p>先填姓名與機構編號；其他未提供的資料可後續核對，不要猜填。</p></div>
     {!demo && !canManage ? <p className={styles.notice}>目前僅可查看，請由有權限的收案人員修改。</p> : null}
-    <fieldset disabled={disabled}><legend>身分與聯繫</legend><div className={styles.grid}>
+    <fieldset disabled={inputsDisabled}><legend>身分與聯繫</legend><div className={styles.grid}>
       {field("displayName", "姓名／顯示稱呼", "text", true)}{field("clientCode", "機構個案編號", "text", true)}
       {field("identityNumber", "身分證／居留證識別")}{field("dateOfBirth", "出生日期", "date")}
       <label>性別<select value={profile.sex} disabled={locked("sex")} onChange={(e) => update("sex", e.target.value as IntakeProfile["sex"])}><option value="unknown">未提供</option><option value="male">男</option><option value="female">女</option><option value="other">其他</option></select></label>
@@ -84,7 +102,7 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
       <label>CMS 等級<select value={profile.cmsLevel ?? ""} disabled={locked("cmsLevel")} onChange={(e) => update("cmsLevel", e.target.value ? Number(e.target.value) : null)}><option value="">未提供</option>{[1, 2, 3, 4, 5, 6, 7, 8].map((v) => <option key={v} value={v}>{v} 級</option>)}</select></label>
       {field("disability", "身障資格／程度")}
     </div></fieldset>
-    <fieldset disabled={disabled}><legend>關係人與交接聯絡</legend>
+    <fieldset disabled={inputsDisabled}><legend>關係人與交接聯絡</legend>
       {profile.contacts.length === 0 ? <p>尚未提供聯絡人。可先建檔，後續再補。</p> : null}
       {profile.contacts.map((contact, index) => <section key={index} className={styles.contact} aria-label={`聯絡人 ${index + 1}`}>
         <div className={styles.grid}>{([ ["name", "聯絡人姓名"], ["relationship", "與個案關係"], ["phone", "聯絡電話"], ["address", "聯絡地址"] ] as const).map(([key, label]) => <label key={key}>{label}<input name={`contacts.${index}.${key}`} {...errorAttributes(`contacts.${index}.${key}`)} value={contact[key]} autoComplete="off" maxLength={key === "address" ? 500 : key === "phone" ? 80 : 120} required={key === "name"} onChange={(e) => update("contacts", profile.contacts.map((c, i) => i === index ? { ...c, [key]: e.target.value } : c))} /></label>)}</div>
@@ -94,12 +112,13 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
       </section>)}
       <button type="button" disabled={profile.contacts.length >= 10} onClick={() => update("contacts", [...profile.contacts, { name: "", relationship: "", phone: "", address: "", isPrimary: profile.contacts.length === 0, isEmergency: false }])}>＋新增聯絡人</button>
     </fieldset>
-    <fieldset disabled={disabled}><legend>告知同意與補充</legend><div className={styles.grid}>
+    <fieldset disabled={inputsDisabled}><legend>告知同意與補充</legend><div className={styles.grid}>
       <label>告知同意狀態<select value={profile.consent.status} onChange={(e) => update("consent", { status: e.target.value as IntakeProfile["consent"]["status"], confirmedOn: null })}><option value="pending">待確認</option><option value="confirmed">已明確確認</option><option value="declined">尚未同意</option></select></label>
       <label>確認日期<input name="consent.confirmedOn" {...errorAttributes("consent.confirmedOn")} type="date" max={today} required={profile.consent.status === "confirmed"} disabled={profile.consent.status !== "confirmed"} value={profile.consent.confirmedOn ?? ""} onChange={(e) => update("consent", { ...profile.consent, confirmedOn: e.target.value || null })} />{fieldHints["consent.confirmedOn"] ? <small className={styles.errorHint} id={hintId("consent.confirmedOn")}>{fieldHints["consent.confirmedOn"]}</small> : null}</label>
     </div><label>機構補充說明<textarea name="notes" {...errorAttributes("notes")} value={profile.notes} rows={3} maxLength={4000} onChange={(e) => update("notes", e.target.value)} /></label></fieldset>
     <p className={styles.notice}>目前仍待核對：{intakeMissingItems(profile).join("、") || "基本欄位已提供；仍須確認評估、文件與正式收案審核。"}</p>
     {error ? <div className={styles.error} role="alert" id={errorId}><p>{error}</p>{invalid.length ? <ul>{invalid.map((path) => <li key={path}><button type="button" onClick={() => focusField(path)}>{fieldLabel(path)}</button>{fieldHints[path] ? `：${fieldHints[path]}` : null}</li>)}</ul> : null}</div> : null}{message ? <p role="status">{message}</p> : null}
-    <button className="button button--primary" type="submit" disabled={disabled}>{busy ? "儲存與核對中…" : initial ? "儲存基本資料" : "建立待收案個案"}</button>
+    {writeUnknown ? <p className={styles.notice} role="status">上次儲存結果尚未確認；欄位已暫時鎖定，請以同一次內容重試。</p> : null}
+    <button className="button button--primary" type="submit" disabled={disabled}>{busy ? "儲存與核對中…" : writeUnknown ? "重試同一次儲存" : initial ? "儲存基本資料" : "建立待收案個案"}</button>
   </form>;
 }

@@ -218,6 +218,88 @@ describe("private document intake UI", () => {
     expect(screen.getByText("此份文件處置理由：逐份獨立理由")).toBeVisible();
     expect(screen.getByText("類別覆核／不適用註記：類別獨立註記")).toBeVisible();
   });
+  it("freezes an uncertain category review and retries the immutable original body and key", async () => {
+    const verified = liveRead();
+    Object.assign(verified.data.snapshot.rows.find((row) => row.category === "medication_bag")!, {
+      reviewVersion: 1, status: "not_applicable", categoryReviewDecision: "not_applicable", reviewReason: "合成不適用原因",
+    });
+    const receipt = { clientId: props.clientId, category: "medication_bag", reviewVersion: 1, decision: "not_applicable", persisted: true, replayed: true };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead()))
+      .mockRejectedValueOnce(new DOMException("The operation timed out", "TimeoutError"))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: { receipt } }))
+      .mockResolvedValueOnce(Response.json(verified));
+    vi.stubGlobal("fetch", fetch); const onUnknown = vi.fn();
+    render(<ClientDocumentsWorkspace {...props} onUnknown={onUnknown} />);
+    await waitFor(() => expect(screen.getByLabelText("藥袋處置")).toBeEnabled()); expandForms();
+    fireEvent.change(screen.getByLabelText("藥袋處置"), { target: { value: "not_applicable" } });
+    fireEvent.change(screen.getByLabelText("藥袋覆核／不適用理由"), { target: { value: "合成不適用原因" } });
+    const bag = within(screen.getByRole("article", { name: "藥袋" }));
+    fireEvent.click(bag.getByRole("button", { name: "儲存文件處置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("原次文件處置結果尚未確認");
+    expect(onUnknown).toHaveBeenLastCalledWith(true);
+    expect(screen.getByLabelText("藥袋處置")).toBeDisabled();
+    expect(screen.getByLabelText("藥袋覆核／不適用理由")).toBeDisabled();
+    expect(screen.getByLabelText("身分證正面院所／開立單位")).toBeDisabled();
+    expect(within(screen.getByRole("article", { name: "身分證正面" })).getByRole("button", { name: "儲存文件處置" })).toBeDisabled();
+    expect(bag.getByRole("button", { name: "重試確認原次文件處置" })).toBeEnabled();
+    fireEvent.click(bag.getByRole("button", { name: "重試確認原次文件處置" }));
+    expect(await screen.findByText(/文件處置已儲存並重新讀回/)).toBeVisible();
+    const original = fetch.mock.calls[1][1].body as string;
+    const retried = fetch.mock.calls[2][1].body as string;
+    expect(retried).toBe(original);
+    expect(JSON.parse(retried)).toMatchObject({ category: "medication_bag", expectedDocumentVersion: 0, expectedReviewVersion: 0,
+      decision: "not_applicable", reason: "合成不適用原因", idempotency_key: JSON.parse(original).idempotency_key });
+    await waitFor(() => expect(onUnknown).toHaveBeenLastCalledWith(false));
+    expect(screen.getByLabelText("藥袋處置")).toBeEnabled();
+  });
+  it("resolves an uncertain category review from exact authoritative readback without another PATCH", async () => {
+    const verified = liveRead();
+    Object.assign(verified.data.snapshot.rows.find((row) => row.category === "medication_bag")!, {
+      reviewVersion: 1, status: "reviewed", categoryReviewDecision: "not_applicable", reviewReason: "合成不適用原因",
+    });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead()))
+      .mockRejectedValueOnce(new DOMException("The operation timed out", "TimeoutError"))
+      .mockResolvedValueOnce(Response.json(verified));
+    vi.stubGlobal("fetch", fetch); const onUnknown = vi.fn();
+    render(<ClientDocumentsWorkspace {...props} onUnknown={onUnknown} />);
+    await waitFor(() => expect(screen.getByLabelText("藥袋處置")).toBeEnabled()); expandForms();
+    fireEvent.change(screen.getByLabelText("藥袋處置"), { target: { value: "not_applicable" } });
+    fireEvent.change(screen.getByLabelText("藥袋覆核／不適用理由"), { target: { value: "合成不適用原因" } });
+    fireEvent.click(within(screen.getByRole("article", { name: "藥袋" })).getByRole("button", { name: "儲存文件處置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("原次文件處置結果尚未確認");
+    fireEvent.click(screen.getByRole("button", { name: "讀回核對原次處置" }));
+    expect(await screen.findByText(/已重新讀回原次文件處置/)).toBeVisible();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.filter((call) => call[1]?.method === "PATCH")).toHaveLength(1);
+    await waitFor(() => expect(onUnknown).toHaveBeenLastCalledWith(false));
+    expect(screen.getByLabelText("藥袋處置")).toBeEnabled();
+  });
+  it("does not release an earlier uncertain review after a later conflict or mismatched readback", async () => {
+    const changedByAnother = liveRead();
+    Object.assign(changedByAnother.data.snapshot.rows.find((row) => row.category === "medication_bag")!, {
+      reviewVersion: 1, status: "reviewed", categoryReviewDecision: "reviewed", reviewReason: "不同的覆核內容",
+    });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json(liveRead()))
+      .mockRejectedValueOnce(new DOMException("The operation timed out", "TimeoutError"))
+      .mockResolvedValueOnce(Response.json({ status: "error", errors: [{ message: "版本已變更" }] }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json(changedByAnother));
+    vi.stubGlobal("fetch", fetch); const onUnknown = vi.fn();
+    render(<ClientDocumentsWorkspace {...props} onUnknown={onUnknown} />);
+    await waitFor(() => expect(screen.getByLabelText("藥袋處置")).toBeEnabled()); expandForms();
+    fireEvent.change(screen.getByLabelText("藥袋處置"), { target: { value: "not_applicable" } });
+    fireEvent.change(screen.getByLabelText("藥袋覆核／不適用理由"), { target: { value: "合成不適用原因" } });
+    const bag = within(screen.getByRole("article", { name: "藥袋" }));
+    fireEvent.click(bag.getByRole("button", { name: "儲存文件處置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("原次文件處置結果尚未確認");
+    fireEvent.click(bag.getByRole("button", { name: "重試確認原次文件處置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("原次文件處置結果尚未確認");
+    expect(fetch.mock.calls[2][1].body).toBe(fetch.mock.calls[1][1].body);
+    fireEvent.click(screen.getByRole("button", { name: "讀回核對原次處置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("原次文件處置尚未核對一致");
+    expect(screen.getByLabelText("藥袋處置")).toBeDisabled();
+    expect(bag.getByRole("button", { name: "重試確認原次文件處置" })).toBeEnabled();
+    expect(onUnknown).toHaveBeenLastCalledWith(true);
+  });
   it("hides a stale category summary after a committed per-file change until explicit successful refresh", async () => {
     const documentId = "c1600000-0000-4000-8000-000000000007";
     const history = { organizationId: "c1600000-0000-4000-8000-000000000002", branchId: "c1600000-0000-4000-8000-000000000003", clientId: props.clientId,

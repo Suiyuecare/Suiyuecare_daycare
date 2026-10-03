@@ -73,6 +73,36 @@ describe("TodayWorkList", () => {
     expect(screen.queryByRole("region", { name: "上午照顧安排" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("1 位");
   });
+  it("offers each pending diary shift instead of a full-day entry when both shifts need work", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `assignment-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+        staffName: "合成照服員", serviceDate: date, shift, version: 1, state: "scheduled", isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+        tasks: [{ kind: "care_diary", status: "pending", evidenceAt: null }],
+      })) };
+    render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    fireEvent.click(screen.getByRole("button", { name: /日誌待完成 1/ }));
+    const links = screen.getAllByRole("link", { name: /陳O華.*接續照顧日誌/ });
+    expect(links).toHaveLength(2);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      `/app/staff/daily-care/care-diary?date=${date}&client=${snapshot.clients[0]!.clientId}&shift=morning`,
+      `/app/staff/daily-care/care-diary?date=${date}&client=${snapshot.clients[0]!.clientId}&shift=afternoon`,
+    ]);
+    expect(screen.queryByRole("link", { name: "陳O華（HX-021）：接續照顧日誌" })).not.toBeInTheDocument();
+  });
+  it("uses the sole pending diary shift even when another shift has already been recorded", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [],
+      assignments: (["morning", "afternoon"] as const).map((shift) => ({
+        id: `assignment-${shift}`, clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+        staffName: "合成照服員", serviceDate: date, shift, version: 1, state: "scheduled", isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料",
+        tasks: [{ kind: "care_diary", status: shift === "morning" ? "recorded" as const : "pending" as const, evidenceAt: null }],
+      })) };
+    render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    fireEvent.click(screen.getByRole("button", { name: /日誌待完成 1/ }));
+    expect(screen.getByRole("link", { name: /陳O華.*下午・接續照顧日誌/ })).toHaveAttribute("href",
+      `/app/staff/daily-care/care-diary?date=${date}&client=${snapshot.clients[0]!.clientId}&shift=afternoon`);
+    expect(screen.queryByRole("link", { name: /上午・接續照顧日誌/ })).not.toBeInTheDocument();
+  });
   it("puts the next action before expandable shift details without hiding an unassigned shift", () => {
     const roster: CareRosterSnapshot = { status: "ready", manager: true, demo: true, staffOptions: [],
       assignments: (["morning", "afternoon"] as const).map((shift) => ({

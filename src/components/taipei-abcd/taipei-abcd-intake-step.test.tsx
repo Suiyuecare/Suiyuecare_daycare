@@ -21,11 +21,29 @@ describe("Taipei intake draft UI", () => {
   it("loads before allowing save, then preserves exact idempotency key on uncertain retry", async () => {
     render(<TaipeiAbcdIntakeStep {...ids} />); await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
     fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "合成個案" } });
-    fetchMock.mockRejectedValue(new TypeError("連線暫時中斷"));
+    fetchMock.mockRejectedValueOnce(new TypeError("連線暫時中斷"));
     fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" })); await screen.findByText("連線暫時中斷");
     const first = JSON.parse(fetchMock.mock.calls[1][1].body);
-    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" })); await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole("button", { name: "B 表 · 需求與照顧計畫" })).toBeDisabled();
+    expect(screen.getByLabelText("個案姓名內容")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重新載入" })).toBeDisabled();
+    fetchMock.mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }));
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次儲存" })); await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual(first);
+    await screen.findByText("暫時拒絕");
+    expect(screen.getByLabelText("個案姓名內容")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重試同一次儲存" })).toBeEnabled();
+  });
+  it("unlocks editing after a validated first-attempt rejection", async () => {
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "合成個案" } });
+    fetchMock.mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "欄位需修正" }] }, { status: 400 }));
+    fireEvent.click(screen.getByRole("button", { name: "儲存 A 表草稿" }));
+    await screen.findByText("欄位需修正");
+    expect(screen.getByLabelText("個案姓名內容")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "B 表 · 需求與照顧計畫" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled();
   });
   it("does not reuse a previous client's private snapshot on client switch", async () => {
     const view = render(<TaipeiAbcdIntakeStep {...ids} />); await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());

@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { hasPendingOperations, hasViewTransition, tryAcquireViewTransition, usePendingOperations, useViewTransitionPending } from "@/lib/navigation/pending-operation-lock";
+import { getScopeChangePendingReason, useScopeChangePendingReason } from "@/lib/navigation/scope-change-pending";
 import {
   parseBranchListEnvelope,
   parseBranchSwitchEnvelope,
@@ -41,18 +42,26 @@ export function BranchSwitcher({
   const operationPending = usePendingOperations();
   const viewPending = useViewTransitionPending();
   const coreDraftPending = useCoreDraftPending();
+  const scopeChangeReason = useScopeChangePendingReason();
   const viewLease = useRef<(() => void) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const reloadButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (switchState === "uncertain" || switchState === "reloading") reloadButton.current?.focus(); }, [switchState]);
   useEffect(() => () => { viewLease.current?.(); viewLease.current = null; }, []);
 
-  function pendingGuard() {
+  function pendingGuard(ignoreOwnViewTransition = false) {
+    const scopeReason = getScopeChangePendingReason();
+    if (scopeReason) {
+      setError(scopeReason === "unknown" ? "這頁的儲存結果尚未確認，請回表單核對；目前不能切換分支。"
+        : scopeReason === "busy" ? "這頁正在儲存，請稍候再切換分支。"
+          : "這頁有未儲存輸入，請先儲存或在頁內放棄；目前不能切換分支。");
+      return true;
+    }
     if (hasCoreDraftPending()) {
       setError("有未儲存或結果未確認的輸入，請先回原表單儲存或核對；目前不能切換分支。");
       return true;
     }
-    if (!hasPendingOperations() && !hasViewTransition()) return false;
+    if (!hasPendingOperations() && (ignoreOwnViewTransition || !hasViewTransition())) return false;
     setError(hasPendingOperations() ? "有儲存結果尚待確認，請先回原表單確認；目前不能切換分支。" : "工作清單正在更新，請完成後再切換分支。");
     return true;
   }
@@ -101,6 +110,13 @@ export function BranchSwitcher({
     // showModal synchronously makes every background control inert before POST
     // can change the branch cookie. Do not proceed on browsers without this guard.
     try { dialog.current!.showModal(); } catch { release(); viewLease.current = null; setError("此瀏覽器無法安全鎖定切換畫面，請重新載入或更新瀏覽器後再試；尚未送出切換。"); return; }
+    // Focus entering the modal can update a form. Recheck immediately before
+    // the cookie-changing POST, then restore the old page if it is no longer safe.
+    if (pendingGuard(true)) {
+      try { dialog.current?.close(); } catch { /* A failed close still must not POST. */ }
+      release(); viewLease.current = null;
+      return;
+    }
     switchLock.current = true; setSwitchState("working");
     setPending(true);
     setError(null);
@@ -132,7 +148,7 @@ export function BranchSwitcher({
 
   return (
     <div className={`branch-switcher${compact ? " branch-switcher--compact" : ""}`}>
-      <button aria-label={`${organizationName}，目前分支：${currentBranchName}`} aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending || coreDraftPending} onClick={toggle} type="button">
+      <button aria-label={`${organizationName}，目前分支：${currentBranchName}`} aria-expanded={open} className="branch-switcher__button" disabled={pending || readOnly || switchState !== "idle" || operationPending || viewPending || coreDraftPending || Boolean(scopeChangeReason)} onClick={toggle} type="button">
         <span>
           <small>機構全銜</small>
           <strong className="branch-switcher__organization-name">{pending ? "讀取中…" : organizationName}</strong>
@@ -141,8 +157,8 @@ export function BranchSwitcher({
         <ChevronsUpDown aria-hidden="true" />
       </button>
       {readOnly ? <small>固定合成分支 · 不切換真實機構</small> : null}
-      {!readOnly && coreDraftPending ? <small role="status">有未儲存或結果未確認的輸入，暫停切換分支；請先回原表單儲存或核對。</small> : !readOnly && operationPending ? <small role="status">有儲存結果尚待確認，暫停切換分支；請先回原表單確認。</small> : !readOnly && viewPending && switchState === "idle" ? <small role="status">系統正在更新，暫停切換分支。</small> : null}
-      {open ? <div className="branch-switcher__menu">{branches.map((branch) => <button aria-current={branch.id === currentBranchId ? "true" : undefined} disabled={switchState !== "idle" || operationPending || viewPending || coreDraftPending} key={branch.id} onClick={() => select(branch)} type="button"><span>{branch.name}</span>{branch.id === currentBranchId ? <Check aria-hidden="true" /> : null}</button>)}</div> : null}
+      {!readOnly && scopeChangeReason ? <small role="status">{scopeChangeReason === "unknown" ? "這頁的儲存結果尚未確認，請回表單核對後再切換分支。" : scopeChangeReason === "busy" ? "這頁正在儲存，請稍候再切換分支。" : "這頁有未儲存輸入，請先儲存或在頁內放棄，再切換分支。"}</small> : !readOnly && coreDraftPending ? <small role="status">有未儲存或結果未確認的輸入，暫停切換分支；請先回原表單儲存或核對。</small> : !readOnly && operationPending ? <small role="status">有儲存結果尚待確認，暫停切換分支；請先回原表單確認。</small> : !readOnly && viewPending && switchState === "idle" ? <small role="status">系統正在更新，暫停切換分支。</small> : null}
+      {open ? <div className="branch-switcher__menu">{branches.map((branch) => <button aria-current={branch.id === currentBranchId ? "true" : undefined} disabled={switchState !== "idle" || operationPending || viewPending || coreDraftPending || Boolean(scopeChangeReason)} key={branch.id} onClick={() => select(branch)} type="button"><span>{branch.name}</span>{branch.id === currentBranchId ? <Check aria-hidden="true" /> : null}</button>)}</div> : null}
       {error && switchState === "idle" ? <small className="branch-switcher__error" role="alert">{error}</small> : null}
       <dialog ref={dialog} className={styles.guard} aria-labelledby={dialogTitleId} aria-describedby={dialogDescriptionId} onCancel={(event) => event.preventDefault()}>
         <h2 id={dialogTitleId}>{switchState === "uncertain" ? "請先確認目前分支" : "正在安全切換分支"}</h2>

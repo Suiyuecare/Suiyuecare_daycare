@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
+import { useScopeChangeDraftRegistration } from "@/lib/navigation/scope-change-pending";
 import { scoreAssessment } from "@/lib/assessments/engine";
 import type { AssessmentAnswers } from "@/lib/assessments/types";
 import type {
@@ -54,12 +55,14 @@ function QuestionnaireEditor({
   client,
   form,
   onDirtyChange,
+  onWriteGuardChange,
 }: {
   assessorName: string;
   canManage: boolean;
   client: QuestionnaireClient;
   form: QuestionnaireFormDefinition;
   onDirtyChange: (dirty: boolean) => void;
+  onWriteGuardChange: (busy: boolean, unknown: boolean) => void;
 }) {
   const router = useRouter();
   const latest = client.latest;
@@ -72,17 +75,22 @@ function QuestionnaireEditor({
     assessedOn: latest?.assessedOn ?? taipeiToday(),
   }));
   const [pending, setPending] = useState(false);
+  const [saveUnknown, setSaveUnknown] = useState(false);
   const [message, setMessage] = useState("");
   const [dateError, setDateError] = useState("");
   const [reasonErrorQuestionId, setReasonErrorQuestionId] = useState<string | null>(null);
   const dateInput = useRef<HTMLInputElement>(null);
   const operationKey = useRef<string | null>(null);
-  const uncertain = useRef(false);
+  const operationBody = useRef<string | null>(null);
   const suicideAlert = useRef<HTMLDivElement>(null);
   const currentDraft = JSON.stringify({ answers, context, assessedOn });
   const dirty = currentDraft !== savedDraft;
+  const registerScopeChange = useScopeChangeDraftRegistration();
+  useLayoutEffect(() => { registerScopeChange({ dirty, busy: pending, unknown: saveUnknown }); }, [dirty, pending, saveUnknown, registerScopeChange]);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+  useLayoutEffect(() => { onWriteGuardChange(pending, saveUnknown); }, [pending, saveUnknown, onWriteGuardChange]);
+  useEffect(() => () => onWriteGuardChange(false, false), [onWriteGuardChange]);
   const answeredCount = Object.values(answers).filter((answer) => answer.state === "answered").length;
   const notApplicableCount = Object.values(answers).filter((answer) => answer.state === "not_applicable").length;
   const pendingReasonQuestions = form.questions.filter((question) => {
@@ -125,11 +133,8 @@ function QuestionnaireEditor({
   const bmi = height > 0 && weight > 0 ? weight / ((height / 100) ** 2) : null;
 
   function setAnswer(questionId: string, answer: QuestionnaireAnswer) {
+    if (saveUnknown || pending) return;
     setAnswers((current) => ({ ...current, [questionId]: answer }));
-    if (uncertain.current) {
-      operationKey.current = null;
-      uncertain.current = false;
-    }
     if (reasonErrorQuestionId === questionId) setReasonErrorQuestionId(null);
     setMessage("");
   }
@@ -183,6 +188,8 @@ function QuestionnaireEditor({
         expectedVersion: latest.version,
       } : {}),
     };
+    const requestBody = operationBody.current ?? JSON.stringify(body);
+    operationBody.current = requestBody;
     const response = await fetchWithTimeout(
       `/api/questionnaire-assessments?form_key=${form.key}`,
       {
@@ -191,32 +198,34 @@ function QuestionnaireEditor({
           "content-type": "application/json",
           "idempotency-key": idempotencyKey,
         },
-        body: JSON.stringify(body),
+        body: requestBody,
       },
     );
     let payload: unknown;
     try { payload = await response.json(); }
     catch { throw new Error("回應內容無法確認，請保留表單並稍後重試。"); }
     if (!response.ok) {
-      operationKey.current = null;
-      uncertain.current = false;
+      const envelope = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+      const errors = envelope?.errors;
+      const first = Array.isArray(errors) ? errors[0] : null;
+      const definiteRejection = response.status >= 400 && response.status < 500 &&
+        ![408, 409, 425, 429].includes(response.status) && envelope?.status === "error" &&
+        envelope.data === null && typeof envelope.requestId === "string" && envelope.requestId.length > 0 &&
+        first && typeof first === "object" && typeof first.code === "string" && typeof first.message === "string";
+      // A later rejection does not settle an earlier ambiguous write.
+      if (definiteRejection && !saveUnknown) { operationKey.current = null; operationBody.current = null; }
       throw new Error(errorText(payload));
     }
     const data = (payload as { data?: unknown }).data as { recordState?: unknown } | null;
     if (!data || data.recordState !== "draft") throw new Error("無法確認草稿保存狀態，請保留內容並重新載入確認。");
     operationKey.current = null;
-    uncertain.current = false;
+    operationBody.current = null;
+    setSaveUnknown(false);
   }
 
   return <form
     className={styles.formPanel}
     noValidate
-    onChange={() => {
-      if (uncertain.current) {
-        operationKey.current = null;
-        uncertain.current = false;
-      }
-    }}
     onSubmit={async (event) => {
       event.preventDefault();
       if (!canManage || pending) return;
@@ -238,6 +247,8 @@ function QuestionnaireEditor({
         return;
       }
       setPending(true);
+      registerScopeChange({ dirty, busy: true, unknown: saveUnknown });
+      onWriteGuardChange(true, saveUnknown);
       setMessage("");
       try {
         await save();
@@ -245,7 +256,8 @@ function QuestionnaireEditor({
         setMessage("草稿已保存；重新載入最新版本中。尚未簽署，也未產生正式分數或臨床判讀。");
         router.refresh();
       } catch (error) {
-        uncertain.current = operationKey.current !== null;
+        setSaveUnknown(operationKey.current !== null);
+        onWriteGuardChange(false, operationKey.current !== null);
         setMessage(error instanceof Error ? error.message : "保存失敗，請保留內容後重試。");
       } finally {
         setPending(false);
@@ -272,7 +284,7 @@ function QuestionnaireEditor({
       <div className={styles.progressText}>
         <strong>{client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
         {canManage && nextUnfinishedLabel ? <button aria-label={`從進度前往${nextUnfinishedLabel}`}
-          className={styles.progressJump} disabled={pending} onClick={focusNextUnfinished} type="button">
+          className={styles.progressJump} disabled={pending || saveUnknown} onClick={focusNextUnfinished} type="button">
           待補 {progressTotal - progressValue} <span aria-hidden="true">↓</span>
         </button> : <span>填寫進度 {progressValue}／{progressTotal} 項</span>}
       </div>
@@ -280,18 +292,18 @@ function QuestionnaireEditor({
       <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
     </div>
     {!canManage ? <p className={styles.readOnly} role="status">只有檢視權限；無法編輯或保存草稿。</p> : null}
+    {saveUnknown ? <p className={styles.readOnly} role="status">上次保存結果尚未確認；欄位已暫時鎖定，請以同一次內容重試。</p> : null}
 
     <div className={styles.meta}>
       <label>評估日期
         <input
-          disabled={!canManage || pending}
+          disabled={!canManage || pending || saveUnknown}
           max={taipeiToday()}
           min="2000-01-01"
           onChange={(event) => {
             setAssessedOn(event.currentTarget.value);
             setDateError("");
             setMessage("");
-            if (uncertain.current) { operationKey.current = null; uncertain.current = false; }
           }}
           aria-describedby={dateError ? "questionnaire-date-error" : undefined}
           aria-invalid={dateError ? true : undefined}
@@ -305,7 +317,7 @@ function QuestionnaireEditor({
       <div className={styles.assessor}><span>評估人員</span><strong>{assessorName}</strong></div>
     </div>
 
-    <fieldset className={styles.questions} disabled={!canManage || pending}>
+    <fieldset className={styles.questions} disabled={!canManage || pending || saveUnknown}>
       <legend className="sr-only">{form.title}題目</legend>
       {form.questions.map((question, index) => {
         const answer = answers[question.id] ?? { state: "missing" as const };
@@ -319,7 +331,7 @@ function QuestionnaireEditor({
             {form.measurementFields.map(({ key, label }) => <label key={key}>
               {label}
               <input
-                disabled={!canManage || pending}
+                disabled={!canManage || pending || saveUnknown}
                 inputMode="decimal"
                 max={key === "height_cm" ? 240 : key === "weight_kg" ? 300 : 80}
                 min={key === "height_cm" ? 50 : key === "weight_kg" ? 20 : 10}
@@ -359,9 +371,9 @@ function QuestionnaireEditor({
             </label>)}
           </div>
           <div className={styles.questionActions}>
-            {answer.state !== "missing" ? <button disabled={pending} onClick={() => setAnswer(question.id, { state: "missing" })} type="button">改為待答</button> : null}
+            {answer.state !== "missing" ? <button disabled={pending || saveUnknown} onClick={() => setAnswer(question.id, { state: "missing" })} type="button">改為待答</button> : null}
             {allowsNotApplicable && answer.state !== "not_applicable"
-              ? <button disabled={pending} onClick={() => setAnswer(question.id, { state: "not_applicable", reason: "" })} type="button">此題不適用</button>
+              ? <button disabled={pending || saveUnknown} onClick={() => setAnswer(question.id, { state: "not_applicable", reason: "" })} type="button">此題不適用</button>
               : null}
           </div>
           {answer.state === "not_applicable" ? <div className={styles.reason}>
@@ -395,7 +407,7 @@ function QuestionnaireEditor({
       <legend>計分條件</legend>
       {form.contextFields.map(({ key, label, required, choices }) => <label key={key}>
         {label}{required ? "（計分必要）" : ""}
-        <select disabled={!canManage || pending} id={`context-${form.key}-${key}`}
+        <select disabled={!canManage || pending || saveUnknown} id={`context-${form.key}-${key}`}
           onChange={(event) => {
             const value = event.currentTarget.value;
             setContext((current) => ({ ...current, [key]: value }));
@@ -409,7 +421,7 @@ function QuestionnaireEditor({
 
     {form.allowQualitativeNotes ? <label className={styles.notes}>
       補充觀察與後續事項
-      <textarea disabled={!canManage || pending} maxLength={3000} onChange={(event) => {
+      <textarea disabled={!canManage || pending || saveUnknown} maxLength={3000} onChange={(event) => {
         const value = event.currentTarget.value;
         setContext((current) => ({ ...current, qualitative_note: value }));
       }}
@@ -429,7 +441,7 @@ function QuestionnaireEditor({
     <div className={styles.actions}>
       <span>待答 {missingCount} 題{pendingReasonCount ? `・待補 ${pendingReasonCount} 題不適用原因` : ""}{pendingContextFields.length ? `・待補 ${pendingContextFields.length} 項計分條件` : ""}・僅保存草稿</span>
       <button className="button button--primary" disabled={!canManage || pending} type="submit">
-        {pending ? "保存中…" : latest ? "保存為新版本" : "保存草稿"}
+        {pending ? "保存中…" : saveUnknown ? "重試同一次保存" : latest ? "保存為新版本" : "保存草稿"}
       </button>
     </div>
     {message ? <p aria-live="polite" className={styles.message} role="status">{message}</p> : null}
@@ -470,6 +482,8 @@ export function QuestionnaireAssessmentsWorkspace({
   const historyGuardArmed = useRef(false);
   const intentionalLeave = useRef(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [writeGuard, setWriteGuard] = useState({ busy: false, unknown: false });
+  const writeGuardRef = useRef({ busy: false, unknown: false });
   const [discardRevision, setDiscardRevision] = useState(0);
   const [leaveError, setLeaveError] = useState("");
   const armHistoryGuard = useCallback(() => {
@@ -482,7 +496,23 @@ export function QuestionnaireAssessmentsWorkspace({
     historyGuardUrl.current = url;
     historyGuardArmed.current = true;
   }, []);
+  const onWriteGuardChange = useCallback((busy: boolean, unknown: boolean) => {
+    writeGuardRef.current = { busy, unknown };
+    setWriteGuard({ busy, unknown });
+    if ((busy || unknown) && !historyGuardArmed.current && !intentionalLeave.current) armHistoryGuard();
+  }, [armHistoryGuard]);
+  const leaveProtected = hasUnsavedChanges || writeGuard.busy || writeGuard.unknown;
+  const holdMessage = writeGuard.unknown
+    ? "上次保存結果尚未確認；請保留畫面，以同一次內容重試，暫時不能離開或更換個案。"
+    : "資料保存中，請稍候；暫時不能離開或更換個案。";
   const showLeaveDialog = useCallback(() => {
+    if (writeGuardRef.current.busy || writeGuardRef.current.unknown) {
+      pendingNavigation.current = null;
+      setLeaveError(writeGuardRef.current.unknown
+        ? "上次保存結果尚未確認；請保留畫面，以同一次內容重試。"
+        : "資料保存中，請稍候再離開。");
+      return;
+    }
     setLeaveError("");
     try {
       if (!leaveDialog.current?.showModal) throw new Error("dialog unavailable");
@@ -494,25 +524,44 @@ export function QuestionnaireAssessmentsWorkspace({
     }
   }, [armHistoryGuard]);
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
-    if (!historyGuardArmed.current && !intentionalLeave.current && pendingNavigation.current?.kind !== "history") armHistoryGuard();
+    if (leaveProtected && !historyGuardArmed.current && !intentionalLeave.current && pendingNavigation.current?.kind !== "history") armHistoryGuard();
     const warn = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges && !writeGuardRef.current.busy && !writeGuardRef.current.unknown) return;
       event.preventDefault();
       event.returnValue = "";
     };
     const interceptHistory = () => {
+      if (!hasUnsavedChanges && !writeGuardRef.current.busy && !writeGuardRef.current.unknown) return;
       if (!historyGuardArmed.current || intentionalLeave.current ||
         window.history.state?.[historyGuardKey] === historyGuardToken.current) return;
       if (window.location.href !== historyGuardUrl.current) return;
       historyGuardArmed.current = false;
+      if (writeGuardRef.current.busy || writeGuardRef.current.unknown) {
+        armHistoryGuard();
+        setLeaveError(writeGuardRef.current.unknown
+          ? "上次保存結果尚未確認；請保留畫面，以同一次內容重試。"
+          : "資料保存中，請稍候再離開。");
+        return;
+      }
       leaveTrigger.current = selectionButton.current;
       pendingNavigation.current = { kind: "history", destination: "back" };
       showLeaveDialog();
     };
     const interceptLink = (event: MouseEvent) => {
+      if (!hasUnsavedChanges && !writeGuardRef.current.busy && !writeGuardRef.current.unknown) return;
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor || anchor.download || (anchor.target && anchor.target !== "_self") || anchor.origin !== window.location.origin) return;
+      if (!anchor || anchor.download || (anchor.target && anchor.target !== "_self") ||
+        !["http:", "https:"].includes(anchor.protocol)) return;
+      if (writeGuardRef.current.busy || writeGuardRef.current.unknown) {
+        event.preventDefault();
+        event.stopPropagation();
+        setLeaveError(writeGuardRef.current.unknown
+          ? "上次保存結果尚未確認；請保留畫面，以同一次內容重試。"
+          : "資料保存中，請稍候再離開。");
+        return;
+      }
+      if (anchor.origin !== window.location.origin) return;
       const destination = `${anchor.pathname}${anchor.search}${anchor.hash}`;
       if (destination === `${window.location.pathname}${window.location.search}${window.location.hash}` ||
         anchor.getAttribute("href")?.startsWith("#")) return;
@@ -530,15 +579,15 @@ export function QuestionnaireAssessmentsWorkspace({
       window.removeEventListener("popstate", interceptHistory);
       document.removeEventListener("click", interceptLink, true);
     };
-  }, [armHistoryGuard, hasUnsavedChanges, showLeaveDialog]);
+  }, [armHistoryGuard, hasUnsavedChanges, leaveProtected, showLeaveDialog]);
   useEffect(() => {
-    if (hasUnsavedChanges || intentionalLeave.current || !historyGuardArmed.current) return;
+    if (leaveProtected || writeGuardRef.current.busy || writeGuardRef.current.unknown || intentionalLeave.current || !historyGuardArmed.current) return;
     if (window.history.state?.[historyGuardKey] !== historyGuardToken.current) return;
     historyGuardArmed.current = false;
     historyGuardToken.current = null;
     historyGuardUrl.current = null;
     window.history.back();
-  }, [hasUnsavedChanges]);
+  }, [leaveProtected]);
   useEffect(() => { intentionalLeave.current = false; }, [form.key, selectedClientId]);
 
   if (loadError || !snapshot) return <section className="empty-card core-care-state" role="alert">
@@ -563,6 +612,13 @@ export function QuestionnaireAssessmentsWorkspace({
     nsi_determine: "nsi",
   }[form.key]}`;
   function confirmNavigation() {
+    if (writeGuardRef.current.busy || writeGuardRef.current.unknown) {
+      leaveDialog.current?.close();
+      setLeaveError(writeGuardRef.current.unknown
+        ? "上次保存結果尚未確認；請保留畫面，以同一次內容重試。"
+        : "資料保存中，請稍候再離開。");
+      return;
+    }
     const target = pendingNavigation.current;
     if (!target) return;
     const atHistorySentinel = window.history.state?.[historyGuardKey] === historyGuardToken.current &&
@@ -585,8 +641,15 @@ export function QuestionnaireAssessmentsWorkspace({
       : target.destination);
   }
   function guardClientChange(event: FormEvent<HTMLFormElement>) {
-    if (!hasUnsavedChanges) return;
+    if (!hasUnsavedChanges && !writeGuardRef.current.busy && !writeGuardRef.current.unknown) return;
     event.preventDefault();
+    if (writeGuardRef.current.busy || writeGuardRef.current.unknown) {
+      if (chosenClient && clientSelect.current) clientSelect.current.value = chosenClient.clientId;
+      setLeaveError(writeGuardRef.current.unknown
+        ? "上次保存結果尚未確認；請保留畫面，以同一次內容重試。"
+        : "資料保存中，請稍候再離開。");
+      return;
+    }
     const selected = new FormData(event.currentTarget).get("client");
     if (typeof selected !== "string" || !snapshot?.clients.some((client) => client.clientId === selected)) return;
     leaveTrigger.current = selectionButton.current;
@@ -617,6 +680,7 @@ export function QuestionnaireAssessmentsWorkspace({
       <button className="button button--secondary" ref={selectionButton} type="submit">{chosenClient ? "更換個案" : "開始填寫"}</button>
     </form>
     {leaveError ? <p className={styles.fieldError} role="alert">{leaveError}</p> : null}
+    {writeGuard.unknown ? <p className={styles.fieldError} role="status">{holdMessage}</p> : null}
 
     <dialog aria-describedby={`${dialogId}-description`} aria-labelledby={`${dialogId}-title`}
       className="core-dialog" onClose={() => {
@@ -647,6 +711,7 @@ export function QuestionnaireAssessmentsWorkspace({
       form={form}
       key={`${chosenClient.clientId}-${chosenClient.latest?.versionId ?? "new"}-${discardRevision}`}
       onDirtyChange={setHasUnsavedChanges}
+      onWriteGuardChange={onWriteGuardChange}
     /> : <div className={styles.empty}>
       {snapshot.clients.length ? "請先選一位個案，量表會直接在此展開。" : "目前沒有可指派給此帳號的有效個案。請確認個案指派與分支權限。"}
     </div>}
