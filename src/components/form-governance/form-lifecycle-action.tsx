@@ -23,7 +23,7 @@ export function FormLifecycleAction({ version, instance, enabled, disabledReason
   const [reason, setReason] = useState(""); const [uncertain, setUncertain] = useState(false); const [completed, setCompleted] = useState(false);
   const heading = `lifecycle-${instance}-${version.id}`;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (!attempt.current) { operationLease.current?.(); operationLease.current = null; } viewLease.current?.(); viewLease.current = null; }; }, []);
-  function releaseKnown() { operationLease.current?.(); operationLease.current = null; attempt.current = null; guard.finish(); }
+  function releaseKnown() { operationLease.current?.(); operationLease.current = null; attempt.current = null; guard.finish(); guard.unhold(); }
   async function load() {
     if (lock.current || attempt.current) return;
     const lease = tryAcquireViewTransition(); if (!lease) { setError("另有操作尚待確認，請完成後再讀取版本歷程。"); return; }
@@ -37,7 +37,7 @@ export function FormLifecycleAction({ version, instance, enabled, disabledReason
     finally { viewLease.current?.(); viewLease.current = null; lock.current = false; if (mounted.current) setBusy(false); }
   }
   function open() { if (!enabled || lock.current || attempt.current) return; setHistory(null); setCompleted(false); setNotice(null); setReason(""); dialog.current?.showModal(); void load(); }
-  function close() { if (!lock.current && !attempt.current && guard.discard()) { dialog.current?.close(); trigger.current?.focus(); } }
+  function close() { if (!lock.current && !attempt.current) guard.discard(() => { dialog.current?.close(); trigger.current?.focus(); }); }
   const pending = history ? pendingRetirement(history.events) : undefined;
   async function write(action: LifecycleInput["action"]) {
     if (!enabled || lock.current || completed || !history || history.truncated) return;
@@ -71,14 +71,14 @@ export function FormLifecycleAction({ version, instance, enabled, disabledReason
         router.refresh();
       }
     } catch (caught) {
-      if (attempt.current) { attempt.current.ambiguous = true; if (mounted.current) setUncertain(true); }
+      if (attempt.current) { attempt.current.ambiguous = true; guard.hold(); if (mounted.current) setUncertain(true); }
       if (mounted.current) setError(caught instanceof IntegrationError && caught.code === "FORM_LIFECYCLE_REJECTED" ? caught.message : "操作結果尚未確認。請勿離開，直接按「以原操作重試」；不會產生第二筆操作。");
     } finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   const blocked = busy || uncertain || completed || !history || history.truncated;
   return <>
     <button className="button button--secondary" type="button" ref={trigger} disabled={!enabled} title={disabledReason} onClick={open}>改版／停用歷程</button>
-    <dialog className={`drawer ${styles.dialog}`} ref={dialog} aria-labelledby={heading} onCancel={event => { if (lock.current || attempt.current || !guard.discard()) event.preventDefault(); }} onClose={() => trigger.current?.focus()}>
+    <dialog className={`drawer ${styles.dialog}`} ref={dialog} aria-labelledby={heading} onCancel={event => { event.preventDefault(); close(); }} onClose={() => trigger.current?.focus()}>
       <header className="drawer__header"><h2 id={heading}>{version.name} v{version.version}：改版與停用</h2><button className="button button--quiet" type="button" disabled={busy || uncertain} onClick={close}>關閉</button></header>
       <div className={`drawer__body ${styles.body}`}>
         <p>改版保留原名稱與類型，新增一份獨立草稿供您修改欄位。舊版與已填紀錄不會改寫。</p>

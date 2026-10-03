@@ -78,6 +78,7 @@ export function CustomResponsePrintAction({ record, actor, canPrint, blocked, di
       setUncertain(false); setPrepared({ job, url: body.downloadUrl }); setExpired(Date.parse(job.expiresAt) <= Date.now()); onBusyChange(false);
     } catch {
       operation.ambiguous = true;
+      guard.hold();
       if (mounted.current) { setUncertain(true); setError("列印準備結果尚未確認。請核對並重試原列印操作，不要另建重複工作。"); }
     } finally { lock.current = false; if (mounted.current) setBusy(false); }
   }

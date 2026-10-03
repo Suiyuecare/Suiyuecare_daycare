@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import type { TenantContext } from "@/lib/domain/types";
 import { getOfflineStorageGeneration, loadOfflineDrafts, removeOfflineDraft, saveOfflineDraft, type OfflineDraftNamespace } from "@/lib/offline/draft-store";
 import { isCareLocalDraft, OFFLINE_CARE_LABELS, synchronizeCareDraft, type CareLocalDraft } from "@/lib/offline/care-outbox";
+import { withOfflineOutboxLock } from "@/lib/offline/outbox-lock";
+import { tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
 
 type NewDraft = Omit<CareLocalDraft, "createdAt" | "expiresAt"> & Partial<Pick<CareLocalDraft, "createdAt" | "expiresAt">>;
 type OfflineCareContext = {
@@ -71,6 +73,10 @@ function ScopedOfflineCare({ context, children }: { context: TenantContext; chil
   }, [namespace, reload, storageGeneration]);
   const sync = useCallback(async () => {
     if (!enabled || stopped.current || running.current || !navigator.onLine) return;
+    // Hold the tab-local lease even while waiting on previous device writes or
+    // another tab's outbox lock. Logout must not start in that waiting gap.
+    const releaseOperation = tryAcquirePendingOperation();
+    if (!releaseOperation) return;
     running.current = true;
     try {
       await chain.current.catch(() => undefined);
@@ -88,17 +94,19 @@ function ScopedOfflineCare({ context, children }: { context: TenantContext; chil
         if (changed && !stopped.current) router.refresh();
         await reload();
       };
-      // Keep two tabs from sending the same outbox simultaneously. Database
-      // idempotency remains the final boundary if Web Locks is unavailable.
-      if (navigator.locks) await navigator.locks.request(`daycare-care-outbox:${namespace.organizationId}:${namespace.branchId}:${namespace.userId}`, { ifAvailable: true }, async (lock) => { if (lock) await run(); });
-      else await run();
+      // The device-wide lock serializes the entire POST/receipt cycle against
+      // logout's deletion. The narrower lock also prevents two tabs of the
+      // same account from sending one queued command concurrently.
+      await withOfflineOutboxLock(async () => {
+        await navigator.locks.request(`daycare-care-outbox:${namespace.organizationId}:${namespace.branchId}:${namespace.userId}`, { ifAvailable: true }, async (lock) => { if (lock) await run(); });
+      });
     } catch (error) { if (!stopped.current) {
       setMessage(error instanceof Error && error.message === "OFFLINE_DRAFT_CONFLICT"
         ? "另一個分頁已更新這筆草稿；新內容已保留，沒有覆寫或刪除。請重新載入並確認。"
         : "暫時無法讀取裝置草稿。請保留畫面內容，稍後重試。");
       await reload().catch(() => undefined);
     } }
-    finally { running.current = false; }
+    finally { running.current = false; releaseOperation(); }
   }, [enabled, namespace, reload, remove, router, save, storageGeneration]);
 
   useEffect(() => {

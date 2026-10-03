@@ -96,8 +96,7 @@ export function VitalSignComposer({
   function close() {
     if (pending) return;
     if (attempt.current()) { dialog.current?.close(); setNoticePending(true); setNotice("上一筆量測結果尚未確認；重新開啟後只能重試原內容，不會建立新的一筆。"); return; }
-    if (!draft.discard()) return;
-    dialog.current?.close();
+    draft.discard(() => dialog.current?.close());
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -165,6 +164,7 @@ export function VitalSignComposer({
       if (!demo) router.refresh();
     } catch (caught) {
       const uncertain = attempt.failed();
+      if (uncertain) draft.hold(); else draft.unhold();
       if (uncertain) await offline.retainUnconfirmed(uncertain.body);
       setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message

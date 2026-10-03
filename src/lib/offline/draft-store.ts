@@ -1,5 +1,7 @@
 "use client";
 
+import { withOfflineOutboxLock } from "./outbox-lock";
+
 export type OfflineDraftKind = "vital-sign" | "care-note" | "attendance";
 
 export interface OfflineDraft<T = unknown> {
@@ -19,6 +21,13 @@ export interface OfflineDraftNamespace {
   branchId: string;
   userId: string;
 }
+
+/** Opaque, device-wide inventory for an explicit user-initiated logout. */
+export type OfflineLogoutSnapshot = Readonly<{
+  generation: string;
+  revision: string;
+  count: number;
+}>;
 
 type EncryptedDraft = Omit<OfflineDraft, "payload" | "clientRef"> & {
   storageId: string;
@@ -77,11 +86,11 @@ function assertGeneration(epoch: number, generation: string) {
   if (epoch !== storageEpoch || getOfflineStorageGeneration() !== generation) throw new Error("OFFLINE_SESSION_CLEARED");
 }
 
-async function withStorageLock<T>(operation: () => Promise<T>): Promise<T> {
+async function withStorageLock<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   // Do not silently persist health drafts in a browser where cross-tab
   // clear/write serialization cannot be guaranteed.
   if (typeof navigator === "undefined" || !navigator.locks) throw new Error("OFFLINE_PROTECTED_STORAGE_UNAVAILABLE");
-  return navigator.locks.request(STORAGE_LOCK, { mode: "exclusive" }, operation);
+  return navigator.locks.request(STORAGE_LOCK, signal ? { mode: "exclusive", signal } : { mode: "exclusive" }, operation);
 }
 
 async function itemToken(item: EncryptedDraft) {
@@ -362,24 +371,98 @@ export async function removeOfflineDraft(namespace: OfflineDraftNamespace, id: s
   });
 }
 
-export async function clearOfflineDrafts() {
-  if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") return;
+async function logoutInventory(): Promise<Pick<OfflineLogoutSnapshot, "revision" | "count">> {
+  const database = await openDatabase();
+  try {
+    const encrypted = await new Promise<EncryptedDraft[]>((resolve, reject) => {
+      const request = database.transaction(DRAFT_STORE, "readonly").objectStore(DRAFT_STORE).getAll();
+      request.onsuccess = () => resolve(request.result as EncryptedDraft[]);
+      request.onerror = () => reject(request.error);
+    });
+    // Logout deletes the whole database, including other namespaces. Count all
+    // encrypted entries so the confirmation never understates what is lost.
+    const revisions = await Promise.all(encrypted.map(async (item) => {
+      if (typeof item.storageId !== "string" || !item.storageId) throw new Error("OFFLINE_LOGOUT_INVENTORY_UNREADABLE");
+      return `${item.storageId}\u001f${await itemToken(item)}`;
+    }));
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(revisions.sort().join("\u001e")));
+    return { count: encrypted.length, revision: Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("") };
+  } finally { database.close(); }
+}
+
+/** Fail closed when the device inventory cannot be read; never infer zero. */
+export async function inspectOfflineDraftsForLogout(signal?: AbortSignal): Promise<OfflineLogoutSnapshot> {
+  if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") return { generation: "synthetic", revision: "synthetic", count: 0 };
+  const epoch = storageEpoch;
+  const generation = getOfflineStorageGeneration();
+  return withStorageLock(async () => {
+    signal?.throwIfAborted();
+    assertGeneration(epoch, generation);
+    const inventory = await logoutInventory();
+    signal?.throwIfAborted();
+    assertGeneration(epoch, generation);
+    return { generation, ...inventory };
+  }, signal);
+}
+
+function invalidateOfflineSession() {
   const generation = crypto.randomUUID();
   installClearListeners();
-  // Invalidate all callers before waiting for the in-flight write lock.
-  // Cross-tab storage events plus BroadcastChannel cover old mounted views.
+  // Keep the existing ordering: all callers are invalidated before deletion.
   let generationFailure: unknown;
   try { window.localStorage.setItem(GENERATION_KEY, generation); }
   catch (error) { generationFailure = error; }
   announceClear(generation);
   broadcasts?.postMessage({ type: "clear", generation });
-  const clear = () => new Promise<void>((resolve, reject) => {
+  return generationFailure;
+}
+
+function deleteOfflineDatabase() {
+  return new Promise<void>((resolve, reject) => {
     const request = indexedDB.deleteDatabase(DB_NAME);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
-    request.onblocked = () => reject(new Error("Offline database is in use"));
+    // `blocked` is not terminal: IndexedDB may still delete after another
+    // tab releases its connection. Keep our Web Lock until success/error, so
+    // a late deletion cannot race with a newly persisted care draft.
+    request.onblocked = () => {};
   });
-  if (typeof navigator !== "undefined" && navigator.locks) await withStorageLock(clear);
-  else await clear(); // Such browsers cannot write new device drafts.
-  if (generationFailure) throw new Error("OFFLINE_CROSS_TAB_CLEAR_UNCERTAIN");
+}
+
+/** Compare and clear under one cross-tab Web Lock. A mismatch changes nothing. */
+export async function clearOfflineDraftsIfUnchanged(snapshot: OfflineLogoutSnapshot, signal?: AbortSignal, canDelete?: () => boolean): Promise<"cleared" | "changed" | "blocked"> {
+  if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") return "cleared";
+  const epoch = storageEpoch;
+  return withOfflineOutboxLock(() => withStorageLock(async () => {
+    signal?.throwIfAborted();
+    if (epoch !== storageEpoch || getOfflineStorageGeneration() !== snapshot.generation) return "changed";
+    const current = await logoutInventory();
+    signal?.throwIfAborted();
+    if (current.count !== snapshot.count || current.revision !== snapshot.revision ||
+      epoch !== storageEpoch || getOfflineStorageGeneration() !== snapshot.generation) return "changed";
+    signal?.throwIfAborted();
+    // Recheck UI write leases at the last reversible point under the lock.
+    if (canDelete && !canDelete()) return "blocked";
+    const generationFailure = invalidateOfflineSession();
+    await deleteOfflineDatabase();
+    if (generationFailure) throw new Error("OFFLINE_CROSS_TAB_CLEAR_UNCERTAIN");
+    return "cleared";
+  }, signal), signal);
+}
+
+export async function clearOfflineDrafts(signal?: AbortSignal) {
+  if (process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true") return;
+  const clear = async () => {
+    signal?.throwIfAborted();
+    // This runs while holding the storage lock. A prior write either finishes
+    // before deletion or observes the new generation afterward; no write can
+    // slip between invalidation and the terminal IndexedDB delete result.
+    const generationFailure = invalidateOfflineSession();
+    await deleteOfflineDatabase();
+    if (generationFailure) throw new Error("OFFLINE_CROSS_TAB_CLEAR_UNCERTAIN");
+  };
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return withOfflineOutboxLock(() => withStorageLock(clear, signal), signal);
+  }
+  return clear(); // Such browsers cannot write new device drafts.
 }

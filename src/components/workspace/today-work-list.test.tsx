@@ -106,9 +106,14 @@ describe("TodayWorkList", () => {
     expect(link).toHaveAttribute("href", "/app/staff/daily-care/vital-signs?date=2026-09-10&client=a3333333-3333-4333-8333-333333333333");
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-026" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /尚無出勤 1/ }));
+    expect(screen.getByRole("button", { name: /尚無量測 1 位（目前搜尋）/ })).toHaveTextContent("位・搜尋內");
+    fireEvent.click(screen.getByRole("button", { name: /尚無出勤 0 位（目前搜尋）/ }));
+    expect(screen.getByRole("searchbox")).toHaveValue("HX-026");
+    expect(screen.getByRole("status")).toHaveTextContent("尚無出勤：0 位（搜尋結果）");
+    expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋並查看全部在案個案" }));
     expect(screen.getByRole("searchbox")).toHaveValue("");
-    expect(screen.getByRole("status")).toHaveTextContent("尚無出勤：1 位");
+    expect(screen.getByRole("status")).toHaveTextContent("全部在案：6 位");
     fireEvent.click(screen.getByRole("button", { name: /日誌待完成 2/ }));
     expect(screen.getByRole("link", { name: /張O德.*接續照顧日誌/ })).toHaveAttribute("href", "/app/staff/daily-care/care-diary?date=2026-09-10&client=a5555555-5555-4555-8555-555555555555");
   });
@@ -117,8 +122,44 @@ describe("TodayWorkList", () => {
     render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nobody" } });
     expect(screen.getByText("找不到符合條件的個案")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "查看全部在案個案" }));
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋並查看全部在案個案" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("");
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
+  });
+
+  it("does not label whitespace-only input as a filtered result", () => {
+    render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: " " } });
+    expect(screen.getByRole("status")).toHaveTextContent("待處理：5 位");
+    expect(screen.getByRole("status")).not.toHaveTextContent("搜尋結果");
+  });
+
+  it("clears an empty search without silently changing the selected shift", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: false, demo: true, staffOptions: [], assignments: [{
+      id: "afternoon-assignment", clientId: snapshot.clients[0]!.clientId, staffUserId: "assigned-staff",
+      staffName: "合成照服員", serviceDate: date, shift: "afternoon", version: 1, state: "scheduled",
+      isServiceEligible: true, serviceEligibility: "eligible", sourceNote: "合成資料", tasks: [],
+    }] };
+    render(<TodayWorkList rows={buildTodayWorkRows(snapshot, roster)} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "班別" }), { target: { value: "afternoon" } });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nobody" } });
+    fireEvent.click(screen.getByRole("button", { name: "清除搜尋並查看目前條件名單" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(screen.getByRole("combobox", { name: "班別" })).toHaveValue("afternoon");
+    expect(screen.getByRole("status")).toHaveTextContent("全部當班：1 位");
+    expect(screen.getByRole("link", { name: /陳O華/ })).toBeVisible();
+  });
+
+  it("keeps a searched client and result focus when applying a mobile task filter", () => {
+    const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    const toggle = screen.getByRole("button", { name: /篩選個案與工作/ });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: /尚無量測 1 位（目前搜尋）/ }));
+    expect(screen.getByRole("searchbox")).toHaveValue("HX-023");
+    expect(screen.getByRole("status")).toHaveTextContent("尚無量測：1 位（搜尋結果）");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(".today-client")).toHaveFocus();
   });
 
   it("retains the chosen filter on refresh and clamps a disappearing last page", () => {
@@ -161,8 +202,9 @@ describe("TodayWorkList", () => {
     const props = { rows, serviceDate: date, access: snapshot.sourceAccess, resumeScopeKey: "actor-a:branch-a" };
     const storageWrite = vi.spyOn(Storage.prototype, "setItem");
     const first = render(<TodayWorkList {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
+    fireEvent.click(screen.getByRole("button", { name: /尚無量測 1 位（目前搜尋）/ }));
+    expect(screen.getByRole("searchbox")).toHaveValue("HX-023");
     fireEvent.click(screen.getByRole("link", { name: /黃O生.*前往量測/ }));
     const historyState = window.history.state;
     expect(historyState).toMatchObject({ __NA: true, preservedRouterState: "router", __daycareTodayResume: expect.any(String) });

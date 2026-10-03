@@ -7,6 +7,7 @@ import { ClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { tryAcquirePendingOperation, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
 
 import { BranchSwitcher } from "./branch-switcher";
+import { useCoreDraftGuard } from "./core-draft-guard";
 const navigation = vi.hoisted(() => ({ reload: vi.fn() }));
 vi.mock("./branch-navigation", () => ({ reloadCurrentStaffRoute: navigation.reload }));
 const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
@@ -176,6 +177,33 @@ describe("BranchSwitcher request boundaries", () => {
     expect(trigger).toHaveProperty("disabled", true);
     expect(screen.getByRole("status").textContent).toContain("暫停切換分支");
     expect(fetch).not.toHaveBeenCalled(); expect(navigation.reload).not.toHaveBeenCalled();
+  });
+  it("blocks branch selection before any cookie-changing request while a core draft is dirty", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(branchList()); vi.stubGlobal("fetch", fetch);
+    function Draft() { const guard = useCoreDraftGuard(); return <button onClick={guard.changed}>編輯草稿</button>; }
+    render(<><BranchSwitcher currentBranchId={branchA} currentBranchName="甲分支" organizationName="測試機構" /><Draft /></>);
+    fireEvent.click(screen.getByRole("button", { name: /目前分支/u }));
+    const other = await screen.findByRole("button", { name: "乙分支" });
+    fireEvent.click(screen.getByRole("button", { name: "編輯草稿" }));
+    expect(other).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: /目前分支/u })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("status").textContent).toContain("暫停切換分支");
+    fireEvent.click(other);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(navigation.reload).not.toHaveBeenCalled();
+  });
+  it("rechecks a newly dirty core draft after branch confirmation, before POST", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(branchList()); vi.stubGlobal("fetch", fetch);
+    let markDirty = () => {};
+    function Draft() { const guard = useCoreDraftGuard(); markDirty = guard.changed; return null; }
+    vi.stubGlobal("confirm", vi.fn(() => { markDirty(); return true; }));
+    render(<><BranchSwitcher currentBranchId={branchA} currentBranchName="甲分支" organizationName="測試機構" /><Draft /></>);
+    fireEvent.click(screen.getByRole("button", { name: /目前分支/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "乙分支" }));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(screen.getByRole("status").textContent).toContain("暫停切換分支");
+    expect(navigation.reload).not.toHaveBeenCalled();
   });
   it("rechecks pending writes when an already-started branch list finishes", async () => {
     let finish!: (response: Response) => void;

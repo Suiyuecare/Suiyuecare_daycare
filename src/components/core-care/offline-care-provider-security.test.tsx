@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { OfflineCareProvider, useOfflineCare } from "./offline-care-provider";
 import type { TenantContext } from "@/lib/domain/types";
 import type { CareLocalDraft } from "@/lib/offline/care-outbox";
+import { hasPendingOperations } from "@/lib/navigation/pending-operation-lock";
 const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), remove: vi.fn(), synchronize: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => { const router = { refresh: mocks.refresh }; return { useRouter: () => router }; });
 vi.mock("@/lib/offline/draft-store", () => ({ getOfflineStorageGeneration: () => "generation-one", loadOfflineDrafts: mocks.load, saveOfflineDraft: mocks.save, removeOfflineDraft: mocks.remove }));
@@ -19,8 +20,20 @@ function TestConsumer() {
   const context = useOfflineCare()!;
   return <><p data-testid="draft-count">{context.drafts.length}</p><button onClick={() => { const item = context.drafts[0]; if (item) { const input = { ...item }; delete input.storageToken; void context.save(input).catch(() => undefined); } }}>Autosave</button></>;
 }
-beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("crypto", webcrypto); mocks.load.mockResolvedValue([]); mocks.save.mockResolvedValue("revision-saved"); mocks.remove.mockResolvedValue(true); mocks.synchronize.mockResolvedValue({ status: "saved", message: "Saved" }); vi.spyOn(navigator, "onLine", "get").mockReturnValue(false); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
+const locksRequest = vi.fn((_name: string, _options: unknown, operation: (lock: { name: string }) => Promise<unknown>) => operation({ name: "synthetic-lock" }));
+beforeEach(() => {
+  vi.clearAllMocks(); vi.stubGlobal("crypto", webcrypto);
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: locksRequest } });
+  mocks.load.mockResolvedValue([]); mocks.save.mockResolvedValue("revision-saved"); mocks.remove.mockResolvedValue(true);
+  mocks.synchronize.mockResolvedValue({ status: "saved", message: "Saved" });
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+});
+afterEach(() => {
+  cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
+  if (originalLocks) Object.defineProperty(navigator, "locks", originalLocks);
+  else Reflect.deleteProperty(navigator, "locks");
+});
 describe("offline provider revision and expiry controls", () => {
   it("uses the exact queued revision when a network result removes a device draft", async () => {
     const item = draft("queued"); mocks.load.mockResolvedValue([item]);
@@ -30,6 +43,19 @@ describe("offline provider revision and expiry controls", () => {
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(expect.anything(), id, "revision-one", "generation-one"));
     expect(await screen.findByText(/另一個分頁已更新這筆草稿/)).toBeInTheDocument();
     expect(screen.getByTestId("draft-count")).toHaveTextContent("1");
+  });
+  it("holds the device-wide outbox lock and a local operation lease until the POST is reconciled", async () => {
+    const item = draft("queued"); mocks.load.mockResolvedValue([item]);
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    let finish!: (value: { status: "saved"; message: string }) => void;
+    mocks.synchronize.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<OfflineCareProvider context={actor}><TestConsumer /></OfflineCareProvider>);
+    await waitFor(() => expect(mocks.synchronize).toHaveBeenCalledOnce());
+    expect(hasPendingOperations()).toBe(true);
+    expect(locksRequest).toHaveBeenCalledWith("daycare-offline-outbox-global-v1", { mode: "exclusive" }, expect.any(Function));
+    await act(async () => { finish({ status: "saved", message: "Saved" }); });
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(expect.anything(), id, "revision-one", "generation-one"));
+    await waitFor(() => expect(hasPendingOperations()).toBe(false));
   });
   it("does not silently upgrade a local editing baseline from another tab's refresh", async () => {
     vi.useFakeTimers(); const original = draft(); mocks.load.mockResolvedValue([original]);

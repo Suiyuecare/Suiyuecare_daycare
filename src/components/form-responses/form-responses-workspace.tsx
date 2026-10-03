@@ -51,6 +51,7 @@ export function FormResponsesWorkspace({ clients, initialClient, today, canWrite
     operationLease.current?.(); operationLease.current = null;
     attempt.current = null;
     draftGuard.finish();
+    draftGuard.unhold();
   }
   const locked = busy || uncertain || printBusy;
   const historical = Boolean(editor?.record && snapshot?.records.some((r) => r.recordKey === editor.record!.recordKey && r.revision > editor.record!.revision));
@@ -133,6 +134,7 @@ export function FormResponsesWorkspace({ clients, initialClient, today, canWrite
       setMessage(receipt.record.status === "signed" ? "已簽署；此版本已鎖定，更正需建立新版。" : "已保存填答；尚未簽署。");
     } catch {
       operation.ambiguous = true;
+      draftGuard.hold();
       if (mounted.current) { setUncertain(true); setError("儲存結果尚未確認。內容與操作識別碼已保留，請按「核對並重試原操作」；不要重新建立另一筆。"); }
     } finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
@@ -173,7 +175,7 @@ export function FormResponsesWorkspace({ clients, initialClient, today, canWrite
           : <div className={styles.actions}><button className="button button--primary" disabled={demo || historical || locked || !canWrite} onClick={() => void write("save")}>儲存填答草稿</button>
             <button className="button button--secondary" disabled={demo || historical || locked || dirty || !editor.record || !canSign} onClick={() => void write("sign")}>本人確認並簽署已保存版本</button>
             {!canSign && !demo && <span>正式簽署需簽署權限與近期身分驗證；儲存草稿不會代簽。 <Link href="/mfa?audience=staff&purpose=sensitive-action">前往身分驗證</Link></span>}</div>}
-        {dirty && !locked && <button className="button button--quiet" onClick={() => { if (draftGuard.discard()) { setDirty(false); setEditor(null); setAnswers({}); setReason(""); } }}>捨棄本次未儲存輸入</button>}
+        {dirty && !locked && <button className="button button--quiet" onClick={(event) => { draftGuard.discard(() => { setDirty(false); setEditor(null); setAnswers({}); setReason(""); }, event.currentTarget); }}>捨棄本次未儲存輸入</button>}
         {editor.record && <CustomResponsePrintAction key={editor.record.id} record={editor.record} actor={printActor} canPrint={canPrint} demo={demo} blocked={busy || uncertain} dirty={dirty} onBusyChange={setPrintBusy} />}
       </section>}
       <section className="panel"><h2>填答與更正歷程</h2><p>已載入 {snapshot.records.length} 個版本。{snapshot.hasMore ? "還有較早紀錄可載入。" : "此清單已載入至最早紀錄。"}</p>

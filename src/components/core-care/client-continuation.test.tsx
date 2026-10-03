@@ -1,17 +1,22 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type Link from "next/link";
 import { buildDemoDailySnapshot } from "@/lib/core-care/demo";
 import { ClientContinuation, useCoreDraftGuard } from "./client-continuation";
 import { NavigationLink } from "@/components/app/navigation-link";
+import { CoreDraftGuardHost, requestCoreDraftLeave } from "@/components/app/core-draft-guard";
 
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: ComponentProps<typeof Link>) => <a href={String(href)} aria-current={props["aria-current"]} onClick={props.onClick}>{children}</a>,
   useLinkStatus: () => ({ pending: false }),
 }));
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); } });
+});
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const snapshot = buildDemoDailySnapshot("2026-09-10");
 const second = snapshot.clients[1]!;
@@ -92,6 +97,17 @@ function GuardHarness() {
   return <><button onClick={draft.changed}>編輯</button><button onClick={draft.begin}>開始儲存</button>
     <button onClick={() => { draft.finish(); draft.saved(); }}>確認儲存</button>
     <NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={(event) => event.preventDefault()}>前往工作台</NavigationLink>
+    <form method="get" noValidate onSubmit={(event) => { event.preventDefault(); event.stopPropagation(); }}><button>套用日期</button></form></>;
+}
+
+function HoldHarness() {
+  const draft = useCoreDraftGuard();
+  return <><button onClick={draft.changed}>編輯</button><button onClick={draft.begin}>開始儲存</button>
+    <button onClick={() => { draft.hold(); draft.finish(); }}>結果未知</button>
+    <button onClick={draft.unhold}>已確認未寫入</button><button onClick={draft.saved}>已確認儲存</button>
+    <button onClick={(event) => draft.discard(() => {}, event.currentTarget)}>捨棄</button>
+    <button onClick={(event) => requestCoreDraftLeave(() => {}, event.currentTarget)}>登出</button>
+    <NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={(event) => event.preventDefault()}>工作台</NavigationLink>
     <form method="get" noValidate onSubmit={(event) => event.preventDefault()}><button>套用日期</button></form></>;
 }
 
@@ -100,7 +116,7 @@ function MultipleGuardHarness() {
   const second = useCoreDraftGuard();
   return <><button onClick={first.changed}>編輯甲</button><button onClick={second.changed}>編輯乙</button>
     <button onClick={second.begin}>儲存乙</button><button onClick={() => { second.finish(); second.saved(); }}>乙已儲存</button>
-    <button onClick={first.discard}>捨棄甲</button>
+    <button onClick={(event) => first.discard(() => {}, event.currentTarget)}>捨棄甲</button>
     <NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={(event) => event.preventDefault()}>前往工作台</NavigationLink>
     <form method="get" noValidate onSubmit={(event) => event.preventDefault()}><button>套用日期</button></form></>;
 }
@@ -111,86 +127,163 @@ function unloadPrevented() {
   return event.defaultPrevented;
 }
 
+function renderGuard(content: React.ReactNode) {
+  return render(<><CoreDraftGuardHost />{content}</>);
+}
+
 describe("unsent draft navigation guard", () => {
-  it("cancels link navigation and document unload while preserving the draft", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(<GuardHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
-    fireEvent.click(screen.getByRole("link"));
-    expect(confirm).toHaveBeenCalledOnce();
-    const event = new Event("beforeunload", { cancelable: true });
-    window.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(true);
-  });
-  it("blocks pending navigation without discard and stops blocking after confirmed success", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<GuardHarness />);
+  it("keeps unknown writes held across link, GET, logout, and local discard until a definite result", () => {
+    renderGuard(<HoldHarness />);
     fireEvent.click(screen.getByRole("button", { name: "開始儲存" }));
-    fireEvent.click(screen.getByRole("link"));
-    expect(confirm).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "確認儲存" }));
-    const event = new Event("beforeunload", { cancelable: true });
-    window.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "結果未知" }));
+    const link = screen.getByRole("link", { name: "工作台" });
+    const departure = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    fireEvent(link, departure);
+    expect(departure.defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    fireEvent.click(screen.getByRole("button", { name: "登出" }));
+    fireEvent.click(screen.getByRole("button", { name: "捨棄" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "已確認未寫入" }));
+    fireEvent.click(link);
+    expect(screen.getByRole("alertdialog")).toHaveAttribute("open");
   });
-  it("keeps a draft when GET navigation is cancelled, even after accepting the confirmation", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(<GuardHarness />);
+  it("replays an in-app Link once after consent and restores focus after cancel", async () => {
+    const onNavigate = vi.fn((event: React.MouseEvent<HTMLAnchorElement>) => event.preventDefault());
+    function ReplayHarness() { const draft = useCoreDraftGuard(); return <><button onClick={draft.changed}>編輯</button><NavigationLink href="/app/dashboard" loadingLabel="工作台" onClick={onNavigate}>工作台</NavigationLink></>; }
+    renderGuard(<ReplayHarness />);
     fireEvent.click(screen.getByRole("button", { name: "編輯" }));
-    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
-    expect(confirm).toHaveBeenCalledOnce();
-    confirm.mockReturnValue(true);
+    const link = screen.getByRole("link", { name: "工作台" });
+    link.focus();
+    fireEvent.click(link);
+    expect(onNavigate).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "繼續填寫" })).toHaveFocus();
+    fireEvent.click(within(dialog).getByRole("button", { name: "繼續填寫" }));
+    await waitFor(() => expect(link).toHaveFocus());
+    fireEvent.click(link);
+    fireEvent.click(within(dialog).getByRole("button", { name: "放棄輸入並離開" }));
+    expect(onNavigate).toHaveBeenCalledOnce();
+    expect(unloadPrevented()).toBe(true);
+  });
+  it("clears a queued confirmation when its host unmounts", () => {
+    function View({ host }: { host: boolean }) { return <>{host ? <CoreDraftGuardHost /> : null}<GuardHarness /></>; }
+    const view = render(<View host />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
     fireEvent.click(screen.getByRole("link"));
-    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alertdialog")).toHaveAttribute("open");
+    view.rerender(<View host={false} />);
     expect(unloadPrevented()).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
-    expect(confirm).toHaveBeenCalledTimes(3);
+    view.rerender(<View host />);
+    fireEvent.click(screen.getByRole("link"));
+    expect(screen.getByRole("alertdialog")).toHaveAttribute("open");
+  });
+  it("clears a hard-navigation unload exemption when the host unmounts", () => {
+    function View({ host }: { host: boolean }) {
+      const draft = useCoreDraftGuard();
+      return <>{host ? <CoreDraftGuardHost /> : null}<button onClick={draft.changed}>編輯</button>
+        <form method="get" noValidate onSubmit={(event) => event.stopPropagation()}><button>套用日期</button></form></>;
+    }
+    const view = render(<View host />);
+    const form = screen.getByRole("button", { name: "套用日期" }).closest("form")!;
+    const requestSubmit = vi.spyOn(form, "requestSubmit").mockImplementation(() => {
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
+    fireEvent.submit(form);
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "放棄輸入並離開" }));
+    expect(requestSubmit).toHaveBeenCalledOnce();
+    view.rerender(<View host={false} />);
     expect(unloadPrevented()).toBe(true);
+  });
+  it("uses one app dialog for a dirty link and preserves the draft on cancel", () => {
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    renderGuard(<GuardHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
+    fireEvent.click(screen.getByRole("link"));
+    const dialog = screen.getByRole("alertdialog", { name: "放棄未儲存的內容並離開？" });
+    expect(dialog).toHaveAttribute("open");
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "繼續填寫" }));
+    expect(dialog).not.toHaveAttribute("open");
+    expect(unloadPrevented()).toBe(true);
+  });
+  it("blocks pending writes without asking and stops blocking after confirmed success", () => {
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    renderGuard(<GuardHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "開始儲存" }));
+    const departure = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    screen.getByRole("link").dispatchEvent(departure);
+    expect(departure.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(nativeConfirm).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "確認儲存" }));
     expect(unloadPrevented()).toBe(false);
   });
-  it("asks once for two dirty forms and keeps both protected if navigation is cancelled", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("preserves a dirty draft when a GET handler cancels resumed navigation", () => {
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    renderGuard(<GuardHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
+    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog).toHaveAttribute("open");
+    fireEvent.click(within(dialog).getByRole("button", { name: "放棄輸入並離開" }));
+    expect(dialog).not.toHaveAttribute("open");
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("link"));
+    expect(dialog).toHaveAttribute("open");
+    fireEvent.click(within(dialog).getByRole("button", { name: "放棄輸入並離開" }));
+    expect(unloadPrevented()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "確認儲存" }));
+    expect(unloadPrevented()).toBe(false);
+    expect(nativeConfirm).not.toHaveBeenCalled();
+  });
+  it("asks once for two dirty forms and keeps both protected on cancel", () => {
     const addUnload = vi.spyOn(window, "addEventListener");
-    render(<MultipleGuardHarness />);
+    renderGuard(<MultipleGuardHarness />);
     expect(addUnload.mock.calls.filter(([name]) => name === "beforeunload")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "編輯甲" }));
     fireEvent.click(screen.getByRole("button", { name: "編輯乙" }));
     fireEvent.click(screen.getByRole("link", { name: "前往工作台" }));
-    expect(confirm).toHaveBeenCalledOnce();
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog).toHaveAttribute("open");
+    fireEvent.click(within(dialog).getByRole("button", { name: "繼續填寫" }));
     expect(unloadPrevented()).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
-    expect(confirm).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "捨棄甲" }));
+    expect(dialog).toHaveAttribute("open");
+    fireEvent.click(within(dialog).getByRole("button", { name: "放棄本次輸入" }));
     expect(unloadPrevented()).toBe(true);
   });
   it("checks every busy form before asking to leave and never clears another draft", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<MultipleGuardHarness />);
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    renderGuard(<MultipleGuardHarness />);
     fireEvent.click(screen.getByRole("button", { name: "編輯甲" }));
     fireEvent.click(screen.getByRole("button", { name: "儲存乙" }));
     const link = screen.getByRole("link", { name: "前往工作台" });
     const departure = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(departure);
     expect(departure.defaultPrevented).toBe(true);
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(unloadPrevented()).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "捨棄甲" }));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(unloadPrevented()).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "套用日期" }));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "乙已儲存" }));
     fireEvent.click(link);
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alertdialog")).toHaveAttribute("open");
     expect(unloadPrevented()).toBe(true);
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
   it("removes the shared listener when the last draft owner unmounts", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const view = render(<MultipleGuardHarness />);
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    const view = renderGuard(<MultipleGuardHarness />);
     fireEvent.click(screen.getByRole("button", { name: "編輯甲" }));
     expect(unloadPrevented()).toBe(true);
     view.unmount();
     expect(unloadPrevented()).toBe(false);
-    expect(confirm).not.toHaveBeenCalled();
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 });
