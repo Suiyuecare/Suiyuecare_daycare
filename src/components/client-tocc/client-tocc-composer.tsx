@@ -39,7 +39,7 @@ import {
 
 import styles from "./client-tocc.module.css";
 
-type Draft = {
+export type Draft = {
   rowId: string;
   itemKey: string;
   clientId: string;
@@ -94,11 +94,11 @@ function makeDraft(
   };
 }
 
-function makeInteractiveDraft(clientId: string, today: string) {
+export function makeInteractiveDraft(clientId: string, today: string) {
   return makeDraft(clientId, today, crypto.randomUUID(), crypto.randomUUID());
 }
 
-function requestBody(draft: Draft) {
+export function requestBody(draft: Draft) {
   return {
     client_id: draft.clientId,
     assessment_date: draft.assessmentDate,
@@ -128,13 +128,14 @@ function envelopeError(
     : fallback;
 }
 
-function ToccFields({
+export function ToccFields({
   draft,
   clients,
   today,
   prefix,
   autoFocus,
   onChange,
+  clientLocked = false,
 }: {
   draft: Draft;
   clients: readonly ClientToccOption[];
@@ -142,6 +143,7 @@ function ToccFields({
   prefix: string;
   autoFocus?: boolean;
   onChange: (draft: Draft) => void;
+  clientLocked?: boolean;
 }) {
   const selected = clients.find((client) => client.id === draft.clientId);
   const lifecycleValid = Boolean(
@@ -156,6 +158,7 @@ function ToccFields({
         <span>個案 *</span>
         <select
           autoFocus={autoFocus}
+          disabled={clientLocked}
           id={`${prefix}-client`}
           onChange={(event) => update("clientId", event.target.value)}
           required

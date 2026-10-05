@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
-import Link from "next/link";
 
 import { StatusPill } from "@/components/ui/status-pill";
 import type { PageCatalogEntry } from "@/lib/catalog";
@@ -20,10 +19,12 @@ import type {
   ClientToccOption,
   ClientToccValidityFilter,
 } from "@/lib/client-tocc/types";
+import type { ToccDraft } from "@/lib/integrations/client-tocc-drafts";
 
 import {
   ClientToccComposer,
 } from "./client-tocc-composer";
+import { ClientToccDraftPanel } from "./client-tocc-draft-panel";
 import styles from "./client-tocc.module.css";
 
 const resultLabels: Record<ClientToccResultStatus, string> = {
@@ -62,6 +63,20 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+function draftPageHref(
+  page: number,
+  query: string,
+  validity: ClientToccValidityFilter,
+  result: ClientToccResultFilter,
+) {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  if (validity !== "all") params.set("validity", validity);
+  if (result !== "all") params.set("result", result);
+  params.set("draft_page", String(page));
+  return `?${params.toString()}`;
+}
+
 function validityLabel(value: "current" | "expired" | null) {
   if (value === "current") return "有效";
   if (value === "expired") return "已逾期";
@@ -76,6 +91,11 @@ export function ClientToccWorkspace({
   validity,
   result,
   canWrite,
+  canDraft,
+  canSign,
+  drafts,
+  draftPage,
+  hasMoreDrafts,
   hasRecentAal2,
   loadError = false,
 }: {
@@ -86,6 +106,11 @@ export function ClientToccWorkspace({
   validity: ClientToccValidityFilter;
   result: ClientToccResultFilter;
   canWrite: boolean;
+  canDraft: boolean;
+  canSign: boolean;
+  drafts: readonly ToccDraft[];
+  draftPage: number;
+  hasMoreDrafts: boolean;
   hasRecentAal2: boolean;
   loadError?: boolean;
 }) {
@@ -124,7 +149,7 @@ export function ClientToccWorkspace({
         <ClientToccComposer
           clients={allClients}
           demo={snapshot.demo}
-          enabled={!snapshot.demo && canWrite && hasRecentAal2}
+          enabled={!snapshot.demo && canSign}
           today={snapshot.todayTaipei}
         />
       </header>
@@ -141,11 +166,15 @@ export function ClientToccWorkspace({
         </div>
       )}
 
-      {!snapshot.demo && canWrite && !hasRecentAal2 ? (
+      {!snapshot.demo && canWrite && !canSign ? (
         <div className={`callout ${styles.reauthCallout}`} role="status">
           <ShieldCheck aria-hidden="true" />
-          <span>可安全檢視；單筆與批次簽署需要最近 15 分鐘內完成 AAL2 重新驗證。</span>
-          <Link className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</Link>
+          <span>{!canDraft
+            ? "目前尚未取得 TOCC 草稿寫入權限；請向管理員確認 Google 工作階段、角色與個案指派。正式簽署仍須原有權限與近期 AAL2 驗證。"
+            : hasRecentAal2
+              ? "目前身分或角色不具備正式 TOCC 簽署權限；未簽署草稿可由已核准人員持續修訂。"
+              : "可安全檢視或編修未簽署草稿；正式簽署需要最近 15 分鐘內完成 AAL2 重新驗證及簽署權限。"}</span>
+          {!hasRecentAal2 ? <a className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action">前往重新驗證</a> : null}
         </div>
       ) : null}
 
@@ -159,6 +188,21 @@ export function ClientToccWorkspace({
           <div><strong>人工結果，不自動診斷</strong><span>結果、症狀、風險與處置均由授權人員確認；系統只做技術驗證與到期提示。</span></div>
         </article>
       </section>
+
+      <ClientToccDraftPanel
+        canSave={canDraft}
+        canSign={canSign}
+        clients={allClients}
+        drafts={drafts}
+        today={snapshot.todayTaipei}
+      />
+      {(draftPage > 0 || hasMoreDrafts) ? (
+        <nav aria-label="TOCC 草稿分頁" className="filter-bar">
+          <span>草稿第 {draftPage + 1} 頁，每頁最多 100 筆</span>
+          {draftPage > 0 ? <a href={draftPageHref(draftPage - 1, query, validity, result)}>上一頁</a> : null}
+          {hasMoreDrafts ? <a href={draftPageHref(draftPage + 1, query, validity, result)}>下一頁</a> : null}
+        </nav>
+      ) : null}
 
       <section aria-label="個案 TOCC 摘要" className="metric-grid">
         {[
@@ -205,7 +249,7 @@ export function ClientToccWorkspace({
             </select>
           </label>
           <button className="button button--secondary" type="submit">套用篩選</button>
-          {hasFilters ? <Link className="button button--quiet" href="?validity=all&result=all">清除</Link> : null}
+          {hasFilters ? <a className="button button--quiet" href="?validity=all&result=all">清除</a> : null}
         </form>
 
         {snapshot.clients.length ? (
@@ -255,7 +299,7 @@ export function ClientToccWorkspace({
             <section className="empty-card core-care-state">
               <Search aria-hidden="true" /><h2>沒有符合條件的 TOCC 個案</h2>
               <p>請調整姓名、代碼、有效狀態或結果；系統不會擴大到其他分支或未指派個案。</p>
-              <Link className="button button--secondary" href="?validity=all&result=all">清除篩選</Link>
+              <a className="button button--secondary" href="?validity=all&result=all">清除篩選</a>
             </section>
           </div>
         )}
