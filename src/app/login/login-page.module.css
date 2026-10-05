@@ -32,6 +32,9 @@
 .panel { width: 100%; max-width: 320px; }
 .welcome { margin: 0 0 3px; color: #1e293b; font-size: 19px; font-weight: 500; line-height: 1.5; }
 .subtitle { margin: 0 0 18px; color: #6e6259; font-size: 12px; line-height: 1.6; }
+.portalPrimary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; margin-bottom: 14px; padding: 10px; border-radius: 10px; background: #ea8500; color: #fff; text-decoration: none; font-size: 14px; font-weight: 850; }
+.portalPrimary:hover { background: #bf6300; }
+.portalPrimary:focus-visible { outline: 3px solid #2f2a26; outline-offset: 3px; }
 .accountGuide { background: #fff8ed; border: 1px solid #efd7b8; border-radius: 9px; padding: 10px 11px; margin-bottom: 12px; color: #6f4b21; line-height: 1.55; }
 .accountGuide strong { font-size: 12px; font-weight: 800; }
 .accountGuide p { font-size: 12px; margin: 3px 0 0; overflow-wrap: anywhere; }
@@ -59,5 +62,6 @@
   .mobileBrand .brandName strong { font-size: 17px; }
   .panel { max-width: none; padding: 22px; border-radius: 26px; background: #fffdfb; box-shadow: 0 18px 40px rgba(84,45,10,.17); }
   .googleButton { min-height: 56px; font-size: 16px; }
+  .portalPrimary { min-height: 56px; font-size: 16px; }
   .portalLink, .help summary { font-size: 14px; }
 }

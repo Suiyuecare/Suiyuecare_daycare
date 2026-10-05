@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { redirect } from "next/navigation";
 
 import { GoogleLoginFeedback } from "@/components/auth/google-login-feedback";
+import { getTenantContext } from "@/lib/auth/context";
 import { appBranding } from "@/lib/config/branding";
 import { companyNavigation } from "@/lib/config/company-navigation";
 import { env, isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
@@ -33,7 +35,22 @@ const googleIcon = <svg aria-hidden="true" focusable="false" width="18" height="
   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
 </svg>;
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: { searchParams?: Promise<{ error?: string | string[] }> } = {}) {
+  // Reopening /login must not ask an already admitted employee to sign in
+  // again. A failed B-account handoff must not silently redirect an existing
+  // A-account session to its dashboard; show the explicit recovery screen.
+  const error = (await searchParams)?.error;
+  const handoffFailed = error === "portal_handoff_failed" || error === "portal_activation_required";
+  if (!handoffFailed && !isDemoMode() && !isSyntheticPreviewMode()) {
+    const context = await getTenantContext("staff").catch(() => null);
+    if (context) redirect("/app/dashboard");
+  }
+  return <LoginContent />;
+}
+
+export function LoginContent() {
   if (isSyntheticPreviewMode()) {
     return <main id="main-content" style={{ maxWidth: 680, margin: "8vh auto", padding: 24 }}>
       <p className="eyebrow">{appBranding.applicationName}</p>
@@ -76,10 +93,13 @@ export default function LoginPage() {
         <CompanyBrand mobile />
         <div className={styles.panel}>
           <h2 className={styles.welcome}>歡迎回來</h2>
-          <p className={styles.subtitle}>請使用公司 Google Workspace 帳號登入日照</p>
+          <p className={styles.subtitle}>已登入公司入口？直接進入日照工作台。</p>
+          <a className={styles.portalPrimary} href={`${companyNavigation.portalUrl}?module=day-care`} referrerPolicy="no-referrer">
+            從公司入口繼續 <span aria-hidden="true">→</span>
+          </a>
           <div className={styles.accountGuide}>
-            <strong>使用與 Finance 相同的公司帳號</strong>
-            <p>請使用主管已核准的個人公司帳號。進入日照時會另外核對日照權限。</p>
+            <strong>首次使用或入口無法連線？</strong>
+            <p>可使用主管已核准的個人公司帳號完成一次 Google 啟用；日照仍會另外核對職務與分支權限。</p>
           </div>
           <Suspense fallback={null}><GoogleLoginFeedback /></Suspense>
           <form action="/auth/google" method="post" aria-label="公司 Google 登入">
@@ -97,7 +117,6 @@ export default function LoginPage() {
             <strong>建置驗證版本</strong>
             尚未完成正式營運驗收，請勿輸入或上傳真實個案資料。
           </p>
-          <a className={styles.portalLink} href={companyNavigation.portalUrl} referrerPolicy="no-referrer">回公司模組入口</a>
           <details className={styles.help}>
             <summary>登入協助與使用範圍</summary>
             <p>一般出勤、量測與照顧草稿不需另設驗證器。簽署、補登、匯出與權限調整等重要操作另有身分確認要求。家屬尚未開放登入。</p>
