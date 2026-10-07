@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { useScopeChangeDraftRegistration } from "@/lib/navigation/scope-change-pending";
 import { scoreAssessment } from "@/lib/assessments/engine";
-import type { AssessmentAnswers } from "@/lib/assessments/types";
+import type { AssessmentAnswers, AssessmentRuleSnapshot } from "@/lib/assessments/types";
 import type {
   QuestionnaireAnswers,
   QuestionnaireAnswer,
@@ -19,6 +19,14 @@ import type {
 import styles from "./questionnaire-assessments.module.css";
 
 const historyGuardKey = "__daycareAssessmentUnsavedGuard";
+
+export function canPreviewApprovedScore(
+  rule: Pick<AssessmentRuleSnapshot, "activatedAt" | "reviewRequired"> | null | undefined,
+  now = Date.now(),
+) {
+  const activatedAt = rule?.activatedAt ? Date.parse(rule.activatedAt) : NaN;
+  return Boolean(rule && !rule.reviewRequired && Number.isFinite(activatedAt) && activatedAt <= now);
+}
 
 function taipeiToday() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -128,6 +136,7 @@ function QuestionnaireEditor({
     answers: answers as AssessmentAnswers,
     context: scoringContext,
   }) : null;
+  const approvedScorePreview = canPreviewApprovedScore(scorePreview?.rule) ? scorePreview : null;
   const height = Number(context.height_cm);
   const weight = Number(context.weight_kg);
   const bmi = height > 0 && weight > 0 ? weight / ((height / 100) ** 2) : null;
@@ -273,7 +282,7 @@ function QuestionnaireEditor({
         <p>{form.sourceUrl
           ? <a href={form.sourceUrl} rel="noreferrer" target="_blank">{form.sourceLabel}</a>
           : form.sourceLabel}</p>
-        <p>題本版本：{form.version}{scorePreview ? `・計分規則：${scorePreview.versionId}` : ""}</p>
+        <p>題本版本：{form.version}{approvedScorePreview ? `・計分規則：${approvedScorePreview.versionId}` : ""}</p>
       </details>
     </div>
     <p className={styles.quickInstruction}>{form.key === "spmsq"
@@ -429,14 +438,16 @@ function QuestionnaireEditor({
       <small>選填，最多 3,000 字；內容不會加入量表分數。</small>
     </label> : null}
 
-    {scorePreview ? <section className={styles.score} aria-live="polite" aria-label="量表計分預覽">
-      <strong>{scorePreview.status === "complete" && scorePreview.score
-        ? `計分預覽 ${scorePreview.score.adjusted ?? scorePreview.score.raw}／${scorePreview.score.max}`
+    {approvedScorePreview ? <section className={styles.score} aria-live="polite" aria-label="量表計分預覽">
+      <strong>{approvedScorePreview.status === "complete" && approvedScorePreview.score
+        ? `計分預覽 ${approvedScorePreview.score.adjusted ?? approvedScorePreview.score.raw}／${approvedScorePreview.score.max}`
         : "計分預覽：尚未完整作答"}</strong>
-      {scorePreview.status === "complete" && scorePreview.classification
-        ? <span>{scorePreview.classification.label}</span> : null}
+      {approvedScorePreview.status === "complete" && approvedScorePreview.classification
+        ? <span>{approvedScorePreview.classification.label}</span> : null}
       <small>草稿試算，不等於診斷、醫囑或自動處置。</small>
-    </section> : null}
+    </section> : scorePreview ? <p className={styles.readOnly} role="status">
+      計分規則尚待核准；此頁只保存填答草稿，不顯示分數或風險分級。
+    </p> : null}
 
     <div className={styles.actions}>
       <span>待答 {missingCount} 題{pendingReasonCount ? `・待補 ${pendingReasonCount} 題不適用原因` : ""}{pendingContextFields.length ? `・待補 ${pendingContextFields.length} 項計分條件` : ""}・僅保存草稿</span>
@@ -656,7 +667,7 @@ export function QuestionnaireAssessmentsWorkspace({
     pendingNavigation.current = { kind: "client", destination: selected };
     showLeaveDialog();
   }
-  return <main className={styles.workspace}>
+  return <div className={styles.workspace}>
     <header className="page-heading core-care-heading">
       <div>
         <h1>{pageTitle}</h1>
@@ -715,5 +726,5 @@ export function QuestionnaireAssessmentsWorkspace({
     /> : <div className={styles.empty}>
       {snapshot.clients.length ? "請先選一位個案，量表會直接在此展開。" : "目前沒有可指派給此帳號的有效個案。請確認個案指派與分支權限。"}
     </div>}
-  </main>;
+  </div>;
 }

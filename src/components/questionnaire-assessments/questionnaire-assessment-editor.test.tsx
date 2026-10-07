@@ -3,10 +3,11 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { scoreAssessment } from "@/lib/assessments/engine";
 import { QUESTIONNAIRE_FORMS } from "@/lib/questionnaire-assessments/forms";
 import type { QuestionnaireClient, QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 
-import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
+import { canPreviewApprovedScore, QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
 
 const refresh = vi.hoisted(() => vi.fn());
 const replace = vi.hoisted(() => vi.fn());
@@ -54,6 +55,59 @@ afterEach(() => {
 });
 
 describe("shared questionnaire assessment editor", () => {
+  it("leaves the sole main landmark to the application shell", () => {
+    const { container } = render(workspace("spmsq"));
+    expect(container.querySelectorAll("main")).toHaveLength(0);
+  });
+
+  it("shows scoring only after review and a valid effective time", () => {
+    const now = Date.parse("2026-10-08T12:00:00Z");
+    expect(canPreviewApprovedScore(null, now)).toBe(false);
+    expect(canPreviewApprovedScore({ activatedAt: null, reviewRequired: false }, now)).toBe(false);
+    expect(canPreviewApprovedScore({ activatedAt: "2026-10-01T00:00:00Z", reviewRequired: true }, now)).toBe(false);
+    expect(canPreviewApprovedScore({ activatedAt: "not-a-date", reviewRequired: false }, now)).toBe(false);
+    expect(canPreviewApprovedScore({ activatedAt: "2026-10-09T00:00:00Z", reviewRequired: false }, now)).toBe(false);
+    expect(canPreviewApprovedScore({ activatedAt: "2026-10-01T00:00:00Z", reviewRequired: false }, now)).toBe(true);
+  });
+
+  it.each(Object.keys(QUESTIONNAIRE_FORMS) as QuestionnaireFormKey[])(
+    "withholds %s candidate score and risk band after all answers are entered",
+    (formKey) => {
+      const form = QUESTIONNAIRE_FORMS[formKey];
+      const answers = Object.fromEntries(form.questions.map((question) => [
+        question.id, { state: "answered" as const, value: question.choices[0].value },
+      ]));
+      const context = Object.fromEntries((form.contextFields ?? [])
+        .filter((field) => field.required)
+        .map((field) => [field.key, field.choices[0].value]));
+      const candidate = scoreAssessment({ versionId: form.scoreVersionId!, answers, context });
+      expect(candidate.status).toBe("complete");
+      expect(candidate.score?.adjusted ?? candidate.score?.raw).toEqual(expect.any(Number));
+      expect(candidate.classification).not.toBeNull();
+      expect(candidate.rule?.reviewRequired).toBe(true);
+      expect(candidate.rule?.activatedAt).toBeNull();
+
+      render(workspace(formKey));
+      for (const question of form.questions) {
+        const card = document.getElementById(`${form.key}-${question.id}`)!;
+        fireEvent.click(within(card).getAllByRole("radio")[0]);
+      }
+      for (const field of form.contextFields ?? []) {
+        if (!field.required) continue;
+        fireEvent.change(screen.getByRole("combobox", { name: `${field.label}（計分必要）` }), {
+          target: { value: field.choices[0].value },
+        });
+      }
+
+      const progressTotal = form.questions.length + (form.contextFields ?? []).filter((field) => field.required).length;
+      expect(screen.getByRole("progressbar")).toHaveAttribute("value", String(progressTotal));
+      expect(screen.queryByLabelText("量表計分預覽")).not.toBeInTheDocument();
+      expect(screen.queryByText(candidate.classification!.label)).not.toBeInTheDocument();
+      expect(screen.getByText("計分規則尚待核准；此頁只保存填答草稿，不顯示分數或風險分級。"))
+        .toBeVisible();
+    },
+  );
+
   it("puts the first complete question before optional fields and keeps progress and source available", () => {
     const form = QUESTIONNAIRE_FORMS.spmsq;
     render(workspace("spmsq"));

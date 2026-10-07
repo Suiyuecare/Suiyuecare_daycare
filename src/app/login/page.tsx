@@ -37,7 +37,7 @@ const googleIcon = <svg aria-hidden="true" focusable="false" width="18" height="
 
 export default async function LoginPage({
   searchParams,
-}: { searchParams?: Promise<{ error?: string | string[] }> } = {}) {
+}: { searchParams?: Promise<{ error?: string | string[] }> }) {
   // Reopening /login must not ask an already admitted employee to sign in
   // again. A failed B-account handoff must not silently redirect an existing
   // A-account session to its dashboard; show the explicit recovery screen.
@@ -50,7 +50,7 @@ export default async function LoginPage({
   return <LoginContent />;
 }
 
-export function LoginContent() {
+function LoginContent() {
   if (isSyntheticPreviewMode()) {
     return <main id="main-content" style={{ maxWidth: 680, margin: "8vh auto", padding: 24 }}>
       <p className="eyebrow">{appBranding.applicationName}</p>

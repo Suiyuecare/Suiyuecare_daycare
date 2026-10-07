@@ -26,7 +26,7 @@ describe("authenticated validation release entrance", () => {
   });
 
   it("offers the company portal and first-use Google activation without accepting real client data", async () => {
-    const html = renderToStaticMarkup(await LoginPage());
+    const html = renderToStaticMarkup(await LoginPage({}));
     expect(html).toContain('aria-label="版本使用限制"');
     expect(html).toContain("尚未完成正式營運驗收");
     expect(html).toContain("請勿輸入或上傳真實個案資料");
@@ -55,7 +55,7 @@ describe("authenticated validation release entrance", () => {
 
   it("enables only the fixed Google action after explicit provider readiness", async () => {
     state.env.GOOGLE_LOGIN_ENABLED = true;
-    const html = renderToStaticMarkup(await LoginPage());
+    const html = renderToStaticMarkup(await LoginPage({}));
     expect(html).not.toContain('disabled=""');
     expect(html).toContain('aria-describedby="google-login-readiness"');
     expect(html).toContain("不接受自行註冊或切換角色");
@@ -65,12 +65,12 @@ describe("authenticated validation release entrance", () => {
   it("never enables provider authentication in a local demo", async () => {
     state.env.GOOGLE_LOGIN_ENABLED = true;
     state.demo = true;
-    expect(renderToStaticMarkup(await LoginPage())).toContain('disabled=""');
+    expect(renderToStaticMarkup(await LoginPage({}))).toContain('disabled=""');
     expect(state.getTenantContext).not.toHaveBeenCalled();
   });
 
   it("matches the company entrance without treating navigation as authorization", async () => {
-    const html = renderToStaticMarkup(await LoginPage());
+    const html = renderToStaticMarkup(await LoginPage({}));
     expect(html).toContain("歡迎回來");
     expect(html).toContain("日間照顧系統入口");
     expect(html).toContain("歲悅長照集團");
@@ -83,14 +83,14 @@ describe("authenticated validation release entrance", () => {
 
   it("redirects an already approved staff session without another provider login", async () => {
     state.getTenantContext.mockResolvedValue({ userId: "approved-user" });
-    await expect(LoginPage()).rejects.toThrow("NEXT_REDIRECT");
+    await expect(LoginPage({})).rejects.toThrow("NEXT_REDIRECT");
     expect(state.getTenantContext).toHaveBeenCalledExactlyOnceWith("staff");
     expect(state.redirect).toHaveBeenCalledExactlyOnceWith("/app/dashboard");
   });
 
   it("keeps login available during a transient session check failure", async () => {
     state.getTenantContext.mockRejectedValue(new Error("private-db-error"));
-    expect(renderToStaticMarkup(await LoginPage())).toContain('action="/auth/google"');
+    expect(renderToStaticMarkup(await LoginPage({}))).toContain('action="/auth/google"');
     expect(state.redirect).not.toHaveBeenCalled();
   });
 
