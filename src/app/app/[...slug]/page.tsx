@@ -674,7 +674,7 @@ function WorkLoadFailureState({ title, path, kind, error }: {
   const invalid = kind === "invalid_filter";
   const requestId = safeWorkRequestId(error);
   return <section className="empty-card core-care-state" role="alert">
-    <h1>{title}{invalid ? "篩選條件無效" : "資料暫時無法取得"}</h1>
+    <h1>{title}：{invalid ? "篩選條件無效" : "資料暫時無法取得"}</h1>
     <p>{invalid
       ? "請清除篩選後重試；尚未讀取個案紀錄。"
       : "未取得正式資料。請重新載入；若仍無法查看，請主管確認權限或聯絡系統管理員。"}</p>
