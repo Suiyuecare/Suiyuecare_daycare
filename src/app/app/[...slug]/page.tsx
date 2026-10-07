@@ -111,7 +111,7 @@ import {
   staffPages,
 } from "@/lib/catalog";
 import { buildDemoRecords } from "@/lib/demo/fixtures";
-import { parseServiceDate } from "@/lib/core-care/date";
+import { parseServiceDate, taipeiDayBoundsUtc } from "@/lib/core-care/date";
 import { env, isSyntheticPreviewMode, isSyntheticReadMode } from "@/lib/env";
 import {
   filterBloodGlucoseSnapshot,
@@ -649,6 +649,42 @@ import {
   loadFeedbackComplaintSnapshot,
 } from "@/lib/feedback-complaints/snapshot";
 
+type WorkQuery = Record<string, string | string[] | undefined>;
+type WorkLoadFailure = "invalid_filter" | "unavailable";
+
+function invalidWorkQuery(query: WorkQuery, allowed: readonly string[]) {
+  return Object.entries(query).some(([key, value]) =>
+    !allowed.includes(key) || Array.isArray(value));
+}
+
+function invalidExplicitServiceDate(value: string | undefined) {
+  if (value === undefined) return false;
+  try { taipeiDayBoundsUtc(value); return false; }
+  catch { return true; }
+}
+
+function safeWorkRequestId(error: unknown) {
+  const value = error instanceof Error && "requestId" in error ? error.requestId : null;
+  return typeof value === "string" && /^[A-Za-z0-9-]{8,64}$/u.test(value) ? value : null;
+}
+
+function WorkLoadFailureState({ title, path, kind, error }: {
+  title: string; path: string; kind: WorkLoadFailure; error?: unknown;
+}) {
+  const invalid = kind === "invalid_filter";
+  const requestId = safeWorkRequestId(error);
+  return <section className="empty-card core-care-state" role="alert">
+    <h1>{title}{invalid ? "篩選條件無效" : "資料暫時無法取得"}</h1>
+    <p>{invalid
+      ? "請清除篩選後重試；尚未讀取個案紀錄。"
+      : "未取得正式資料。請重新載入；若仍無法查看，請主管確認權限或聯絡系統管理員。"}</p>
+    {requestId ? <p>查詢編號：{requestId}</p> : null}
+    <a className="button button--secondary" href={invalid ? path : "?"}>
+      {invalid ? "清除篩選" : "重新載入"}
+    </a>
+  </section>;
+}
+
 export function generateStaticParams() {
   return staffPages
     .filter((page) => ![1, 2, 3, 6, 46, 54].includes(page.number))
@@ -776,21 +812,23 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 7) {
+    const requestedClient =
+      typeof query.client === "string" ? query.client : undefined;
+    const requestedStatus =
+      typeof query.status === "string" ? query.status : "all";
+    const selectedClientId =
+      requestedClient && requestedClient !== "all" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
+        ? requestedClient : undefined;
+    if (invalidWorkQuery(query, ["date", "client", "status"]) ||
+      invalidExplicitServiceDate(typeof query.date === "string" ? query.date : undefined) ||
+      (requestedClient && requestedClient !== "all" && !selectedClientId) ||
+      !MEDICATION_STATUS_FILTERS.includes(requestedStatus as MedicationStatusFilter)) {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
     const serviceDate = parseServiceDate(
       typeof query.date === "string" ? query.date : undefined,
     );
-    const requestedClient =
-      typeof query.client === "string" ? query.client : undefined;
-    const selectedClientId =
-      requestedClient &&
-      requestedClient !== "all" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-        requestedClient,
-      )
-        ? requestedClient
-        : undefined;
-    const requestedStatus =
-      typeof query.status === "string" ? query.status : "all";
     const status: MedicationStatusFilter = MEDICATION_STATUS_FILTERS.includes(
       requestedStatus as MedicationStatusFilter,
     )
@@ -803,7 +841,6 @@ export default async function StaffCatalogPage({
     let snapshot = null;
     let allClients: MedicationClientOption[] = [];
     let recentAal2 = context.demo;
-    let loadError = false;
     try {
       const [unfiltered, aal2] = await Promise.all([
         loadMedicationAdministrationSnapshot(context, serviceDate),
@@ -819,7 +856,8 @@ export default async function StaffCatalogPage({
       recentAal2 = aal2;
     } catch (error) {
       if (!(error instanceof MedicationAdministrationSnapshotError)) throw error;
-      loadError = true;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+        kind="unavailable" error={error} />;
     }
     return (
       <MedicationRecordsWorkspace
@@ -828,7 +866,7 @@ export default async function StaffCatalogPage({
         canVerify={canVerify}
         currentUserId={context.userId}
         hasRecentAal2={recentAal2}
-        loadError={loadError}
+        loadError={false}
         page={page}
         selectedClientId={selectedClientId}
         serviceDate={serviceDate}
@@ -888,6 +926,15 @@ export default async function StaffCatalogPage({
   }
 
   if (page.number === 9) {
+    if (invalidWorkQuery(query, ["q", "validity", "result"]) ||
+      (typeof query.q === "string" &&
+        (query.q.length > 120 || /[\u0000-\u001f\u007f]/u.test(query.q))) ||
+      (typeof query.validity === "string" &&
+        !["all", "current", "expired", "no_record"].includes(query.validity)) ||
+      (typeof query.result === "string" && query.result !== "all" &&
+        !CLIENT_TOCC_RESULT_STATUSES.some((status) => status === query.result))) {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
     const searchQuery =
       typeof query.q === "string" ? query.q.slice(0, 120) : "";
     const requestedValidity =
@@ -916,7 +963,6 @@ export default async function StaffCatalogPage({
     let snapshot = null;
     let allClients: ClientToccOption[] = [];
     let recentAal2 = false;
-    let loadError = false;
     try {
       const [unfiltered, aal2] = await Promise.all([
         loadClientToccSnapshot(context),
@@ -939,14 +985,15 @@ export default async function StaffCatalogPage({
       recentAal2 = aal2;
     } catch (error) {
       if (!(error instanceof ClientToccSnapshotError)) throw error;
-      loadError = true;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+        kind="unavailable" error={error} />;
     }
     return (
       <ClientToccWorkspace
         allClients={allClients}
         canWrite={canWrite}
         hasRecentAal2={recentAal2}
-        loadError={loadError}
+        loadError={false}
         page={page}
         query={searchQuery}
         result={result}
@@ -1240,10 +1287,11 @@ export default async function StaffCatalogPage({
       if (Array.isArray(value)) value.forEach((item) => parameters.append(key, item));
       else if (typeof value === "string") parameters.append(key, value);
     }
-    let filters = parseBehaviorEventFilters(new URLSearchParams());
-    let loadError = false;
+    let filters;
     try { filters = parseBehaviorEventFilters(parameters); }
-    catch { loadError = true; }
+    catch {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
     const baseAuthority = !context.demo &&
       context.scopes.includes("clients.read") && context.scopes.includes("behavior_events.read");
     const aal2Authority = baseAuthority && context.assuranceLevel === "aal2";
@@ -1252,19 +1300,18 @@ export default async function StaffCatalogPage({
     const canSign = aal2Authority && context.scopes.includes("behavior_events.sign");
     let snapshot = null;
     let recentAal2 = false;
-    if (!loadError) {
-      try {
-        [snapshot, recentAal2] = await Promise.all([
-          loadBehaviorEventSnapshot(context, filters),
-          canSign ? hasRecentAal2() : Promise.resolve(false),
-        ]);
-      } catch (error) {
-        if (!(error instanceof BehaviorEventSnapshotError)) throw error;
-        loadError = true;
-      }
+    try {
+      [snapshot, recentAal2] = await Promise.all([
+        loadBehaviorEventSnapshot(context, filters),
+        canSign ? hasRecentAal2() : Promise.resolve(false),
+      ]);
+    } catch (error) {
+      if (!(error instanceof BehaviorEventSnapshotError)) throw error;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+        kind="unavailable" error={error} />;
     }
     return <BehaviorEventsWorkspace canManage={canManage} canSign={canSign}
-      filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
+      filters={filters} hasRecentAal2={recentAal2} loadError={false}
       page={page} snapshot={snapshot} />;
   }
 
@@ -1275,27 +1322,27 @@ export default async function StaffCatalogPage({
       else if (typeof value === "string") parameters.append(key, value);
     }
     let filters = emptyAbcdAssessmentFilters();
-    let loadError = false;
     try { filters = parseAbcdAssessmentFilters(parameters); }
-    catch { loadError = true; }
+    catch {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
     const canManage = !context.demo && context.scopes.includes("clients.read") &&
       context.scopes.includes("abcd_assessments.read") && context.scopes.includes("abcd_assessments.manage") &&
       (context.assuranceLevel === "aal2" || await canUseAssessmentDraft(context, "abcd"));
     let snapshot = null;
     let recentAal2 = false;
-    if (!loadError) {
-      try {
-        [snapshot, recentAal2] = await Promise.all([
-          loadAbcdAssessmentSnapshot(context, filters),
-          canManage ? hasRecentAal2() : Promise.resolve(false),
-        ]);
-      } catch (error) {
-        if (!(error instanceof AbcdAssessmentSnapshotError)) throw error;
-        loadError = true;
-      }
+    try {
+      [snapshot, recentAal2] = await Promise.all([
+        loadAbcdAssessmentSnapshot(context, filters),
+        canManage ? hasRecentAal2() : Promise.resolve(false),
+      ]);
+    } catch (error) {
+      if (!(error instanceof AbcdAssessmentSnapshotError)) throw error;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+        kind="unavailable" error={error} />;
     }
     return <AbcdAssessmentsWorkspace canManage={canManage} filters={filters}
-      hasRecentAal2={recentAal2} loadError={loadError} page={page} snapshot={snapshot} />;
+      hasRecentAal2={recentAal2} loadError={false} page={page} snapshot={snapshot} />;
   }
 
   if (page.number === 22) {
@@ -3851,17 +3898,14 @@ export default async function StaffCatalogPage({
     let filters;
     try { filters = parseBodyAssessmentFilters(parameters); }
     catch {
-      return <section className="empty-card" role="alert"><h1>身體評估查詢條件無效</h1>
-        <p>請使用有效個案與紀錄狀態；不接受重複或額外條件。</p>
-        <a className="button button--secondary" href="?">重設查詢</a></section>;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
     }
     let snapshot;
     try { snapshot = await loadBodyAssessmentSnapshot(context, filters); }
     catch (error) {
       if (!(error instanceof BodyAssessmentSnapshotError)) throw error;
-      return <section className="empty-card" role="alert"><h1>身體評估暫時無法載入</h1>
-        <p>資料未取得；不會以展示資料或其他分支補位。</p>
-        <a className="button button--secondary" href="?">重新載入</a></section>;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+        kind="unavailable" error={error} />;
     }
     const recentAal2 = !context.demo && await hasRecentBodyAssessmentAal2(context);
     const canManageDraft = !context.demo && context.scopes.includes("body_assessments.manage") &&

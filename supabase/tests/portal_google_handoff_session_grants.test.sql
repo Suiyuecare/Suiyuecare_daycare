@@ -1,5 +1,5 @@
 begin;
-select plan(54);
+select plan(58);
 
 -- Synthetic identities only. The real Portal verifies the Google subject and
 -- signs the handoff before invoking the service-role claim RPC.
@@ -66,10 +66,42 @@ select ok(has_function_privilege('service_role','public.is_portal_sso_first_acti
  'first-activation classifier is server-only');
 select ok((select bool_and(prosecdef and proconfig @> array['search_path=""']
   and pg_get_userbyid(proowner)='postgres') from pg_proc
-  where oid in ('public.claim_portal_sso_ticket(text,text,text,timestamptz)'::regprocedure,
-    'public.bind_portal_sso_session(text,uuid)'::regprocedure,
+  where oid in ('private.claim_portal_sso_ticket(text,text,text,timestamptz)'::regprocedure,
+    'private.is_portal_sso_first_activation_pending(text,text)'::regprocedure,
+    'private.bind_portal_sso_session(text,uuid)'::regprocedure,
     'private.is_portal_sso_session_allowed(text)'::regprocedure)),
- 'all elevated handoff functions use fixed empty search path and reviewed owner');
+ 'all elevated handoff implementations live in private with fixed empty search path and reviewed owner');
+select ok((select bool_and(not prosecdef and proconfig @> array['search_path=""'])
+  from pg_proc where oid in (
+    'public.claim_portal_sso_ticket(text,text,text,timestamptz)'::regprocedure,
+    'public.is_portal_sso_first_activation_pending(text,text)'::regprocedure,
+    'public.bind_portal_sso_session(text,uuid)'::regprocedure)),
+ 'public RPC facades are SECURITY INVOKER with fixed empty search path');
+select ok(not has_function_privilege('anon','private.claim_portal_sso_ticket(text,text,text,timestamptz)','execute')
+ and not has_function_privilege('authenticated','private.claim_portal_sso_ticket(text,text,text,timestamptz)','execute')
+ and has_function_privilege('service_role','private.claim_portal_sso_ticket(text,text,text,timestamptz)','execute')
+ and not has_function_privilege('anon','private.is_portal_sso_first_activation_pending(text,text)','execute')
+ and not has_function_privilege('authenticated','private.is_portal_sso_first_activation_pending(text,text)','execute')
+ and has_function_privilege('service_role','private.is_portal_sso_first_activation_pending(text,text)','execute')
+ and not has_function_privilege('anon','private.bind_portal_sso_session(text,uuid)','execute')
+ and not has_function_privilege('authenticated','private.bind_portal_sso_session(text,uuid)','execute')
+ and has_function_privilege('service_role','private.bind_portal_sso_session(text,uuid)','execute'),
+ 'only service_role can execute private elevated handoff implementations');
+select ok(has_schema_privilege('service_role','private','usage')
+ and (select proargnames=array['p_jti_sha256','p_google_sub','p_email','p_expires_at']
+   and prorettype='uuid'::regtype from pg_proc
+   where oid='public.claim_portal_sso_ticket(text,text,text,timestamptz)'::regprocedure)
+ and (select proargnames=array['p_email','p_google_sub']
+   and prorettype='boolean'::regtype from pg_proc
+   where oid='public.is_portal_sso_first_activation_pending(text,text)'::regprocedure)
+ and (select proargnames=array['p_jti_sha256','p_session_id']
+   and prorettype='boolean'::regtype from pg_proc
+   where oid='public.bind_portal_sso_session(text,uuid)'::regprocedure),
+ 'service_role can reach private implementations and existing named admin.rpc arguments are unchanged');
+select ok(not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+ where p.prosecdef and n.nspname='public' and p.proname in (
+   'claim_portal_sso_ticket','is_portal_sso_first_activation_pending','bind_portal_sso_session')),
+ 'no Portal SSO SECURITY DEFINER implementation remains in public');
 
 set local role anon;
 select throws_ok($$select public.claim_portal_sso_ticket(repeat('a',64),'synthetic-google-owner','owner@example.invalid',clock_timestamp()+interval '5 minutes')$$,
