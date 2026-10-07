@@ -55,6 +55,11 @@ afterEach(() => {
 });
 
 describe("shared questionnaire assessment editor", () => {
+  it("leaves the sole main landmark to the application shell", () => {
+    const { container } = render(workspace("spmsq"));
+    expect(container.querySelectorAll("main")).toHaveLength(0);
+  });
+
   it("shows scoring only after review and a valid effective time", () => {
     const now = Date.parse("2026-10-08T12:00:00Z");
     expect(canPreviewApprovedScore(null, now)).toBe(false);

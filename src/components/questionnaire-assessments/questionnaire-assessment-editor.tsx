@@ -667,7 +667,7 @@ export function QuestionnaireAssessmentsWorkspace({
     pendingNavigation.current = { kind: "client", destination: selected };
     showLeaveDialog();
   }
-  return <main className={styles.workspace}>
+  return <div className={styles.workspace}>
     <header className="page-heading core-care-heading">
       <div>
         <h1>{pageTitle}</h1>
@@ -726,5 +726,5 @@ export function QuestionnaireAssessmentsWorkspace({
     /> : <div className={styles.empty}>
       {snapshot.clients.length ? "請先選一位個案，量表會直接在此展開。" : "目前沒有可指派給此帳號的有效個案。請確認個案指派與分支權限。"}
     </div>}
-  </main>;
+  </div>;
 }
