@@ -52,17 +52,27 @@ describe("core daily page read-only inputs", () => {
       loadError: false,
       canWriteRoutine: true,
       canReadDiary: true,
+      canWriteNextStep: false,
     });
   });
 
-  it.each([[3, "health.write"], [46, "attendance.write"]] as const)(
-    "checks only the page %s write preflight",
-    async (pageNumber, permission) => {
+  it.each([[3, "health.write", "care_records.write"], [46, "attendance.write", "health.write"]] as const)(
+    "checks the page %s and following-step write preflights",
+    async (pageNumber, permission, nextPermission) => {
       const result = await loadCoreDailyPageInputs(context, "2026-10-03", pageNumber);
-      expect(mocks.routine).toHaveBeenCalledExactlyOnceWith(context, permission);
+      expect(mocks.routine.mock.calls).toEqual([[context, permission], [context, nextPermission]]);
       expect(result.canReadDiary).toBe(false);
+      expect(result.canWriteNextStep).toBe(true);
     },
   );
+
+  it("does not offer the following step when its separate write preflight fails", async () => {
+    mocks.routine.mockImplementation(async (_context, permission: string) => permission !== "health.write");
+    await expect(loadCoreDailyPageInputs(context, "2026-10-03", 46)).resolves.toMatchObject({
+      canWriteRoutine: true,
+      canWriteNextStep: false,
+    });
+  });
 
   it("keeps a known snapshot error separate from denied or failed permission preflights", async () => {
     mocks.daily.mockRejectedValue(new CoreCareSnapshotError());
@@ -73,6 +83,7 @@ describe("core daily page read-only inputs", () => {
       loadError: true,
       canWriteRoutine: false,
       canReadDiary: false,
+      canWriteNextStep: false,
     });
   });
 
