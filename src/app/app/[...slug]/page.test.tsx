@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 const mock = vi.hoisted(() => {
-  class SnapshotError extends Error {}
+  class SnapshotError extends Error {
+    constructor(message: string, readonly requestId?: string) { super(message); }
+  }
   return {
     requireContext: vi.fn(), medication: vi.fn(), tocc: vi.fn(),
-    behavior: vi.fn(), abcd: vi.fn(), body: vi.fn(),
+    behavior: vi.fn(), abcd: vi.fn(), body: vi.fn(), insulin: vi.fn(), inspection: vi.fn(),
     SnapshotError,
   };
 });
@@ -39,6 +41,14 @@ vi.mock("@/lib/abcd-assessments/snapshot", () => ({
 vi.mock("@/lib/body-assessments/snapshot", () => ({
   loadBodyAssessmentSnapshot: mock.body,
   BodyAssessmentSnapshotError: mock.SnapshotError,
+}));
+vi.mock("@/lib/insulin-administrations/snapshot", () => ({
+  loadInsulinAdministrationSnapshot: mock.insulin,
+  InsulinAdministrationSnapshotError: mock.SnapshotError,
+}));
+vi.mock("@/lib/client-inspection-reports/snapshot", () => ({
+  loadClientInspectionReportSnapshot: mock.inspection,
+  ClientInspectionReportSnapshotError: mock.SnapshotError,
 }));
 
 import StaffCatalogPage from "./page";
@@ -74,7 +84,8 @@ beforeEach(() => {
   mock.requireContext.mockResolvedValue({
     demo: false, userId: "staff", branchId: "wanhua", assuranceLevel: "aal1",
     scopes: ["clients.read", "medications.read", "health.read",
-      "body_assessments.read", "behavior_events.read", "abcd_assessments.read"],
+      "body_assessments.read", "behavior_events.read", "abcd_assessments.read",
+      "insulin_administrations.read", "client_reports.read"],
   });
 });
 
@@ -89,11 +100,12 @@ describe("clinical work-page load states", () => {
     });
 
     it(`${route.slug}: snapshot failure is not disguised as an empty list`, async () => {
-      route.load.mockRejectedValue(new mock.SnapshotError("PRIVATE_SQL_OR_PHI"));
+      route.load.mockRejectedValue(new mock.SnapshotError("PRIVATE_SQL_OR_PHI", "12345678-1234-1234-1234-123456789abc"));
       render(await view(route.slug));
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toContain("資料暫時無法取得");
       expect(alert.textContent).not.toContain("PRIVATE_SQL_OR_PHI");
+      expect(alert.textContent).toContain("12345678-1234-1234-1234-123456789abc");
       expect(screen.getByRole("link", { name: "重新載入" })).toBeTruthy();
       expect(route.load).toHaveBeenCalledTimes(1);
     });
@@ -126,5 +138,36 @@ describe("clinical work-page load states", () => {
     mock.medication.mockRejectedValue(new mock.SnapshotError("OUTAGE"));
     render(await view(routes[0].slug, { date: "2026-10-08", status: "all", client: "all" }));
     expect(mock.medication).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a safe support request ID for an insulin snapshot failure", async () => {
+    mock.insulin.mockRejectedValue(new mock.SnapshotError("PRIVATE PHI", "12345678-1234-1234-1234-123456789abc"));
+    render(await view("staff/daily-care/insulin"));
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("12345678-1234-1234-1234-123456789abc");
+    expect(alert.textContent).not.toContain("PRIVATE PHI");
+    expect(screen.getByRole("link", { name: "重新載入" })).toBeTruthy();
+  });
+
+  it("shows a safe request ID for inspection failure but never bypasses AAL2", async () => {
+    mock.inspection.mockRejectedValue(new mock.SnapshotError("PRIVATE PHI", "12345678-1234-1234-1234-123456789abc"));
+    mock.requireContext.mockResolvedValue({
+      demo: false, branchId: "wanhua", assuranceLevel: "aal2",
+      scopes: ["clients.read", "health.read", "client_reports.read"],
+    });
+    render(await view("staff/assessments/inspection-reports"));
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("12345678-1234-1234-1234-123456789abc");
+    expect(alert.textContent).not.toContain("PRIVATE PHI");
+    expect(screen.getByRole("link", { name: "重新載入" })).toBeTruthy();
+  });
+
+  it("keeps inspection-report reads closed for AAL1", async () => {
+    mock.requireContext.mockResolvedValue({
+      demo: false, branchId: "wanhua", assuranceLevel: "aal1",
+      scopes: ["clients.read", "health.read", "client_reports.read"],
+    });
+    render(await view("staff/assessments/inspection-reports"));
+    expect(mock.inspection).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { TenantContext } from "@/lib/domain/types";
+import { recordClinicalSnapshotFailure } from "@/lib/clinical-snapshot/diagnostics";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 import { buildDemoInsulinAdministrationSnapshot } from "./demo";
@@ -11,7 +12,7 @@ import {
 import type { InsulinFilters } from "./types";
 
 export class InsulinAdministrationSnapshotError extends Error {
-  constructor() {
+  constructor(readonly requestId?: string) {
     super("INSULIN_ADMINISTRATION_SNAPSHOT_UNAVAILABLE");
     this.name = "InsulinAdministrationSnapshotError";
   }
@@ -23,15 +24,17 @@ export async function loadInsulinAdministrationSnapshot(
   recentAal2: boolean,
 ) {
   if (context.demo) return buildDemoInsulinAdministrationSnapshot(filters);
+  const fail = (stage: "authorization" | "configuration" | "rpc" | "projection" | "unexpected", result?: { status?: unknown; error?: { code?: unknown } | null }) =>
+    new InsulinAdministrationSnapshotError(recordClinicalSnapshotFailure(context, "insulin_administration", stage, result));
   if (!context.scopes.includes("clients.read") ||
       !context.scopes.includes("medications.read") ||
       !context.scopes.includes("insulin_administrations.read")) {
-    throw new InsulinAdministrationSnapshotError();
+    throw fail("authorization");
   }
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) throw new InsulinAdministrationSnapshotError();
   try {
-    const { data, error } = await supabase.rpc("insulin_administration_snapshot", {
+    const supabase = await createServerSupabaseClient();
+    if (!supabase) throw fail("configuration");
+    const result = await supabase.rpc("insulin_administration_snapshot", {
       p_expected_organization_id: context.organizationId,
       p_expected_branch_id: context.branchId,
       p_service_date: filters.serviceDate,
@@ -39,10 +42,11 @@ export async function loadInsulinAdministrationSnapshot(
       p_client_id: filters.clientId,
       p_status: filters.state,
     }).maybeSingle();
-    if (error || !data) throw new InsulinAdministrationSnapshotError();
-    const snapshot = projectInsulinAdministrationSnapshot(
-      data as InsulinAdministrationSnapshotSource,
-    );
+    if (result.error || !result.data) throw fail("rpc", result);
+    let snapshot;
+    try { snapshot = projectInsulinAdministrationSnapshot(
+      result.data as InsulinAdministrationSnapshotSource,
+    ); } catch { throw fail("projection"); }
     const expectedExecute = recentAal2 &&
       context.scopes.includes("insulin_administrations.execute");
     const expectedReview = recentAal2 &&
@@ -55,10 +59,11 @@ export async function loadInsulinAdministrationSnapshot(
         (snapshot.canExecute && !expectedExecute) ||
         (snapshot.canReview && !expectedReview) ||
         (snapshot.canAuthorizeLate && !expectedAuthorize)) {
-      throw new InsulinAdministrationSnapshotError();
+      throw fail("projection");
     }
     return snapshot;
-  } catch {
-    throw new InsulinAdministrationSnapshotError();
+  } catch (error) {
+    if (error instanceof InsulinAdministrationSnapshotError) throw error;
+    throw fail("unexpected");
   }
 }
