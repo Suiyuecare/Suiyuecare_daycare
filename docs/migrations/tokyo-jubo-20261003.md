@@ -1,6 +1,8 @@
 # 東京資料庫與 Jubo 個案移轉：切換紀錄
 
-狀態：**準備中，尚未切換正式環境**。本文件的來源數量是 2026-10-03／04 的歷史快照，不代表 2026-10-08 的即時個案數。任何未通過的門檻都不得以展示資料或假性成功替代。
+狀態：**東京平行專案已建立，尚未還原或切換正式環境**。本文件的來源數量是 2026-10-03／04 的歷史快照，不代表 2026-10-08 的即時個案數。任何未通過的門檻都不得以展示資料或假性成功替代。
+
+2026-10-08 以使用者核准的短期增費，在 `Suiyuecare's Org` 建立 `Suiyuecare_daycare_tokyo`（`diompsnswchpfguvryan`），指定 Micro 與 `ap-northeast-1`；建立後再次查詢顯示 `ACTIVE_HEALTHY`。首爾正式專案 `mmxqxsokpcdvuzmdhptg` 仍為 `ap-northeast-2`、`ACTIVE_HEALTHY`。東京專案目前只是空的平行落點，沒有正式個案、授權設定、還原或網域切換。新資料庫密碼保存在本機 Keychain 項目 `suiyuecare-daycare-tokyo-db-20261008`，不存入 Git、文件或命令輸出。
 
 ## 已核對的來源基線（2026-10-03）
 
@@ -27,7 +29,7 @@
 
 ## 東京新專案與資料庫切換門檻
 
-1. 使用者已核准在 `Suiyuecare's Org` 以短期增費建立 `ap-northeast-1` 專案；但費用查詢工具未回傳可用報價與確認識別碼，尚未建立專案。採其他建立途徑前仍須確認實際費率與計費邊界。首爾專案保持原狀，不刪除。
+1. 東京 `ap-northeast-1` Micro 平行專案已建立並再次核對區域與健康狀態；首爾專案保持原狀，不刪除。新增專案按時計費，實際帳單與附加服務仍須向 Supabase 組織帳務核對。
 2. 用 PostgreSQL 17 的 `pg_dump`／`psql` 或官方等效方法，先在加密、限制權限的本機目錄製作邏輯備份（角色、schema、資料、`auth` 與 `supabase_migrations`）。首爾的實體備份不能跨區直接還原。備份後核對雜湊、物件數與關鍵資料筆數。參考 [Supabase 區域變更](https://supabase.com/docs/guides/troubleshooting/change-project-region-eWJo5Z) 與 [CLI 邏輯備份／還原](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore)。
 3. 在東京還原並驗證所有資料表、RLS、函式、Auth 使用者與 Google 身分、待開通邀請、Storage bucket、版本及稽核紀錄；備份目錄與輸出不得寫入 Git 或一般紀錄檔。重新設定 Google Provider、回呼網址、Auth URL、伺服器端密鑰和 Vercel 環境變數。不能只更換公開 Supabase URL。
 4. 在切換窗口先凍結正式寫入，再做最後增量／差異核對。東京預覽環境必須通過 CEO／主任實際登入、跨分支隔離、收案讀寫、量表草稿、附件讀取與還原演練；失敗就保持首爾正式運作。
@@ -42,7 +44,7 @@
 
 ## 目前尚缺的執行條件
 
-- 東京專案已獲原則核准短期增費，但費用查詢工具故障；須取得可核對的實際費率，再選擇可稽核的建立途徑。建立完成不代表可以切換資料庫。
+- 東京平行專案已建立；尚無首爾正式資料的邏輯備份、東京還原、角色／Auth／Storage／RLS 對帳或實際帳單核對。建立完成不代表可以切換資料庫。
 - 可安全取得的首爾資料庫連線憑證、PostgreSQL 17 備份工具；本機目前只有 Supabase CLI，沒有 `pg_dump`／`psql`。若重設首爾資料庫密碼，先盤點所有直接資料庫連線以免中斷。
 - 東京 Google Provider 設定與正式操作人的移轉核准流程；不得假冒已完成 AAL2。
 - 只有「日照服務紀錄總表」完成七年期間的來源查詢；照顧、用藥、評估、附件及簽署證據仍未取得完整可對帳匯出，兩份 XLSX 總表也不等於全量歷史。
