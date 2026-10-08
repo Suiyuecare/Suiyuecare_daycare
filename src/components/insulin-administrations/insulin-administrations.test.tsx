@@ -34,7 +34,7 @@ const renderActions = (children: ReactNode) => render(
   </InsulinMutationProvider>,
 );
 
-afterEach(() => { cleanup(); resetInsulinMutationStateForTests(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); resetInsulinMutationStateForTests(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Page 5 insulin workspace and actions", () => {
   it("renders identical plan-slot identities in desktop rows and mobile cards", () => {
@@ -142,6 +142,43 @@ describe("Page 5 insulin workspace and actions", () => {
       .toBe((first.headers as Record<string, string>)["idempotency-key"]);
   });
 
+  it("fails closed after a hard reload loses the in-memory operation key", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("connection lost"));
+    vi.stubGlobal("fetch", fetchMock);
+    const live = { ...snapshot, demo: false, canReview: true };
+    const actorId = `synthetic-reload-${++nextActor}`;
+    const firstPage = render(<InsulinMutationProvider actorId={actorId} snapshot={live}>
+      <InsulinPendingRecovery snapshot={live} />
+      <InsulinAdministrationActions item={snapshot.items[1]!} snapshot={live} />
+    </InsulinMutationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    await screen.findByText(/結果未知/u);
+    expect(window.sessionStorage.getItem("insulin-administration-unresolved-v1")).toBe("1");
+    firstPage.unmount();
+    resetInsulinMutationStateForTests(true);
+    render(<InsulinMutationProvider actorId={actorId} snapshot={live}>
+      <InsulinPendingRecovery snapshot={live} />
+      <InsulinAdministrationActions item={snapshot.items[1]!} snapshot={live} />
+    </InsulinMutationProvider>);
+    expect(screen.getByRole("alert", { name: "遺失原操作的待核對警示" }))
+      .toHaveTextContent("本頁暫停新增施打或覆核");
+    expect(screen.getByRole("button", { name: "獨立覆核" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not send if a safe pending marker cannot be stored", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage blocked"); });
+    renderActions(<InsulinAdministrationActions item={snapshot.items[1]!}
+      snapshot={{ ...snapshot, demo: false, canReview: true }} />);
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    expect(screen.getByRole("status")).toHaveTextContent("尚未送出");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(hasPendingOperations()).toBe(false);
+  });
+
   it("does not release an unknown operation on later 409 or changed permission", async () => {
     const failure = (status: number, code: string) => ({ ok: false, status,
       json: async () => ({ requestId: "05a00000-0000-4000-8000-000000000201",
@@ -186,10 +223,37 @@ describe("Page 5 insulin workspace and actions", () => {
     }) });
     await screen.findByText("施打內容未通過驗證。");
     expect(hasPendingOperations()).toBe(true);
+    expect(window.sessionStorage.getItem("insulin-administration-unresolved-v1")).toBe("1");
     expect(tryAcquireViewTransition()).toBeNull();
     const keys = fetchMock.mock.calls.map((call) =>
       ((call[1] as RequestInit).headers as Record<string, string>)["idempotency-key"]);
     expect(new Set(keys).size).toBe(2);
+  });
+
+  it("clears the reload marker only after every independent operation is settled", async () => {
+    let finishFirst: (response: unknown) => void = () => { throw new Error("first request not started"); };
+    let finishSecond: (response: unknown) => void = () => { throw new Error("second request not started"); };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSecond = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const live = { ...snapshot, demo: false, canExecute: true, canReview: true };
+    renderActions(<><InsulinAdministrationActions item={snapshot.items[0]!} snapshot={live} />
+      <InsulinAdministrationActions item={snapshot.items[1]!} snapshot={live} /></>);
+    fireEvent.click(screen.getByText("記錄施打"));
+    fireEvent.click(screen.getByRole("button", { name: "簽署施打並送覆核" }));
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const rejected = () => ({ ok: false, status: 400, json: async () => ({
+      requestId: "05a00000-0000-4000-8000-000000000201", status: "error", data: null,
+      errors: [{ code: "INVALID_INSULIN_ADMINISTRATION", message: "內容未通過驗證。" }],
+    }) });
+    finishFirst(rejected());
+    await waitFor(() => expect(screen.getByText("內容未通過驗證。")).toBeInTheDocument());
+    expect(window.sessionStorage.getItem("insulin-administration-unresolved-v1")).toBe("1");
+    finishSecond(rejected());
+    await waitFor(() => expect(hasPendingOperations()).toBe(false));
+    expect(window.sessionStorage.getItem("insulin-administration-unresolved-v1")).toBeNull();
   });
 
   it("shares an uncertain slot across simultaneously mounted desktop and mobile actions", async () => {
