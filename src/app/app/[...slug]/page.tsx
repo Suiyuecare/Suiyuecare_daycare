@@ -812,16 +812,16 @@ export default async function StaffCatalogPage({
       "insulin_administrations.authorize_late",
     ].some((permission) => context.scopes.includes(permission));
     let snapshot = null;
-    let loadError = false;
     try {
       const recentAal2 = context.demo || !hasMutationPermission
         ? context.demo : await hasRecentAal2();
       snapshot = await loadInsulinAdministrationSnapshot(context, filters, recentAal2);
     } catch (error) {
       if (!(error instanceof InsulinAdministrationSnapshotError)) throw error;
-      loadError = true;
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+        kind="unavailable" error={error} />;
     }
-    return <InsulinAdministrationsWorkspace filters={filters} loadError={loadError}
+    return <InsulinAdministrationsWorkspace filters={filters} loadError={false}
       page={page} snapshot={snapshot} />;
   }
 
@@ -1388,7 +1388,8 @@ export default async function StaffCatalogPage({
         ]);
       } catch (error) {
         if (!(error instanceof ClientInspectionReportSnapshotError)) throw error;
-        loadError = true;
+        return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
+          kind="unavailable" error={error} />;
       }
     }
     return <ClientInspectionReportsWorkspace canManage={canManage}
