@@ -8,8 +8,10 @@ const money = z.string().regex(/^-?(?:0|[1-9]\d{0,17})\.\d{2}$/u);
 const responseSchema = z.object({
   request_id: z.uuid(), status: z.literal("ready"),
   organization_id: z.uuid(), branch_id: z.uuid(),
-  month: z.string(), entity_id: z.string(), entity_name: z.string().min(1).max(500),
+  month: z.string(), binding_id: z.uuid(), entity_id: z.string(),
+  department_code: z.string(), entity_name: z.string().min(1).max(500),
   currency: z.literal("TWD"), basis: z.literal("finance_pnl_ledger"),
+  scope_basis: z.literal("department_direct_only"),
   income: money, expenses: money, entry_count: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   generated_at: z.iso.datetime({ offset: true }),
 }).strict();
@@ -57,7 +59,9 @@ export async function fetchFinanceSummary({ connection, organizationId, branchId
     const value = parsed.data;
     const age = Date.now() - Date.parse(value.generated_at);
     if (value.request_id !== requestId || value.organization_id !== organizationId ||
-        value.branch_id !== branchId || value.month !== month || value.entity_id !== connection.entityId ||
+        value.branch_id !== branchId || value.month !== month ||
+        value.binding_id !== connection.bindingId || value.entity_id !== connection.entityId ||
+        value.department_code !== connection.departmentCode ||
         age > 60_000 || age < -30_000 ||
         (value.entry_count === 0 && (Number(value.income) !== 0 || Number(value.expenses) !== 0))) {
       return { status: "unavailable" };

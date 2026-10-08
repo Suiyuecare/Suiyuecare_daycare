@@ -73,7 +73,9 @@ describe("safe local demo launcher", () => {
       "FINANCE_STORE_SUMMARY_TOKEN",
       "FINANCE_STORE_ORGANIZATION_ID",
       "FINANCE_STORE_BRANCH_ID",
+      "FINANCE_STORE_BINDING_ID",
       "FINANCE_STORE_ENTITY_ID",
+      "FINANCE_STORE_DEPARTMENT_CODE",
     ]));
   });
 
