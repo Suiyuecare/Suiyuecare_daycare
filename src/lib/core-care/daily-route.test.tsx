@@ -61,7 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.context.mockResolvedValue(context);
   mocks.canAccess.mockReturnValue(true);
-  mocks.inputs.mockResolvedValue({ snapshot, canWriteRoutine: true, canReadDiary: true, loadError: false });
+  mocks.inputs.mockResolvedValue({ snapshot, canWriteRoutine: true, canReadDiary: true, canWriteNextStep: true, loadError: false });
 });
 
 describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, dynamic }) => {
@@ -92,7 +92,7 @@ describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, 
     expect(result.props).toMatchObject({
       page: { number }, serviceDate, selectedClientId, selectedShift: "morning",
       validatedScope: { organizationId: context.organizationId, branchId: context.branchId, userId: context.userId },
-      canWrite: true, loadError: false, snapshot: { clients: [{ clientId: selectedClientId }] },
+      canWrite: true, canWriteNextStep: number !== 6, loadError: false, snapshot: { clients: [{ clientId: selectedClientId }] },
     });
     expect(result.props.snapshot.clients).toHaveLength(1);
     expect(result.props.diaryLifecycle?.type).toBe(number === 6 ? CareDiaryLifecycle : undefined);
@@ -109,9 +109,18 @@ describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, 
   });
 });
 
+it.each([
+  [AttendancePage, 3], [VitalSignsPage, 6],
+] as const)("does not offer the following step when catalog page %s is forbidden", async (page, forbiddenPage) => {
+  mocks.canAccess.mockImplementation((_context, entry: { number: number }) => entry.number !== forbiddenPage);
+  const result = await page(pageProps({ date: serviceDate, client: selectedClientId }));
+  expect(result.type).toBe(CoreDailyWorkspace);
+  expect(result.props.canWriteNextStep).toBe(false);
+});
+
 it("does not expose diary lifecycle without diary read access", async () => {
   mocks.inputs.mockResolvedValue({ snapshot: { ...snapshot, sourceAccess: { ...snapshot.sourceAccess, careDiaries: false } },
-    canWriteRoutine: false, canReadDiary: false, loadError: false });
+    canWriteRoutine: false, canReadDiary: false, canWriteNextStep: false, loadError: false });
   const result = await CareDiaryPage(pageProps({ date: serviceDate, client: selectedClientId }));
   expect(result.props.diaryLifecycle).toBeUndefined();
   expect(result.props.canWrite).toBe(false);

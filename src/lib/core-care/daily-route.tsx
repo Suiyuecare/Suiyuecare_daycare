@@ -43,8 +43,10 @@ export async function renderCoreDailyRoute(
     <Link className="button button--secondary" href="/app/staff/workspace/dashboard">回到今日工作</Link>
   </section>;
 
-  const { snapshot: loadedSnapshot, canWriteRoutine, canReadDiary, loadError } =
+  const { snapshot: loadedSnapshot, canWriteRoutine, canReadDiary, canWriteNextStep, loadError } =
     await loadCoreDailyPageInputs(context, serviceDate, page.number);
+  const nextPage = page.number === 46 ? getPageBySlug("staff/daily-care/vital-signs")
+    : page.number === 3 ? getPageBySlug("staff/daily-care/care-diary") : undefined;
   const snapshot = loadedSnapshot && selectedClientId
     ? filterDailyCareSnapshotByClient(loadedSnapshot, selectedClientId)
     : loadedSnapshot;
@@ -64,6 +66,7 @@ export async function renderCoreDailyRoute(
           demo={context.demo} /> : undefined}
     canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
     canWrite={canWriteRoutine}
+    canWriteNextStep={Boolean(nextPage && canAccessCatalogPage(context, nextPage) && canWriteNextStep)}
     loadError={loadError}
     moduleTitle={getModule(page.moduleId).title}
     page={page}

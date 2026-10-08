@@ -172,6 +172,7 @@ export function CoreDailyWorkspace({
   selectedShift,
   validatedScope,
   canWrite,
+  canWriteNextStep = false,
   snapshot,
   loadError = false,
   canViewManagementDetails = false,
@@ -185,6 +186,8 @@ export function CoreDailyWorkspace({
   selectedShift?: DailyWorkflowShift;
   validatedScope?: DailyNavigationScope;
   canWrite: boolean;
+  /** Page gate and live routine-care preflight for the following step. */
+  canWriteNextStep?: boolean;
   snapshot: DailyCareSnapshot | null;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
@@ -217,13 +220,16 @@ export function CoreDailyWorkspace({
     } : null,
   }] : [];
   const selectedSourceAllowed = selectedClient?.sourceAccess?.[page.number === 3 ? "measurements" : page.number === 6 ? "careDiaries" : "attendance"] !== false;
+  const nextSource = page.number === 46 ? "measurements" : page.number === 3 ? "careDiaries" : null;
+  const canContinueToNext = Boolean(canWriteNextStep && selectedClient && nextSource &&
+    snapshot?.sourceAccess[nextSource] && selectedClient.sourceAccess?.[nextSource] !== false);
   const composer = snapshot && selectedClient && selectedClient.applicability?.eligible !== false && pageSourceAllowed && selectedSourceAllowed ? (
     page.number === 3 ? <VitalSignComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-      serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} />
+      serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext} />
       : page.number === 6 ? <CareDiaryComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
         serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} />
         : page.number === 46 ? <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-          serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} /> : null
+          serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext} /> : null
   ) : null;
 
   return (

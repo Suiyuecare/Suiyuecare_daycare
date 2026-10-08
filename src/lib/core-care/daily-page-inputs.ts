@@ -13,9 +13,12 @@ export async function loadCoreDailyPageInputs(
 ) {
   const writePermission = pageNumber === 3 ? "health.write"
     : pageNumber === 6 ? "care_records.write" : "attendance.write";
+  const nextWritePermission = pageNumber === 46 ? "health.write"
+    : pageNumber === 3 ? "care_records.write" : null;
   const routinePermissionsPromise = Promise.all([
     canUseRoutineCare(context, writePermission),
     pageNumber === 6 ? canUseRoutineCare(context, "care_records.read") : Promise.resolve(false),
+    nextWritePermission ? canUseRoutineCare(context, nextWritePermission) : Promise.resolve(false),
   ]);
 
   let snapshot: Awaited<ReturnType<typeof loadDailyCareSnapshot>> | null = null;
@@ -26,6 +29,6 @@ export async function loadCoreDailyPageInputs(
     if (!(error instanceof CoreCareSnapshotError)) throw error;
     loadError = true;
   }
-  const [canWriteRoutine, canReadDiary] = await routinePermissionsPromise;
-  return { snapshot, loadError, canWriteRoutine, canReadDiary };
+  const [canWriteRoutine, canReadDiary, canWriteNextStep] = await routinePermissionsPromise;
+  return { snapshot, loadError, canWriteRoutine, canReadDiary, canWriteNextStep };
 }
