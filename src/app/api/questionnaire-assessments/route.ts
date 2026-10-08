@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { ok } from "@/lib/api/response";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
+import { validateMnaAnthropometry } from "@/lib/questionnaire-assessments/mna-anthropometry";
 import type { QuestionnaireAnswer, QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import {
   authorizeStaffRequest,
@@ -91,31 +92,10 @@ function parseContext(formKey: QuestionnaireFormKey, value: unknown, answers: Re
       if (entry) context[key] = entry;
       continue;
     }
-    if (!/^\d{1,3}(?:\.\d)?$/u.test(entry)) return null;
-    const numeric = Number(entry);
-    const [minimum, maximum] = key === "height_cm" ? [50, 240]
-      : key === "weight_kg" ? [20, 300] : [10, 80];
-    if (numeric < minimum || numeric > maximum) return null;
     context[key] = entry;
   }
   if (formKey !== "mna_sf") return context;
-  const anthropometry = answers.anthropometry;
-  if (anthropometry?.state !== "answered") return context;
-  const valueId = anthropometry.value;
-  if (valueId.startsWith("bmi_")) {
-    if (!context.height_cm || !context.weight_kg || context.calf_circumference_cm) return null;
-    const bmi = Number(context.weight_kg) / ((Number(context.height_cm) / 100) ** 2);
-    if (valueId === "bmi_lt_19" && bmi >= 19) return null;
-    if (valueId === "bmi_19_lt_21" && (bmi < 19 || bmi >= 21)) return null;
-    if (valueId === "bmi_21_lt_23" && (bmi < 21 || bmi >= 23)) return null;
-    if (valueId === "bmi_gte_23" && bmi < 23) return null;
-  } else {
-    if (!context.calf_circumference_cm || context.height_cm || context.weight_kg) return null;
-    const calf = Number(context.calf_circumference_cm);
-    if (valueId === "calf_lt_31" && calf >= 31) return null;
-    if (valueId === "calf_gte_31" && calf < 31) return null;
-  }
-  return context;
+  return validateMnaAnthropometry(context, answers.anthropometry) ? null : context;
 }
 
 function readMutation(value: Record<string, unknown>, idempotencyKey: string) {

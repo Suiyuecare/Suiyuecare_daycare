@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     if (!batch.success || !client.success) throw new IntegrationError("IMPORT_INVALID", "請重新選擇匯入批次與個案。", 400);
     const preview = cmsPreviewSchema.safeParse(await intakeRpc("cms_intake_preview", { p_org: actor.organizationId, p_branch: actor.branchId, p_batch: batch.data, p_client: client.data }));
     if (!preview.success || preview.data.batchId !== batch.data || (preview.data.current?.clientId ?? null) !== client.data) throw new IntegrationError("IMPORT_PREVIEW_UNCERTAIN", "來源預覽與目前個案或批次不一致，請重新核對。", 502);
+    if (preview.data.imported && client.data && preview.data.importReceipt?.clientId !== client.data) throw new IntegrationError("IMPORT_SOURCE_ALREADY_USED", "這份 CMS 檔案已用於其他個案，沒有更新目前選取的個案。請由收案負責人核對來源。", 409);
     return ok(preview.data, 200, requestId);
   });
 }
@@ -44,7 +45,8 @@ export async function POST(request: Request) {
     const form = await readIntakeMultipart(request);
     const file = form.get("file");
     if ([...form.keys()].some((key) => key !== "file")) throw new IntegrationError("INVALID_FILE", "請透過選檔送出，不接受自行提供解析結果或檔案路徑。", 400);
-    if (!(file instanceof File) || form.getAll("file").length !== 1 || file.size > MAX_INTAKE_WEB_UPLOAD_BYTES) throw new IntegrationError("INVALID_FILE", "請選擇一份 4 MB 以下的 CMS HTML。", 400);
+    if (!(file instanceof File) || form.getAll("file").length !== 1) throw new IntegrationError("INVALID_FILE", "請選擇一份 CMS HTML。", 400);
+    if (file.size > MAX_INTAKE_WEB_UPLOAD_BYTES) throw new IntegrationError("FILE_TOO_LARGE", "此網頁入口單檔上限 4 MB，請保留原檔並安排安全匯入。", 413);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const validated = validateHtmlImportFile({ fileName: file.name, mimeType: file.type, bytes });

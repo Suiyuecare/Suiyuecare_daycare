@@ -189,6 +189,56 @@ describe("shared questionnaire assessment editor", () => {
     expect(screen.getByText("目前沒有待補項目")).toBeVisible();
   });
 
+  it("explains an MNA BMI mismatch before the API call, focuses the choice and keeps measurements", () => {
+    const form = QUESTIONNAIRE_FORMS.mna_sf;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(workspace("mna_sf"));
+    const card = document.getElementById("mna_sf-anthropometry")!;
+    fireEvent.change(screen.getByRole("spinbutton", { name: "身高（公分）" }), { target: { value: "160" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "體重（公斤）" }), { target: { value: "60" } });
+    fireEvent.click(within(card).getByRole("radio", { name: form.questions[5].choices[0].label }));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(card).toHaveFocus();
+    expect(within(card).getByRole("alert")).toHaveTextContent("量測值與所選區間不符");
+    expect(within(card).getByRole("radiogroup")).toHaveAttribute("aria-describedby", expect.stringContaining("mna-anthropometry-error"));
+    expect(screen.getByRole("spinbutton", { name: "身高（公分）" })).toHaveValue(160);
+    expect(screen.getByRole("spinbutton", { name: "體重（公斤）" })).toHaveValue(60);
+
+    fireEvent.click(within(card).getByRole("radio", { name: form.questions[5].choices[3].label }));
+    expect(within(card).queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "體重（公斤）" })).toHaveValue(60);
+  });
+
+  it("guides missing or conflicting MNA measurements to the field without sending a draft", () => {
+    const form = QUESTIONNAIRE_FORMS.mna_sf;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(workspace("mna_sf"));
+    const card = document.getElementById("mna_sf-anthropometry")!;
+    const calf = screen.getByRole("spinbutton", { name: "小腿圍（公分）" });
+    fireEvent.click(within(card).getByRole("radio", { name: form.questions[5].choices[5].label }));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(calf).toHaveFocus();
+    expect(calf).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("請先填寫小腿圍");
+
+    fireEvent.change(calf, { target: { value: "31" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    const height = screen.getByRole("spinbutton", { name: "身高（公分）" });
+    fireEvent.change(height, { target: { value: "160" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(height).toHaveFocus();
+    expect(screen.getByRole("alert")).toHaveTextContent("只能擇一");
+    expect(calf).toHaveValue(31);
+  });
+
   it.each(["barthel_adl", "lawton_iadl"] as const)(
     "keeps %s incomplete until a not-applicable reason is filled, and guides focus to it",
     (formKey) => {

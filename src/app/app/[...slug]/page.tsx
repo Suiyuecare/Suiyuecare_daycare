@@ -668,8 +668,20 @@ function safeWorkRequestId(error: unknown) {
   return typeof value === "string" && /^[A-Za-z0-9-]{8,64}$/u.test(value) ? value : null;
 }
 
-function WorkLoadFailureState({ title, path, kind, error }: {
+function workRetryHref(path: string, query: WorkQuery) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    // Only call this after the page has validated its query. An unexpected
+    // repeated value must never be carried into a clinical retry link.
+    if (Array.isArray(value)) return path;
+    if (typeof value === "string") search.set(key, value);
+  }
+  return search.size ? `${path}?${search.toString()}` : path;
+}
+
+function WorkLoadFailureState({ title, path, kind, error, retryHref }: {
   title: string; path: string; kind: WorkLoadFailure; error?: unknown;
+  retryHref?: string;
 }) {
   const invalid = kind === "invalid_filter";
   const requestId = safeWorkRequestId(error);
@@ -679,9 +691,11 @@ function WorkLoadFailureState({ title, path, kind, error }: {
       ? "請清除篩選後重試；尚未讀取個案紀錄。"
       : "未取得正式資料。請重新載入；若仍無法查看，請主管確認權限或聯絡系統管理員。"}</p>
     {requestId ? <p>查詢編號：{requestId}</p> : null}
-    <a className="button button--secondary" href={invalid ? path : "?"}>
+    <a className="button button--secondary" href={invalid ? path : retryHref ?? path}>
       {invalid ? "清除篩選" : "重新載入"}
     </a>
+    {!invalid && retryHref && retryHref !== path ?
+      <a className="button button--secondary" href={path}>清除篩選</a> : null}
   </section>;
 }
 
@@ -857,7 +871,8 @@ export default async function StaffCatalogPage({
     } catch (error) {
       if (!(error instanceof MedicationAdministrationSnapshotError)) throw error;
       return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
-        kind="unavailable" error={error} />;
+        kind="unavailable" error={error}
+        retryHref={workRetryHref(`/app/${page.slug}`, query)} />;
     }
     return (
       <MedicationRecordsWorkspace
@@ -986,7 +1001,8 @@ export default async function StaffCatalogPage({
     } catch (error) {
       if (!(error instanceof ClientToccSnapshotError)) throw error;
       return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
-        kind="unavailable" error={error} />;
+        kind="unavailable" error={error}
+        retryHref={workRetryHref(`/app/${page.slug}`, query)} />;
     }
     return (
       <ClientToccWorkspace
@@ -1308,7 +1324,8 @@ export default async function StaffCatalogPage({
     } catch (error) {
       if (!(error instanceof BehaviorEventSnapshotError)) throw error;
       return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
-        kind="unavailable" error={error} />;
+        kind="unavailable" error={error}
+        retryHref={workRetryHref(`/app/${page.slug}`, query)} />;
     }
     return <BehaviorEventsWorkspace canManage={canManage} canSign={canSign}
       filters={filters} hasRecentAal2={recentAal2} loadError={false}
@@ -1339,7 +1356,8 @@ export default async function StaffCatalogPage({
     } catch (error) {
       if (!(error instanceof AbcdAssessmentSnapshotError)) throw error;
       return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
-        kind="unavailable" error={error} />;
+        kind="unavailable" error={error}
+        retryHref={workRetryHref(`/app/${page.slug}`, query)} />;
     }
     return <AbcdAssessmentsWorkspace canManage={canManage} filters={filters}
       hasRecentAal2={recentAal2} loadError={false} page={page} snapshot={snapshot} />;
@@ -3905,7 +3923,8 @@ export default async function StaffCatalogPage({
     catch (error) {
       if (!(error instanceof BodyAssessmentSnapshotError)) throw error;
       return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
-        kind="unavailable" error={error} />;
+        kind="unavailable" error={error}
+        retryHref={workRetryHref(`/app/${page.slug}`, query)} />;
     }
     const recentAal2 = !context.demo && await hasRecentBodyAssessmentAal2(context);
     const canManageDraft = !context.demo && context.scopes.includes("body_assessments.manage") &&

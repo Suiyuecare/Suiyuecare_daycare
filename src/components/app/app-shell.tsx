@@ -5,6 +5,7 @@ import {
   Bell,
   Building2,
   ChevronDown,
+  ClipboardList,
   LogOut,
   Menu,
   UsersRound,
@@ -33,6 +34,7 @@ import { TaipeiClock } from "./taipei-clock";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 import { DAILY_SERVICE_SUMMARY_PATH } from "@/lib/daily-service-summary/query";
 import { iconForPage } from "./page-icons";
+import { ASSESSMENT_MATRIX_PATH, ASSESSMENT_MATRIX_TITLE, canViewAssessmentMatrix } from "@/lib/assessment-matrix/config";
 
 // Keep the shared entry points stable. The third slot is a familiar task for
 // the person's approved role, selected only from server-filtered navigation.
@@ -84,11 +86,13 @@ export function AppShell({
   context,
   navigation,
   showStoreOverview = false,
+  showAssessmentMatrix = false,
   children,
 }: {
   context: TenantContext;
   navigation: readonly NavigationGroup[];
   showStoreOverview?: boolean;
+  showAssessmentMatrix?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -141,15 +145,19 @@ export function AppShell({
       : draftBlocked ? "資料儲存中或寫入結果未確認，請先完成核對再登出。" : scopeChangeBlockedReason;
   const availablePages = navigation.flatMap((group) => group.pages);
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
-  const activeGroup = navigation.find((group) => group.pages.some((page) => page.number === activePage?.number));
+  const activeGroup = navigation.find((group) =>
+    group.pages.some((page) => page.number === activePage?.number) ||
+    (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
+  const showAssessmentMatrixLink = showAssessmentMatrix && canViewAssessmentMatrix(context);
   const mobilePages = mobilePrimaryPages(navigation, context.roles);
   const mobileCurrentInMore = !mobilePages.some((page) => pathname === `/app/${page.slug}`);
   const [groupRoute, setGroupRoute] = useState(pathname);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
-      group.pages.some((page) => pathname === `/app/${page.slug}`),
+      group.pages.some((page) => pathname === `/app/${page.slug}`) ||
+      (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"),
     );
     return new Set(active ? [active.id] : ["workspace", "daily-care"]);
   });
@@ -157,6 +165,7 @@ export function AppShell({
   const runtimeLabel = context.demo ? "合成資料" : "正式系統";
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
+    : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
     : activePage?.title ?? appBranding.applicationName;
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
     if (selection.scope.organizationId !== context.organizationId ||
@@ -517,7 +526,15 @@ export function AppShell({
               <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
                 <span>{group.title}</span><ChevronDown aria-hidden="true" />
               </button>
-              {expanded ? <div className="nav-group__items">{group.pages.map((page) => {
+              {expanded ? <div className="nav-group__items">
+                {group.id === "assessments" && showAssessmentMatrixLink ? <NavigationLink
+                  aria-current={pathname === ASSESSMENT_MATRIX_PATH ? "page" : undefined}
+                  className="nav-link" fullDocument={sensitiveDocument}
+                  href={ASSESSMENT_MATRIX_PATH} loadingLabel={ASSESSMENT_MATRIX_TITLE}
+                  onClick={() => closeMenu({ returnFocus: false })} prefetch={false}>
+                  <span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>{ASSESSMENT_MATRIX_TITLE}</span>
+                </NavigationLink> : null}
+                {group.pages.map((page) => {
                 const href = `/app/${page.slug}`;
                 const Icon = iconForPage(page);
                 return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>

@@ -200,6 +200,7 @@ function paginationHref(filters: CaseCenterFilters, page: number) {
 
 export function CaseCenterWorkspace({
   canOpenIntake = false,
+  canCreateIntake = false,
   page,
   snapshot,
   filters,
@@ -215,6 +216,7 @@ export function CaseCenterWorkspace({
   allowedDailyPages?: readonly number[];
   allowedContinuationPages?: readonly number[];
   canOpenIntake?: boolean;
+  canCreateIntake?: boolean;
   canViewSummary?: boolean;
 }) {
   if (loadError || !snapshot) {
@@ -269,6 +271,11 @@ export function CaseCenterWorkspace({
     ? new Set(buildDemoDailySnapshot(filters.date).clients.map((client) => client.clientId))
     : null;
   const canOpenAttendance = allowedDailyPages.includes(46) && snapshot.serviceDate === filters.date;
+  const hasAppliedFilters = Boolean(filters.query.trim()) || filters.lifecycle !== "all" ||
+    filters.service !== "all" || filters.responsible !== "all";
+  const unfilteredEmpty = snapshot.visibleTotal === 0 && !hasAppliedFilters;
+  const showEmptyIntakeAction = unfilteredEmpty && !snapshot.clients.length &&
+    !snapshot.access.responsibleFilterRestricted && canOpenIntake && canCreateIntake;
 
   return (
     <>
@@ -288,7 +295,7 @@ export function CaseCenterWorkspace({
           <p className="page-heading__description">選好個案，直接接續有權限的工作。</p>
           <p className="data-table__secondary">服務日期：{formatDate(filters.date)}</p>
         </div>
-        <IntakeEntryLink allowed={canOpenIntake} />
+        <IntakeEntryLink allowed={canOpenIntake && !showEmptyIntakeAction} />
       </header>
 
       <div className="callout core-care-callout">
@@ -493,9 +500,18 @@ export function CaseCenterWorkspace({
           <div className="panel__body">
             <section className="empty-card core-care-state">
               <UsersRound aria-hidden="true" />
-              <h2>沒有符合條件的個案</h2>
-              <p>請調整姓名、個案代碼或篩選條件，再試一次。</p>
-              <Link className="button button--secondary" href={clearHref} prefetch={false}>清除篩選</Link>
+              <h2>{unfilteredEmpty ? "目前沒有可見個案" : "沒有符合條件的個案"}</h2>
+              {unfilteredEmpty ? (
+                <>
+                  <p>{showEmptyIntakeAction ? "可前往收案頁建立個案。" : "請主管確認個案指派或資料來源。"}</p>
+                  <IntakeEntryLink allowed={showEmptyIntakeAction} />
+                </>
+              ) : (
+                <>
+                  <p>請調整姓名、個案代碼或篩選條件，再試一次。</p>
+                  <Link className="button button--secondary" href={clearHref} prefetch={false}>清除篩選</Link>
+                </>
+              )}
             </section>
           </div>
         )}

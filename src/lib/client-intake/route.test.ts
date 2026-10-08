@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyIntakeProfile } from "./model";
+import { emptyIntakeProfile, MAX_INTAKE_WEB_UPLOAD_BYTES } from "./model";
 import { IntegrationError } from "@/lib/integrations/errors";
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), authorize: vi.fn(), recent: vi.fn(), client: vi.fn(), rpc: vi.fn(), admin: vi.fn(), stage: vi.fn(), env: { AWS_REGION: "ap-northeast-1", HTML_ARCHIVE_BUCKET: "", AWS_KMS_KEY_ID: "" } }));
 vi.mock("server-only", () => ({}));
@@ -19,6 +19,13 @@ const actor = { organizationId: "a1600000-0000-4000-8000-000000000001", branchId
 const profile = { ...emptyIntakeProfile, displayName: "合成測試個案", clientCode: "TEST-001" };
 const body = { action: "create", idempotency_key: operation, profile };
 const receipt = { clientId: id, operationId: operation, profileVersion: 1, clientRowVersion: 1, pending: true, replayed: false };
+const sourceFields = [
+  { id: "field-name", intakeTarget: "displayName", normalizedValue: "合成個案", rawValue: "合成個案", warnings: [], source: { sectionCode: "CLIENT_BASIC", sectionTitle: "合成基本資料", label: "姓名", parentPath: "CLIENT_BASIC/table/tr" } },
+  { id: "field-identity", intakeTarget: "identityNumber", normalizedValue: "X123456789", rawValue: "X123456789", warnings: [], source: { sectionCode: "CLIENT_BASIC", sectionTitle: "合成基本資料", label: "身分識別", parentPath: "CLIENT_BASIC/table/tr" } },
+];
+const sourcePreview = { batchId: id, payloadSha256: "a".repeat(64), mappingVersion: "central-care-plan-html@1", fields: sourceFields,
+  sections: [{ code: "CLIENT_BASIC", title: "合成基本資料" }], warnings: [], conflicts: [], current: null, imported: false, importReceipt: null };
+const currentSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile, fieldAuthority: {}, sourceBatchId: null };
 const request = (value: unknown) => new Request("https://example.invalid", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
 beforeEach(() => { vi.resetAllMocks(); mocks.env.HTML_ARCHIVE_BUCKET = ""; mocks.env.AWS_KMS_KEY_ID = ""; mocks.actor.mockResolvedValue(actor); mocks.authorize.mockResolvedValue(actor); mocks.recent.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ rpc: mocks.rpc }); mocks.rpc.mockResolvedValue({ error: null, data: receipt }); });
 describe("real intake API boundaries", () => {
@@ -53,6 +60,52 @@ describe("real intake API boundaries", () => {
   it("preview is scoped and denies identifiers or missing imports permission", async () => {
     expect((await preview(new Request("https://example.invalid?batch=bad"))).status).toBe(400);
     mocks.actor.mockResolvedValue({ ...actor, scopes: ["clients.read", "clients.demographics.read"] }); expect((await preview(new Request(`https://example.invalid?batch=${id}`))).status).toBe(403);
+  });
+  it("rejects a completed source already imported into another selected client", async () => {
+    mocks.rpc.mockResolvedValue({ error: null, data: { ...sourcePreview, current: currentSnapshot, imported: true,
+      importReceipt: { clientId: operation, batchId: id } } });
+    const result = await preview(new Request(`https://example.invalid?batch=${id}&client=${id}`));
+    expect(result.status).toBe(409);
+    expect((await result.json()).errors[0].code).toBe("IMPORT_SOURCE_ALREADY_USED");
+    expect(mocks.rpc).toHaveBeenCalledWith("cms_intake_preview", { p_org: actor.organizationId, p_branch: actor.branchId, p_batch: id, p_client: id });
+    mocks.rpc.mockResolvedValue({ error: null, data: { ...sourcePreview, current: currentSnapshot, imported: true,
+      importReceipt: { clientId: id, batchId: id } } });
+    expect((await preview(new Request(`https://example.invalid?batch=${id}&client=${id}`))).status).toBe(200);
+  });
+  it("preserves a well-formed source conflict and both candidate values for explicit review", async () => {
+    const alternate = { ...sourceFields[0], id: "field-name-alternate", normalizedValue: "合成另一姓名", rawValue: "合成另一姓名" };
+    mocks.rpc.mockResolvedValue({ error: null, data: { ...sourcePreview, fields: [...sourceFields, alternate],
+      conflicts: [{ id: "conflict-1", mappingKey: "CLIENT_BASIC.name", sectionCode: "CLIENT_BASIC", label: "姓名",
+        reason: "multiple_source_values", candidates: [{ fieldId: "field-name", value: "合成個案" }, { fieldId: alternate.id, value: alternate.normalizedValue }] }] } });
+    const result = await preview(new Request(`https://example.invalid?batch=${id}`));
+    expect(result.status).toBe(200);
+    expect((await result.json()).data.conflicts[0].candidates).toEqual([
+      { fieldId: "field-name", value: "合成個案" }, { fieldId: "field-name-alternate", value: "合成另一姓名" },
+    ]);
+  });
+  it("fails closed on inconsistent duplicate receipts and broken source conflict references", async () => {
+    const malformed = [
+      { ...sourcePreview, mappingVersion: "unsupported-mapping@0" },
+      { ...sourcePreview, imported: true, importReceipt: null },
+      { ...sourcePreview, imported: true, importReceipt: { clientId: id, batchId: operation } },
+      { ...sourcePreview, fields: [sourceFields[0], sourceFields[0]] },
+      { ...sourcePreview, conflicts: [{ id: "conflict-1", mappingKey: "CLIENT_BASIC.name", sectionCode: "CLIENT_BASIC", label: "姓名",
+        reason: "multiple_source_values", candidates: [{ fieldId: "field-name", value: "合成個案" }, { fieldId: "missing-field", value: "合成另一人" }] }] },
+    ];
+    for (const data of malformed) {
+      mocks.rpc.mockResolvedValue({ error: null, data });
+      const result = await preview(new Request(`https://example.invalid?batch=${id}`));
+      expect(result.status).toBe(502);
+      expect(await result.text()).not.toContain("X123456789");
+    }
+  });
+  it("returns 413 for a CMS file above the bounded web-upload limit without staging", async () => {
+    mocks.env.HTML_ARCHIVE_BUCKET = "synthetic-archive"; mocks.env.AWS_KMS_KEY_ID = "synthetic-key"; mocks.admin.mockReturnValue({});
+    const form = new FormData(); form.set("file", new File([new Uint8Array(MAX_INTAKE_WEB_UPLOAD_BYTES + 1)], "oversized.html", { type: "text/html" }));
+    const result = await upload(new Request("https://example.invalid", { method: "POST", headers: { "idempotency-key": operation }, body: form }));
+    expect(result.status).toBe(413);
+    expect((await result.json()).errors[0].code).toBe("FILE_TOO_LARGE");
+    expect(mocks.stage).not.toHaveBeenCalled();
   });
   it("commit never accepts parsed fields/archive evidence supplied by the browser", async () => {
     expect((await approve(request({ parsedPayload: {}, archive: "forged" }))).status).toBe(400); expect(mocks.rpc).not.toHaveBeenCalled();

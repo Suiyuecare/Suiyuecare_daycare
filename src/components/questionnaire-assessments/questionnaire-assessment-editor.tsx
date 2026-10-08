@@ -15,6 +15,7 @@ import type {
   QuestionnaireFormDefinition,
   QuestionnaireSnapshot,
 } from "@/lib/questionnaire-assessments/types";
+import { validateMnaAnthropometry, type MnaAnthropometryIssue } from "@/lib/questionnaire-assessments/mna-anthropometry";
 
 import styles from "./questionnaire-assessments.module.css";
 
@@ -57,6 +58,15 @@ function errorText(payload: unknown) {
   return typeof first?.message === "string" ? first.message : "保存失敗，請保留內容後重試。";
 }
 
+function mnaIssueText(issue: MnaAnthropometryIssue) {
+  if (issue.kind === "invalid_measurement") return "量測值格式或範圍不符，請核對實測值後再保存。";
+  if (issue.kind === "missing_measurement") return issue.field === "calf_circumference_cm"
+    ? "選擇小腿圍區間前，請先填寫小腿圍。"
+    : "選擇 BMI 區間前，請先填寫身高與體重。";
+  if (issue.kind === "conflicting_measurement") return "BMI 與小腿圍只能擇一；請清除這次未使用的量測值。";
+  return "量測值與所選區間不符；請核對實測值及第 6 題選項。";
+}
+
 function QuestionnaireEditor({
   assessorName,
   canManage,
@@ -87,6 +97,7 @@ function QuestionnaireEditor({
   const [message, setMessage] = useState("");
   const [dateError, setDateError] = useState("");
   const [reasonErrorQuestionId, setReasonErrorQuestionId] = useState<string | null>(null);
+  const [mnaIssue, setMnaIssue] = useState<MnaAnthropometryIssue | null>(null);
   const dateInput = useRef<HTMLInputElement>(null);
   const operationKey = useRef<string | null>(null);
   const operationBody = useRef<string | null>(null);
@@ -145,6 +156,7 @@ function QuestionnaireEditor({
     if (saveUnknown || pending) return;
     setAnswers((current) => ({ ...current, [questionId]: answer }));
     if (reasonErrorQuestionId === questionId) setReasonErrorQuestionId(null);
+    if (questionId === "anthropometry") setMnaIssue(null);
     setMessage("");
   }
 
@@ -255,6 +267,20 @@ function QuestionnaireEditor({
         focusReason(invalidReason.id);
         return;
       }
+      const mnaValidation = form.key === "mna_sf"
+        ? validateMnaAnthropometry(
+          Object.fromEntries(Object.entries(context).filter(([, value]) => value !== "")),
+          answers.anthropometry,
+        )
+        : null;
+      if (mnaValidation) {
+        setMnaIssue(mnaValidation);
+        setMessage("");
+        if (mnaValidation.field === "anthropometry") focusQuestion("anthropometry");
+        else focusContextField(mnaValidation.field);
+        return;
+      }
+      setMnaIssue(null);
       setPending(true);
       registerScopeChange({ dirty, busy: true, unknown: saveUnknown });
       onWriteGuardChange(true, saveUnknown);
@@ -340,18 +366,26 @@ function QuestionnaireEditor({
             {form.measurementFields.map(({ key, label }) => <label key={key}>
               {label}
               <input
+                aria-describedby={mnaIssue?.field === key ? `mna-${key}-error` : undefined}
+                aria-invalid={mnaIssue?.field === key ? true : undefined}
                 disabled={!canManage || pending || saveUnknown}
+                id={`context-${form.key}-${key}`}
                 inputMode="decimal"
                 max={key === "height_cm" ? 240 : key === "weight_kg" ? 300 : 80}
                 min={key === "height_cm" ? 50 : key === "weight_kg" ? 20 : 10}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
                   setContext((current) => ({ ...current, [key]: value }));
+                  setMnaIssue(null);
+                  setMessage("");
                 }}
                 step="0.1"
                 type="number"
                 value={context[key] ?? ""}
               />
+              {mnaIssue?.field === key ? <span className={styles.fieldError} id={`mna-${key}-error`} role="alert">
+                {mnaIssueText(mnaIssue)}
+              </span> : null}
             </label>)}
             <p>{bmi !== null
               ? `依身高體重計算 BMI ${bmi.toFixed(1)}；請核對下一題的區間。若改用小腿圍，需先清除身高與體重。`
@@ -367,7 +401,10 @@ function QuestionnaireEditor({
             安全提醒：此題有記錄到困擾。請依機構危機處理流程立即轉知護理／主管並陪同關懷；本系統不會自動通知或代替專業處置。
           </div> : null}
           <div className={`${styles.choiceGrid} ${question.choices.length === 2 ? styles.binaryChoices : ""}`} role="radiogroup"
-            aria-labelledby={questionTitleId} aria-describedby={question.helpText ? questionHelpId : undefined}>
+            aria-labelledby={questionTitleId} aria-describedby={[
+              question.helpText ? questionHelpId : null,
+              question.id === "anthropometry" && mnaIssue?.field === "anthropometry" ? "mna-anthropometry-error" : null,
+            ].filter(Boolean).join(" ") || undefined}>
             {question.choices.map((choice) => <label className={styles.choice} key={choice.value}>
               <input
                 checked={value === choice.value}
@@ -379,6 +416,9 @@ function QuestionnaireEditor({
               <span>{choice.label}</span>
             </label>)}
           </div>
+          {question.id === "anthropometry" && mnaIssue?.field === "anthropometry"
+            ? <p className={styles.fieldError} id="mna-anthropometry-error" role="alert">{mnaIssueText(mnaIssue)}</p>
+            : null}
           <div className={styles.questionActions}>
             {answer.state !== "missing" ? <button disabled={pending || saveUnknown} onClick={() => setAnswer(question.id, { state: "missing" })} type="button">改為待答</button> : null}
             {allowsNotApplicable && answer.state !== "not_applicable"
