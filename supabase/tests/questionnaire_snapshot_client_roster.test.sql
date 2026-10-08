@@ -1,5 +1,5 @@
 begin;
-select plan(35);
+select plan(47);
 
 select ok((select prosecdef and proconfig @> array['search_path=""']
  from pg_proc where oid='private.questionnaire_assessment_snapshot_guarded(uuid,uuid,text,uuid)'::regprocedure),
@@ -100,6 +100,26 @@ returns jsonb language sql security invoker as $$
     'expected_version',(p_previous->>'version')::integer) end,
   ('b9e00000-0000-4000-8000-'||lpad(p_operation::text,12,'0'))::uuid);
 $$;
+create function pg_temp.ad8_answers(p_first text default 'unknown') returns jsonb language sql immutable as $$
+ select jsonb_object_agg('ad8_'||lpad(n::text,2,'0'),
+  case when n=1 then jsonb_build_object('state','answered','value',p_first)
+    when n=2 then '{"state":"missing"}'::jsonb
+    else '{"state":"answered","value":"unchanged"}'::jsonb end)
+ from generate_series(1,8)n;
+$$;
+create function pg_temp.ad8_payload(p_first text default 'unknown') returns jsonb language sql volatile as $$
+ select jsonb_build_object('action','create',
+   'client_id','b9800000-0000-4000-8000-000000000001',
+   'form_key','ad8','form_version','ad8-taitung-1100430-candidate-v1',
+   'assessed_on',(clock_timestamp() at time zone 'Asia/Taipei')::date,
+   'answers',pg_temp.ad8_answers(p_first),'context','{}'::jsonb);
+$$;
+create function pg_temp.save_ad8(p_operation integer,p_payload jsonb default pg_temp.ad8_payload())
+returns jsonb language sql security invoker as $$
+ select public.mutate_questionnaire_assessment(
+  'b9500000-0000-4000-8000-000000000001','b9600000-0000-4000-8000-000000000001',
+  p_payload,('b9a00000-0000-4000-8000-'||lpad(p_operation::text,12,'0'))::uuid);
+$$;
 
 select pg_temp.questionnaire_login();
 set local role authenticated;
@@ -108,6 +128,38 @@ select is((pg_temp.questionnaire_snapshot(form)->>'matchingTotal')::integer,2,
  'authorized active and suspended client roster works for '||form)
 from unnest(array['spmsq','gds_15','barthel_adl','lawton_iadl','eat10_swallowing','bsrs5',
  'fall_risk_taipei_115','nsi_determine','mna_sf']) form;
+select is((pg_temp.questionnaire_snapshot('ad8')->>'matchingTotal')::integer,2,
+ 'AD8 has the same authorized client roster as cognition drafts');
+select set_config('test.ad8_receipt',pg_temp.save_ad8(1)::text,true);
+select is(current_setting('test.ad8_receipt')::jsonb->>'recordState','draft',
+ 'AD8 creates only an answer draft');
+select is(current_setting('test.ad8_receipt')::jsonb->>'replayed','false',
+ 'first AD8 operation creates one version');
+select is(pg_temp.save_ad8(1)->>'replayed','true',
+ 'same AD8 idempotency key and payload replays safely');
+select is(pg_temp.save_ad8(1)->>'versionId',current_setting('test.ad8_receipt')::jsonb->>'versionId',
+ 'replay returns the original immutable version');
+select throws_ok($$select pg_temp.save_ad8(1,pg_temp.ad8_payload('changed'))$$,
+ '23505',null,'reusing an AD8 idempotency key for changed answers fails');
+select throws_ok($$select pg_temp.save_ad8(2,jsonb_set(pg_temp.ad8_payload(),
+ '{answers,ad8_01}','{"state":"not_applicable","reason":"合成原因"}'::jsonb))$$,
+ '22023',null,'official AD8 does not accept unsupported not-applicable answers');
+select throws_ok($$select pg_temp.save_ad8(3,pg_temp.ad8_payload() || '{"score":2}'::jsonb)$$,
+ '22023',null,'candidate AD8 cannot submit any score');
+select is(pg_temp.questionnaire_client(pg_temp.questionnaire_snapshot('ad8',
+ 'b9800000-0000-4000-8000-000000000001'),
+ 'b9800000-0000-4000-8000-000000000001')->'latest'->'answers'->'ad8_01'->>'value',
+ 'unknown','AD8 preserves explicit unknown rather than conflating it with missing');
+select is(pg_temp.questionnaire_client(pg_temp.questionnaire_snapshot('ad8',
+ 'b9800000-0000-4000-8000-000000000001'),
+ 'b9800000-0000-4000-8000-000000000001')->'latest'->'answers'->'ad8_02'->>'state',
+ 'missing','AD8 preserves an unanswered item');
+select ok(pg_temp.questionnaire_snapshot('ad8')::text not like '%"answers"%',
+ 'AD8 unselected roster does not expose answer payloads');
+select ok(not (pg_temp.questionnaire_client(pg_temp.questionnaire_snapshot('ad8',
+ 'b9800000-0000-4000-8000-000000000001'),
+ 'b9800000-0000-4000-8000-000000000001')->'latest' ?| array['score','diagnosis','signature']),
+ 'AD8 snapshot contains no score, diagnosis or signing evidence');
 select is(pg_temp.questionnaire_client(pg_temp.questionnaire_snapshot(),
  'b9800000-0000-4000-8000-000000000005'),null::jsonb,'closed client absent from roster');
 select throws_ok($$select pg_temp.questionnaire_snapshot('spmsq','b9800000-0000-4000-8000-000000000005')$$,

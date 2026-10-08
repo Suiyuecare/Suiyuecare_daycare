@@ -102,7 +102,7 @@ function readMutation(value: Record<string, unknown>, idempotencyKey: string) {
   const base = z.object({
     action: z.enum(["create", "revise"]),
     clientId: uuid,
-    formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
+    formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf", "ad8"]),
     formVersion: z.string().min(1).max(80),
     assessedOn: date,
     answers: z.unknown(),
@@ -141,7 +141,7 @@ function readMutation(value: Record<string, unknown>, idempotencyKey: string) {
 }
 
 function permissionScope(formKey: QuestionnaireFormKey, permission: "read" | "manage") {
-  const prefix = formKey === "spmsq"
+  const prefix = formKey === "spmsq" || formKey === "ad8"
     ? "questionnaire_cognition"
     : formKey === "barthel_adl" || formKey === "lawton_iadl"
       ? "questionnaire_adl"

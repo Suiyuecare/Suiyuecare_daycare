@@ -1,5 +1,5 @@
 begin;
-select plan(26);
+select plan(31);
 
 select ok((select relrowsecurity and relforcerowsecurity
   from pg_class where oid='public.questionnaire_assessment_versions'::regclass),
@@ -75,6 +75,27 @@ select ok(private.questionnaire_answers_valid('mna_sf',jsonb_build_object(
   'acute_stress_or_disease','{"state":"answered","value":"no"}'::jsonb,
   'neuropsychological','{"state":"answered","value":"none"}'::jsonb,
   'anthropometry','{"state":"answered","value":"bmi_gte_23"}'::jsonb)), 'valid MNA-SF responses are accepted');
+
+create function pg_temp.ad8_answers(p_first jsonb default '{"state":"answered","value":"unknown"}'::jsonb)
+returns jsonb language sql immutable as $$
+ select jsonb_object_agg('ad8_'||lpad(n::text,2,'0'),
+  case when n=1 then p_first when n=2 then '{"state":"missing"}'::jsonb
+    else '{"state":"answered","value":"unchanged"}'::jsonb end)
+ from generate_series(1,8)n;
+$$;
+select ok(private.questionnaire_answers_valid('ad8',pg_temp.ad8_answers()),
+ 'AD8 unknown and missing are different valid candidate answer states');
+select ok(not private.questionnaire_answers_valid('ad8',pg_temp.ad8_answers(
+ '{"state":"not_applicable","reason":"合成原因"}'::jsonb)),
+ 'AD8 does not silently introduce a fourth official response option');
+select ok(not private.questionnaire_answers_valid('ad8',pg_temp.ad8_answers(
+ '{"state":"answered","value":"scored"}'::jsonb)),
+ 'AD8 rejects values beyond changed, unchanged and unknown');
+select ok(not private.questionnaire_answers_valid('ad8',pg_temp.ad8_answers() - 'ad8_08'),
+ 'AD8 rejects missing item keys even though a recorded missing answer is allowed');
+select ok(not private.questionnaire_answers_valid('ad8',pg_temp.ad8_answers() ||
+ '{"ad8_09":{"state":"missing"}}'::jsonb),
+ 'AD8 rejects unknown or extra item keys');
 
 select ok(not private.questionnaire_answers_valid('eat10_swallowing',(
   select jsonb_object_agg('eat10_'||lpad(n::text,2,'0'),
