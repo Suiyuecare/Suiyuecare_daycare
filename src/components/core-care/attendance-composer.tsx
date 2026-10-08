@@ -100,6 +100,7 @@ export function AttendanceComposer({
   demo,
   selectedClientId,
   selectedShift,
+  canContinueToNext = false,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
@@ -107,6 +108,7 @@ export function AttendanceComposer({
   demo: boolean;
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
+  canContinueToNext?: boolean;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -232,10 +234,10 @@ export function AttendanceComposer({
           ? `展示${eventLabels[effectiveEventKind]}已通過相同驗證；展示資料不會永久保存。`
           : savedDate !== serviceDate
             ? `${selectedClient?.name ?? "此個案"}${eventLabels[frozen.body.event_kind]}已儲存於 ${savedDate ?? "其他服務日"}，與畫面所選日期不同；請先切換服務日再接續。`
-            : `${selectedClient?.name ?? "此個案"}${eventLabels[frozen.body.event_kind]}已儲存${isBackfill ? "並標記為補登" : ""}。${frozen.body.event_kind === "check_in" ? "可接續量測。" : "請核對當日狀態。"}`,
+            : `${selectedClient?.name ?? "此個案"}${eventLabels[frozen.body.event_kind]}已儲存${isBackfill ? "並標記為補登" : ""}。請核對當日狀態。`,
       );
       setNoticePending(false);
-      setNextClientId(!demo && frozen.body.event_kind === "check_in" && savedDate === serviceDate ? frozen.body.client_id : null);
+      setNextClientId(!demo && canContinueToNext && frozen.body.event_kind === "check_in" && savedDate === serviceDate ? frozen.body.client_id : null);
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (submitError) {
@@ -274,7 +276,7 @@ export function AttendanceComposer({
       </button>
       {unavailableSelection ? <p role="status">指定個案目前無可用出勤動作；不會自動改為其他個案。</p> : null}
       {notice ? <div className="core-composer__result"><p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p>
-        {nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(3, serviceDate, nextClientId, selectedShift)} loadingLabel="量測" prefetch={false}>接著量測</NavigationLink> : null}
+        {canContinueToNext && nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(3, serviceDate, nextClientId, selectedShift)} loadingLabel="量測" prefetch={false}>接著量測</NavigationLink> : null}
       </div> : null}
       <dialog
         aria-labelledby="attendance-dialog-title"

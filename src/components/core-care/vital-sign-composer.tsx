@@ -56,6 +56,7 @@ export function VitalSignComposer({
   demo,
   selectedClientId,
   selectedShift,
+  canContinueToNext = false,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
@@ -63,6 +64,7 @@ export function VitalSignComposer({
   demo: boolean;
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
+  canContinueToNext?: boolean;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -156,10 +158,10 @@ export function VitalSignComposer({
           ? "展示量測已通過欄位與重送檢查；展示資料不會永久保存。"
           : savedDate !== serviceDate
             ? `量測已儲存於 ${savedDate ?? "其他服務日"}，與畫面所選日期不同；請先切換服務日再接續。`
-            : "生命徵象已儲存；可接續寫日誌。量測資料不代表自動診斷。",
+            : "生命徵象已儲存。量測資料不代表自動診斷。",
       );
       setNoticePending(false);
-      setNextClientId(!demo && savedDate === serviceDate ? frozen.body.client_id : null);
+      setNextClientId(!demo && canContinueToNext && savedDate === serviceDate ? frozen.body.client_id : null);
       idempotencyKey.current = crypto.randomUUID();
       if (!demo) router.refresh();
     } catch (caught) {
@@ -195,7 +197,7 @@ export function VitalSignComposer({
       </button>
       {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
       {notice ? <div className="core-composer__result"><p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p>
-        {nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(6, serviceDate, nextClientId, selectedShift)} loadingLabel="照顧日誌" prefetch={false}>接著寫日誌</NavigationLink> : null}
+        {canContinueToNext && nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(6, serviceDate, nextClientId, selectedShift)} loadingLabel="照顧日誌" prefetch={false}>接著寫日誌</NavigationLink> : null}
       </div> : null}
       <dialog
         aria-labelledby="vital-sign-dialog-title"

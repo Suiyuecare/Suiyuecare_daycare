@@ -100,7 +100,7 @@ describe.each(specs.filter((spec) => spec.kind !== "diary"))("$kind next action"
   it("appears only after a confirmed persisted receipt and keeps the person, day and shift", async () => {
     const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => Promise.resolve(successfulResponse(spec, init)));
     vi.stubGlobal("fetch", fetchMock);
-    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId, selectedShift: "morning" as const };
+    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId, selectedShift: "morning" as const, canContinueToNext: true };
     render(spec.kind === "attendance" ? <AttendanceComposer {...props} /> : <VitalSignComposer {...props} />);
     expect(screen.queryByRole("link", { name: /接著/u })).not.toBeInTheDocument();
     const { form } = open(spec); fireEvent.submit(form);
@@ -109,6 +109,18 @@ describe.each(specs.filter((spec) => spec.kind !== "diary"))("$kind next action"
     expect(next).toHaveAttribute("href", expect.stringContaining(`date=${date}`));
     expect(next).toHaveAttribute("href", expect.stringContaining("shift=morning"));
     expect(next).toHaveAttribute("href", expect.stringContaining(spec.kind === "attendance" ? "/vital-signs" : "/care-diary"));
+  });
+
+  it("keeps a confirmed write but omits the shortcut when the following step is unavailable", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => Promise.resolve(successfulResponse(spec, init)));
+    vi.stubGlobal("fetch", fetchMock);
+    const props = { clients, serviceDate: date, enabled: true, demo: false, selectedClientId, canContinueToNext: false };
+    render(spec.kind === "attendance" ? <AttendanceComposer {...props} /> : <VitalSignComposer {...props} />);
+    const { dialog, form } = open(spec); fireEvent.submit(form);
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("link", { name: /接著/u })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("已儲存");
   });
 
   it("does not offer the next action for an unconfirmed write", async () => {
