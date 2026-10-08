@@ -30,10 +30,10 @@ const baseContext: TenantContext = {
   assuranceLevel: "aal1", recentAal2At: null, demo: false,
 };
 
-function renderShell(roles: TenantContext["roles"], scopes: string[]) {
+function renderShell(roles: TenantContext["roles"], scopes: string[], showAssessmentMatrix = false) {
   const context = { ...baseContext, roles, scopes };
   const navigation = filterNavigationByAccess(getNavigationGroups("staff"), context);
-  return render(<AppShell context={context} navigation={navigation}><p>合成工作頁</p></AppShell>);
+  return render(<AppShell context={context} navigation={navigation} showAssessmentMatrix={showAssessmentMatrix}><p>合成工作頁</p></AppShell>);
 }
 
 function bottomNavigation() {
@@ -51,6 +51,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("authorized role-aware mobile navigation", () => {
+  it("keeps the new matrix link off by default and requires both the server flag and assessment scope", () => {
+    mocks.pathname = "/app/assessment-matrix";
+    const first = renderShell(["nurse"], ["clients.read", "questionnaire_cognition.read"]);
+    expect(first.container.querySelector('a[href="/app/assessment-matrix"]')).toBeNull();
+    first.unmount();
+    const second = renderShell(["nurse"], ["clients.read", "questionnaire_cognition.read"], true);
+    expect(second.container.querySelector('a[href="/app/assessment-matrix"]')).toHaveTextContent("評估進度總覽");
+    second.unmount();
+    const third = renderShell(["nurse"], ["clients.read"], true);
+    expect(third.container.querySelector('a[href="/app/assessment-matrix"]')).toBeNull();
+  });
   it("keeps the care worker's today, case and measurement destinations", () => {
     renderShell(["care_worker"], ["clients.read", "health.read"]);
     expect(bottomHrefs()).toEqual([

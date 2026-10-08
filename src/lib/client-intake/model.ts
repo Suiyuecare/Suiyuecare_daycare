@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CURRENT_MAPPING_VERSION } from "@/lib/imports/types";
 
 export const INTAKE_PATH = "/app/client-intake";
 // The static parser supports 25 MB. This mediated web upload stays below the
@@ -45,8 +46,13 @@ export const intakeSnapshotSchema = z.object({
 }).passthrough();
 export type IntakeSnapshot = z.infer<typeof intakeSnapshotSchema>;
 export const intakeReceiptSchema = z.object({ clientId: z.uuid(), profileVersion: z.number().int().positive(), clientRowVersion: z.number().int().positive(), pending: z.boolean(), replayed: z.boolean(), operationId: z.uuid() }).passthrough();
+const cmsSourceConflictSchema = z.object({
+  id: z.string().min(1).max(80), mappingKey: z.string().min(1).max(8000), sectionCode: z.string().min(1).max(120), label: z.string().min(1).max(2000),
+  candidates: z.array(z.object({ fieldId: z.string().min(1).max(80), value: z.string().max(250_000) }).strict()).min(2).max(100),
+  reason: z.enum(["multiple_source_values", "existing_value_differs"]),
+}).passthrough();
 export const cmsPreviewSchema = z.object({
-  batchId: z.uuid(), payloadSha256: z.string().regex(/^[a-f0-9]{64}$/u), mappingVersion: z.string(),
+  batchId: z.uuid(), payloadSha256: z.string().regex(/^[a-f0-9]{64}$/u), mappingVersion: z.literal(CURRENT_MAPPING_VERSION),
   fields: z.array(z.object({
     id: z.string(), intakeTarget: z.string().nullable(), intakeValue: z.unknown().optional(), intakeWarning: z.string().nullable().optional(),
     normalizedValue: z.string(), rawValue: z.string(), warnings: z.array(z.string()),
@@ -54,11 +60,21 @@ export const cmsPreviewSchema = z.object({
   }).passthrough()),
   sections: z.array(z.object({ code: z.string(), title: z.string() }).passthrough()),
   warnings: z.array(z.object({ message: z.string() }).passthrough()),
-  conflicts: z.array(z.unknown()), current: intakeSnapshotSchema.nullable(), imported: z.boolean(),
-  importReceipt: z.object({ clientId: z.uuid() }).passthrough().nullable(),
+  conflicts: z.array(cmsSourceConflictSchema).max(50_000), current: intakeSnapshotSchema.nullable(), imported: z.boolean(),
+  importReceipt: z.object({ clientId: z.uuid(), batchId: z.uuid() }).passthrough().nullable(),
   sourceOfficialDate: date.nullable().optional(), currentSourceOfficialDate: date.nullable().optional(),
   sourceReviewRequired: z.boolean().optional(), sourceIsOlder: z.boolean().optional(),
-}).passthrough();
+}).passthrough().superRefine((preview, ctx) => {
+  if (preview.imported !== (preview.importReceipt !== null) ||
+      (preview.importReceipt && preview.importReceipt.batchId !== preview.batchId)) {
+    ctx.addIssue({ code: "custom", path: ["importReceipt"], message: "匯入回條與來源批次不一致" });
+  }
+  const fieldIds = new Set(preview.fields.map((field) => field.id));
+  if (fieldIds.size !== preview.fields.length || preview.conflicts.some((conflict) =>
+    conflict.candidates.some((candidate) => !fieldIds.has(candidate.fieldId)))) {
+    ctx.addIssue({ code: "custom", path: ["conflicts"], message: "來源欄位或衝突引用不一致" });
+  }
+});
 export type CmsIntakePreview = z.infer<typeof cmsPreviewSchema>;
 export const intakeTargetLabels: Record<string, string> = {
   displayName: "姓名", identityNumber: "身分識別", dateOfBirth: "出生日期", sex: "性別", phone: "個案電話",

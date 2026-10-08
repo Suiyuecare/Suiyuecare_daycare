@@ -52,6 +52,15 @@ const routes = [
   { slug: "staff/assessments/abcd", load: mock.abcd, invalid: { unexpected: "1" } },
 ] as const;
 
+const selectedClient = "11111111-1111-4111-8111-111111111111";
+const selectedQueries = [
+  { slug: "staff/daily-care/medication-records", query: { date: "2026-10-08", client: selectedClient, status: "all" } },
+  { slug: "staff/daily-care/client-tocc", query: { q: "合成", validity: "all", result: "all" } },
+  { slug: "staff/assessments/physical", query: { client: selectedClient, state: "all" } },
+  { slug: "staff/assessments/behavior-emotion", query: { client: selectedClient, state: "all" } },
+  { slug: "staff/assessments/abcd", query: { client: selectedClient, status: "all" } },
+] as const;
+
 async function view(slug: string, query: Record<string, string | string[]> = {}) {
   return StaffCatalogPage({
     params: Promise.resolve({ slug: slug.split("/") }),
@@ -87,6 +96,21 @@ describe("clinical work-page load states", () => {
       expect(alert.textContent).not.toContain("PRIVATE_SQL_OR_PHI");
       expect(screen.getByRole("link", { name: "重新載入" })).toBeTruthy();
       expect(route.load).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  for (const route of selectedQueries) {
+    it(`${route.slug}: retry keeps the selected clinical context, clear starts fresh`, async () => {
+      const loader = routes.find((candidate) => candidate.slug === route.slug)!.load;
+      loader.mockRejectedValue(new mock.SnapshotError("TRANSIENT_OUTAGE"));
+      render(await view(route.slug, route.query));
+      const path = `/app/${route.slug}`;
+      const search = new URLSearchParams(route.query).toString();
+      expect(screen.getByRole("link", { name: "重新載入" }).getAttribute("href"))
+        .toBe(`${path}?${search}`);
+      expect(screen.getByRole("link", { name: "清除篩選" }).getAttribute("href"))
+        .toBe(path);
+      expect(loader).toHaveBeenCalledTimes(1);
     });
   }
 

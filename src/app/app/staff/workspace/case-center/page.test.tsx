@@ -97,6 +97,7 @@ describe("dedicated case-center route", () => {
       loadError: false,
       snapshot: { page: 1, marker: "case-snapshot" },
       canOpenIntake: false,
+      canCreateIntake: false,
       allowedDailyPages: [],
       allowedContinuationPages: [],
       canViewSummary: false,
@@ -120,9 +121,31 @@ describe("dedicated case-center route", () => {
     const result = await CaseCenterPage(props());
 
     expect(result.props.canOpenIntake).toBe(true);
+    expect(result.props.canCreateIntake).toBe(false);
     expect(result.props.allowedDailyPages).toEqual([3, 6, 46]);
     expect(result.props.allowedContinuationPages).toEqual([]);
     expect(result.props.canViewSummary).toBe(true);
+  });
+
+  it("requires both manage and view-all scopes for the create entry and never offers it in demo mode", async () => {
+    const scopes = ["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"];
+    mocks.context.mockResolvedValue({ ...context, scopes });
+    const creator = await CaseCenterPage(props());
+    expect(creator.props.canOpenIntake).toBe(true);
+    expect(creator.props.canCreateIntake).toBe(true);
+
+    mocks.context.mockResolvedValue({ ...context, scopes: scopes.filter((scope) => scope !== "clients.manage") });
+    const missingManage = await CaseCenterPage(props());
+    expect(missingManage.props.canCreateIntake).toBe(false);
+
+    mocks.context.mockResolvedValue({ ...context, scopes: scopes.filter((scope) => scope !== "clients.view_all") });
+    const missingViewAll = await CaseCenterPage(props());
+    expect(missingViewAll.props.canCreateIntake).toBe(false);
+
+    mocks.context.mockResolvedValue({ ...context, scopes: [], demo: true });
+    const demo = await CaseCenterPage(props());
+    expect(demo.props.canOpenIntake).toBe(true);
+    expect(demo.props.canCreateIntake).toBe(false);
   });
 
   it("exposes continuation pages only from the current employee's permissions", async () => {

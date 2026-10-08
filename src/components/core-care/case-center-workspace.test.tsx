@@ -313,14 +313,48 @@ describe("case center filters and readable fallback states", () => {
   });
 
   it("offers actionable empty and load-error states without false work links", () => {
-    const empty = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [], total: 0 })} allowedDailyPages={[46]} canViewSummary />);
-    expect(screen.getByRole("heading", { name: "沒有符合條件的個案" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "清除篩選" })).toBeTruthy();
+    const empty = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [], total: 0, visibleTotal: 0 })} allowedDailyPages={[46]} canViewSummary />);
+    expect(screen.getByRole("heading", { name: "目前沒有可見個案" })).toBeTruthy();
+    expect(screen.getByText("請主管確認個案指派或資料來源。")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "清除篩選" })).toBeNull();
     expect(empty.container.querySelectorAll("[data-case-client-id]")).toHaveLength(0);
     empty.unmount();
     render(<CaseCenterWorkspace page={page} filters={filters({ query: "合成" })} snapshot={null} loadError allowedDailyPages={[46]} canViewSummary />);
     expect(screen.getByRole("alert").textContent).toContain("個案清單暫時無法載入");
     expect(screen.getByRole("link", { name: "重新載入" }).getAttribute("href")).toBe(caseCenterHref(filters({ query: "合成" })));
+  });
+
+  it("offers one existing intake entry for an unfiltered empty branch with create scopes", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()}
+      snapshot={snapshot({ clients: [], total: 0, visibleTotal: 0 })} canOpenIntake canCreateIntake />);
+    expect(screen.getByRole("heading", { name: "目前沒有可見個案" })).toBeTruthy();
+    expect(screen.getByText("可前往收案頁建立個案。")).toBeTruthy();
+    const links = screen.getAllByRole("link", { name: "個案匯入與收案" });
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("/app/client-intake");
+    expect(container.querySelector(".empty-card a.button--primary")).toBe(links[0]);
+    expect(screen.queryByRole("link", { name: "清除篩選" })).toBeNull();
+  });
+
+  it("keeps read-only intake navigation without claiming that the viewer can create a client", () => {
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()}
+      snapshot={snapshot({ clients: [], total: 0, visibleTotal: 0 })} canOpenIntake />);
+    expect(screen.getByText("請主管確認個案指派或資料來源。")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "個案匯入與收案" })).toHaveLength(1);
+    expect(container.querySelector(".empty-card a")).toBeNull();
+    expect(screen.queryByText("可前往收案頁建立個案。")).toBeNull();
+  });
+
+  it.each([
+    ["search", { query: "找不到" }],
+    ["advanced filter", { service: "paused" as const }],
+  ])("retains clear-filters for a zero-result %s", (_name, override) => {
+    const selected = filters(override);
+    const { container } = render(<CaseCenterWorkspace page={page} filters={selected}
+      snapshot={snapshot({ clients: [], total: 0, visibleTotal: 0 })} canOpenIntake canCreateIntake />);
+    expect(screen.getByRole("heading", { name: "沒有符合條件的個案" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "清除篩選" }).getAttribute("href")).toBe(caseCenterHref(filters()));
+    expect(container.querySelector(".empty-card a[href='/app/client-intake']")).toBeNull();
   });
 });
 

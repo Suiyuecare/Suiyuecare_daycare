@@ -1,0 +1,122 @@
+.workspace {
+  width: min(100%, 1540px);
+  margin-inline: auto;
+  color: var(--ink);
+}
+
+.heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.heading h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: clamp(25px, 2.2vw, 34px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+.heading h1 svg { width: 28px; height: 28px; color: var(--brand-strong); }
+.heading p:not(:global(.eyebrow)) { margin: 8px 0 0; color: var(--ink-muted); font-size: 14px; }
+.refreshTime { color: var(--ink-muted); font-size: 12px; white-space: nowrap; }
+
+.message,
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+  background: var(--surface);
+}
+
+.message > svg,
+.empty > svg { flex: none; width: 28px; height: 28px; color: var(--brand-strong); }
+.message h2,
+.empty h2 { margin: 0; font-size: 18px; }
+.message p,
+.empty p { margin: 5px 0 0; color: var(--ink-muted); font-size: 14px; }
+.message > a { margin-left: auto; white-space: nowrap; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+  background: var(--surface);
+}
+.monthControl { display: flex; align-items: center; gap: 10px; }
+.monthName { display: inline-flex; align-items: center; gap: 7px; min-width: 134px; justify-content: center; font-weight: 700; }
+.monthName svg { color: var(--brand-strong); }
+.monthArrow,
+.monthArrowDisabled { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: var(--control-radius); }
+.monthArrow { color: var(--ink); background: var(--surface); }
+.monthArrow:hover { border-color: var(--brand-strong); background: var(--brand-soft); }
+.monthArrowDisabled { color: var(--ink-faint); opacity: .45; }
+.monthForm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.monthForm label { margin-right: 3px; color: var(--ink-muted); font-size: 13px; font-weight: 700; }
+.monthForm input { min-width: 155px; height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--control-radius); color: var(--ink); background: var(--surface); font: inherit; font-size: 16px; }
+.monthForm button { min-height: 44px; }
+.summary { display: flex; flex-wrap: wrap; gap: 10px 25px; margin: 18px 0; color: var(--ink-muted); font-size: 13px; }
+.summary strong { color: var(--ink); font-size: 18px; }
+.legend { display: inline-flex; align-items: center; gap: 7px; }
+.legend i,
+.legend b { display: inline-block; width: 11px; height: 11px; border-radius: 3px; }
+.legend i { background: var(--brand-soft); border: 1px solid var(--brand-strong); }
+.legend b { background: var(--surface-soft); border: 1px solid var(--line); }
+.demoNote { padding: 12px 15px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--brand-soft); font-size: 13px; }
+.empty { display: block; text-align: center; padding: 44px 20px; }
+.empty > svg { margin-bottom: 10px; }
+.tableSection { overflow: hidden; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); }
+.tableHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); background: var(--admin-paper); }
+.tableHeader h2 { margin: 0; font-size: 17px; }
+.tableHeader span { color: var(--ink-muted); font-size: 12px; }
+.tableScroller { max-width: 100%; overflow-x: auto; scrollbar-color: var(--brand) var(--surface-soft); scrollbar-width: thin; }
+.table { width: 100%; min-width: 1200px; border-spacing: 0; border-collapse: separate; text-align: left; font-size: 13px; }
+.table th,
+.table td { padding: 11px 12px; border-bottom: 1px solid var(--line); }
+.table thead th { position: sticky; top: 0; z-index: 1; background: #fff7ed; font-weight: 700; white-space: nowrap; }
+.table thead th:first-child { z-index: 3; }
+.table tbody tr:last-child th,
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover { background: #fffdf9; }
+.table tbody th { position: sticky; left: 0; z-index: 2; min-width: 168px; max-width: 200px; background: var(--surface); box-shadow: 1px 0 0 var(--line); }
+.table tbody tr:hover th { background: #fffdf9; }
+.clientName { display: block; font-size: 14px; }
+.table tbody th small { display: block; margin-top: 2px; color: var(--ink-muted); font-weight: 400; }
+.statusLink { display: inline-flex; min-height: 44px; min-width: 92px; align-items: center; justify-content: center; gap: 5px; padding: 5px 8px; border: 1px solid; border-radius: var(--radius-sm); text-decoration: none; white-space: nowrap; }
+.statusLink small { font-size: 11px; }
+.statusLink svg { flex: none; }
+.statusDraft { border-color: var(--brand-strong); color: var(--brand-strong); background: var(--brand-soft); font-weight: 700; }
+.statusDraft:hover { background: var(--admin-cream); }
+.statusNone { border-color: var(--line); color: var(--ink-muted); background: var(--surface-soft); }
+.statusLink.statusNone:hover { border-color: var(--brand-strong); color: var(--brand-strong); }
+.pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 18px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 13px; }
+.pagination > div { display: flex; gap: 8px; }
+.pagination a { min-height: 44px; }
+.disclaimer { margin: 14px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 760px) {
+  .heading { align-items: flex-start; flex-direction: column; }
+  .toolbar,
+  .monthForm { align-items: stretch; flex-direction: column; }
+  .monthControl { justify-content: space-between; }
+  .monthForm input,
+  .monthForm button { width: 100%; }
+  .tableHeader span { max-width: 120px; text-align: right; }
+  .pagination { align-items: flex-start; flex-direction: column; }
+  .message { align-items: flex-start; flex-wrap: wrap; }
+  .message > a { margin-left: 0; }
+}
