@@ -6,7 +6,9 @@ const source = {
   FINANCE_STORE_SUMMARY_TOKEN: "a".repeat(64),
   FINANCE_STORE_ORGANIZATION_ID: "11111111-1111-4111-8111-111111111111",
   FINANCE_STORE_BRANCH_ID: "22222222-2222-4222-8222-222222222222",
-  FINANCE_STORE_ENTITY_ID: "synthetic-store",
+  FINANCE_STORE_BINDING_ID: "33333333-3333-4333-8333-333333333333",
+  FINANCE_STORE_ENTITY_ID: "synthetic-entity",
+  FINANCE_STORE_DEPARTMENT_CODE: "T1101",
 };
 const scope = { organizationId: source.FINANCE_STORE_ORGANIZATION_ID, branchId: source.FINANCE_STORE_BRANCH_ID };
 describe("Finance configuration preflight without secrets or network", () => {
@@ -16,7 +18,7 @@ describe("Finance configuration preflight without secrets or network", () => {
   });
   it("shared validation accepts a complete config but explicitly leaves live verification pending", () => {
     expect(inspectFinanceConfiguration(source, scope)).toEqual({ status: "configured_unverified", missing: [], invalid: [], connectionVerified: false });
-    expect(financeConnection(source)).toMatchObject({ entityId: "synthetic-store", branchId: scope.branchId });
+    expect(financeConnection(source)).toMatchObject({ entityId: "synthetic-entity", departmentCode: "T1101", branchId: scope.branchId });
     const serialized = JSON.stringify(inspectFinanceConfiguration(source, scope));
     for (const value of Object.values(source)) expect(serialized).not.toContain(value);
   });
@@ -27,7 +29,9 @@ describe("Finance configuration preflight without secrets or network", () => {
     ["FINANCE_STORE_SUMMARY_TOKEN", "private-secret-not-a-token"],
     ["FINANCE_STORE_ORGANIZATION_ID", "invalid-private-org"],
     ["FINANCE_STORE_BRANCH_ID", "invalid-private-branch"],
+    ["FINANCE_STORE_BINDING_ID", "invalid-private-binding"],
     ["FINANCE_STORE_ENTITY_ID", "../other"],
+    ["FINANCE_STORE_DEPARTMENT_CODE", "E6"],
   ])("rejects %s and never echoes invalid value", (key, value) => {
     const checked = inspectFinanceConfiguration({ ...source, [key]: value });
     expect(checked.status).toBe("invalid"); expect(checked.invalid).toEqual([key]);

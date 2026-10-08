@@ -48,7 +48,7 @@ Finance 端在獨立 worktree `/tmp/finance-daycare-summary.xtou9v`，本地 com
 
 Daycare 只向設定中的標準 Supabase HTTPS function URL 發送專用 token，不接受
 瀏覽器指定 URL／entity；禁止重新導向，回應限制 16 KiB，驗證 request ID、機構、
-分支、月份、entity、幣別、口徑及來源時間，並保留精確小數與沖銷負數。
+分支、月份、binding、entity、department、幣別、單店口徑及來源時間，並保留精確小數與沖銷負數。
 
 Finance 口徑：4／7 科目收入為貸−借；5／6／9 科目支出為借−貸。依既有 P&L，
 先按科目彙總，排除淨額絕對值 ≤0.4 的科目，再相加。正式啟用前必須對帳包含
@@ -96,10 +96,43 @@ synthetic preview 若帶 Finance 連線設定會拒絕啟動。
    不把 seed 的 E6／J1101 自動當成正式已核准 binding；若法人含多店，須先拆清範圍。
 3. 在隔離、完整 Finance 測試環境驗證 migration、PostgREST、Edge/Deno 與逾時取消。
 4. 依 Finance README 建立經審核、有限效期的 binding 與專用 32-byte hex token。
-   Daycare 的五個 server-only `FINANCE_STORE_*` 設定見 `.env.example`；不得貼入公開
+   Daycare 的七個 server-only `FINANCE_STORE_*` 設定見 `.env.example`；不得貼入公開
    repository、前端、對話或日誌。測試及正式環境使用不同密鑰。
 5. 正式 Finance endpoint 與 Daycare migration／前端部署後，用真實授權會話逐月
    對帳：空月份、一般月份、沖銷月份；測試跨店、過期 binding、停用會話與來源停機。
 6. 正式 Chrome／Safari、Google 登入、雲端 RLS／Edge、代表性資料量與壓力測試仍待驗收。
 
 本批沒有執行 production DDL、建立真實 binding、配置密鑰、推送、發布或購買服務。
+
+## 2026-10-08 單店口徑邊界補強
+
+目前 Finance checkout 未包含上述歷史獨立 worktree 的 Edge Function／RPC；其舊版
+`verified_whole_entity` 查詢只按 `entity_id` 彙總，即使 binding 存了部門代碼，
+仍不能證明是萬華單店。日照端現在另需經核准 binding UUID、法人代碼、店別部門代碼，
+且 Finance 回應必須逐一相符並宣告 `scope_basis=department_direct_only`；
+缺任何設定或收到舊版全法人回應時都不顯示金額。請求本身不指定 Finance 查詢範圍，
+來源端應依專用 token 綁定的有效核准紀錄決定範圍。
+
+這個回應檢查是介面契約，不能單獨證明 Finance SQL 的資料過濾。正式啟用前，
+Finance 端需以目前正式組織主檔核對精確法人加店別，並在來源查詢中只納入
+同一 tenant、生產資料、精確法人與部門、指定月份的分錄，筆數也用相同條件；
+全公司合計、其他店與未分配的共用成本不得混入。
+seed 的 `C1100` 屬 E2，而舊 canary 的 `J1101` 與 E6 同列；僅憑這些測試資料
+不能當作已核准的正式萬華對應。共用成本若需呈現，必須另經業務核定分攤規則與口徑；
+在此之前維持排除，不自動推估。沒有配置憑證或發布來源端。
+
+### 2026-10-08 萬華首階段業務決策
+
+業主已核准**萬華分支的首階段口徑**：只顯示 Finance `E6`／`J1101` 自
+2026 年 7 月起已入帳、未作廢、直接歸屬該部門的收支。這是萬華分支的核准範圍，
+不是所有日照分支共用的硬編碼；其他分支日後須各自核准法人、部門與專屬 binding。
+`C1100` 的所有歷史分錄（包含 E2 與 E6）均不併入本階段數字，待財務逐筆核對
+後另行決定是否、如何補入。未對應部門的共用成本亦不作推估分攤。
+
+正式 Finance 的唯讀核查顯示：主檔 `C1100` 歸 E2，`J1101` 歸 E6；
+production 分錄卻同時存在 E2／C1100、E6／C1100 與 E6／J1101。
+因此不能用 E6 全法人彙總，亦不能因名稱含「萬華」便自動合併 C1100。
+來源端尚無相容的 Edge Function／RPC 與已核准專屬 binding，日照端亦無
+`FINANCE_STORE_*` 正式設定；在逐筆口徑、來源過濾及對帳完成前，正式畫面仍應
+顯示未連線，不得顯示金額。歷史文件前述「待核准 E6／J1101」由本段業務決策
+更新；技術啟用條件並未因此豁免。

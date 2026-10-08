@@ -17,6 +17,7 @@ describe.skipIf(!financeRoot)("real daycare fetch -> Finance HTTP handler contra
     const organizationId = "11111111-1111-4111-8111-111111111111";
     const branchId = "22222222-2222-4222-8222-222222222222";
     const entityId = "SYNTHETIC";
+    const departmentCode = "T1101";
     const token = "a1".repeat(32);
     const settings: Record<string, string> = {
       FINANCE_DAYCARE_SUMMARY_TOKEN: token,
@@ -24,8 +25,11 @@ describe.skipIf(!financeRoot)("real daycare fetch -> Finance HTTP handler contra
       FINANCE_DAYCARE_SUMMARY_TOKEN_EXPIRES_AT: new Date(Date.now() + 86_400_000).toISOString(),
     };
     const rpc = vi.fn(async (payload: Record<string, string>) => ({ status: "ready", organization_id: payload.p_organization_id,
-      branch_id: payload.p_branch_id, month: payload.p_month, entity_id: entityId, entity_name: "合成測試店",
-      currency: "TWD", basis: "finance_pnl_ledger", income: "685000.00", expenses: "-4723.50", entry_count: 10,
+      branch_id: payload.p_branch_id, month: payload.p_month,
+      binding_id: settings.FINANCE_DAYCARE_SUMMARY_BINDING_ID, entity_id: entityId,
+      department_code: departmentCode, entity_name: "合成測試店",
+      currency: "TWD", basis: "finance_pnl_ledger", scope_basis: "department_direct_only",
+      income: "685000.00", expenses: "-4723.50", entry_count: 10,
       generated_at: new Date().toISOString() }));
     const handle = createSummaryHandler({ env: (key) => settings[key], rpc });
     const server = createServer(async (req, res) => {
@@ -46,7 +50,8 @@ describe.skipIf(!financeRoot)("real daycare fetch -> Finance HTTP handler contra
       const url = "https://abcdefghijklmnopqrst.supabase.co/functions/v1/daycare-store-finance-summary";
       // Config remains strict HTTPS; this test transport alone redirects it to
       // loopback. Production has no URL override or synthetic handler import.
-      const result = await fetchFinanceSummary({ connection: { url, token, organizationId, branchId, entityId },
+      const result = await fetchFinanceSummary({ connection: { url, token, organizationId, branchId,
+        bindingId: settings.FINANCE_DAYCARE_SUMMARY_BINDING_ID, entityId, departmentCode },
         organizationId, branchId, month: "2026-09" }, async (target, init) => {
         expect(target).toBe(url);
         return fetch(`http://127.0.0.1:${address.port}/functions/v1/daycare-store-finance-summary`, init);

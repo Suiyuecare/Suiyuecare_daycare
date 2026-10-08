@@ -5,15 +5,18 @@ import { formatTwd } from "./types";
 
 const connection: FinanceConnection = {
   url: "https://abcdefghijklmnopqrst.supabase.co/functions/v1/daycare-store-finance-summary",
-  token: "a1".repeat(32), entityId: "TEST_STORE",
+  token: "a1".repeat(32), bindingId: "33333333-3333-4333-8333-333333333333",
+  entityId: "E6", departmentCode: "T1101",
   organizationId: "11111111-1111-4111-8111-111111111111", branchId: "22222222-2222-4222-8222-222222222222",
 };
 const input = { connection, organizationId: connection.organizationId, branchId: connection.branchId, month: "2026-09" };
 function fakeResponse(change: Record<string, unknown> = {}) {
   return vi.fn<typeof fetch>().mockImplementation(async (_url, options) => {
     const body = JSON.parse(options!.body as string);
-    return Response.json({ ...body, status: "ready", entity_id: connection.entityId, entity_name: "合成店",
-      currency: "TWD", basis: "finance_pnl_ledger", income: "685000.00", expenses: "-4723.50",
+    return Response.json({ ...body, status: "ready", binding_id: connection.bindingId,
+      entity_id: connection.entityId, department_code: connection.departmentCode, entity_name: "合成店",
+      currency: "TWD", basis: "finance_pnl_ledger", scope_basis: "department_direct_only",
+      income: "685000.00", expenses: "-4723.50",
       entry_count: 36, generated_at: new Date().toISOString(), ...change });
   });
 }
@@ -33,10 +36,15 @@ describe("Finance single-store server bridge", () => {
       organization_id: connection.organizationId, branch_id: connection.branchId, month: "2026-09" });
     expect(JSON.stringify(result)).not.toContain(connection.token);
     expect(JSON.stringify(result)).not.toContain("entity_id");
+    expect(JSON.stringify(result)).not.toContain("department_code");
   });
   it.each([
     { request_id: "99999999-9999-4999-8999-999999999999" }, { organization_id: connection.branchId },
     { branch_id: connection.organizationId }, { month: "2026-08" }, { entity_id: "OTHER_STORE" },
+    { binding_id: "44444444-4444-4444-8444-444444444444" },
+    { department_code: "T1102" }, { department_code: undefined },
+    { binding_id: undefined }, { scope_basis: undefined },
+    { scope_basis: "verified_whole_entity" },
     { currency: "USD" }, { basis: "cash" }, { income: 685000 }, { expenses: "1e8" },
     { income: "NaN" }, { income: "123.456" }, { income: "001.00" }, { entry_count: -1 },
     { entry_count: 0 }, { generated_at: "2020-01-01T00:00:00Z" },
@@ -44,11 +52,17 @@ describe("Finance single-store server bridge", () => {
   ])("rejects mismatched or malformed response %j instead of showing false totals", async (change) => {
     expect(await fetchFinanceSummary(input, fakeResponse(change))).toEqual({ status: "unavailable" });
   });
+  it("rejects the legacy E6 whole-entity aggregate even when the entity matches", async () => {
+    expect(await fetchFinanceSummary(input, fakeResponse({
+      scope_basis: "verified_whole_entity", department_code: undefined,
+    }))).toEqual({ status: "unavailable" });
+  });
   it("accepts genuine empty month zero totals", async () => {
     expect(await fetchFinanceSummary(input, fakeResponse({ income: "0.00", expenses: "0.00", entry_count: 0 })))
       .toMatchObject({ status: "ready", data: { income: "0.00", expenses: "0.00", entryCount: 0 } });
   });
   it.each([null, { ...connection, branchId: connection.organizationId }, { ...connection, token: "short" },
+    { ...connection, bindingId: "" }, { ...connection, departmentCode: "E6" },
     { ...connection, url: "https://evil.invalid/functions/v1/daycare-store-finance-summary" },
     { ...connection, url: `${connection.url}?token=secret` },
     { ...connection, url: `${connection.url}#fragment` },
@@ -84,7 +98,8 @@ describe("Finance single-store server bridge", () => {
     expect(financeConnection({ FINANCE_STORE_SUMMARY_TOKEN: "secret" })).toBeNull();
     expect(financeConnection({ FINANCE_STORE_SUMMARY_URL: connection.url, FINANCE_STORE_SUMMARY_TOKEN: connection.token,
       FINANCE_STORE_ORGANIZATION_ID: connection.organizationId, FINANCE_STORE_BRANCH_ID: connection.branchId,
-      FINANCE_STORE_ENTITY_ID: connection.entityId })).toEqual(connection);
+      FINANCE_STORE_BINDING_ID: connection.bindingId, FINANCE_STORE_ENTITY_ID: connection.entityId,
+      FINANCE_STORE_DEPARTMENT_CODE: connection.departmentCode })).toEqual(connection);
   });
 });
 describe("exact currency formatting", () => {

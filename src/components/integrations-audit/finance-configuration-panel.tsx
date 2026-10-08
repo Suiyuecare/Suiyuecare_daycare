@@ -8,7 +8,9 @@ const labels: Record<FinanceConfigurationField, string> = {
   FINANCE_STORE_SUMMARY_TOKEN: "專用連線憑證",
   FINANCE_STORE_ORGANIZATION_ID: "日照機構對應",
   FINANCE_STORE_BRANCH_ID: "日照分支對應",
-  FINANCE_STORE_ENTITY_ID: "Finance 店別／法人對應",
+  FINANCE_STORE_BINDING_ID: "Finance 核准綁定識別",
+  FINANCE_STORE_ENTITY_ID: "Finance 法人對應",
+  FINANCE_STORE_DEPARTMENT_CODE: "Finance 店別／部門對應",
 };
 const states = {
   missing: "尚缺連線設定", invalid: "設定格式需修正",
@@ -28,13 +30,13 @@ export function FinanceConfigurationPanel({ check, canOpenOverview = false }: {
       {check.status === "scope_mismatch" && <p>目前設定不是這個分支；請管理員核對店別，不會讀取或顯示其他店的金額。</p>}
       <details className={styles.details}><summary>管理員接通與驗收步驟</summary>
         <ol>
-          <li>由 Finance 管理員確認法人與店別，開通專用的唯讀月摘要及連線憑證。</li>
+          <li>由 Finance 管理員確認法人與店別，核准單店直接入帳口徑後，開通專用的唯讀月摘要及連線憑證。</li>
           <li>在伺服器設定連線與店別對應；不要將憑證貼入此頁、訊息或個案備註。</li>
           <li>由有權限的執行長開啟單店總覽，確認收到同店、同月份的實際收入與支出。</li>
           <li>與 Finance 核對一般月份、無紀錄月份及沖銷情境；斷線時應顯示無法讀取，不得補成 0 元。</li>
         </ol>
       </details>
-      <p className={styles.muted}>這裡只檢查設定是否完整、格式與分支是否相符，不發送連線請求、不顯示金鑰，也不代表已連通或完成財務對帳。</p>
+      <p className={styles.muted}>這裡只檢查設定是否完整、格式與分支是否相符，不發送連線請求、不顯示金鑰，也不代表 Finance 已核准綁定、連通或完成財務對帳。</p>
       {canOpenOverview && <Link className="button button--secondary" prefetch={false} href={STORE_OVERVIEW_PATH}>開啟單店出勤與收支</Link>}
     </div>
   </section>;
