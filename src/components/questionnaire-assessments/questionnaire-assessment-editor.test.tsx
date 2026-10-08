@@ -41,10 +41,12 @@ function savedReceipt(formKey: QuestionnaireFormKey) {
 
 function workspace(formKey: QuestionnaireFormKey, {
   canManage = true,
+  canReadExternalResults = false,
   selectedClientId = clientA.clientId,
   clients = [clientA],
 }: {
   canManage?: boolean;
+  canReadExternalResults?: boolean;
   selectedClientId?: string | null;
   clients?: QuestionnaireClient[];
 } = {}) {
@@ -57,6 +59,7 @@ function workspace(formKey: QuestionnaireFormKey, {
     demo: true,
   };
   return <QuestionnaireAssessmentsWorkspace assessorName="合成測試評估員" canManage={canManage}
+    canReadExternalResults={canReadExternalResults}
     form={form} loadError={false} pageTitle={form.title} selectedClientId={selectedClientId} snapshot={snapshot} />;
 }
 
@@ -143,6 +146,11 @@ describe("shared questionnaire assessment editor", () => {
     expect(within(first).queryByRole("button", { name: "此題不適用" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("量表計分預覽")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /簽署/u })).not.toBeInTheDocument();
+  });
+
+  it("does not offer unsupported external paper-result entry for candidate-only AD8", () => {
+    render(workspace("ad8", { canReadExternalResults: true }));
+    expect(screen.queryByRole("link", { name: "有紙本結果？登錄" })).not.toBeInTheDocument();
   });
 
   it("puts the first complete question before optional fields and keeps progress and source available", () => {

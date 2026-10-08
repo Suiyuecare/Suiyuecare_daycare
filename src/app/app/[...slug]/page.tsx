@@ -1131,12 +1131,14 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
+    const externalInstrument = externalInstrumentByQuestionnaireForm[formKey];
     return <QuestionnaireAssessmentsWorkspace
       assessorName={context.displayName}
       canManage={canManage}
       canReadExternalResults={Boolean(snapshot?.clients.some((client) => client.clientId === validClientId)) &&
         !context.demo && context.scopes.includes("clients.read") &&
-        context.scopes.includes(externalAssessmentPermission(externalInstrumentByQuestionnaireForm[formKey], "read")) &&
+        externalInstrument !== undefined &&
+        context.scopes.includes(externalAssessmentPermission(externalInstrument, "read")) &&
         await canUseRoutineCare(context, "care_records.read")}
       form={form}
       loadError={loadError}

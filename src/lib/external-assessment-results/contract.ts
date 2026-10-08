@@ -17,7 +17,9 @@ export const externalAssessmentInstruments = {
 } as const;
 
 export type ExternalAssessmentInstrument = keyof typeof externalAssessmentInstruments;
-export const externalInstrumentByQuestionnaireForm: Record<QuestionnaireFormKey, ExternalAssessmentInstrument> = {
+// Candidate-only forms have no approved paper-result mapping. Do not turn a
+// newly added draft form into an external clinical result by default.
+export const externalInstrumentByQuestionnaireForm: Partial<Record<QuestionnaireFormKey, ExternalAssessmentInstrument>> = {
   spmsq: "spmsq",
   gds_15: "gds",
   fall_risk_taipei_115: "fall_risk",

@@ -124,7 +124,14 @@ describe("AD8 candidate answer draft API", () => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(candidateActor);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
-    stubs.rpc.mockResolvedValue({ data: { recordState: "draft", replayed: false }, error: null });
+    stubs.rpc.mockResolvedValue({ data: {
+      action: "create", clientId, formKey: "ad8",
+      assessmentKey: "12500000-0000-4000-8000-000000000091",
+      versionId: "12600000-0000-4000-8000-000000000091",
+      version: 1, recordState: "draft", assessedOn: "2026-10-08",
+      contentHash: "a".repeat(64), committedAt: "2026-10-08T01:00:00Z",
+      replayed: false,
+    }, error: null });
   });
 
   it("keeps unknown, missing, tenant and retry key separate in one candidate-only draft", async () => {
@@ -143,7 +150,14 @@ describe("AD8 candidate answer draft API", () => {
         }),
       }),
     });
-    stubs.rpc.mockResolvedValue({ data: { recordState: "draft", replayed: true }, error: null });
+    stubs.rpc.mockResolvedValue({ data: {
+      action: "create", clientId, formKey: "ad8",
+      assessmentKey: "12500000-0000-4000-8000-000000000091",
+      versionId: "12600000-0000-4000-8000-000000000091",
+      version: 1, recordState: "draft", assessedOn: "2026-10-08",
+      contentHash: "a".repeat(64), committedAt: "2026-10-08T01:00:00Z",
+      replayed: true,
+    }, error: null });
     expect((await (await POST(requestAd8())).json()).data.replayed).toBe(true);
     expect(stubs.rpc).toHaveBeenCalledTimes(2);
     expect(stubs.rpc.mock.calls[0][1]).toEqual(stubs.rpc.mock.calls[1][1]);

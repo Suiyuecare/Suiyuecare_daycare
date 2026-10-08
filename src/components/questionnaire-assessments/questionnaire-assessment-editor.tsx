@@ -660,6 +660,7 @@ export function QuestionnaireAssessmentsWorkspace({
   const chosenClient = selectedClientId
     ? snapshot.clients.find((client) => client.clientId === selectedClientId) ?? null
     : null;
+  const externalInstrument = externalInstrumentByQuestionnaireForm[form.key];
   const formRef = form.key === "mna_sf"
     ? "/app/staff/professional-care/mna"
     : `/app/staff/assessments/${{
@@ -743,8 +744,8 @@ export function QuestionnaireAssessmentsWorkspace({
       </label>
       <button className="button button--secondary" ref={selectionButton} type="submit">{chosenClient ? "更換個案" : "開始填寫"}</button>
     </form>
-    {chosenClient && canReadExternalResults ? <a className="button button--secondary"
-      href={`/app/staff/assessments/external-results?client=${encodeURIComponent(chosenClient.clientId)}&externalInstrument=${externalInstrumentByQuestionnaireForm[form.key]}#external-result-entry`}>
+    {chosenClient && canReadExternalResults && externalInstrument ? <a className="button button--secondary"
+      href={`/app/staff/assessments/external-results?client=${encodeURIComponent(chosenClient.clientId)}&externalInstrument=${externalInstrument}#external-result-entry`}>
       有紙本結果？登錄
     </a> : null}
     {leaveError ? <p className={styles.fieldError} role="alert">{leaveError}</p> : null}
