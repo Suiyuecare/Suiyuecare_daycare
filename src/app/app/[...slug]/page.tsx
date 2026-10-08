@@ -821,7 +821,7 @@ export default async function StaffCatalogPage({
       return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`}
         kind="unavailable" error={error} />;
     }
-    return <InsulinAdministrationsWorkspace filters={filters} loadError={false}
+    return <InsulinAdministrationsWorkspace actorId={context.userId} filters={filters} loadError={false}
       page={page} snapshot={snapshot} />;
   }
 

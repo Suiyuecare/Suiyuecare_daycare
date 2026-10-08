@@ -19,6 +19,7 @@ import type {
 import {
   InsulinAdministrationActions,
   InsulinMutationProvider,
+  InsulinPendingRecovery,
 } from "./insulin-administration-actions";
 import styles from "./insulin-administrations.module.css";
 
@@ -94,7 +95,8 @@ function MobileCard({ item, snapshot }: {
   </article>;
 }
 
-export function InsulinAdministrationsWorkspace({ filters, loadError, page, snapshot }: {
+export function InsulinAdministrationsWorkspace({ actorId, filters, loadError, page, snapshot }: {
+  actorId: string;
   filters: InsulinFilters;
   loadError: boolean;
   page: PageCatalogEntry;
@@ -153,10 +155,12 @@ export function InsulinAdministrationsWorkspace({ filters, loadError, page, snap
     {snapshot.itemsTruncated ? <p className={styles.warning} role="status">
       明細只顯示前 200 筆；統計仍由完整結果集合計算。
     </p> : null}
+    <InsulinMutationProvider actorId={actorId} snapshot={snapshot}>
+    <InsulinPendingRecovery snapshot={snapshot} />
     {snapshot.items.length === 0 ? <section className="empty-card">
       <span className="empty-card__icon"><Syringe aria-hidden="true" /></span>
       <h2>沒有可顯示的治理時點</h2><p>可能沒有符合篩選的時點，或正式治理／計畫指定尚未配置。</p>
-    </section> : <InsulinMutationProvider>
+    </section> : <>
       <div className={styles.tableWrap}><table><caption>胰島素施打不可變快照</caption>
         <thead><tr><th>個案／排程</th><th>Page 8 計畫證據</th><th>狀態</th>
           <th>執行／覆核證據</th><th>操作</th><th>歷程</th></tr></thead>
@@ -174,6 +178,7 @@ export function InsulinAdministrationsWorkspace({ filters, loadError, page, snap
         </tr>)}</tbody></table></div>
       <div className={styles.cards}>{snapshot.items.map((item) => <MobileCard
         key={item.medicationPlanId} item={item} snapshot={snapshot} />)}</div>
-    </InsulinMutationProvider>}
+    </>}
+    </InsulinMutationProvider>
   </div>;
 }

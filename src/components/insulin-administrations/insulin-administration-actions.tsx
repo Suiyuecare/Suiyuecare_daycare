@@ -1,12 +1,14 @@
 "use client";
 
 import {
-  createContext, useContext, useEffect, useId, useRef, useState, useSyncExternalStore,
+  createContext, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore,
   type FormEvent, type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 
+import { useCoreDraftGuard } from "@/components/app/core-draft-guard";
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
+import { hasPendingOperations, tryAcquirePendingOperation, usePendingOperations } from "@/lib/navigation/pending-operation-lock";
 import { INSULIN_INJECTION_SITES } from "@/lib/insulin-administrations/site-catalog";
 import {
   parseInsulinApiError,
@@ -44,7 +46,11 @@ type MutationView = {
 };
 
 type MutationStore = {
+  scope: string;
+  slot: string;
+  scheduledFor: string;
   attempt: Attempt | null;
+  release: (() => void) | null;
   inFlight: boolean;
   confirmed: boolean;
   view: MutationView;
@@ -53,24 +59,82 @@ type MutationStore = {
   update: (changes: Partial<MutationView>) => void;
 };
 
-// The desktop row and mobile card are both mounted for one slot. A page-scoped
-// provider shares their attempt without retaining clinical data after unmount.
-const MutationStoresContext = createContext<Map<string, MutationStore> | null>(null);
+type MutationContext = {
+  stores: Map<string, MutationStore>;
+  scope: string;
+  syncGuard: () => void;
+};
 
-export function InsulinMutationProvider({ children }: { children: ReactNode }) {
-  const [stores] = useState(() => new Map<string, MutationStore>());
-  return <MutationStoresContext.Provider value={stores}>{children}</MutationStoresContext.Provider>;
+// Only unresolved attempts retain their frozen request in tab memory. A Next
+// route or GET filter may unmount the page; neither can create a new key for
+// that slot when it returns. No clinical request is stored on disk.
+const mutationStores = new Map<string, MutationStore>();
+const registryListeners = new Set<() => void>();
+let registryRevision = 0;
+function publishRegistry() {
+  registryRevision += 1;
+  for (const listener of registryListeners) listener();
+}
+function subscribeRegistry(listener: () => void) {
+  registryListeners.add(listener);
+  return () => { registryListeners.delete(listener); };
+}
+const registrySnapshot = () => registryRevision;
+const registryServerSnapshot = () => 0;
+const MutationStoresContext = createContext<MutationContext | null>(null);
+
+export function resetInsulinMutationStateForTests() {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY");
+  for (const store of mutationStores.values()) store.release?.();
+  mutationStores.clear();
+  publishRegistry();
 }
 
-function mutationStore(stores: Map<string, MutationStore>, snapshot: InsulinAdministrationSnapshot,
-  item: InsulinAdministrationItem) {
-  const slot = `${snapshot.organizationId}:${snapshot.branchId}:${item.medicationPlanId}` +
-    `:${item.scheduledFor}:${item.state}`;
-  let store = stores.get(slot);
+export function InsulinMutationProvider({ actorId, snapshot, children }: {
+  actorId: string;
+  snapshot: InsulinAdministrationSnapshot;
+  children: ReactNode;
+}) {
+  const guard = useCoreDraftGuard();
+  const scope = `${actorId}:${snapshot.organizationId}:${snapshot.branchId}`;
+  const context: MutationContext = useMemo(() => ({
+    stores: mutationStores,
+    scope,
+    syncGuard: () => {
+      const active = [...mutationStores.values()].filter((store) =>
+        store.scope === scope && store.attempt !== null);
+      if (active.length === 0) { guard.saved(); return; }
+      if (active.some((store) => store.inFlight)) guard.begin();
+      if (active.some((store) => store.view.uncertain)) guard.hold();
+      if (!active.some((store) => store.inFlight)) guard.finish();
+    },
+  }), [guard, scope]);
+  useEffect(() => {
+    context.syncGuard();
+    return () => {
+      // Keep unresolved attempts for SPA re-entry. Resolved keys and their
+      // clinical slot identifiers need no tab-lifetime cache.
+      for (const [key, store] of mutationStores) {
+        if (store.scope === scope && store.attempt === null) mutationStores.delete(key);
+      }
+    };
+  }, [context, scope]);
+  return <MutationStoresContext.Provider value={context}>{children}</MutationStoresContext.Provider>;
+}
+
+function mutationStore(context: MutationContext, item: InsulinAdministrationItem) {
+  const slot = `${context.scope}:${item.medicationPlanId}:${item.scheduledFor}`;
+  const key = `${slot}:${item.state}`;
+  let store = [...context.stores.values()].find((candidate) =>
+    candidate.slot === slot && candidate.attempt !== null) ?? context.stores.get(key);
   if (!store) {
     const listeners = new Set<() => void>();
     store = {
+      scope: context.scope,
+      slot,
+      scheduledFor: item.scheduledFor,
       attempt: null,
+      release: null,
       inFlight: false,
       confirmed: false,
       view: { pending: false, uncertain: false, stale: false, message: null, success: false },
@@ -82,11 +146,33 @@ function mutationStore(stores: Map<string, MutationStore>, snapshot: InsulinAdmi
       update: (changes) => {
         store!.view = { ...store!.view, ...changes };
         listeners.forEach((listener) => listener());
+        publishRegistry();
       },
     };
-    stores.set(slot, store);
+    context.stores.set(key, store);
   }
   return store;
+}
+
+function releaseKnownAttempt(store: MutationStore) {
+  store.attempt = null;
+  store.release?.();
+  store.release = null;
+  publishRegistry();
+}
+
+function markInFlight(store: MutationStore, inFlight: boolean) {
+  store.inFlight = inFlight;
+}
+
+function registerAttempt(store: MutationStore, attempt: Attempt, release: () => void) {
+  store.release = release;
+  store.attempt = attempt;
+  publishRegistry();
+}
+
+function markConfirmed(store: MutationStore) {
+  store.confirmed = true;
 }
 
 function attachIdempotencyKey(draft: Draft, idempotencyKey: string): InsulinMutationInput {
@@ -102,11 +188,10 @@ function attachIdempotencyKey(draft: Draft, idempotencyKey: string): InsulinMuta
   return { ...draft, idempotencyKey };
 }
 
-function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: InsulinAdministrationItem) {
+function useInsulinMutationForStore(snapshot: InsulinAdministrationSnapshot, store: MutationStore) {
   const router = useRouter();
-  const stores = useContext(MutationStoresContext);
-  if (!stores) throw new Error("Insulin actions require a shared mutation provider");
-  const store = mutationStore(stores, snapshot, item);
+  const context = useContext(MutationStoresContext);
+  if (!context) throw new Error("Insulin actions require a shared mutation provider");
   const view = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [online, setOnline] = useState(true);
   useEffect(() => {
@@ -119,20 +204,15 @@ function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: Insul
       window.removeEventListener("offline", update);
     };
   }, []);
-  useEffect(() => {
-    if (!view.pending && !view.uncertain) return;
-    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeLeaving);
-    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
-  }, [view.pending, view.uncertain]);
-
-  const sendAttempt = async (attempt: Attempt) => {
+  const releaseKnown = () => {
+    releaseKnownAttempt(store);
+    context.syncGuard();
+  };
+  const sendAttempt = async (attempt: Attempt, recovery: boolean) => {
     if (store.inFlight || store.confirmed) return;
-    store.inFlight = true;
+    markInFlight(store, true);
     store.update({ pending: true, success: false, message: null });
+    context.syncGuard();
     let successfulResponse = false;
     try {
       const response = await fetchWithTimeout("/api/insulin-administrations", {
@@ -141,6 +221,7 @@ function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: Insul
           "content-type": "application/json",
           "idempotency-key": attempt.key,
           "x-insulin-operation": attempt.input.action,
+          ...(recovery ? { "x-insulin-recovery": "exact" } : {}),
         },
         body: attempt.body,
       });
@@ -151,21 +232,21 @@ function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: Insul
         // The operation lookup precedes the version and slot checks in the
         // database transaction. A correlated replay would have returned a
         // success receipt; these conflicts mean this attempt did not write.
-        if (response.status === 409 && [
+        if (!recovery && response.status === 409 && [
           "INSULIN_VERSION_CONFLICT", "INSULIN_IDEMPOTENCY_OR_SLOT_CONFLICT",
           "INSULIN_PLAN_OR_RULE_CONFLICT",
         ].includes(error?.code ?? "")) {
-          store.attempt = null;
+          releaseKnown();
           store.update({ uncertain: false, stale: true,
             message: "正式紀錄或用藥計畫已變更，本次未寫入。請重新載入並核對後再操作。" });
           return;
         }
         // A strict 400 validation error is known to precede the database mutation.
         // Other errors can be returned after an unknown write result, so keep the exact attempt.
-        if (!store.view.uncertain && response.status === 400 &&
+        if (!recovery && !store.view.uncertain && response.status === 400 &&
             ["INVALID_INSULIN_ADMINISTRATION", "INVALID_INSULIN_OPERATION"]
               .includes(error?.code ?? "")) {
-          store.attempt = null;
+          releaseKnown();
           store.update({ message: error?.message ?? "內容未通過驗證，請修正後再送出。" });
           return;
         }
@@ -176,12 +257,13 @@ function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: Insul
       parseInsulinApiSuccess(
         raw, attempt.input, snapshot.organizationId, snapshot.branchId, response.status,
       );
-      store.attempt = null;
-      store.confirmed = true;
+      releaseKnown();
+      markConfirmed(store);
       store.update({ uncertain: false, success: true,
         message: "已新增不可變事件，正在重新取得伺服器快照。" });
       try {
-        router.refresh();
+        if (!hasPendingOperations()) router.refresh();
+        else store.update({ message: "已取得正式紀錄；另有操作待核對，完成後再更新畫面。" });
       } catch {
         // A display refresh failure cannot revoke an already verified receipt.
         store.update({ message: "已取得正式紀錄，但畫面更新失敗；請稍後重新載入。" });
@@ -193,30 +275,80 @@ function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: Insul
           ? "連線逾時，結果未知；請以同一操作重試，勿改動內容。"
           : "連線或回覆中斷，結果未知；請以同一操作重試，勿改動內容。" });
     } finally {
-      store.inFlight = false;
+      markInFlight(store, false);
       store.update({ pending: false });
+      context.syncGuard();
     }
   };
   const submit = (draft: Draft) => {
-    if (store.inFlight || store.view.uncertain || store.view.stale || store.confirmed ||
+    if (store.inFlight || store.attempt || store.view.uncertain || store.view.stale || store.confirmed ||
         !navigator.onLine) return;
-    const key = crypto.randomUUID();
-    const attempt = {
-      key,
-      body: JSON.stringify(draft),
-      input: attachIdempotencyKey(draft, key),
-    };
-    store.attempt = attempt;
-    void sendAttempt(attempt);
+    const release = tryAcquirePendingOperation();
+    if (!release) {
+      store.update({ message: "畫面正在切換或更新，尚未建立本次操作。請稍候再試。" });
+      return;
+    }
+    let attempt: Attempt;
+    try {
+      const key = crypto.randomUUID();
+      attempt = { key, body: JSON.stringify(draft), input: attachIdempotencyKey(draft, key) };
+    } catch {
+      release();
+      store.update({ message: "無法建立本次操作，尚未送出。請重新核對內容。" });
+      return;
+    }
+    registerAttempt(store, attempt, release);
+    context.syncGuard();
+    void sendAttempt(attempt, false);
   };
   const retry = () => {
-    if (!store.view.uncertain || !store.attempt || !navigator.onLine) return;
-    void sendAttempt(store.attempt);
+    if (!store.view.uncertain || !store.attempt || store.inFlight || !navigator.onLine) return;
+    void sendAttempt(store.attempt, true);
   };
   return { online, ...view, submit, retry };
 }
 
+function useInsulinMutation(snapshot: InsulinAdministrationSnapshot, item: InsulinAdministrationItem) {
+  const context = useContext(MutationStoresContext);
+  if (!context) throw new Error("Insulin actions require a shared mutation provider");
+  const store = mutationStore(context, item);
+  return useInsulinMutationForStore(snapshot, store);
+}
+
+function HiddenSlotRecovery({ snapshot, store }: {
+  snapshot: InsulinAdministrationSnapshot;
+  store: MutationStore;
+}) {
+  const state = useInsulinMutationForStore(snapshot, store);
+  return <li><strong>{new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit",
+    minute: "2-digit", hourCycle: "h23",
+  }).format(new Date(store.scheduledFor))}</strong>
+    <span> 此時點的原操作仍待核對；目前篩選未顯示該筆時點。</span>
+    <Result state={state} />
+  </li>;
+}
+
+export function InsulinPendingRecovery({ snapshot }: { snapshot: InsulinAdministrationSnapshot }) {
+  const context = useContext(MutationStoresContext);
+  if (!context) throw new Error("Insulin recovery requires a shared mutation provider");
+  useSyncExternalStore(subscribeRegistry, registrySnapshot, registryServerSnapshot);
+  const visible = new Set(snapshot.items.filter((item) => !snapshot.demo &&
+    (item.state === "pending_review" ? Boolean(snapshot.canReview && item.administrationKey && item.eventId)
+      : item.state === "completed" ? false
+        : item.state === "scheduled" && item.isLate ? snapshot.canAuthorizeLate : snapshot.canExecute),
+  ).map((item) => `${context.scope}:${item.medicationPlanId}:${item.scheduledFor}`));
+  const hidden = [...context.stores.values()].filter((store) => store.scope === context.scope &&
+    store.attempt !== null && !visible.has(store.slot));
+  return hidden.length ? <section className={styles.warning} aria-label="未顯示時點的待核對操作">
+    <p>篩選或導頁後仍保留 {hidden.length} 筆原操作。請先核對回執；查無回執不代表未寫入。</p>
+    <ol>{hidden.map((store) => <HiddenSlotRecovery key={store.slot} snapshot={snapshot}
+      store={store} />)}</ol>
+  </section> : null;
+}
+
 function Result({ state }: { state: ReturnType<typeof useInsulinMutation> }) {
+  const otherOperationPending = usePendingOperations();
   return <>
     {!state.online ? <p className={styles.warning} role="status">
       目前離線；本頁不保存草稿，重新連線前不會送出。
@@ -228,6 +360,7 @@ function Result({ state }: { state: ReturnType<typeof useInsulinMutation> }) {
       {state.pending ? "核對中…" : "同一操作重試"}
     </button> : null}
     {state.stale ? <button className="button button--secondary" type="button"
+      disabled={otherOperationPending}
       onClick={() => window.location.reload()}>重新載入正式紀錄</button> : null}
   </>;
 }
@@ -277,7 +410,7 @@ export function InsulinAdministrationActions({ item, snapshot }: {
         scheduledFor: item.scheduledFor, lateReason,
       });
     };
-    return <form className={styles.actionBox} noValidate onSubmit={authorize}>
+    return <form className={styles.actionBox} method="post" noValidate onSubmit={authorize}>
       <label><span>補登授權理由</span><textarea name="lateReason" minLength={2}
         maxLength={1000} required disabled={state.uncertain || state.stale || state.success || state.pending}
         aria-describedby={lateReasonError ? lateReasonErrorId : undefined}
@@ -316,7 +449,7 @@ export function InsulinAdministrationActions({ item, snapshot }: {
   };
   return <details className={styles.actionBox}>
     <summary>{item.state === "late_authorized" ? "依授權補登施打" : "記錄施打"}</summary>
-    <form onSubmit={execute}>
+    <form method="post" noValidate onSubmit={execute}>
       <p>計畫劑量：<strong>{item.orderedDoseText} {item.doseUnit}</strong>（不可由本頁改寫）</p>
       <label><span>施打部位</span><select name="siteCode" defaultValue="ABDOMEN_LEFT"
         disabled={state.uncertain || state.stale || state.success || state.pending}>

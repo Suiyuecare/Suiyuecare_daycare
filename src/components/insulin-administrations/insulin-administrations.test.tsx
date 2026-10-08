@@ -3,16 +3,20 @@
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { staffPages } from "@/lib/catalog";
 import { buildDemoInsulinAdministrationSnapshot } from "@/lib/insulin-administrations/demo";
+import { hasPendingOperations, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
 import type { InsulinFilters } from "@/lib/insulin-administrations/types";
 
 import {
   InsulinAdministrationActions,
   InsulinMutationProvider,
+  InsulinPendingRecovery,
+  resetInsulinMutationStateForTests,
 } from "./insulin-administration-actions";
 import { InsulinAdministrationsWorkspace } from "./insulin-administrations-workspace";
 
@@ -23,15 +27,18 @@ const filters: InsulinFilters = {
 };
 const snapshot = buildDemoInsulinAdministrationSnapshot(filters);
 const page = staffPages.find((entry) => entry.number === 5)!;
+let nextActor = 0;
 const renderActions = (children: ReactNode) => render(
-  <InsulinMutationProvider>{children}</InsulinMutationProvider>,
+  <InsulinMutationProvider actorId={`synthetic-actor-${++nextActor}`} snapshot={snapshot}>
+    {children}
+  </InsulinMutationProvider>,
 );
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); resetInsulinMutationStateForTests(); vi.unstubAllGlobals(); });
 
 describe("Page 5 insulin workspace and actions", () => {
   it("renders identical plan-slot identities in desktop rows and mobile cards", () => {
-    const { container } = render(<InsulinAdministrationsWorkspace
+    const { container } = render(<InsulinAdministrationsWorkspace actorId="workspace-test-actor"
       filters={filters} loadError={false} page={page} snapshot={snapshot} />);
     const rows = new Set([...container.querySelectorAll("[data-insulin-row]")]
       .map((node) => node.getAttribute("data-insulin-row")));
@@ -54,14 +61,14 @@ describe("Page 5 insulin workspace and actions", () => {
   });
 
   it("fails closed without a complete server snapshot", () => {
-    render(<InsulinAdministrationsWorkspace filters={filters} loadError page={page}
+    render(<InsulinAdministrationsWorkspace actorId="workspace-test-actor" filters={filters} loadError page={page}
       snapshot={null} />);
     expect(screen.getByRole("heading", { name: "無法取得胰島素施打快照" }))
       .toBeInTheDocument();
   });
 
   it("labels a restricted Google read-only plan without claiming no plan exists", () => {
-    render(<InsulinAdministrationsWorkspace filters={filters} loadError={false} page={page}
+    render(<InsulinAdministrationsWorkspace actorId="workspace-test-actor" filters={filters} loadError={false} page={page}
       snapshot={{ ...snapshot, demo: false, planDesignationStatus: "restricted" }} />);
     expect(screen.getByText("僅供查看；施打與覆核未授權")).toBeInTheDocument();
     expect(screen.getByText(/胰島素計畫指定 依個案授權顯示/u)).toBeInTheDocument();
@@ -69,7 +76,7 @@ describe("Page 5 insulin workspace and actions", () => {
   });
 
   it("shows exact Page-8 evidence and immutable history", () => {
-    render(<InsulinAdministrationsWorkspace filters={filters} loadError={false}
+    render(<InsulinAdministrationsWorkspace actorId="workspace-test-actor" filters={filters} loadError={false}
       page={page} snapshot={snapshot} />);
     expect(screen.queryAllByText(/計畫劑量：/u)).toHaveLength(0);
     expect(screen.getAllByText(/合成長效胰島素 B/u).length).toBeGreaterThan(0);
@@ -98,6 +105,91 @@ describe("Page 5 insulin workspace and actions", () => {
       .toBe((first.headers as Record<string, string>)["idempotency-key"]);
     expect((second.headers as Record<string, string>)["x-insulin-operation"])
       .toBe("review");
+    expect((second.headers as Record<string, string>)["x-insulin-recovery"])
+      .toBe("exact");
+  });
+
+  it("recovers the same frozen operation after route and GET-filter remounts", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("connection lost"));
+    vi.stubGlobal("fetch", fetchMock);
+    const live = { ...snapshot, demo: false, canReview: true };
+    const actorId = `synthetic-navigation-${++nextActor}`;
+    const item = snapshot.items[1]!;
+    const firstPage = render(<InsulinMutationProvider actorId={actorId} snapshot={live}>
+      <Link href="/app/other">側欄目的地</Link>
+      <form method="get"><button type="submit">套用篩選</button></form>
+      <InsulinAdministrationActions item={item} snapshot={live} />
+    </InsulinMutationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    await screen.findByText(/結果未知/u);
+    expect(hasPendingOperations()).toBe(true);
+    expect(fireEvent.click(screen.getByRole("link", { name: "側欄目的地" }))).toBe(false);
+    expect(fireEvent.submit(screen.getByRole("button", { name: "套用篩選" }).closest("form")!))
+      .toBe(false);
+    firstPage.unmount();
+    window.history.pushState({}, "", "/app/staff/daily-care/insulin?state=completed");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    render(<InsulinMutationProvider actorId={actorId} snapshot={{ ...live, items: [] }}>
+      <InsulinPendingRecovery snapshot={{ ...live, items: [] }} />
+    </InsulinMutationProvider>);
+    expect(screen.getByText(/篩選或導頁後仍保留 1 筆原操作/u)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "同一操作重試" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const first = fetchMock.mock.calls[0]![1] as RequestInit;
+    const second = fetchMock.mock.calls[1]![1] as RequestInit;
+    expect(second.body).toBe(first.body);
+    expect((second.headers as Record<string, string>)["idempotency-key"])
+      .toBe((first.headers as Record<string, string>)["idempotency-key"]);
+  });
+
+  it("does not release an unknown operation on later 409 or changed permission", async () => {
+    const failure = (status: number, code: string) => ({ ok: false, status,
+      json: async () => ({ requestId: "05a00000-0000-4000-8000-000000000201",
+        status: "error", data: null, errors: [{ code, message: "目前無法核對。" }] }) });
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce(failure(409, "INSULIN_VERSION_CONFLICT"))
+      .mockResolvedValueOnce(failure(403, "INSULIN_NOT_AUTHORIZED"));
+    vi.stubGlobal("fetch", fetchMock);
+    renderActions(<InsulinAdministrationActions item={snapshot.items[1]!}
+      snapshot={{ ...snapshot, demo: false, canReview: true }} />);
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    await screen.findByText(/結果未知/u);
+    for (const count of [2, 3]) {
+      fireEvent.click(screen.getByRole("button", { name: "同一操作重試" }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(count));
+      await screen.findByRole("button", { name: "同一操作重試" });
+      expect(hasPendingOperations()).toBe(true);
+    }
+    const keys = fetchMock.mock.calls.map((call) =>
+      ((call[1] as RequestInit).headers as Record<string, string>)["idempotency-key"]);
+    expect(new Set(keys).size).toBe(1);
+    expect(tryAcquireViewTransition()).toBeNull();
+  });
+
+  it("keeps two different timepoints on independent pending leases", async () => {
+    let finishFirst: (response: unknown) => void = () => { throw new Error("first request not started"); };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockRejectedValueOnce(new Error("timeout"));
+    vi.stubGlobal("fetch", fetchMock);
+    const live = { ...snapshot, demo: false, canExecute: true, canReview: true };
+    renderActions(<><InsulinAdministrationActions item={snapshot.items[0]!} snapshot={live} />
+      <InsulinAdministrationActions item={snapshot.items[1]!} snapshot={live} /></>);
+    fireEvent.click(screen.getByText("記錄施打"));
+    fireEvent.click(screen.getByRole("button", { name: "簽署施打並送覆核" }));
+    fireEvent.click(screen.getByRole("button", { name: "獨立覆核" }));
+    await screen.findByText(/結果未知/u);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    finishFirst({ ok: false, status: 400, json: async () => ({
+      requestId: "05a00000-0000-4000-8000-000000000201", status: "error", data: null,
+      errors: [{ code: "INVALID_INSULIN_ADMINISTRATION", message: "施打內容未通過驗證。" }],
+    }) });
+    await screen.findByText("施打內容未通過驗證。");
+    expect(hasPendingOperations()).toBe(true);
+    expect(tryAcquireViewTransition()).toBeNull();
+    const keys = fetchMock.mock.calls.map((call) =>
+      ((call[1] as RequestInit).headers as Record<string, string>)["idempotency-key"]);
+    expect(new Set(keys).size).toBe(2);
   });
 
   it("shares an uncertain slot across simultaneously mounted desktop and mobile actions", async () => {
@@ -177,10 +269,13 @@ describe("Page 5 insulin workspace and actions", () => {
     fireEvent.change(reason, { target: { value: "合成理由一，待主管核對" } });
     fireEvent.click(screen.getByRole("button", { name: "主管授權補登" }));
     await screen.findByText("理由未通過驗證。");
+    await waitFor(() => expect(screen.getByRole("button", { name: "主管授權補登" })).toBeEnabled());
+    expect(hasPendingOperations()).toBe(false);
     expect(reason).toBeEnabled();
     expect(screen.queryByRole("button", { name: "同一操作重試" })).not.toBeInTheDocument();
     fireEvent.change(reason, { target: { value: "合成理由二，已完成主管核對" } });
     fireEvent.click(screen.getByRole("button", { name: "主管授權補登" }));
+    expect(screen.queryByText(/畫面正在切換或更新/u)).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const first = fetchMock.mock.calls[0]![1] as RequestInit;
     const second = fetchMock.mock.calls[1]![1] as RequestInit;

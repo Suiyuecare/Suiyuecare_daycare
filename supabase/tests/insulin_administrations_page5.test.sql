@@ -1,6 +1,6 @@
 begin;
 
-select plan(46);
+select plan(55);
 
 select results_eq(
   $$select permission_key collate "C" from public.permissions where permission_key like 'insulin_administrations.%' order by permission_key collate "C"$$,
@@ -542,6 +542,96 @@ select throws_ok($$select * from public.mutate_insulin_administration(
   '55000','insulin qualification, dose, and late-entry governance is not configured',
   'all writes fail closed when no single published governance version exists');
 reset role;
+
+-- Recovery uses the same actor/key ledger but never appends an event. It must
+-- survive a governance change while retaining current action/client/AAL gates.
+create temporary table page5_receipt_baseline as select
+  operation.id operation_id, operation.event_id, operation.content_hash,
+  (select count(*) from public.insulin_administration_events) event_count,
+  (select count(*) from private.insulin_administration_operations) operation_count
+from private.insulin_administration_operations operation
+where operation.actor_user_id = '05000000-0000-4000-8000-000000000102'
+  and operation.idempotency_key = '05a00000-0000-4000-8000-000000000103';
+grant select on page5_receipt_baseline to authenticated;
+
+select ok(
+  has_function_privilege('authenticated','public.insulin_administration_receipt(uuid,uuid,text,uuid,uuid,integer,uuid,timestamptz,text,text,text,text,text,uuid)','execute')
+  and not has_function_privilege('anon','public.insulin_administration_receipt(uuid,uuid,text,uuid,uuid,integer,uuid,timestamptz,text,text,text,text,text,uuid)','execute')
+  and not has_function_privilege('service_role','public.insulin_administration_receipt(uuid,uuid,text,uuid,uuid,integer,uuid,timestamptz,text,text,text,text,text,uuid)','execute')
+  and not (select prosecdef from pg_proc where oid='public.insulin_administration_receipt(uuid,uuid,text,uuid,uuid,integer,uuid,timestamptz,text,text,text,text,text,uuid)'::regprocedure),
+  'only authenticated callers can reach the invoker receipt wrapper'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000102"}',true);
+select ok((select receipt.replayed and receipt.operation_id = baseline.operation_id
+  and receipt.event_id = baseline.event_id and receipt.content_hash = baseline.content_hash
+  from public.insulin_administration_receipt(
+    '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+    'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+    (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+    '05a00000-0000-4000-8000-000000000103'
+  ) receipt cross join page5_receipt_baseline baseline),
+  'exact old receipt is readable after governance overlap without a new append');
+select throws_ok($$select * from public.insulin_administration_receipt(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','RIGHT_ARM','右上臂',null,
+  '05a00000-0000-4000-8000-000000000103')$$,
+  '23505','insulin idempotency conflict','same actor/key with changed evidence is rejected');
+select throws_ok($$select * from public.insulin_administration_receipt(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000102',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000103')$$,
+  '42501','insulin receipt authority is not permitted','wrong current branch cannot inspect a receipt');
+select is((select count(*)::integer from public.insulin_administration_receipt(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000199')),0,
+  'missing key is unresolved and yields no receipt');
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000103","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000103"}',true);
+select is((select count(*)::integer from public.insulin_administration_receipt(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000103')),0,
+  'another actor cannot see the original actor-key receipt');
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000199"}',true);
+select throws_ok($$select * from public.insulin_administration_receipt(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000103')$$,
+  '42501','current same-session insulin AAL2 evidence is required',
+  'receipt lookup still requires recent same-session AAL2');
+reset role;
+
+update public.client_assignments
+set assignee_user_id = '05000000-0000-4000-8000-000000000101'
+where id = '05500000-0000-4000-8000-000000000101';
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000102"}',true);
+select throws_ok($$select * from public.insulin_administration_receipt(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000103')$$,
+  '42501','insulin client scope is not permitted',
+  'revoked client assignment blocks even an exact receipt lookup');
+reset role;
+
+select ok((select event_count = (select count(*) from public.insulin_administration_events)
+  and operation_count = (select count(*) from private.insulin_administration_operations)
+  from page5_receipt_baseline),
+  'receipt checks do not add events or operations');
 
 select * from finish();
 rollback;
