@@ -25,6 +25,7 @@ import {
 } from "@/lib/assessments/question-content";
 
 import type { QuestionnaireFormDefinition, QuestionnaireFormKey } from "./types";
+import { AD8_CANDIDATE_QUESTIONS } from "@/lib/assessments/ad8-candidate-content";
 
 const numericChoices = (questions: readonly string[]) => questions.map((prompt, index) => ({
   id: `eat10_${String(index + 1).padStart(2, "0")}`,
@@ -40,6 +41,17 @@ const bsrsChoices = (questions: readonly string[]) => questions.map((prompt, ind
 }));
 
 export const QUESTIONNAIRE_FORMS: Readonly<Record<QuestionnaireFormKey, QuestionnaireFormDefinition>> = {
+  ad8: {
+    key: "ad8",
+    version: "ad8-taitung-1100430-candidate-v1",
+    title: "AD8 認知變化篩檢（候選草稿）",
+    instructions: "請由熟悉個案過去狀況的人，對照約半年前與現在的認知變化作答；因重大傷病或事故造成的改變不算。『不知道』是已回答但不確定，與尚未回答不同。",
+    sourceLabel: "臺東縣衛生局：AD8 極早期失智症篩檢量表（110.04.30 修訂）",
+    sourceUrl: "https://ttshbltc.ttshb.gov.tw/ttshb/other/%E8%87%BA%E6%9D%B1%E7%B8%A3AD8%E6%A5%B5%E6%97%A9%E6%9C%9F%E5%A4%B1%E6%99%BA%E7%97%87%E7%AF%A9%E6%AA%A2%E9%87%8F%E8%A1%A8.pdf",
+    candidateNotice: "候選題本・只保存草稿。尚未完成正式題本／規則核准；不計分、不分級、不簽署，也不自動建立轉介或照顧決策。",
+    allowQualitativeNotes: true,
+    questions: AD8_CANDIDATE_QUESTIONS,
+  },
   spmsq: {
     key: "spmsq",
     version: "spmsq-pfeiffer-10-education-adjusted-v1",

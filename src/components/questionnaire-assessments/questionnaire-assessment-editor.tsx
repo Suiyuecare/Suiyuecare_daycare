@@ -663,6 +663,7 @@ export function QuestionnaireAssessmentsWorkspace({
   const formRef = form.key === "mna_sf"
     ? "/app/staff/professional-care/mna"
     : `/app/staff/assessments/${{
+    ad8: "ad8",
     spmsq: "spmsq",
     gds_15: "gds",
     barthel_adl: "barthel-adl",
@@ -724,6 +725,8 @@ export function QuestionnaireAssessmentsWorkspace({
         {!chosenClient ? <p className="page-heading__description">選個案、填寫、保存草稿。</p> : null}
       </div>
     </header>
+
+    {form.candidateNotice ? <div className="callout" role="status">{form.candidateNotice}</div> : null}
 
     {snapshot.demo ? <div className="callout" role="status">
       展示用合成個案；不能寫入真實評估資料。

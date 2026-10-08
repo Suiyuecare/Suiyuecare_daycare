@@ -13,6 +13,7 @@ describe("questionnaire form registry", () => {
     ["fall_risk_taipei_115", 12],
     ["nsi_determine", 10],
     ["mna_sf", 6],
+    ["ad8", 8],
   ] as const)("contains the configured question count for %s", (formKey, expectedCount) => {
     expect(QUESTIONNAIRE_FORMS[formKey].questions).toHaveLength(expectedCount);
   });
@@ -45,5 +46,15 @@ describe("questionnaire form registry", () => {
       medications: 3,
       finances: 3,
     });
+  });
+
+  it("keeps AD8's uncertain answer distinct from a missing answer and has no activated scoring rule", () => {
+    const form = QUESTIONNAIRE_FORMS.ad8;
+    expect(form.scoreVersionId).toBeUndefined();
+    expect(form.candidateNotice).toContain("尚未完成正式題本／規則核准");
+    expect(form.questions.map((question) => question.id))
+      .toEqual(["ad8_01", "ad8_02", "ad8_03", "ad8_04", "ad8_05", "ad8_06", "ad8_07", "ad8_08"]);
+    expect(form.questions.every((question) => question.choices.map(({ value }) => value).join(",") === "changed,unchanged,unknown"))
+      .toBe(true);
   });
 });

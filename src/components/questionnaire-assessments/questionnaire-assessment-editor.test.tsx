@@ -83,7 +83,8 @@ describe("shared questionnaire assessment editor", () => {
     expect(canPreviewApprovedScore({ activatedAt: "2026-10-01T00:00:00Z", reviewRequired: false }, now)).toBe(true);
   });
 
-  it.each(Object.keys(QUESTIONNAIRE_FORMS) as QuestionnaireFormKey[])(
+  it.each((Object.keys(QUESTIONNAIRE_FORMS) as QuestionnaireFormKey[])
+    .filter((formKey) => QUESTIONNAIRE_FORMS[formKey].scoreVersionId))(
     "withholds %s candidate score and risk band after all answers are entered",
     (formKey) => {
       const form = QUESTIONNAIRE_FORMS[formKey];
@@ -120,6 +121,29 @@ describe("shared questionnaire assessment editor", () => {
         .toBeVisible();
     },
   );
+
+  it("shows the AD8 candidate status, all three choices, and no score or signing action", () => {
+    const form = QUESTIONNAIRE_FORMS.ad8;
+    render(workspace("ad8"));
+    expect(screen.getByText(form.candidateNotice!)).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(clientA.clientId);
+    expect(screen.getByLabelText("評估日期")).toBeEnabled();
+    expect(screen.getByText("合成測試評估員")).toBeVisible();
+    for (const question of form.questions) {
+      const card = document.getElementById(`ad8-${question.id}`)!;
+      expect(within(card).getAllByRole("radio")).toHaveLength(3);
+    }
+    const first = document.getElementById("ad8-ad8_01")!;
+    fireEvent.click(within(first).getByRole("radio", { name: "不知道" }));
+    expect(within(first).getByText("已答")).toBeVisible();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
+    fireEvent.click(within(first).getByRole("button", { name: "改為待答" }));
+    expect(within(first).getByText("待答")).toBeVisible();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
+    expect(within(first).queryByRole("button", { name: "此題不適用" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("量表計分預覽")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /簽署/u })).not.toBeInTheDocument();
+  });
 
   it("puts the first complete question before optional fields and keeps progress and source available", () => {
     const form = QUESTIONNAIRE_FORMS.spmsq;
