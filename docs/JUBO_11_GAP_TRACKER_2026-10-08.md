@@ -20,5 +20,5 @@
 
 - 已正式發布：PR #26 對應 `9f445e6` 的照顧流程權限續接；PR #28 對應 `4907e46` 的去敏感錯誤追蹤；PR #29 對應 `20999c5` 的 Finance fail-closed 契約，但來源仍未連線；PR #31 對應 `7b7558e` 的申報內部回執檢核，不代表官方送件。2026-10-08 正式 alias `daycare.suiyuecare.com` 指向 Ready 的 Vercel `dpl_8C1tqkKTQ1D9WXzYUuHyhKFj5KDr`；正式資料庫仍在首爾。
 - 僅候選：PR #27 是草稿，已整合 PR #30 的 115 年 ABC 原稿對照與 PR #32 的 AD8 候選題本；Finance 來源 PR #91 也仍為草稿。東京空庫上的 schema 驗證與本機測試不能替代首爾正式 migration、真實個案或人工照顧驗收。ABCD 尚未完成正式簽署或輸出，Finance 來源尚未部署。
-- 來源對帳：`scripts/jubo_dry_run.py` 僅產生去識別化本機報告，不寫入 Supabase，也不代表正式移轉核准。
+- 來源對帳：`scripts/jubo_dry_run.py` 僅產生去識別化本機報告，不寫入 Supabase，也不代表正式移轉核准。向原廠索取原生資料、附件與欄位字典的具體清單見 `docs/JUBO_FULL_EXPORT_REQUEST_2026-10-08.md`。
 - 放行原則：未完成的臨床、財務與個資保護項目保持 fail-closed；局部安全修補可以獨立上線，不能因此宣稱 11 項全部通過。
