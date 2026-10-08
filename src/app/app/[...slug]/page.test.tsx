@@ -155,6 +155,9 @@ describe("shared questionnaire page load classification and paper entry", () => 
     mock.requireContext.mockResolvedValueOnce({ demo: false, scopes: ["clients.read"] });
     render(await view(questionnaireRoutes[0].slug));
     expect(mock.questionnaire).not.toHaveBeenCalled();
+  });
+});
+
 describe("clinical work-page load states", () => {
   for (const route of routes) {
     it(`${route.slug}: invalid filters never start a clinical read`, async () => {
