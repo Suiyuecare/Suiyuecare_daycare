@@ -60,7 +60,7 @@ function syntheticWorkbook(kind: JuboWorkbookKind, options: {
   const dataRow = headerRow + 1;
   const sheetName = master ? "個案檔案總表＿自訂表單欄位" : "日照個案總表_202610";
   const headers = Array.from({ length: width }, (_, index) =>
-    master ? masterLabels[index] ?? (index < 2 ? "重複欄" : `備用欄${index + 1}`) : index === 7 ? "姓名" : index === 29 ? "身分證字號" : index < 2 ? "重複欄" : `備用欄${index + 1}`);
+    master ? masterLabels[index] ?? (index < 2 ? "重複欄" : `備用欄${index + 1}`) : index === 3 ? "狀態" : index === 7 ? "姓名" : index === 29 ? "身分證字號" : index < 2 ? "重複欄" : `備用欄${index + 1}`);
   const headerCells = headers.map((label, index) => textCell(index, headerRow, label)).join("");
   const dataCells = master ? [
     textCell(0, dataRow, "來源原值"), numberCell(1, dataRow, 0),
@@ -72,7 +72,7 @@ function syntheticWorkbook(kind: JuboWorkbookKind, options: {
     textCell(35, dataRow, "虛構居住地址"), textCell(48, dataRow, "第 3 級"),
     textCell(54, dataRow, "虛構證明"), textCell(78, dataRow, "合成聯絡人"),
     textCell(79, dataRow, "0000000000"),
-  ].join("") : [textCell(7, dataRow, "不同名稱也不能靠姓名合併"), textCell(29, dataRow, "ZZ00000001")].join("");
+  ].join("") : [textCell(3, dataRow, "服務中"), textCell(7, dataRow, "合成測試個案"), textCell(29, dataRow, "ZZ00000001")].join("");
   const worksheet = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="${headerRow}">${headerCells}</row><row r="${dataRow}">${dataCells}${options.extraWorksheet ?? ""}</row>${options.extraRows ?? ""}</sheetData></worksheet>`;
   const workbook = `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${sheetName}" sheetId="1" r:id="rId1"/></sheets>${options.definedNames ?? "<definedNames/>"}</workbook>`;
   const relationship = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>${options.extraRelationship ?? ""}</Relationships>`;

@@ -103,6 +103,9 @@ export type JuboPlanningErrorCode =
   | "INVALID_IDENTITY"
   | "DUPLICATE_IDENTITY"
   | "UNMATCHED_SUMMARY"
+  | "MISSING_ACTIVE_SUMMARY"
+  | "SUMMARY_NAME_MISMATCH"
+  | "SUMMARY_STATUS_MISMATCH"
   | "UNKNOWN_STATUS"
   | "UNKNOWN_SEX"
   | "INVALID_DATE"
@@ -133,7 +136,7 @@ const masterColumns = {
   residentialAddress: 35, cmsLevel: 48, disability: 54,
   primaryContact: 78, primaryContactPhone: 79, proxy: 80, proxyPhone: 81,
 } as const;
-const summaryColumns = { name: 7, identity: 29 } as const;
+const summaryColumns = { status: 3, name: 7, identity: 29 } as const;
 
 const requiredHeaders = {
   master: [
@@ -146,7 +149,10 @@ const requiredHeaders = {
     [masterColumns.primaryContact, "主要聯絡人"], [masterColumns.primaryContactPhone, "主要聯絡人聯絡方式"],
     [masterColumns.proxy, "代理人"], [masterColumns.proxyPhone, "代理人聯絡方式"],
   ],
-  monthlySummary: [[summaryColumns.name, "姓名"], [summaryColumns.identity, "身分證字號"]],
+  monthlySummary: [
+    [summaryColumns.status, "狀態"], [summaryColumns.name, "姓名"],
+    [summaryColumns.identity, "身分證字號"],
+  ],
 } as const;
 
 function normalizedHeader(value: string) {
@@ -339,9 +345,35 @@ export function planJuboImport(input: JuboImportInput): JuboImportPlan {
     codeRows.push({ clientCode, sheetRow });
     const profile = validatedProfile(row, sheetRow, clientCode, identity);
     const summary = summaryByIdentity.get(identity) ?? null;
+    const status = serviceStatus(row[masterColumns.status], sheetRow);
+    if (status === "active" && !summary) {
+      throw new JuboPlanningError("MISSING_ACTIVE_SUMMARY", { source: "master", sheetRow });
+    }
+    if (summary) {
+      const summaryName = sourceString(
+        summary.columns[summaryColumns.name]?.value,
+        "monthlySummary", summary.sheetRow, summaryColumns.name,
+      );
+      if (summaryName !== profile.displayName) {
+        throw new JuboPlanningError("SUMMARY_NAME_MISMATCH", {
+          source: "monthlySummary", sheetRow: summary.sheetRow,
+          columnIndex: summaryColumns.name,
+        });
+      }
+      const summaryStatus = sourceString(
+        summary.columns[summaryColumns.status]?.value,
+        "monthlySummary", summary.sheetRow, summaryColumns.status,
+      );
+      if (status !== "active" || summaryStatus !== "服務中") {
+        throw new JuboPlanningError("SUMMARY_STATUS_MISMATCH", {
+          source: "monthlySummary", sheetRow: summary.sheetRow,
+          columnIndex: summaryColumns.status,
+        });
+      }
+    }
     return {
       profile,
-      serviceStatus: serviceStatus(row[masterColumns.status], sheetRow),
+      serviceStatus: status,
       dates: {
         sourceOpenedOn: sourceDate(row[masterColumns.openedOn], "master", sheetRow, masterColumns.openedOn),
         sourceFirstServiceOn: sourceDate(row[masterColumns.firstServiceOn], "master", sheetRow, masterColumns.firstServiceOn),

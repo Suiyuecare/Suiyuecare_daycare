@@ -94,6 +94,43 @@ class JuboDryRunTests(unittest.TestCase):
             self.assertEqual(len(report["manual_review_queue"]), 2)
             self.assertIn("identity_missing", report["manual_review_queue"][0]["reasons"])
 
+    def test_rows_with_only_source_id_or_unmapped_value_are_not_silently_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(
+                root,
+                [{"B": "ORIGINAL-42"}, {"J": "2026/01/02"}, {"AE": "unmapped marker"}],
+                [{"B": "ACTIVE-42"}, {"E": "2026/01/02"}, {"AF": "unmapped marker"}],
+            )
+            report = audit_source(root)
+            self.assertEqual(report["roster"]["rows"], 3)
+            self.assertEqual(report["cross_export_reconciliation"]["active_rows"], 3)
+            self.assertEqual(len(report["manual_review_queue"]), 6)
+            self.assertEqual(report["roster"]["source_client_number_present"], 1)
+            self.assertEqual(report["roster"]["first_service_date_present"], 1)
+            rendered = json.dumps(report, ensure_ascii=False)
+            self.assertNotIn("ORIGINAL-42", rendered)
+            self.assertNotIn("ACTIVE-42", rendered)
+            self.assertNotIn("unmapped marker", rendered)
+
+    def test_trailing_a_only_note_is_preserved_for_review_without_inflating_client_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root,
+                [{"C": "測試甲", "D": "女性", "P": "服務中", "X": "1940/01/01", "Z": "TEST000001"},
+                 {"A": "合成來源註記"}],
+                [{"D": "服務中", "H": "測試甲", "I": "女", "J": "14611.0", "AD": "TEST000001"}],
+            )
+            report = audit_source(root)
+            self.assertEqual(report["roster"]["rows"], 1)
+            self.assertEqual(report["roster"]["source_nonempty_rows"], 2)
+            self.assertEqual(report["roster"]["possible_trailing_note_rows"], 1)
+            self.assertTrue(report["source_manifest"]["selected_client_count_agrees_with_candidate_rows"] is False)
+            self.assertFalse(report["source_manifest"]["selected_client_count_agrees_with_roster"])
+            self.assertTrue(any("possible_trailing_source_note_or_incomplete_client" in item["reasons"]
+                for item in report["manual_review_queue"]))
+            self.assertNotIn("合成來源註記", json.dumps(report, ensure_ascii=False))
+
     def test_duplicate_identity_is_review_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

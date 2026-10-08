@@ -106,13 +106,15 @@ def workbook_role(rows: list[tuple[int, dict[str, str]]]) -> tuple[str, int]:
 
 
 def candidate_rows(
-    rows: list[tuple[int, dict[str, str]]], role: str, header_row: int
+    rows: list[tuple[int, dict[str, str]]], _role: str, header_row: int
 ) -> list[tuple[int, dict[str, str]]]:
-    columns = ("C", "D", "P", "Z") if role == "roster" else ("D", "H", "AD")
+    # A source row can contain only its original ID, service date, or a field
+    # outside today's candidate mapping. Keep every nonempty data row visible
+    # for manual review instead of silently shrinking the source row count.
     return [
         (number, cells)
         for number, cells in rows
-        if number > header_row and any(cells.get(column) for column in columns)
+        if number > header_row and any(cells.values())
     ]
 
 
@@ -215,9 +217,19 @@ def audit_source(source_dir: Path) -> dict[str, object]:
     if set(workbooks) != {"roster", "active"}:
         raise AuditError("required_workbooks_missing")
 
-    roster = workbooks["roster"]["rows"]
+    roster_source_rows = workbooks["roster"]["rows"]
     active = workbooks["active"]["rows"]
-    assert isinstance(roster, list) and isinstance(active, list)
+    assert isinstance(roster_source_rows, list) and isinstance(active, list)
+    # The reviewed export has an A-only trailing note. Keep it in source
+    # evidence and manual review, but never count it as an approved client.
+    # An A-only row amid client rows remains a candidate with missing fields.
+    last_non_a_row = max((number for number, cells in roster_source_rows
+        if any(value for column, value in cells.items() if column != "A")), default=0)
+    possible_notes = [(number, cells) for number, cells in roster_source_rows
+        if number > last_non_a_row and not any(value for column, value in cells.items() if column != "A")]
+    possible_note_numbers = {number for number, _ in possible_notes}
+    roster = [(number, cells) for number, cells in roster_source_rows
+        if number not in possible_note_numbers]
     roster_sha = str(workbooks["roster"]["sha256"])
     active_sha = str(workbooks["active"]["sha256"])
     roster_by_id: dict[str, list[tuple[int, dict[str, str]]]] = defaultdict(list)
@@ -307,11 +319,19 @@ def audit_source(source_dir: Path) -> dict[str, object]:
                 "row_ref": row_ref("active", number, active_sha),
                 "reasons": ["active_export_identity_unresolved"],
             })
+    for number, _ in possible_notes:
+        queue.append({
+            "workbook_role": "roster", "sheet_row": number,
+            "row_ref": row_ref("roster", number, roster_sha),
+            "reasons": ["possible_trailing_source_note_or_incomplete_client"],
+        })
 
     status_counts = Counter(STATUS.get(c.get("P", ""), "unknown") for _, c in roster)
     manifest = source_manifest(manifest_path)
     if manifest["present"] and manifest["selected_client_count_claim"] is not None:
-        manifest["selected_client_count_agrees_with_roster"] = manifest["selected_client_count_claim"] == len(roster)
+        manifest["selected_client_count_agrees_with_candidate_rows"] = manifest["selected_client_count_claim"] == len(roster)
+        manifest["selected_client_count_agrees_with_roster"] = (
+            manifest["selected_client_count_claim"] == len(roster) and not possible_notes)
     result = {
         "schema_version": SCHEMA_VERSION,
         "mode": "offline_read_only",
@@ -321,6 +341,8 @@ def audit_source(source_dir: Path) -> dict[str, object]:
         "source_manifest": manifest,
         "roster": {
             "rows": len(roster),
+            "source_nonempty_rows": len(roster_source_rows),
+            "possible_trailing_note_rows": len(possible_notes),
             "status_counts": dict(sorted(status_counts.items())),
             "source_client_number_present": sum(bool(c.get("B")) for _, c in roster),
             "first_service_date_present": sum(bool(c.get("J")) for _, c in roster),

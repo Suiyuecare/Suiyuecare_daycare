@@ -19,6 +19,7 @@ function syntheticInput(): JuboImportInput {
     80: "代理人", 81: "代理人聯絡方式",
   };
   for (const [index, label] of Object.entries(masterLabels)) masterHeaders[Number(index)] = label;
+  summaryHeaders[3] = "狀態";
   summaryHeaders[7] = "姓名";
   summaryHeaders[29] = "身分證字號";
   masterHeaders[0] = "重複欄";
@@ -52,7 +53,8 @@ function syntheticInput(): JuboImportInput {
     const row: unknown[] = Array(191).fill(null);
     row[0] = `月表原始值 ${index}`;
     row[1] = false;
-    row[7] = "不依姓名比對";
+    row[3] = "服務中";
+    row[7] = `合成測試個案 ${index + 1}`;
     row[29] = ` zz-000000${String(index + 1).padStart(2, "0")} `;
     row[190] = 123;
     return row;
@@ -86,7 +88,7 @@ function errorCode(action: () => unknown) {
 }
 
 describe("Jubo master + monthly import plan (synthetic data only)", () => {
-  it("matches 17 of 23 solely by normalized ID and keeps every source cell, including duplicate headers", () => {
+  it("joins 17 of 23 by normalized ID, verifies names and statuses, and keeps every source cell", () => {
     const input = syntheticInput();
     const plan = planJuboImport(input);
     expect([plan.masterRowCount, plan.monthlySummaryRowCount, plan.matchedSummaryRowCount]).toEqual([23, 17, 17]);
@@ -134,9 +136,30 @@ describe("Jubo master + monthly import plan (synthetic data only)", () => {
     duplicateSummary.monthlySummary.rows[1][29] = duplicateSummary.monthlySummary.rows[0][29];
     expect(errorCode(() => planJuboImport(duplicateSummary))).toBe("DUPLICATE_IDENTITY");
     const unmatched = mutableInput();
-    unmatched.monthlySummary.rows[0][29] = "ZZ99999999";
-    unmatched.monthlySummary.rows[0][7] = unmatched.master.rows[0][2];
-    expect(errorCode(() => planJuboImport(unmatched))).toBe("UNMATCHED_SUMMARY");
+    const extra = [...unmatched.monthlySummary.rows[0]];
+    extra[29] = "ZZ99999999";
+    extra[7] = unmatched.master.rows[0][2];
+    unmatched.monthlySummary.rows.push(extra);
+    expect(errorCode(() => planJuboImport({ ...unmatched, expectedCounts: undefined }))).toBe("UNMATCHED_SUMMARY");
+  });
+
+  it("rejects missing active rows and mismatched name or status without falling back to fuzzy matching", () => {
+    const missingActive = mutableInput();
+    missingActive.monthlySummary.rows[0][29] = missingActive.master.rows[17][25];
+    missingActive.monthlySummary.rows[0][7] = missingActive.master.rows[17][2];
+    expect(errorCode(() => planJuboImport(missingActive))).toBe("MISSING_ACTIVE_SUMMARY");
+
+    const mismatchedName = mutableInput();
+    mismatchedName.monthlySummary.rows[0][7] = "另一位測試個案";
+    expect(errorCode(() => planJuboImport(mismatchedName))).toBe("SUMMARY_NAME_MISMATCH");
+
+    const mismatchedStatus = mutableInput();
+    mismatchedStatus.monthlySummary.rows[0][3] = "結案";
+    expect(errorCode(() => planJuboImport(mismatchedStatus))).toBe("SUMMARY_STATUS_MISMATCH");
+
+    const closedInMonth = mutableInput();
+    closedInMonth.master.rows[0][15] = "結案";
+    expect(errorCode(() => planJuboImport(closedInMonth))).toBe("SUMMARY_STATUS_MISMATCH");
   });
 
   it("rejects unknown status, invalid dates, invalid IDs, and an unverified spreadsheet layout", () => {
