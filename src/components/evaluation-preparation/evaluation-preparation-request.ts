@@ -43,9 +43,43 @@ const errorEnvelope = z.object({
 const successEnvelope = z.object({
   status: z.literal("ok"), data: evaluationPreparationReceiptSchema,
 }).passthrough();
+const lookupEnvelope = z.object({
+  status: z.literal("ok"), data: z.object({ receipt: evaluationPreparationReceiptSchema.nullable() }).strict(),
+}).passthrough();
+
+function matchesOperation(receipt: EvaluationPreparationReceipt, operation: EvaluationPreparationOperation) {
+  return receipt.organizationId === operation.organizationId && receipt.branchId === operation.branchId &&
+    receipt.actorUserId === operation.actorUserId && receipt.idempotencyKey === operation.idempotencyKey &&
+    receipt.result.itemCode === operation.input.itemCode &&
+    receipt.result.version === operation.input.expectedVersion + 1 &&
+    receipt.result.recordedBy === operation.actorUserId &&
+    receipt.result.ownerUserId === operation.input.ownerUserId &&
+    receipt.result.dueOn === operation.input.dueOn &&
+    receipt.result.evidenceReference === operation.input.evidenceReference &&
+    receipt.result.progress === operation.input.progress &&
+    receipt.result.changeReason === operation.input.changeReason;
+}
+
+async function findCommittedReceipt(operation: EvaluationPreparationOperation, signal: AbortSignal) {
+  try {
+    const response = await fetchWithTimeout("/api/evaluation-preparation/receipt", {
+      method: "POST", cache: "no-store", credentials: "same-origin", signal,
+      headers: { "content-type": "application/json", "idempotency-key": operation.idempotencyKey },
+      body: JSON.stringify({ request: operation.input, idempotency_key: operation.idempotencyKey }),
+    });
+    const raw: unknown = await response.json();
+    const parsed = lookupEnvelope.safeParse(raw);
+    if (response.status !== 200 || !parsed.success || !parsed.data.data.receipt ||
+      !parsed.data.data.receipt.replayed ||
+      !matchesOperation(parsed.data.data.receipt, operation)) return null;
+    return parsed.data.data.receipt;
+  } catch { return null; }
+}
 
 /** Unknown outcomes retain the exact request and idempotency key for retry. */
-export async function sendEvaluationPreparationOperation(operation: EvaluationPreparationOperation): Promise<EvaluationPreparationReceipt> {
+export async function sendEvaluationPreparationOperation(
+  operation: EvaluationPreparationOperation, afterUnknown = false,
+): Promise<EvaluationPreparationReceipt> {
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -67,18 +101,18 @@ export async function sendEvaluationPreparationOperation(operation: EvaluationPr
       if (!response.ok) {
         const parsed = errorEnvelope.safeParse(raw);
         if (parsed.success && parsed.data.errors.every(({ code }) => statusCodes[response.status]?.includes(code))) {
+          if (afterUnknown) {
+            const receipt = await findCommittedReceipt(operation, controller.signal);
+            if (receipt) return receipt;
+            throw new UnknownPreparationOutcome("原操作可能已保存，回執尚未確認；請勿建立新操作。仍可用同一操作重試。");
+          }
           throw new ConfirmedPreparationFailure(knownErrors[parsed.data.errors[0]!.code]!);
         }
         throw new UnknownPreparationOutcome("回覆不能確認是否保存；請用同一操作重試。");
       }
       const parsed = successEnvelope.safeParse(raw);
       if (!parsed.success || ![200, 201].includes(response.status) ||
-        parsed.data.data.organizationId !== operation.organizationId ||
-        parsed.data.data.branchId !== operation.branchId ||
-        parsed.data.data.actorUserId !== operation.actorUserId ||
-        parsed.data.data.idempotencyKey !== operation.idempotencyKey ||
-        parsed.data.data.result.itemCode !== operation.input.itemCode ||
-        parsed.data.data.result.version !== operation.input.expectedVersion + 1) {
+        !matchesOperation(parsed.data.data, operation)) {
         throw new UnknownPreparationOutcome("保存回執無法核對；請用同一操作重試。");
       }
       return parsed.data.data;

@@ -14,6 +14,13 @@ import {
   ConfirmedPreparationFailure, sendEvaluationPreparationOperation, UnknownPreparationOutcome,
   type EvaluationPreparationOperation,
 } from "./evaluation-preparation-request";
+import {
+  beginEvaluationPreparationOperation,
+  markEvaluationPreparationUnknown, retryEvaluationPreparationOperation,
+  settleEvaluationPreparationOperation, useHeldEvaluationPreparationOperation,
+  useLostEvaluationPreparationOperation,
+} from "./evaluation-preparation-pending";
+import { useScopeChangeDraftRegistration } from "@/lib/navigation/scope-change-pending";
 import styles from "./evaluation-preparation.module.css";
 
 type Draft = {
@@ -40,14 +47,27 @@ export function EvaluationPreparationWorkspace({ snapshot, actorUserId, loadErro
   const router = useRouter();
   const [editor, setEditor] = useState<EvaluationPreparationVersion | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [pending, setPending] = useState<EvaluationPreparationOperation | null>(null);
-  const [busy, setBusy] = useState(false);
+  const held = useHeldEvaluationPreparationOperation();
+  const pending = held?.phase === "unknown" ? held.operation : null;
+  const busy = held?.phase === "busy";
+  const lostOperation = useLostEvaluationPreparationOperation();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [offline, setOffline] = useState(false);
   const [stale, setStale] = useState(false);
-  const inflight = useRef(false);
+  const mounted = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const setScopeChangeState = useScopeChangeDraftRegistration();
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    setScopeChangeState({ dirty: editor !== null && !held, busy, unknown: !!pending || lostOperation });
+  }, [editor, held, busy, pending, lostOperation, setScopeChangeState]);
+  useEffect(() => {
+    if (!held && !lostOperation) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [held, lostOperation]);
   useEffect(() => {
     const check = () => { setOffline(!navigator.onLine); setStale(!snapshot || (!snapshot.demo && Date.now() >= Date.parse(snapshot.staleAfter))); };
     check(); const timer = window.setInterval(check, 10000);
@@ -57,34 +77,36 @@ export function EvaluationPreparationWorkspace({ snapshot, actorUserId, loadErro
   useEffect(() => { if (editor) heading.current?.focus(); }, [editor]);
 
   function openEditor(item: EvaluationPreparationVersion | "new") {
-    if (pending || busy) return;
+    if (held || lostOperation) return;
     setEditor(item); setError(""); setMessage("");
     setDraft(item === "new" ? emptyDraft : { itemCode: item.itemCode,
       ownerUserId: item.ownerUserId ?? "", dueOn: item.dueOn ?? "",
       evidenceReference: item.evidenceReference ?? "", progress: item.progress,
       changeReason: "correction" });
   }
-  async function execute(operation: EvaluationPreparationOperation) {
-    if (inflight.current) return;
-    inflight.current = true; setBusy(true); setError(""); setMessage("");
+  async function execute(operation: EvaluationPreparationOperation, afterUnknown = false) {
+    if (mounted.current) { setError(""); setMessage(""); }
     try {
-      const receipt = await sendEvaluationPreparationOperation(operation);
-      setPending(null); setEditor(null); setDraft(emptyDraft);
+      const receipt = await sendEvaluationPreparationOperation(operation, afterUnknown);
+      settleEvaluationPreparationOperation(operation);
+      if (!mounted.current) return;
+      setEditor(null); setDraft(emptyDraft);
       setMessage(`${receipt.result.itemCode} 已保存第 ${receipt.result.version} 版${receipt.replayed ? "（重試已確認）" : ""}。`);
       router.refresh();
     } catch (failure) {
-      if (failure instanceof ConfirmedPreparationFailure) {
-        setPending(null); setError(failure.message);
-      } else if (failure instanceof UnknownPreparationOutcome) {
-        setPending(operation); setError(failure.message);
+      if (failure instanceof ConfirmedPreparationFailure && !afterUnknown) {
+        settleEvaluationPreparationOperation(operation);
+        if (mounted.current) setError(failure.message);
       } else {
-        setPending(operation); setError("保存結果無法確認；請用同一操作重試。");
+        markEvaluationPreparationUnknown(operation);
+        if (mounted.current) setError(failure instanceof UnknownPreparationOutcome ? failure.message
+          : "保存結果無法確認；請用同一操作重試。");
       }
-    } finally { inflight.current = false; setBusy(false); }
+    }
   }
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!snapshot || !editor || stale || offline || snapshot.demo || pending || busy) return;
+    if (!snapshot || !editor || stale || offline || snapshot.demo || held || lostOperation) return;
     const input = evaluationPreparationRequestSchema.safeParse({
       itemCode: draft.itemCode.toUpperCase(), expectedVersion: editor === "new" ? 0 : editor.version,
       ownerUserId: draft.ownerUserId || null, dueOn: draft.dueOn || null,
@@ -92,28 +114,32 @@ export function EvaluationPreparationWorkspace({ snapshot, actorUserId, loadErro
       changeReason: editor === "new" ? "initial" : draft.changeReason,
     });
     if (!input.success) { setError("請確認項目代碼、日期及進度；待內部覆核須填負責人、期限與證據參照碼。"); return; }
-    const operation: EvaluationPreparationOperation = { input: input.data, idempotencyKey: crypto.randomUUID(),
-      organizationId: snapshot.organizationId, branchId: snapshot.branchId, actorUserId };
+    const operation = beginEvaluationPreparationOperation(() => ({
+      input: input.data, idempotencyKey: crypto.randomUUID(),
+      organizationId: snapshot.organizationId, branchId: snapshot.branchId, actorUserId,
+    }));
+    if (!operation) { setError("畫面正在切換，或無法保留安全恢復狀態；目前不能保存。"); return; }
     void execute(operation);
   }
   function retry() {
     if (!snapshot || !pending || busy || offline ||
       pending.organizationId !== snapshot.organizationId || pending.branchId !== snapshot.branchId ||
       pending.actorUserId !== actorUserId) return;
-    void execute(pending);
+    if (retryEvaluationPreparationOperation(pending)) void execute(pending, true);
   }
 
   if (loadError || !snapshot) return <section className={styles.workspace} aria-labelledby="evaluation-heading">
     <h1 id="evaluation-heading">評鑑準備</h1>
     <div className={styles.notice} role="alert"><AlertTriangle aria-hidden="true" />
       <div><strong>目前無法載入資料</strong><p>請確認分支、稽核權限與工作階段後重試；不會顯示替代資料。</p></div></div>
+    {(held || lostOperation) && <p className={styles.error} role="alert">先前保存結果尚未確認。請恢復原工作階段及權限再核對；目前不能建立新操作。</p>}
     <button className="button button--secondary" onClick={() => router.refresh()}>重新載入</button>
   </section>;
 
   const ownerNames = new Map(snapshot.owners.map((owner) => [owner.userId, owner.name]));
-  const pendingScopeChanged = pending !== null && (pending.organizationId !== snapshot.organizationId ||
-    pending.branchId !== snapshot.branchId || pending.actorUserId !== actorUserId);
-  const disabled = snapshot.demo || stale || offline || busy || pending !== null;
+  const pendingScopeChanged = held !== null && (held.operation.organizationId !== snapshot.organizationId ||
+    held.operation.branchId !== snapshot.branchId || held.operation.actorUserId !== actorUserId);
+  const disabled = snapshot.demo || stale || offline || held !== null || lostOperation;
   const maxPage = Math.min(100, Math.max(1, Math.ceil(snapshot.total / snapshot.pageSize)));
 
   return <main className={styles.workspace} aria-labelledby="evaluation-heading">
@@ -127,6 +153,13 @@ export function EvaluationPreparationWorkspace({ snapshot, actorUserId, loadErro
     {(offline || stale) && <div className={styles.notice} role="status"><RotateCcw aria-hidden="true" /><p>
       {offline ? "目前離線。連線後重新載入，才能保存。" : "資料已超過五分鐘。重新載入後再編輯。"}</p>
       {!offline && <button className="button button--secondary" onClick={() => router.refresh()}>重新載入</button>}</div>}
+    {held && <div className={styles.notice} role="status"><RotateCcw aria-hidden="true" /><p>
+      {pendingScopeChanged ? "使用者或分支已變更；請回原工作階段核對，不能重送此操作。"
+        : busy ? "正在核對原操作的保存結果，請稍候。"
+          : `項目 ${held.operation.input.itemCode} 的保存結果尚未確認；請以原操作核對，勿建立新操作。`}</p>
+      {pending && !pendingScopeChanged && <button className="button button--secondary" type="button"
+        onClick={retry} disabled={offline}>同一操作核對與重試</button>}</div>}
+    {lostOperation && <p className={styles.error} role="alert">前次保存結果尚未確認，原操作因重新載入已無法安全重試。請由管理員核對回執；此頁暫停新增或修訂。</p>}
     <section className={styles.metrics} aria-label="本分支準備狀態">
       <div><ListChecks aria-hidden="true" /><span>準備項目</span><strong>{snapshot.total}</strong></div>
       <div><ClipboardCheck aria-hidden="true" /><span>本頁待內部覆核</span><strong>{snapshot.items.filter((item) => item.progress === "internal_review_requested").length}</strong></div>
@@ -152,12 +185,12 @@ export function EvaluationPreparationWorkspace({ snapshot, actorUserId, loadErro
         {snapshot.page < maxPage && <Link className="button button--secondary" href={`/app/staff/operations/evaluations?page=${snapshot.page + 1}`}>下一頁</Link>}
       </nav>}
     </section>
-    {editor && <section className={styles.editor} aria-labelledby="evaluation-editor-heading">
+    {editor && !pendingScopeChanged && <section className={styles.editor} aria-labelledby="evaluation-editor-heading">
       <div className={styles.editorHeading}><h2 id="evaluation-editor-heading" ref={heading} tabIndex={-1}>
         {editor === "new" ? "新增準備項目" : `編輯 ${editor.itemCode}`}</h2>
-        <button type="button" className="button button--secondary" disabled={busy || !!pending}
+        <button type="button" className="button button--secondary" disabled={!!held}
           onClick={() => { setEditor(null); setError(""); }}>關閉</button></div>
-      <form onSubmit={save} noValidate><fieldset className={styles.formFields} disabled={!!pending || busy}>
+      <form onSubmit={save} noValidate><fieldset className={styles.formFields} disabled={!!held}>
         <legend className={styles.srOnly}>內部評鑑準備欄位</legend><div className={styles.fields}>
         <label>內部項目代碼<input type="text" inputMode="text" maxLength={24} autoComplete="off"
           pattern="[A-Z0-9][A-Z0-9._-]{0,23}" placeholder="例如 WANHUA_01" required
@@ -182,10 +215,7 @@ export function EvaluationPreparationWorkspace({ snapshot, actorUserId, loadErro
       </div></fieldset>
       <p className={styles.hint}>「待內部覆核」須填負責人、期限與證據參照碼；參照碼不會自動驗證檔案。</p>
       {error && <p className={styles.error} role="alert">{error}</p>}
-      {pendingScopeChanged && <p className={styles.error} role="alert">分支或使用者已變更；不要重送舊操作，請重新進入原分支核對。</p>}
-      <div className={styles.actions}><button className="button button--primary" type="submit" disabled={disabled}>保存內部版本</button>
-        {pending && <button className="button button--secondary" type="button" onClick={retry}
-          disabled={busy || offline || pendingScopeChanged}>同一操作重試</button>}</div>
+      <div className={styles.actions}><button className="button button--primary" type="submit" disabled={disabled}>保存內部版本</button></div>
       </form></section>}
   </main>;
 }

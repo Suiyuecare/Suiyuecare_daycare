@@ -1,6 +1,6 @@
 begin;
 set local time zone 'Asia/Taipei';
-select plan(26);
+select plan(35);
 select ok((select bool_and(relrowsecurity and relforcerowsecurity) from pg_class where oid in
   ('private.evaluation_preparation_versions'::regclass,'private.evaluation_preparation_operations'::regclass)),
   'internal preparation streams force RLS');
@@ -10,6 +10,9 @@ select ok(not has_table_privilege('authenticated','private.evaluation_preparatio
 select ok(not has_function_privilege('anon','public.evaluation_preparation_mutate(uuid,uuid,jsonb,uuid)','execute')
   and has_function_privilege('authenticated','public.evaluation_preparation_mutate(uuid,uuid,jsonb,uuid)','execute'),
   'only authenticated can invoke mutation');
+select ok(not has_function_privilege('anon','public.evaluation_preparation_receipt(uuid,uuid,jsonb,uuid)','execute')
+  and has_function_privilege('authenticated','public.evaluation_preparation_receipt(uuid,uuid,jsonb,uuid)','execute'),
+  'only authenticated can look up an operation receipt');
 
 insert into auth.users(id) values
   ('79000000-0000-4000-8000-000000000001'),('79000000-0000-4000-8000-000000000002'),
@@ -46,6 +49,10 @@ select throws_ok($$select public.evaluation_preparation_snapshot('79100000-0000-
 select set_config('request.jwt.claims','{"sub":"79000000-0000-4000-8000-000000000001","aal":"aal1"}',true);
 select throws_ok($$select public.evaluation_preparation_snapshot('79100000-0000-4000-8000-000000000001','79200000-0000-4000-8000-000000000001',1)$$,
   '42501','evaluation preparation snapshot denied','AAL1 denied');
+select throws_ok($$select public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000001')$$,
+  '42501','evaluation preparation receipt denied','AAL1 cannot look up receipts');
 select set_config('request.jwt.claims','{"sub":"79000000-0000-4000-8000-000000000003","aal":"aal2"}',true);
 select throws_ok($$select public.evaluation_preparation_snapshot('79100000-0000-4000-8000-000000000001','79200000-0000-4000-8000-000000000001',1)$$,
   '42501','evaluation preparation snapshot denied','family denied');
@@ -58,6 +65,42 @@ insert into evaluation_test_data select 'first', public.evaluation_preparation_m
   '79100000-0000-4000-8000-000000000001','79200000-0000-4000-8000-000000000001',v,
   '79800000-0000-4000-8000-000000000001') from evaluation_test_data where k='initial';
 select is((select v#>>'{result,version}' from evaluation_test_data where k='first'),'1','initial version persisted');
+select is((public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000001')->>'operationId'),
+  (select v->>'operationId' from evaluation_test_data where k='first'),'exact actor and request recover the saved receipt');
+select is((public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000001')->>'replayed')::boolean,true,
+  'recovered receipt is marked replayed');
+select is(public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000099'),null::jsonb,'missing receipt stays unknown');
+select throws_ok($$select public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',jsonb_set((select v from evaluation_test_data where k='initial'),'{itemCode}','"WANHUA_02"'),
+  '79800000-0000-4000-8000-000000000001')$$,
+  '23505','evaluation preparation receipt mismatch','same key and different request cannot read receipt');
+select throws_ok($$select public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000002',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000001')$$,
+  '42501','evaluation preparation receipt denied','other branch cannot read receipt');
+reset role;
+insert into public.memberships(id,organization_id,branch_id,profile_id,status,starts_at) values
+  ('79300000-0000-4000-8000-000000000004','79100000-0000-4000-8000-000000000001',
+   '79200000-0000-4000-8000-000000000001','79000000-0000-4000-8000-000000000002','active',now()-interval '1 day');
+insert into public.membership_roles(membership_id,role_id)
+  select '79300000-0000-4000-8000-000000000004',id from public.roles where role_key='branch_supervisor' and is_system;
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"79000000-0000-4000-8000-000000000002","aal":"aal2"}',true);
+select is(public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000001'),null::jsonb,
+  'another authorized supervisor cannot read the first actor receipt');
+reset role;
+delete from public.membership_roles where membership_id='79300000-0000-4000-8000-000000000004';
+delete from public.memberships where id='79300000-0000-4000-8000-000000000004';
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"79000000-0000-4000-8000-000000000001","aal":"aal2"}',true);
 select is((public.evaluation_preparation_mutate('79100000-0000-4000-8000-000000000001',
   '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
   '79800000-0000-4000-8000-000000000001')->>'replayed')::boolean,true,'exact operation replayed');
@@ -108,6 +151,10 @@ set local role authenticated;
 select throws_ok($$select public.evaluation_preparation_snapshot('79100000-0000-4000-8000-000000000001',
   '79200000-0000-4000-8000-000000000001',1)$$,
   '42501','evaluation preparation snapshot denied','revoked audit permission immediately denies read');
+select throws_ok($$select public.evaluation_preparation_receipt('79100000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',(select v from evaluation_test_data where k='initial'),
+  '79800000-0000-4000-8000-000000000001')$$,
+  '42501','evaluation preparation receipt denied','revoked audit permission denies old receipt');
 reset role;
 select throws_ok($$update private.evaluation_preparation_versions set progress='collecting' where item_code='WANHUA_01'$$,
   '55000','evaluation preparation is append-only','even owner cannot overwrite');

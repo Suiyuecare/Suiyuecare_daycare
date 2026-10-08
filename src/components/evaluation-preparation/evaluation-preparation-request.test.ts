@@ -52,6 +52,43 @@ describe("Page 79 idempotent browser write", () => {
     await expect(result).rejects.toBeInstanceOf(ConfirmedPreparationFailure);
     await expect(result).rejects.not.toThrow("untrusted secret");
   });
+  it.each([400, 403])("reconciles an earlier unknown write before interpreting later %s as failure", async (status) => {
+    const recovered = receipt(); recovered.data.replayed = true;
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(failure(status, status === 400 ? "INVALID_EVALUATION_PREPARATION" : "EVALUATION_PREPARATION_NOT_AUTHORIZED"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", data: { receipt: recovered.data } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(sendEvaluationPreparationOperation(operation, true)).resolves.toMatchObject({
+      idempotencyKey: ids.idempotencyKey, replayed: true,
+    });
+    expect(fetch.mock.calls[1]![0]).toBe("/api/evaluation-preparation/receipt");
+    expect(fetch.mock.calls[1]![1]).toMatchObject({ method: "POST", cache: "no-store",
+      headers: { "idempotency-key": ids.idempotencyKey },
+      body: JSON.stringify({ request: operation.input, idempotency_key: ids.idempotencyKey }) });
+  });
+  it("keeps the original operation unknown when a later rejection cannot be reconciled", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(failure(403, "EVALUATION_PREPARATION_NOT_AUTHORIZED"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", data: { receipt: null } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(sendEvaluationPreparationOperation(operation, true)).rejects.toBeInstanceOf(UnknownPreparationOutcome);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("keeps the original operation unknown when receipt access is also revoked", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(failure(403, "EVALUATION_PREPARATION_NOT_AUTHORIZED"))
+      .mockResolvedValueOnce(failure(403, "EVALUATION_PREPARATION_NOT_AUTHORIZED"));
+    vi.stubGlobal("fetch", fetch);
+    await expect(sendEvaluationPreparationOperation(operation, true)).rejects.toBeInstanceOf(UnknownPreparationOutcome);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("does not accept a cross-actor lookup response after an earlier unknown write", async () => {
+    const recovered = receipt(); recovered.data.actorUserId = "79000000-0000-4000-8000-000000000099";
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(failure(400, "INVALID_EVALUATION_PREPARATION"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", data: { receipt: recovered.data } }), { status: 200 })));
+    await expect(sendEvaluationPreparationOperation(operation, true)).rejects.toBeInstanceOf(UnknownPreparationOutcome);
+  });
   it("treats a mismatched error status and uncertain database result as unknown", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(failure(500, "INVALID_EVALUATION_PREPARATION")));
     await expect(sendEvaluationPreparationOperation(operation)).rejects.toBeInstanceOf(UnknownPreparationOutcome);
