@@ -20,6 +20,8 @@ import { canReadStoreOverview } from "@/lib/store-overview/access";
 import { DataInventoryWorkspace } from "@/components/data-inventory/data-inventory-workspace";
 import { loadDataInventorySnapshot } from "@/lib/data-inventory/snapshot";
 import type { DataInventorySnapshot } from "@/lib/data-inventory/types";
+import { EvaluationPreparationWorkspace } from "@/components/evaluation-preparation/evaluation-preparation-workspace";
+import { EvaluationPreparationSnapshotError, loadEvaluationPreparationSnapshot } from "@/lib/evaluation-preparation/snapshot";
 import { defaultIntegrationsAuditFilters, parseIntegrationsAuditQuery } from "@/lib/integrations-audit/query";
 import { IntegrationsAuditSnapshotError, loadIntegrationsAuditSnapshot } from "@/lib/integrations-audit/snapshot";
 import { ClientMasterWorkspace } from "@/components/clients/client-master-workspace";
@@ -3902,6 +3904,26 @@ export default async function StaffCatalogPage({
     return <ReportsWorkspace demo={context.demo} invalid={invalid} periods={periods}
       operationalLinks={invalid ? [] : buildOperationalReportLinks(context, periods, await canReadStoreOverview(context))}
       entries={invalid ? [] : buildReportEntries(context, periods)} />;
+  }
+
+  if (page.number === 79) {
+    if (!context.roles.some((role) => role === "organization_manager" || role === "branch_supervisor") ||
+      (!context.demo && context.assuranceLevel !== "aal2")) return <StaffAccessDenied />;
+    if (invalidWorkQuery(query, ["page"])) {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
+    const requestedPage = typeof query.page === "string" ? query.page : "1";
+    if (!/^[1-9][0-9]{0,2}$/u.test(requestedPage) || Number(requestedPage) > 100) {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
+    let snapshot = null;
+    let loadError = false;
+    try { snapshot = await loadEvaluationPreparationSnapshot(context, Number(requestedPage)); }
+    catch (error) {
+      if (!(error instanceof EvaluationPreparationSnapshotError)) throw error;
+      loadError = true;
+    }
+    return <EvaluationPreparationWorkspace snapshot={snapshot} actorUserId={context.userId} loadError={loadError} />;
   }
 
   if (page.number === 83) {
