@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const FINANCE_CONFIGURATION_FIELDS = [
   "FINANCE_STORE_SUMMARY_URL", "FINANCE_STORE_SUMMARY_TOKEN", "FINANCE_STORE_ORGANIZATION_ID",
-  "FINANCE_STORE_BRANCH_ID", "FINANCE_STORE_ENTITY_ID",
+  "FINANCE_STORE_BRANCH_ID", "FINANCE_STORE_BINDING_ID", "FINANCE_STORE_ENTITY_ID",
+  "FINANCE_STORE_DEPARTMENT_CODE",
 ] as const;
 export type FinanceConfigurationField = typeof FINANCE_CONFIGURATION_FIELDS[number];
 export type FinanceConfigurationInput = Partial<Record<FinanceConfigurationField, string>>;
@@ -11,14 +12,17 @@ export const financeConnectionSchema = z.object({
   url: z.string().regex(/^https:\/\/[a-z]{20}\.supabase\.co\/functions\/v1\/daycare-store-finance-summary$/u),
   token: z.string().regex(/^[a-f0-9]{64}$/u),
   organizationId: z.uuid(), branchId: z.uuid(),
+  bindingId: z.uuid(),
   entityId: z.string().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u),
+  departmentCode: z.string().regex(/^[A-Z][0-9]{4}$/u),
 });
 export type FinanceConnection = z.infer<typeof financeConnectionSchema>;
 
 const fields = {
   FINANCE_STORE_SUMMARY_URL: "url", FINANCE_STORE_SUMMARY_TOKEN: "token",
   FINANCE_STORE_ORGANIZATION_ID: "organizationId", FINANCE_STORE_BRANCH_ID: "branchId",
-  FINANCE_STORE_ENTITY_ID: "entityId",
+  FINANCE_STORE_BINDING_ID: "bindingId", FINANCE_STORE_ENTITY_ID: "entityId",
+  FINANCE_STORE_DEPARTMENT_CODE: "departmentCode",
 } as const;
 
 /** Configuration values are consumed only on the server. Never send this result to a component. */
