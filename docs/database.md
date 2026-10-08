@@ -525,6 +525,18 @@ operationally accepted, the system must not claim that an arbitrary item
 `amount` or generated snapshot is officially billable or submittable. No
 statutory rate or allowance formula is guessed in this migration.
 
+The HTTP export and reconciliation receipts now validate the returned batch,
+count, amount, status and hash before reporting success. Their explicit
+`officialSubmissionReady: false` / `officialFormatStatus: "not_configured"`
+fields apply even if a batch's free-text `format_version` looks official.
+Reconciliation additionally returns `officialResponseVerified: false` and
+`responseSourceStatus: "operator_supplied_unverified"`: the current JSON input
+is an internal manual result set, **not** an authenticated authority reply
+file. Database statuses `exported` and `reconciled` describe only these internal
+workflow transitions and cannot establish external submission, acceptance or
+payment. The remaining authority-source and quality-report evidence is
+tracked in `docs/OFFICIAL_CLAIMS_QUALITY_GAP_2026-10-08.md`.
+
 ### Medication plan and administration flow
 
 Page 8 and page 7 use separate but linked ledgers. `medication_plans` is the

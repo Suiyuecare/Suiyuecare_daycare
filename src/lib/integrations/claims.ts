@@ -17,6 +17,49 @@ export const MAX_CLAIM_RECONCILIATION_ITEMS = 5000;
 export const MAX_CLAIM_RESPONSE_CODE_BYTES = 40;
 export const MAX_CLAIM_RESPONSE_MESSAGE_BYTES = 64;
 
+// A batch's free-text format_version is not evidence that Taipei or the central
+// authority approved a submission format. Keep every current receipt internal
+// until a governed, effective-dated source and response-file contract exist.
+export const CLAIM_OFFICIAL_RELEASE_GATE = {
+  officialSubmissionReady: false,
+  officialFormatStatus: "not_configured",
+} as const;
+
+export const CLAIM_RESPONSE_SOURCE_GATE = {
+  officialResponseVerified: false,
+  responseSourceStatus: "operator_supplied_unverified",
+} as const;
+
+const databaseCountSchema = z.union([
+  z.number().int().min(0).max(MAX_CLAIM_RECONCILIATION_ITEMS),
+  z.string().regex(/^(?:0|[1-9]\d*)$/u),
+]);
+
+const databaseMoneySchema = z.union([
+  moneySchema,
+  z.number().finite().min(0).max(999_999_999_999.99),
+]);
+
+const exportReceiptSchema = z.object({
+  claim_batch_id: z.uuid(),
+  format_version: z.string().trim().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/u),
+  status: z.literal("exported"),
+  snapshot_hash: z.string().regex(/^[a-f0-9]{64}$/u),
+  item_count: databaseCountSchema,
+  total_amount: databaseMoneySchema,
+  replayed: z.boolean(),
+}).strict();
+
+const reconciliationReceiptSchema = z.object({
+  claim_batch_id: z.uuid(),
+  status: z.literal("reconciled"),
+  item_count: databaseCountSchema,
+  accepted_count: databaseCountSchema,
+  rejected_count: databaseCountSchema,
+  total_amount: databaseMoneySchema,
+  replayed: z.boolean(),
+}).strict();
+
 const unsafeControlPattern = /[\u0000-\u001f\u007f]/u;
 const utf8Length = (value: string) => new TextEncoder().encode(value).length;
 
@@ -95,6 +138,74 @@ export interface ClaimReconciliationRequest extends ClaimExportRequest {
     responseCode: string;
     responseMessage: string | null;
   }>;
+}
+
+export function parseClaimExportDatabaseReceipt(
+  value: unknown,
+  expected: ClaimExportRequest,
+) {
+  const parsed = exportReceiptSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new IntegrationError(
+      "CLAIM_EXPORT_RECEIPT_INVALID",
+      "內部匯出回執不完整；結果尚未確認，請以相同操作鍵核對。",
+      502,
+    );
+  }
+  const itemCount = Number(parsed.data.item_count);
+  if (
+    parsed.data.claim_batch_id !== expected.claimBatchId ||
+    itemCount < 1 ||
+    itemCount > MAX_CLAIM_RECONCILIATION_ITEMS ||
+    normalizeMoney(parsed.data.total_amount) !== expected.expectedTotalAmount
+  ) {
+    throw new IntegrationError(
+      "CLAIM_EXPORT_RECEIPT_INVALID",
+      "內部匯出回執與確認資料不一致；結果尚未確認，請以相同操作鍵核對。",
+      502,
+    );
+  }
+  return {
+    ...parsed.data,
+    item_count: itemCount,
+    total_amount: normalizeMoney(parsed.data.total_amount),
+  };
+}
+
+export function parseClaimReconciliationDatabaseReceipt(
+  value: unknown,
+  expected: ClaimReconciliationRequest,
+) {
+  const parsed = reconciliationReceiptSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new IntegrationError(
+      "CLAIM_RECONCILIATION_RECEIPT_INVALID",
+      "人工對帳回執不完整；結果尚未確認，請以相同操作鍵核對。",
+      502,
+    );
+  }
+  const itemCount = Number(parsed.data.item_count);
+  const acceptedCount = Number(parsed.data.accepted_count);
+  const rejectedCount = Number(parsed.data.rejected_count);
+  if (
+    parsed.data.claim_batch_id !== expected.claimBatchId ||
+    itemCount !== expected.results.length ||
+    acceptedCount + rejectedCount !== itemCount ||
+    normalizeMoney(parsed.data.total_amount) !== expected.expectedTotalAmount
+  ) {
+    throw new IntegrationError(
+      "CLAIM_RECONCILIATION_RECEIPT_INVALID",
+      "人工對帳回執與逐筆結果不一致；結果尚未確認，請以相同操作鍵核對。",
+      502,
+    );
+  }
+  return {
+    ...parsed.data,
+    item_count: itemCount,
+    accepted_count: acceptedCount,
+    rejected_count: rejectedCount,
+    total_amount: normalizeMoney(parsed.data.total_amount),
+  };
 }
 
 export interface ClaimSnapshotItem {

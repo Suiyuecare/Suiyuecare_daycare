@@ -1,6 +1,9 @@
 import { ok } from "@/lib/api/response";
 import {
+  CLAIM_OFFICIAL_RELEASE_GATE,
+  CLAIM_RESPONSE_SOURCE_GATE,
   MAX_CLAIM_RECONCILIATION_BYTES,
+  parseClaimReconciliationDatabaseReceipt,
   parseClaimReconciliationRequest,
 } from "@/lib/integrations/claims";
 import { IntegrationError } from "@/lib/integrations/errors";
@@ -16,16 +19,6 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type ReconcileClaimResult = {
-  claim_batch_id: string;
-  status: string;
-  item_count: number;
-  accepted_count: number;
-  rejected_count: number;
-  total_amount: string | number;
-  replayed: boolean;
-};
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
@@ -46,6 +39,8 @@ export async function POST(request: Request) {
           reconciled: false,
           persisted: false,
           demo: true,
+          ...CLAIM_OFFICIAL_RELEASE_GATE,
+          ...CLAIM_RESPONSE_SOURCE_GATE,
         },
         200,
         requestId,
@@ -90,7 +85,7 @@ export async function POST(request: Request) {
         p_results: results,
         p_idempotency_key: databaseIdempotencyKey,
       })
-      .maybeSingle<ReconcileClaimResult>();
+      .maybeSingle<unknown>();
 
     if (error || !data) {
       throw databaseFailure(
@@ -112,17 +107,21 @@ export async function POST(request: Request) {
       );
     }
 
+    const receipt = parseClaimReconciliationDatabaseReceipt(data, input);
+
     return ok(
       {
-        claimBatchId: data.claim_batch_id,
-        status: data.status,
-        itemCount: data.item_count,
-        acceptedCount: data.accepted_count,
-        rejectedCount: data.rejected_count,
-        totalAmount: String(data.total_amount),
-        replayed: data.replayed,
+        claimBatchId: receipt.claim_batch_id,
+        status: receipt.status,
+        itemCount: receipt.item_count,
+        acceptedCount: receipt.accepted_count,
+        rejectedCount: receipt.rejected_count,
+        totalAmount: receipt.total_amount,
+        replayed: receipt.replayed,
         persisted: true,
         demo: false,
+        ...CLAIM_OFFICIAL_RELEASE_GATE,
+        ...CLAIM_RESPONSE_SOURCE_GATE,
       },
       200,
       requestId,

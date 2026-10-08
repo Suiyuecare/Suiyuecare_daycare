@@ -1,7 +1,9 @@
 import { ok } from "@/lib/api/response";
 import {
+  CLAIM_OFFICIAL_RELEASE_GATE,
   classifyClaimExportDatabaseFailure,
   parseClaimExportRequest,
+  parseClaimExportDatabaseReceipt,
 } from "@/lib/integrations/claims";
 import { IntegrationError } from "@/lib/integrations/errors";
 import {
@@ -16,16 +18,6 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type ExportClaimResult = {
-  claim_batch_id: string;
-  format_version: string;
-  status: string;
-  snapshot_hash: string;
-  item_count: number;
-  total_amount: string | number;
-  replayed: boolean;
-};
 
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
@@ -45,6 +37,7 @@ export async function POST(request: Request) {
           snapshotCreated: false,
           persisted: false,
           demo: true,
+          ...CLAIM_OFFICIAL_RELEASE_GATE,
         },
         200,
         requestId,
@@ -85,7 +78,7 @@ export async function POST(request: Request) {
         p_expected_total_amount: input.expectedTotalAmount,
         p_idempotency_key: databaseIdempotencyKey,
       })
-      .maybeSingle<ExportClaimResult>();
+      .maybeSingle<unknown>();
 
     if (error || !data) {
       const failure = classifyClaimExportDatabaseFailure(error?.code);
@@ -96,17 +89,20 @@ export async function POST(request: Request) {
       );
     }
 
+    const receipt = parseClaimExportDatabaseReceipt(data, input);
+
     return ok(
       {
-        claimBatchId: data.claim_batch_id,
-        snapshotHash: data.snapshot_hash,
-        itemCount: data.item_count,
-        totalAmount: String(data.total_amount),
-        formatVersion: data.format_version,
-        status: data.status,
-        replayed: data.replayed,
+        claimBatchId: receipt.claim_batch_id,
+        snapshotHash: receipt.snapshot_hash,
+        itemCount: receipt.item_count,
+        totalAmount: receipt.total_amount,
+        formatVersion: receipt.format_version,
+        status: receipt.status,
+        replayed: receipt.replayed,
         persisted: true,
         demo: false,
+        ...CLAIM_OFFICIAL_RELEASE_GATE,
       },
       200,
       requestId,
