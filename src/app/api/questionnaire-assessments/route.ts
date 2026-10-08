@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { ok } from "@/lib/api/response";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
+import { parseQuestionnaireMutationReceipt } from "@/lib/questionnaire-assessments/receipt";
 import type { QuestionnaireAnswer, QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import {
   authorizeStaffRequest,
@@ -240,6 +241,17 @@ export async function POST(request: Request) {
       p_idempotency_key: idempotencyKey,
     });
     if (error || !data) throw databaseError(error?.code);
-    return ok(data, 201, requestId);
+    const receipt = parseQuestionnaireMutationReceipt({ data }, {
+      action: input.action,
+      clientId: input.client_id,
+      formKey: input.form_key,
+      assessedOn: input.assessed_on,
+      assessmentKey: input.action === "revise" ? input.assessment_key : undefined,
+      previousVersion: input.action === "revise" ? input.expected_version : undefined,
+    });
+    if (!receipt) throw new IntegrationError(
+      "QUESTIONNAIRE_SAVE_UNCERTAIN", "保存結果尚未確認；請保留內容並以相同操作識別碼重試。", 503,
+    );
+    return ok(receipt, 201, requestId);
   });
 }

@@ -1,12 +1,16 @@
 import { z } from "zod";
 
 import { ok } from "@/lib/api/response";
+import type { TenantContext } from "@/lib/domain/types";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { authorizeStaffRequest, databaseFailure, handleIntegrationRoute, readJsonObject } from "@/lib/integrations/http";
 import {
+  externalAssessmentInstrumentSchema,
+  externalAssessmentPermission,
   externalAssessmentResultInputSchema,
   parseExternalAssessmentResultReceipt,
   parseExternalAssessmentResultsSnapshot,
+  type ExternalAssessmentInstrument,
 } from "@/lib/external-assessment-results/contract";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -21,9 +25,17 @@ function failure(code?: string) {
   return databaseFailure("EXTERNAL_ASSESSMENT_UNAVAILABLE", "結果尚未確認儲存；請保留輸入並重試。", 503);
 }
 
-async function authorize(permission: "care_records.read" | "care_records.write") {
-  const actor = await authorizeStaffRequest({ routinePermission: permission });
-  if (actor.demo || !actor.scopes.includes("care_records.read") || !actor.scopes.includes(permission)) {
+async function authorize(
+  permission: "care_records.read" | "care_records.write",
+  instrument: ExternalAssessmentInstrument,
+  currentActor?: TenantContext,
+) {
+  const actor = currentActor ?? await authorizeStaffRequest({ routinePermission: permission });
+  const access = permission === "care_records.read" ? "read" : "manage";
+  if (actor.demo || !actor.scopes.includes("clients.read") ||
+    !actor.scopes.includes("care_records.read") || !actor.scopes.includes(permission) ||
+    !actor.scopes.includes(externalAssessmentPermission(instrument, "read")) ||
+    !actor.scopes.includes(externalAssessmentPermission(instrument, access))) {
     throw new IntegrationError("EXTERNAL_ASSESSMENT_NOT_AUTHORIZED", "目前角色沒有外部量表結果的讀寫權限。", 403);
   }
   const supabase = await createServerSupabaseClient();
@@ -33,20 +45,22 @@ async function authorize(permission: "care_records.read" | "care_records.write")
 
 export async function GET(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
-    const { actor, supabase } = await authorize("care_records.read");
+    const currentActor = await authorizeStaffRequest({ routinePermission: "care_records.read" });
     const url = new URL(request.url);
     const params = Object.fromEntries(url.searchParams);
-    const query = z.object({ clientId: z.uuid() }).strict().safeParse(params);
+    const query = z.object({ clientId: z.uuid(), instrumentKey: externalAssessmentInstrumentSchema }).strict().safeParse(params);
     if (!query.success || [...url.searchParams.keys()].some((key) => url.searchParams.getAll(key).length !== 1)) {
-      throw new IntegrationError("INVALID_EXTERNAL_ASSESSMENT_QUERY", "請選擇有效個案。", 400);
+      throw new IntegrationError("INVALID_EXTERNAL_ASSESSMENT_QUERY", "請選擇有效個案與評估項目。", 400);
     }
+    const { actor, supabase } = await authorize("care_records.read", query.data.instrumentKey, currentActor);
     const { data, error } = await supabase.rpc("read_external_assessment_results", {
       p_org: actor.organizationId,
       p_branch: actor.branchId,
       p_client: query.data.clientId,
+      p_instrument: query.data.instrumentKey,
     });
     if (error) throw failure(error.code);
-    return ok({ snapshot: parseExternalAssessmentResultsSnapshot(data, query.data.clientId), demo: false }, 200, requestId);
+    return ok({ snapshot: parseExternalAssessmentResultsSnapshot(data, query.data.clientId, query.data.instrumentKey), demo: false }, 200, requestId);
   });
 }
 
@@ -59,7 +73,7 @@ export async function POST(request: Request) {
     const key = z.uuid().safeParse(request.headers.get("idempotency-key"));
     if (!parsed.success || !key.success) throw new IntegrationError("INVALID_EXTERNAL_ASSESSMENT", "請檢查個案、操作識別碼與結果欄位。", 400);
 
-    const { actor, supabase } = await authorize("care_records.write");
+    const { actor, supabase } = await authorize("care_records.write", parsed.data.input.instrumentKey);
     const { data, error } = await supabase.rpc("write_external_assessment_result", {
       p_org: actor.organizationId,
       p_branch: actor.branchId,

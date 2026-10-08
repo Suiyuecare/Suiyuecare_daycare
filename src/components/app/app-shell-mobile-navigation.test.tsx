@@ -51,6 +51,12 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("authorized role-aware mobile navigation", () => {
+  it("labels the dedicated external assessment route in the shared header", () => {
+    mocks.pathname = "/app/staff/assessments/external-results";
+    renderShell(["nurse"], ["clients.read", "care_records.read"]);
+    expect(screen.getByText("外部評估結果登錄")).toBeInTheDocument();
+  });
+
   it("keeps the care worker's today, case and measurement destinations", () => {
     renderShell(["care_worker"], ["clients.read", "health.read"]);
     expect(bottomHrefs()).toEqual([

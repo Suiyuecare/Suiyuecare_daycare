@@ -26,6 +26,19 @@ const clientB: QuestionnaireClient = {
   latest: null,
 };
 
+function savedReceipt(formKey: QuestionnaireFormKey) {
+  return { data: {
+    action: "create", clientId: clientA.clientId, formKey,
+    assessmentKey: "00000000-0000-4000-8000-000000000021",
+    versionId: "00000000-0000-4000-8000-000000000022",
+    version: 1, recordState: "draft",
+    assessedOn: new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date()),
+    contentHash: "a".repeat(64), committedAt: "2026-10-08T00:00:00Z", replayed: false,
+  } };
+}
+
 function workspace(formKey: QuestionnaireFormKey, {
   canManage = true,
   selectedClientId = clientA.clientId,
@@ -257,13 +270,31 @@ describe("shared questionnaire assessment editor", () => {
     expect(body.action).toBe("create");
     expect(body.clientId).toBe(clientA.clientId);
     expect(body.answers[form.questions[0].id]).toEqual({ state: "not_applicable", reason: "本次情況無法適用該項" });
-    await act(async () => finishFetch(Response.json({ data: { recordState: "draft" } })));
+    await act(async () => finishFetch(Response.json(savedReceipt("barthel_adl"))));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/草稿已保存/u)).toBeVisible();
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(false);
+  });
+
+  it("does not mark a different or incomplete 2xx receipt as saved and retries the same operation", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft" } }))
+      .mockResolvedValueOnce(Response.json(savedReceipt("spmsq")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(workspace("spmsq"));
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(await screen.findByRole("button", { name: "重試同一次保存" })).toBeEnabled();
+    expect(screen.queryByText(/草稿已保存/u)).not.toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次保存" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers["idempotency-key"])
+      .toBe(fetchMock.mock.calls[1][1].headers["idempotency-key"]);
+    expect(fetchMock.mock.calls[0][1].body).toBe(fetchMock.mock.calls[1][1].body);
   });
 
   it("keeps BSRS safety guidance immediate and does not allow read-only edits", () => {
@@ -336,7 +367,7 @@ describe("shared questionnaire assessment editor", () => {
     const priorState = window.history.state;
     const fetchMock = vi.fn().mockRejectedValueOnce(new Error("synthetic network loss"))
       .mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }))
-      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft" } }));
+      .mockResolvedValueOnce(Response.json(savedReceipt("spmsq")));
     vi.stubGlobal("fetch", fetchMock);
     render(workspace("spmsq", { clients: [clientA, clientB] }));
     const dialog = document.querySelector("dialog") as HTMLDialogElement;

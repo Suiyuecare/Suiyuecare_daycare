@@ -113,6 +113,16 @@ describe("Page 5 insulin parser and projection", () => {
     expect(parseInsulinMutation(executeBody, key)).toEqual(input);
   });
 
+  it("rejects mismatched or unsupported injection sites before any database call", () => {
+    for (const change of [
+      { siteCode: "LEFT_ARM", siteText: "右上臂" },
+      { siteCode: "UNKNOWN_SITE", siteText: "其他部位" },
+    ]) {
+      expect(() => parseInsulinMutation({ ...executeBody, ...change }, key))
+        .toThrow(IntegrationError);
+    }
+  });
+
   it("separates on-time and supervisor-authorized execution chains", () => {
     expect(() => parseInsulinMutation({
       ...executeBody, expectedSequence: 1,
