@@ -62,7 +62,14 @@ describe("MNA-SF questionnaire API consistency", () => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
-    stubs.rpc.mockResolvedValue({ data: { recordState: "draft" }, error: null });
+    stubs.rpc.mockResolvedValue({ data: {
+      action: "create", clientId, formKey: "mna_sf",
+      assessmentKey: "12500000-0000-4000-8000-000000000091",
+      versionId: "12600000-0000-4000-8000-000000000091",
+      version: 1, recordState: "draft", assessedOn: "2026-10-08",
+      contentHash: "a".repeat(64), committedAt: "2026-10-08T01:00:00Z",
+      replayed: false,
+    }, error: null });
   });
 
   it.each([

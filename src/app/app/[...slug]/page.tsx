@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { DailyExpectedClients, DailyExpectedClientsLoading } from "@/components/client-weekly/daily-expected-clients";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { StaffAccessDenied } from "@/components/app/staff-access-denied";
@@ -12,8 +11,6 @@ import { OpeningReadinessWorkspace } from "@/components/opening-readiness/openin
 import { loadOpeningReadinessSnapshot } from "@/lib/opening-readiness/snapshot";
 import { canViewOpeningReadiness } from "@/lib/opening-readiness/types";
 import { OperationalWorkspace } from "@/components/workspace/operational-workspace";
-import { AssessmentEntryWorkspace } from "@/components/assessments/assessment-entry-workspace";
-import { externalAssessmentInstruments, type ExternalAssessmentInstrument } from "@/lib/external-assessment-results/contract";
 import { ImportWorkspace } from "@/components/imports/import-workspace";
 import { SyntheticImportPreview } from "@/components/imports/synthetic-import-preview";
 import { IntegrationsAuditWorkspace } from "@/components/integrations-audit/integrations-audit-workspace";
@@ -78,6 +75,7 @@ import { ChewingAssessmentsWorkspace } from "@/components/chewing-assessments/ch
 import { MnaAssessmentsWorkspace } from "@/components/mna-assessments/mna-assessments-workspace";
 import { QuestionnaireAssessmentsWorkspace } from "@/components/questionnaire-assessments/questionnaire-assessment-editor";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
+import { externalAssessmentPermission, externalInstrumentByQuestionnaireForm } from "@/lib/external-assessment-results/contract";
 import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
 import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
 import { StaffTrainingWorkspace } from "@/components/staff-training/staff-training-workspace";
@@ -1093,6 +1091,8 @@ export default async function StaffCatalogPage({
       ? requestedClient.toLowerCase() : null;
     const invalidFilters = Boolean(requestedClient && !validClientId) ||
       Object.keys(query).some((key) => key !== "client");
+    if (invalidFilters) return <WorkLoadFailureState
+      kind="invalid_filter" path={`/app/${page.slug}`} title={page.title} />;
     const prefix = formKey === "spmsq"
       ? "questionnaire_cognition"
       : formKey === "barthel_adl" || formKey === "lawton_iadl"
@@ -1107,7 +1107,7 @@ export default async function StaffCatalogPage({
     const canManage = !context.demo && context.scopes.includes("clients.read") &&
       context.scopes.includes(`${prefix}.read`) && context.scopes.includes(`${prefix}.manage`);
     let snapshot: QuestionnaireSnapshot | null = null;
-    let loadError = invalidFilters;
+    let loadError = false;
     if (context.demo) {
       snapshot = {
         formKey,
@@ -1121,7 +1121,7 @@ export default async function StaffCatalogPage({
           latest: null,
         }],
       };
-    } else if (!invalidFilters) {
+    } else {
       try {
         snapshot = await loadQuestionnaireSnapshot(context, formKey, validClientId);
       } catch (error) {
@@ -1132,6 +1132,10 @@ export default async function StaffCatalogPage({
     return <QuestionnaireAssessmentsWorkspace
       assessorName={context.displayName}
       canManage={canManage}
+      canReadExternalResults={Boolean(snapshot?.clients.some((client) => client.clientId === validClientId)) &&
+        !context.demo && context.scopes.includes("clients.read") &&
+        context.scopes.includes(externalAssessmentPermission(externalInstrumentByQuestionnaireForm[formKey], "read")) &&
+        await canUseRoutineCare(context, "care_records.read")}
       form={form}
       loadError={loadError}
       pageTitle={page.title}
@@ -1237,64 +1241,6 @@ export default async function StaffCatalogPage({
     return <NsiNutritionScreeningsWorkspace canManage={canManage}
       filters={filters} loadError={loadError}
       page={page} snapshot={snapshot} />;
-  }
-
-  if ([15, 16, 18, 36].includes(page.number)) {
-    const requestedClient = typeof query.client === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query.client)
-      ? query.client.toLowerCase() : null;
-    const requestedInstrument: Record<number, ExternalAssessmentInstrument> = {
-      15: "barthel_adl", 16: "iadl", 18: "bsrs", 36: "mna",
-    };
-    const entryHref = `/app/staff/assessments/swallowing${requestedClient
-      ? `?client=${encodeURIComponent(requestedClient)}&externalInstrument=${requestedInstrument[page.number]}`
-      : `?externalInstrument=${requestedInstrument[page.number]}`}#external-result-entry`;
-    return <section className="empty-card" role="status">
-      <h1>{page.title}：外部結果登錄</h1>
-      <p>可在評估入口選擇個案，登錄經核准紙本／外部工具的原始結果；系統不提供題目或自動計分。</p>
-      <Link className="button button--primary" href={entryHref}>{requestedClient ? "登錄外部結果" : "先選個案並登錄結果"}</Link>
-    </section>;
-  }
-
-  if (page.number === 17) {
-    const requestedClient = typeof query.client === "string" ? query.client : "";
-    const selectedClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
-      ? requestedClient.toLowerCase() : null;
-    let clients: Awaited<ReturnType<typeof loadClientMasterSnapshot>>["clients"] = [];
-    let loadError = !context.demo && !context.scopes.includes("clients.read");
-    if (!loadError) {
-      try {
-        clients = (await loadClientMasterSnapshot(context)).clients.filter((client) =>
-          !["transferred", "closed", "deceased"].includes(client.status));
-      } catch (error) {
-        if (!(error instanceof ClientMasterSnapshotError)) throw error;
-        loadError = true;
-      }
-    }
-    // Keep the one-client-first entry limited to workflows that have a scoped
-    // draft/manual-record write path. Standardized scales without an approved
-    // instrument and persistence workflow remain explicitly unavailable below.
-    const entryPageNumbers = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28, 32, 33, 34, 35, 36, 51]);
-    const entryPages = staffPages.filter((candidate) => entryPageNumbers.has(candidate.number) &&
-      canAccessCatalogPage(context, candidate));
-    const unavailablePageNumbers = new Set<number>();
-    const unavailablePages = staffPages.filter((candidate) => unavailablePageNumbers.has(candidate.number) &&
-      canAccessCatalogPage(context, candidate));
-    const requestedInstrument = typeof query.externalInstrument === "string" &&
-      Object.hasOwn(externalAssessmentInstruments, query.externalInstrument)
-      ? query.externalInstrument as ExternalAssessmentInstrument : null;
-    let canReadExternalResults = false;
-    let canWriteExternalResults = false;
-    if (!context.demo) {
-      [canReadExternalResults, canWriteExternalResults] = await Promise.all([
-        canUseRoutineCare(context, "care_records.read"),
-        canUseRoutineCare(context, "care_records.write"),
-      ]);
-    }
-    return <AssessmentEntryWorkspace clients={clients} error={loadError}
-      pages={entryPages} unavailablePages={unavailablePages} selectedClientId={selectedClientId}
-      initialExternalInstrument={requestedInstrument} canReadExternalResults={canReadExternalResults}
-      canWriteExternalResults={canWriteExternalResults} />;
   }
 
   if (page.number === 20) {

@@ -5,8 +5,10 @@ import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
+import { externalInstrumentByQuestionnaireForm } from "@/lib/external-assessment-results/contract";
 import { useScopeChangeDraftRegistration } from "@/lib/navigation/scope-change-pending";
 import { scoreAssessment } from "@/lib/assessments/engine";
+import { parseQuestionnaireMutationReceipt } from "@/lib/questionnaire-assessments/receipt";
 import type { AssessmentAnswers, AssessmentRuleSnapshot } from "@/lib/assessments/types";
 import type {
   QuestionnaireAnswers,
@@ -20,7 +22,6 @@ import { validateMnaAnthropometry, type MnaAnthropometryIssue } from "@/lib/ques
 import styles from "./questionnaire-assessments.module.css";
 
 const historyGuardKey = "__daycareAssessmentUnsavedGuard";
-
 export function canPreviewApprovedScore(
   rule: Pick<AssessmentRuleSnapshot, "activatedAt" | "reviewRequired"> | null | undefined,
   now = Date.now(),
@@ -237,8 +238,15 @@ function QuestionnaireEditor({
       if (definiteRejection && !saveUnknown) { operationKey.current = null; operationBody.current = null; }
       throw new Error(errorText(payload));
     }
-    const data = (payload as { data?: unknown }).data as { recordState?: unknown } | null;
-    if (!data || data.recordState !== "draft") throw new Error("無法確認草稿保存狀態，請保留內容並重新載入確認。");
+    const receipt = parseQuestionnaireMutationReceipt(payload, {
+      action,
+      clientId: client.clientId,
+      formKey: form.key,
+      assessedOn,
+      assessmentKey: latest?.assessmentKey,
+      previousVersion: latest?.version,
+    });
+    if (!receipt) throw new Error("無法確認這位個案的草稿保存回條，請保留內容並以同一次操作重試。");
     operationKey.current = null;
     operationBody.current = null;
     setSaveUnknown(false);
@@ -507,6 +515,7 @@ function QuestionnaireEditor({
 export function QuestionnaireAssessmentsWorkspace({
   assessorName,
   canManage,
+  canReadExternalResults = false,
   form,
   loadError,
   pageTitle,
@@ -515,6 +524,7 @@ export function QuestionnaireAssessmentsWorkspace({
 }: {
   assessorName: string;
   canManage: boolean;
+  canReadExternalResults?: boolean;
   form: QuestionnaireFormDefinition;
   loadError: boolean;
   pageTitle: string;
@@ -730,6 +740,10 @@ export function QuestionnaireAssessmentsWorkspace({
       </label>
       <button className="button button--secondary" ref={selectionButton} type="submit">{chosenClient ? "更換個案" : "開始填寫"}</button>
     </form>
+    {chosenClient && canReadExternalResults ? <a className="button button--secondary"
+      href={`/app/staff/assessments/external-results?client=${encodeURIComponent(chosenClient.clientId)}&externalInstrument=${externalInstrumentByQuestionnaireForm[form.key]}#external-result-entry`}>
+      有紙本結果？登錄
+    </a> : null}
     {leaveError ? <p className={styles.fieldError} role="alert">{leaveError}</p> : null}
     {writeGuard.unknown ? <p className={styles.fieldError} role="status">{holdMessage}</p> : null}
 

@@ -16,7 +16,10 @@ import type {
   InsulinState,
 } from "@/lib/insulin-administrations/types";
 
-import { InsulinAdministrationActions } from "./insulin-administration-actions";
+import {
+  InsulinAdministrationActions,
+  InsulinMutationProvider,
+} from "./insulin-administration-actions";
 import styles from "./insulin-administrations.module.css";
 
 const stateLabel: Record<InsulinState, string> = {
@@ -153,7 +156,7 @@ export function InsulinAdministrationsWorkspace({ filters, loadError, page, snap
     {snapshot.items.length === 0 ? <section className="empty-card">
       <span className="empty-card__icon"><Syringe aria-hidden="true" /></span>
       <h2>沒有可顯示的治理時點</h2><p>可能沒有符合篩選的時點，或正式治理／計畫指定尚未配置。</p>
-    </section> : <>
+    </section> : <InsulinMutationProvider>
       <div className={styles.tableWrap}><table><caption>胰島素施打不可變快照</caption>
         <thead><tr><th>個案／排程</th><th>Page 8 計畫證據</th><th>狀態</th>
           <th>執行／覆核證據</th><th>操作</th><th>歷程</th></tr></thead>
@@ -171,6 +174,6 @@ export function InsulinAdministrationsWorkspace({ filters, loadError, page, snap
         </tr>)}</tbody></table></div>
       <div className={styles.cards}>{snapshot.items.map((item) => <MobileCard
         key={item.medicationPlanId} item={item} snapshot={snapshot} />)}</div>
-    </>}
+    </InsulinMutationProvider>}
   </div>;
 }

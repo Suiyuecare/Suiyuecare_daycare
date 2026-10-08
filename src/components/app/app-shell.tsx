@@ -166,7 +166,8 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
-    : activePage?.title ?? appBranding.applicationName;
+    : activePage?.title ?? (pathname === "/app/staff/assessments/external-results"
+      ? "外部評估結果登錄" : appBranding.applicationName);
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
     if (selection.scope.organizationId !== context.organizationId ||
         selection.scope.branchId !== context.branchId ||

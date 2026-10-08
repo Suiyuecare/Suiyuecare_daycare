@@ -39,6 +39,7 @@
 }
 
 .intro { margin: 0; padding: .85rem 1.25rem 0; color: #625b53; font-size: .92rem; line-height: 1.6; }
+.instrumentPicker { padding: 1rem 1.25rem 0; max-width: 420px; }
 
 .form {
   display: grid;
@@ -47,10 +48,10 @@
   padding: 1rem 1.25rem 1.25rem;
 }
 
-.form label { display: grid; align-content: start; gap: .35rem; color: #544c44; font-size: .85rem; font-weight: 650; }
-.form input, .form select, .form textarea {
+:is(.form, .instrumentPicker) label { display: grid; align-content: start; gap: .35rem; color: #544c44; font-size: .85rem; font-weight: 650; }
+:is(.form, .instrumentPicker) input, :is(.form, .instrumentPicker) select, .form textarea {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   padding: .6rem .75rem;
   border: 1px solid #e6d8c8;
   border-radius: 9px;
@@ -59,8 +60,8 @@
   font: inherit;
   font-size: 1rem;
 }
-.form textarea { min-height: 74px; resize: vertical; }
-.form input:focus-visible, .form select:focus-visible, .form textarea:focus-visible { outline: 3px solid rgb(225 126 4 / 25%); outline-offset: 1px; border-color: #d78116; }
+.form textarea { min-height: 92px; resize: none; }
+:is(.form, .instrumentPicker) input:focus-visible, :is(.form, .instrumentPicker) select:focus-visible, .form textarea:focus-visible { outline: 3px solid rgb(225 126 4 / 25%); outline-offset: 1px; border-color: #d78116; }
 .scoreFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .wide { grid-column: 1 / -1; }
 .caution { display: flex; align-items: flex-start; gap: .45rem; grid-column: 1 / -1; margin: 0; padding: .65rem .8rem; border-radius: 8px; background: #fff7e9; color: #75511f; font-size: .84rem; line-height: 1.5; }
@@ -68,8 +69,17 @@
 .error, .success { display: flex; align-items: center; gap: .45rem; grid-column: 1 / -1; margin: 0; font-size: .9rem; }
 .error { color: #9e3028; }
 .success { color: #236c44; }
+.feedbackError, .feedbackSuccess { margin: 0 1.25rem 1rem; font-size: .9rem; line-height: 1.5; }
+.feedbackError { color: #9e3028; }
+.feedbackSuccess { display: flex; gap: .45rem; align-items: center; color: #236c44; }
+.feedbackSuccess svg { width: 17px; height: 17px; }
+.retryHold { margin: 0 1.25rem 1rem; padding: .8rem; border: 1px solid #e9c786; border-radius: 9px; background: #fff7e9; }
+.retryHold p { margin: 0 0 .65rem; color: #75511f; line-height: 1.5; }
+.retryHold button, .reloadAction button { display: inline-flex; align-items: center; gap: .4rem; min-height: 44px; }
+.retryHold svg, .reloadAction svg { width: 17px; height: 17px; }
+.reloadAction { padding: 0 1.25rem 1rem; }
 .actions { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: .6rem; }
-.actions button { min-height: 42px; }
+.actions button { min-height: 44px; }
 .actions button svg { width: 17px; height: 17px; }
 .spinning { animation: spin 1s linear infinite; }
 .history { padding: 1rem 1.25rem 1.25rem; border-top: 1px solid var(--line, #f2d8b7); background: #fffdf9; }
@@ -87,6 +97,9 @@
 
 @media (max-width: 760px) {
   .form { grid-template-columns: 1fr; gap: .75rem; padding-inline: 1rem; }
+  .instrumentPicker { padding-inline: 1rem; }
+  .feedbackError, .feedbackSuccess, .retryHold { margin-inline: 1rem; }
+  .reloadAction { padding-inline: 1rem; }
   .wide, .caution, .error, .success, .actions { grid-column: auto; }
   .scoreFields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .header, .history { padding-inline: 1rem; }
