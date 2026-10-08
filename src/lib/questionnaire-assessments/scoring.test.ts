@@ -6,8 +6,8 @@ import type { AssessmentAnswers } from "@/lib/assessments/types";
 import { QUESTIONNAIRE_FORMS } from "./forms";
 
 describe("fillable assessment scoring contracts", () => {
-  it.each(Object.values(QUESTIONNAIRE_FORMS))("maps every answer in $title to its fixed scoring version", (form) => {
-    if (!form.scoreVersionId) throw new Error(`${form.key} is missing a scoring version`);
+  it.each(Object.values(QUESTIONNAIRE_FORMS).filter((form) => form.scoreVersionId))(
+    "maps every approved-for-preview answer in $title to its fixed scoring version", (form) => {
     const answers: AssessmentAnswers = Object.fromEntries(form.questions.map((question) => [
       question.id,
       { state: "answered", value: question.choices[0]!.value },
@@ -16,7 +16,7 @@ describe("fillable assessment scoring contracts", () => {
       ? { education_adjustment: "middle_or_high_school" }
       : {};
     const result = scoreAssessment({
-      versionId: form.scoreVersionId,
+      versionId: form.scoreVersionId!,
       answers,
       context,
     });
@@ -24,7 +24,8 @@ describe("fillable assessment scoring contracts", () => {
     expect(result.status, form.key).toBe("complete");
     expect(result.score, form.key).not.toBeNull();
     expect(result.rule?.versionId, form.key).toBe(form.scoreVersionId);
-  });
+    },
+  );
 
   it("keeps BSRS-5 safety item outside the summed five-item score", () => {
     const form = QUESTIONNAIRE_FORMS.bsrs5;

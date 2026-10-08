@@ -95,3 +95,78 @@ describe("MNA-SF questionnaire API consistency", () => {
     expect((await response.json()).data).toMatchObject({ recordState: "draft" });
   });
 });
+
+describe("AD8 candidate answer draft API", () => {
+  const ad8 = getQuestionnaireForm("ad8")!;
+  const candidateActor = {
+    ...actor,
+    scopes: ["clients.read", "questionnaire_cognition.read", "questionnaire_cognition.manage"],
+  };
+  const requestAd8 = (key = idempotencyKey) => new Request(
+    "https://example.invalid/api/questionnaire-assessments?form_key=ad8",
+    { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: "{}" },
+  );
+  const candidateBody = () => ({
+    action: "create", clientId, formKey: "ad8", formVersion: ad8.version,
+    assessedOn: "2026-10-08", context: {},
+    answers: Object.fromEntries(ad8.questions.map(({ id }, index) => [id,
+      index === 0 ? { state: "answered", value: "unknown" } : { state: "missing" }])),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stubs.authorizeStaffRequest.mockResolvedValue(candidateActor);
+    stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
+    stubs.rpc.mockResolvedValue({ data: { recordState: "draft", replayed: false }, error: null });
+  });
+
+  it("keeps unknown, missing, tenant and retry key separate in one candidate-only draft", async () => {
+    const payload = candidateBody();
+    stubs.readJsonObject.mockResolvedValue(payload);
+    expect((await POST(requestAd8())).status).toBe(201);
+    expect(stubs.rpc).toHaveBeenCalledWith("mutate_questionnaire_assessment", {
+      p_expected_organization_id: organizationId,
+      p_expected_branch_id: branchId,
+      p_idempotency_key: idempotencyKey,
+      p_payload: expect.objectContaining({
+        form_key: "ad8", form_version: ad8.version, client_id: clientId,
+        answers: expect.objectContaining({
+          ad8_01: { state: "answered", value: "unknown" },
+          ad8_02: { state: "missing" },
+        }),
+      }),
+    });
+    stubs.rpc.mockResolvedValue({ data: { recordState: "draft", replayed: true }, error: null });
+    expect((await (await POST(requestAd8())).json()).data.replayed).toBe(true);
+    expect(stubs.rpc).toHaveBeenCalledTimes(2);
+    expect(stubs.rpc.mock.calls[0][1]).toEqual(stubs.rpc.mock.calls[1][1]);
+  });
+
+  it.each([
+    ["not-applicable", (input: ReturnType<typeof candidateBody>) => ({
+      ...input, answers: { ...input.answers, ad8_01: { state: "not_applicable", reason: "合成原因" } },
+    })],
+    ["unknown option", (input: ReturnType<typeof candidateBody>) => ({
+      ...input, answers: { ...input.answers, ad8_01: { state: "answered", value: "diagnosed" } },
+    })],
+    ["missing item key", (input: ReturnType<typeof candidateBody>) => ({
+      ...input, answers: Object.fromEntries(Object.entries(input.answers).filter(([key]) => key !== "ad8_08")),
+    })],
+    ["forged score", (input: ReturnType<typeof candidateBody>) => ({ ...input, score: 2 })],
+  ])("rejects %s before the database RPC", async (_, change) => {
+    stubs.readJsonObject.mockResolvedValue(change(candidateBody()));
+    const response = await POST(requestAd8());
+    expect(response.status).toBe(400);
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("denies a staff account without the cognition read scope", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({
+      ...candidateActor, scopes: ["clients.read", "questionnaire_cognition.manage"],
+    });
+    stubs.readJsonObject.mockResolvedValue(candidateBody());
+    const response = await POST(requestAd8());
+    expect(response.status).toBe(403);
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+});

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Bell,
+  BrainCircuit,
   Building2,
   ChevronDown,
   ClipboardList,
@@ -35,6 +36,7 @@ import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 import { DAILY_SERVICE_SUMMARY_PATH } from "@/lib/daily-service-summary/query";
 import { iconForPage } from "./page-icons";
 import { ASSESSMENT_MATRIX_PATH, ASSESSMENT_MATRIX_TITLE, canViewAssessmentMatrix } from "@/lib/assessment-matrix/config";
+import { AD8_CANDIDATE_PATH, AD8_CANDIDATE_TITLE, canViewAd8Candidate } from "@/lib/questionnaire-assessments/ad8-candidate";
 
 // Keep the shared entry points stable. The third slot is a familiar task for
 // the person's approved role, selected only from server-filtered navigation.
@@ -147,7 +149,7 @@ export function AppShell({
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
   const activeGroup = navigation.find((group) =>
     group.pages.some((page) => page.number === activePage?.number) ||
-    (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"));
+    ((pathname === ASSESSMENT_MATRIX_PATH || pathname === AD8_CANDIDATE_PATH) && group.id === "assessments"));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
   const showAssessmentMatrixLink = showAssessmentMatrix && canViewAssessmentMatrix(context);
@@ -157,7 +159,7 @@ export function AppShell({
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
       group.pages.some((page) => pathname === `/app/${page.slug}`) ||
-      (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"),
+      ((pathname === ASSESSMENT_MATRIX_PATH || pathname === AD8_CANDIDATE_PATH) && group.id === "assessments"),
     );
     return new Set(active ? [active.id] : ["workspace", "daily-care"]);
   });
@@ -166,6 +168,7 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
+    : pathname === AD8_CANDIDATE_PATH ? AD8_CANDIDATE_TITLE
     : activePage?.title ?? appBranding.applicationName;
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
     if (selection.scope.organizationId !== context.organizationId ||
@@ -527,6 +530,13 @@ export function AppShell({
                 <span>{group.title}</span><ChevronDown aria-hidden="true" />
               </button>
               {expanded ? <div className="nav-group__items">
+                {group.id === "assessments" && canViewAd8Candidate(context) ? <NavigationLink
+                  aria-current={pathname === AD8_CANDIDATE_PATH ? "page" : undefined}
+                  className="nav-link" fullDocument={sensitiveDocument}
+                  href={AD8_CANDIDATE_PATH} loadingLabel={AD8_CANDIDATE_TITLE}
+                  onClick={() => closeMenu({ returnFocus: false })} prefetch={false}>
+                  <span className="nav-link__icon"><BrainCircuit aria-hidden="true" /></span><span>{AD8_CANDIDATE_TITLE}</span>
+                </NavigationLink> : null}
                 {group.id === "assessments" && showAssessmentMatrixLink ? <NavigationLink
                   aria-current={pathname === ASSESSMENT_MATRIX_PATH ? "page" : undefined}
                   className="nav-link" fullDocument={sensitiveDocument}
