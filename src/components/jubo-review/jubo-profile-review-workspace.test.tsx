@@ -2,8 +2,19 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { hasPendingOperations, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
 
 import { JuboProfileReviewWorkspace } from "./jubo-profile-review-workspace";
+
+const controls = vi.hoisted(() => ({ releases: [] as Array<() => void> }));
+vi.mock("@/lib/navigation/pending-operation-lock", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/navigation/pending-operation-lock")>();
+  return { ...actual, tryAcquirePendingOperation: () => {
+    const release = actual.tryAcquirePendingOperation();
+    if (release) controls.releases.push(release);
+    return release;
+  } };
+});
 
 const pairId = "a1000000-0000-4000-8000-000000000001";
 const rowId = "a2000000-0000-4000-8000-000000000001";
@@ -54,7 +65,7 @@ beforeEach(() => {
     return response(receipt);
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); for (const release of controls.releases.splice(0)) release(); vi.unstubAllGlobals(); });
 
 it("shows only 23 source ordinals before a row is explicitly previewed", async () => {
   render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
@@ -84,7 +95,9 @@ it("requires explicit field acknowledgment and reason; sends source-bound hashes
   expect(screen.getByRole("button", { name: "記錄：已核准" })).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox", { name: /我已核對此列原值/ }));
   fireEvent.click(screen.getByRole("button", { name: "記錄：已核准" }));
+  expect(hasPendingOperations()).toBe(true);
   await waitFor(() => expect(requests.some((request) => request.url.endsWith("/decision"))).toBe(true));
+  await waitFor(() => expect(hasPendingOperations()).toBe(false));
   const sent = JSON.parse(String(requests.find((request) => request.url.endsWith("/decision"))?.options.body));
   expect(sent).toMatchObject({ pairId, sourceRowId: rowId, previewId: preview.previewId,
     sourceRowSha256: hash, mappingReviewSha256: "b".repeat(64), previewSha256: "c".repeat(64),
@@ -103,12 +116,15 @@ it("never loads private rows before AAL2; a status check still asks the guarded 
   await waitFor(() => expect(requests).toHaveLength(1));
 });
 
-it("does not silently retry an uncertain write and permits only a status check", async () => {
+it("holds branch/logout/reload during uncertainty and retries only the exact original operation", async () => {
+  let writes = 0;
   vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit = {}) => {
     requests.push({ url, options });
     if (url.endsWith("/queue")) return response(queue);
     if (url.endsWith("/preview")) return response(preview);
-    throw new Error("network timeout");
+    writes += 1;
+    if (writes === 1) throw new Error("network timeout");
+    return response({ ...receipt, decision: "held", replayed: true });
   }));
   render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
   fireEvent.click(await screen.findByRole("button", { name: /第 6 列/ }));
@@ -118,11 +134,42 @@ it("does not silently retry an uncertain write and permits only a status check",
   fireEvent.click(screen.getByRole("checkbox", { name: /我已核對此列原值/ }));
   fireEvent.click(screen.getByRole("button", { name: "記錄：暫緩" }));
   await screen.findByRole("alert");
+  expect(hasPendingOperations()).toBe(true);
+  expect(tryAcquireViewTransition()).toBeNull();
+  const beforeUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(beforeUnload);
+  expect(beforeUnload.defaultPrevented).toBe(true);
   expect(requests.filter((entry) => entry.url.endsWith("/decision"))).toHaveLength(1);
   expect(screen.getByRole("button", { name: "核對狀態" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "核對狀態" }));
   await waitFor(() => expect(requests.filter((entry) => entry.url.endsWith("/queue"))).toHaveLength(2));
   expect(requests.filter((entry) => entry.url.endsWith("/decision"))).toHaveLength(1);
-  expect(await screen.findByText("尚未確認原送出結果。請稍後再核對狀態，暫勿重新送出。")).toBeInTheDocument();
+  expect(await screen.findByText("尚未確認原送出結果。請以原操作核對，暫勿建立新一次覆核。")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /第 6 列/ })).toBeDisabled();
+  expect(hasPendingOperations()).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "以原操作核對" }));
+  await waitFor(() => expect(hasPendingOperations()).toBe(false));
+  const decisions = requests.filter((entry) => entry.url.endsWith("/decision"));
+  expect(decisions).toHaveLength(2);
+  expect(decisions[0]?.options.body).toBe(decisions[1]?.options.body);
+});
+
+it("releases the tab-wide lease when the server proves an uncommitted AAL2 rejection", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit = {}) => {
+    requests.push({ url, options });
+    if (url.endsWith("/queue")) return response(queue);
+    if (url.endsWith("/preview")) return response(preview);
+    return { ok: false, status: 403, json: async () => ({ status: "error", data: null,
+      errors: [{ code: "JUBO_REAUTH_REQUIRED", message: "重新驗證已逾時" }] }) };
+  }));
+  render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
+  fireEvent.click(await screen.findByRole("button", { name: /第 6 列/ }));
+  await screen.findByText("SYN-ID-0001");
+  fireEvent.change(screen.getByRole("textbox", { name: /覆核理由/ }),
+    { target: { value: "合成來源逐欄確認後暫緩處理" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /我已核對此列原值/ }));
+  fireEvent.click(screen.getByRole("button", { name: "記錄：暫緩" }));
+  await waitFor(() => expect(hasPendingOperations()).toBe(false));
+  expect(screen.getByText(/未建立本次覆核/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "以原操作核對" })).not.toBeInTheDocument();
 });

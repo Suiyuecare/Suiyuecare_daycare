@@ -7,11 +7,22 @@ import {
   juboReviewPreviewSchema, juboReviewQueueSchema, juboReviewReceiptSchema,
   type JuboReviewPreview, type JuboReviewQueue, type JuboReviewRequest,
 } from "@/lib/jubo-review/model";
+import { tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
 
 import styles from "./jubo-profile-review.module.css";
 
 type Decision = JuboReviewRequest["decision"];
 type ApiError = { code?: string; message?: string };
+type ReviewAttempt = { request: JuboReviewRequest; sourceSheetRow: number; expiresAt: string; reviewVersion: number; ambiguous: boolean };
+
+class ReviewHttpError extends Error {
+  constructor(message: string, readonly code: string, readonly status: number) { super(message); }
+}
+
+const knownNonCommitCodes = new Set([
+  "AUTH_REQUIRED", "JUBO_REAUTH_REQUIRED", "JUBO_REVIEW_DENIED", "JUBO_REVIEW_INVALID",
+  "JUBO_REVIEW_ORIGIN_DENIED", "JUBO_REVIEW_JSON_REQUIRED",
+]);
 
 const queueUrl = "/api/jubo-profile-review/queue";
 const previewUrl = "/api/jubo-profile-review/preview";
@@ -56,9 +67,10 @@ async function privateJson(url: string, body?: object, signal?: AbortSignal) {
   const record = envelope as { status?: unknown; data?: unknown; errors?: ApiError[] };
   if (!response.ok || record.status !== "ok") {
     const first = Array.isArray(record.errors) ? record.errors[0] : undefined;
-    throw new Error(first?.code === "JUBO_REAUTH_REQUIRED"
+    throw new ReviewHttpError(first?.code === "JUBO_REAUTH_REQUIRED"
       ? "重新驗證已逾時；驗證後再載入。"
-      : typeof first?.message === "string" ? first.message : "暫時無法載入；請稍後重試。");
+      : typeof first?.message === "string" ? first.message : "暫時無法載入；請稍後重試。",
+    typeof first?.code === "string" ? first.code : "UNKNOWN", response.status);
   }
   return record.data;
 }
@@ -82,10 +94,21 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [uncertain, setUncertain] = useState(false);
+  const [attemptExpiry, setAttemptExpiry] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const previewController = useRef<AbortController | null>(null);
   const queueController = useRef<AbortController | null>(null);
   const uncertainSource = useRef<{ pairId: string; sourceRowId: string; reviewVersion: number } | null>(null);
+  const attempt = useRef<ReviewAttempt | null>(null);
+  const sending = useRef(false);
+  // This lease is deliberately kept across uncertain results and unmounts.
+  // AppShell branch changes, logout and reload must not make a second write look safe.
+  const operationLease = useRef<(() => void) | null>(null);
+  function releaseKnownAttempt() {
+    operationLease.current?.(); operationLease.current = null;
+    attempt.current = null; uncertainSource.current = null;
+    setAttemptExpiry(null);
+  }
 
   const loadQueue = useCallback(async () => {
     queueController.current?.abort();
@@ -102,13 +125,10 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
       if (pending) {
         const latest = parsed.data.pairs.find((pair) => pair.pairId === pending.pairId)
           ?.sourceRows.find((row) => row.sourceRowId === pending.sourceRowId);
-        if (latest && latest.reviewVersion > pending.reviewVersion) {
-          uncertainSource.current = null; setUncertain(false);
-          setMessage(`第 ${latest.sourceSheetRow} 列有新的審核版本 v${latest.reviewVersion}；請核對決定後再繼續。`);
-        } else {
-          setUncertain(true);
-          setError("尚未確認原送出結果。請稍後再核對狀態，暫勿重新送出。");
-        }
+        setUncertain(true);
+        if (latest && latest.reviewVersion > pending.reviewVersion)
+          setError(`第 ${latest.sourceSheetRow} 列已有新版本 v${latest.reviewVersion}，但尚未證明是本次操作；請以原操作核對。`);
+        else setError("尚未確認原送出結果。請以原操作核對，暫勿建立新一次覆核。");
       } else setUncertain(false);
     } catch (cause) {
       if (!controller.signal.aborted) {
@@ -124,10 +144,10 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
   }, [loadQueue, recentAal2]);
 
   useEffect(() => {
-    if (!preview) return;
+    if (!preview && !uncertain) return;
     const timer = window.setInterval(() => setNow(Date.now()), 10_000);
     return () => window.clearInterval(timer);
-  }, [preview]);
+  }, [preview, uncertain]);
 
   const selectedPair = queue?.pairs.find((pair) => pair.pairId === selectedPairId);
   const selectedRow = selectedPair?.sourceRows.find((row) => row.sourceRowId === selectedRowId);
@@ -154,27 +174,51 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
 
   async function submitDecision(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!preview || expires || !confirmed || reason.trim().length < 10 || decisionBusy || uncertain) return;
-    const request: JuboReviewRequest = {
-      pairId: preview.pairId, sourceRowId: preview.sourceRowId, previewId: preview.previewId,
-      sourceRowSha256: preview.sourceRowSha256, mappingReviewSha256: preview.mappingReviewSha256,
-      previewSha256: preview.previewSha256, decision, reason: reason.trim(),
-      idempotencyKey: crypto.randomUUID(),
-    };
+    if (!preview || expires || !confirmed || reason.trim().length < 10 || decisionBusy || uncertain || attempt.current) return;
+    const lease = tryAcquirePendingOperation();
+    if (!lease) { setError("另有操作正在處理，請先確認結果後再覆核。"); return; }
+    operationLease.current = lease;
+    try {
+      attempt.current = { request: {
+        pairId: preview.pairId, sourceRowId: preview.sourceRowId, previewId: preview.previewId,
+        sourceRowSha256: preview.sourceRowSha256, mappingReviewSha256: preview.mappingReviewSha256,
+        previewSha256: preview.previewSha256, decision, reason: reason.trim(),
+        idempotencyKey: crypto.randomUUID(),
+      }, sourceSheetRow: preview.sourceSheetRow, expiresAt: preview.expiresAt,
+      reviewVersion: selectedRow?.reviewVersion ?? 0, ambiguous: false };
+      setAttemptExpiry(preview.expiresAt);
+    } catch {
+      releaseKnownAttempt(); setError("尚未送出，請重新確認後再試。"); return;
+    }
+    await sendAttempt();
+  }
+
+  async function sendAttempt() {
+    const current = attempt.current;
+    if (!current || sending.current) return;
+    sending.current = true;
     setDecisionBusy(true); setError(""); setMessage("");
     try {
-      const parsed = juboReviewReceiptSchema.safeParse(await privateJson(decisionUrl, request));
-      if (!parsed.success || parsed.data.decision !== decision) throw new Error("回執未能核對；請先查清單狀態。");
+      const parsed = juboReviewReceiptSchema.safeParse(await privateJson(decisionUrl, current.request));
+      if (!parsed.success || parsed.data.decision !== current.request.decision) throw new Error("回執未能核對；請先查清單狀態。");
+      releaseKnownAttempt(); setUncertain(false);
       setReason(""); setConfirmed(false); setPreview(null);
-      setMessage(`第 ${preview.sourceSheetRow} 列已記錄「${decisionLabels[decision]}」，審核版本 ${parsed.data.reviewVersion}。`);
+      setMessage(`第 ${current.sourceSheetRow} 列已記錄「${decisionLabels[current.request.decision]}」，審核版本 ${parsed.data.reviewVersion}。`);
       await loadQueue();
     } catch (cause) {
+      if (!current.ambiguous && cause instanceof ReviewHttpError && [400, 401, 403, 415].includes(cause.status)
+        && knownNonCommitCodes.has(cause.code)) {
+        releaseKnownAttempt(); setUncertain(false); setPreview(null); setReason(""); setConfirmed(false);
+        setError(`${safeError(cause, "操作未通過驗證。")} 未建立本次覆核，請重新驗證或預覽。`);
+        return;
+      }
       // A timeout or broken response might have committed. Never create a second attempt automatically.
-      uncertainSource.current = { pairId: preview.pairId, sourceRowId: preview.sourceRowId,
-        reviewVersion: selectedRow?.reviewVersion ?? 0 };
+      current.ambiguous = true;
+      uncertainSource.current = { pairId: current.request.pairId, sourceRowId: current.request.sourceRowId,
+        reviewVersion: current.reviewVersion };
       setUncertain(true); setPreview(null); setReason(""); setConfirmed(false);
-      setError(`${safeError(cause, "結果尚未確認。")} 請先核對清單，不要重複送出。`);
-    } finally { setDecisionBusy(false); }
+      setError(`${safeError(cause, "結果尚未確認。")} 請以原操作核對；不要另開新一次覆核。`);
+    } finally { sending.current = false; setDecisionBusy(false); }
   }
 
   function selectPair(pairId: string) {
@@ -198,6 +242,12 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
     </section> : null}
     {error ? <div className={styles.error} role="alert"><AlertCircle aria-hidden="true" />{error}</div> : null}
     {message ? <div className={styles.success} role="status"><Check aria-hidden="true" />{message}</div> : null}
+    {uncertain && attemptExpiry ? <div className={styles.warning} role="status"><ShieldCheck aria-hidden="true" />
+      <span>這筆覆核尚待確認；切換分支、登出與重新整理會被暫停。</span>
+      <button className="button button--secondary" disabled={decisionBusy || Date.parse(attemptExpiry) <= now}
+        onClick={() => void sendAttempt()} type="button">以原操作核對</button>
+      {Date.parse(attemptExpiry) <= now ? <span>預覽已逾時，請由管理員核對結果。</span> : null}
+    </div> : null}
     {queueBusy ? <p className={styles.loading} role="status">清單讀取中…</p> : null}
     {!queueBusy && queue?.pairs.length === 0 ? <section className={styles.empty}><FileSearch aria-hidden="true" />
       <h2>目前沒有可覆核的 23 筆來源組</h2><p>這不代表已完成移轉；請在管理端確認來源配對與核准狀態。</p>
