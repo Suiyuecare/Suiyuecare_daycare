@@ -52,7 +52,8 @@ export function projectOpeningReadiness({ context, serviceDate, sources, now = n
   const unpreparedStaff = activeStaff?.filter((e) => !e.roleCount || e.employmentGovernanceStatus !== "versioned").length ?? 0;
   const activeClients = clients?.clients.filter((c) => c.status === "active" && c.admittedOn && c.admittedOn <= serviceDate &&
     (!c.endedOn || c.endedOn >= serviceDate));
-  const pendingClients = clients?.clients.filter((c) => c.status === "active" && !c.admittedOn).length ?? 0;
+  const pendingClients = clients?.clients.filter((c) =>
+    c.serviceState === "pending_admission" || (c.status === "active" && !c.admittedOn)).length ?? 0;
   const scheduled = roster?.assignments.filter((r) => r.state === "scheduled" && r.isServiceEligible === true && r.serviceEligibility === "eligible");
   const blockedAssignments = roster?.assignments.filter((r) => r.state === "scheduled" && (r.isServiceEligible !== true || r.serviceEligibility !== "eligible")).length ?? 0;
   const staffIds = new Set(activeStaff?.filter((e) => e.roleCount > 0 && e.employmentGovernanceStatus === "versioned").map((e) => e.profileId));

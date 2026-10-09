@@ -76,6 +76,19 @@ describe("opening readiness: factual checklist, never automatic launch approval"
     expect(result.items.find((i) => i.id === "clients")?.href.endsWith("operations/client-transitions")).toBe(true);
   });
 
+  it("counts formally pending clients as needing admission, not service-ready", () => {
+    const sources = fixtures();
+    if (sources.clients.status === "available") sources.clients.data = { ...sources.clients.data,
+      clients: sources.clients.data.clients.map((client) => ({ ...client,
+        status: "pending" as const, serviceState: "pending_admission" as const, admittedOn: null })) };
+    const result = project(sources);
+    const item = result.items.find((entry) => entry.id === "clients");
+    expect(item?.status).toBe("needs_attention");
+    expect(item?.summary).toContain("位尚未完成收案日期");
+    expect(item?.href.endsWith("operations/client-transitions")).toBe(true);
+    expect(result.items.find((entry) => entry.id === "roster")?.status).toBe("needs_attention");
+  });
+
   it("requires supervisor roster, expected date, and complete fresh source scope", () => {
     const sources = fixtures();
     if (sources.institution.status === "available") sources.institution.data.branchId = "other-branch";
