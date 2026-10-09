@@ -38,14 +38,36 @@ export const directorDraftReceiptSchema = z.object({
   formKey: z.string(), replayed: z.boolean(), formalRecord: z.literal(false),
 }).strict();
 
-const fieldSchema = z.object({ key: z.string(), label: z.string(), original: z.string().nullable(), display: z.string().nullable() }).strict();
+const sourceFieldKeys = [
+  "displayName", "sex", "dateOfBirth", "identityNumber", "registeredAddress", "residentialAddress",
+  "cmsLevel", "disability", "primaryContactName", "primaryContactPhone", "proxyName", "proxyPhone",
+] as const;
+const fieldSchema = z.object({
+  key: z.enum(sourceFieldKeys), label: z.string(), original: z.string().nullable(), display: z.string().nullable(),
+}).strict();
+const sourceFieldsSchema = z.array(fieldSchema).length(sourceFieldKeys.length).superRefine((fields, context) => {
+  for (const [index, expected] of sourceFieldKeys.entries()) {
+    if (fields[index]?.key !== expected) {
+      context.addIssue({ code: "custom", path: [index, "key"], message: "source field order mismatch" });
+    }
+  }
+  // The SQL RPC masks both source and mapped identity. Validate this again at
+  // the API boundary so a regressed RPC cannot emit an unmasked identifier.
+  const identity = fields[3];
+  for (const column of ["original", "display"] as const) {
+    const value = identity?.[column];
+    if (value !== null && value !== undefined && !/^••••.{4}$/u.test(value)) {
+      context.addIssue({ code: "custom", path: [3, column], message: "identity must be masked" });
+    }
+  }
+});
 export const directorWorkspaceSchema = z.object({
   clientId: uuid, clientCode: z.string(), displayName: z.string(), status: z.literal("pending"),
   sourceSystem: z.literal("jubo"), sourceStatus, sourceFirstServiceOn: z.string().nullable(),
   profileVersion: z.number().int().positive(),
   humanReview: z.object({ decision: z.literal("approved"), version: z.number().int().positive(), reviewedAt: z.string() }).strict(),
   normalizationFieldIndices: z.object({ nfkc: z.array(z.number().int()), contactSeparator: z.array(z.number().int()) }).strict(),
-  fields: z.array(fieldSchema).length(12),
+  fields: sourceFieldsSchema,
   localSupplement: z.object({ revision: z.number().int().positive(), payload: localPayload }).strict().nullable(),
   assessmentPreparations: z.array(z.object({ formKey, revision: z.number().int().positive(), payload: preparationPayload }).strict()).max(10),
   formalRecord: z.literal(false), formalOperationsAllowed: z.literal(false),
