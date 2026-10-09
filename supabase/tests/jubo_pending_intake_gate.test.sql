@@ -1,5 +1,5 @@
 begin;
-select plan(74);
+select plan(93);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -23,15 +23,20 @@ insert into public.organizations(id,code,name) values
  ('fa120000-0000-4000-8000-000000000002','jubo_gate_other','合成其他機構');
 insert into public.branches(id,organization_id,code,name) values
  ('fa130000-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000001','main','合成分支'),
- ('fa130000-0000-4000-8000-000000000002','fa120000-0000-4000-8000-000000000002','foreign','合成外部分支');
+ ('fa130000-0000-4000-8000-000000000002','fa120000-0000-4000-8000-000000000002','foreign','合成外部分支'),
+ ('fa130000-0000-4000-8000-000000000003','fa120000-0000-4000-8000-000000000001','sibling','合成同機構分支');
 insert into public.profiles(id,display_name,kind) values
  ('fa100000-0000-4000-8000-000000000001','合成管理員','staff');
 insert into public.memberships(id,organization_id,branch_id,profile_id,status,starts_at) values
  ('fa140000-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000001',
   'fa130000-0000-4000-8000-000000000001','fa100000-0000-4000-8000-000000000001',
+  'active',now()-interval '1 day'),
+ ('fa140000-0000-4000-8000-000000000003','fa120000-0000-4000-8000-000000000001',
+  'fa130000-0000-4000-8000-000000000003','fa100000-0000-4000-8000-000000000001',
   'active',now()-interval '1 day');
 insert into public.membership_roles(membership_id,role_id) values
- ('fa140000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002');
+ ('fa140000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002'),
+ ('fa140000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000002');
 insert into private.executive_access_policy(allowed_user_id,allowed_email,google_subject,enabled,approval_reference)
  values ('fa100000-0000-4000-8000-000000000001','synthetic-jubo@example.invalid',
   'synthetic-jubo-google',true,'synthetic fixture');
@@ -46,6 +51,14 @@ create function pg_temp.master_row(p_n integer) returns jsonb language sql as $$
    when 23 then to_jsonb('1945/01/02'::text)
    when 25 then to_jsonb('SYN-ID-' || lpad(p_n::text,4,'0'))
    when 29 then to_jsonb('0900000000'::text)
+   when 32 then case when p_n=1 then to_jsonb('合成戶籍地址'::text) else 'null'::jsonb end
+   when 35 then case when p_n=1 then to_jsonb('合成現住地址'::text) else 'null'::jsonb end
+   when 48 then case when p_n=1 then to_jsonb('第 3 級'::text) else 'null'::jsonb end
+   when 54 then case when p_n=1 then to_jsonb('合成身障註記'::text) else 'null'::jsonb end
+   when 78 then case when p_n=1 then to_jsonb('合成主要聯絡人'::text) else 'null'::jsonb end
+   when 79 then case when p_n=1 then to_jsonb('0900000001'::text) else 'null'::jsonb end
+   when 80 then case when p_n=1 then to_jsonb('合成代理人'::text) else 'null'::jsonb end
+   when 81 then case when p_n=1 then to_jsonb('0900000002'::text) else 'null'::jsonb end
    else 'null'::jsonb end order by i)
  from generate_series(0,94) i;
 $$;
@@ -408,6 +421,28 @@ select ok(current_setting('test.jubo_receipt') not like '%合成個案%'
    where table_name like 'private.jubo_%' and metadata::text like '%SYN-ID%'),
  'receipts and audits expose no source identities');
 
+select throws_ok($$select private.jubo_profile_from_master(
+ jsonb_set(master_row.raw_values,'{48}','"第 9 級"'::jsonb),pending,'SYN-CODE')
+ from private.jubo_pending_master_rows pending
+ join private.jubo_source_rows master_row on master_row.id=pending.source_row_id
+ where master_row.source_row_number=6$$,
+ '22023','JUBO_PROFILE_CMS_INVALID',
+ 'unrecognized CMS grade fails closed instead of assigning a guessed level');
+select throws_ok($$select private.jubo_profile_from_master(
+ jsonb_set(master_row.raw_values,'{25}','"SYN-ID-9999"'::jsonb),pending,'SYN-CODE')
+ from private.jubo_pending_master_rows pending
+ join private.jubo_source_rows master_row on master_row.id=pending.source_row_id
+ where master_row.source_row_number=6$$,
+ '22023','JUBO_PROFILE_SOURCE_MISMATCH',
+ 'profile identity must hash to the exact reviewed source identity');
+select throws_ok($$select private.jubo_profile_from_master(
+ jsonb_set(master_row.raw_values,'{32}','123'::jsonb),pending,'SYN-CODE')
+ from private.jubo_pending_master_rows pending
+ join private.jubo_source_rows master_row on master_row.id=pending.source_row_id
+ where master_row.source_row_number=6$$,
+ '22023','JUBO_PROFILE_SOURCE_INVALID',
+ 'unexpected non-text source cell cannot be silently coerced to an address');
+
 -- Public master promotion remains owner-only and disabled to app roles. This
 -- test invokes it locally as postgres with synthetic AAL2 evidence only.
 select ok(not has_function_privilege('authenticated',
@@ -448,6 +483,13 @@ select throws_ok($$select private.promote_jubo_public_pending_candidate(
  current_setting('test.jubo_pair')::uuid,
  'faa00000-0000-4000-8000-000000000001')$$,'42501',null,
  'different tenant cannot promote the reviewed source pair');
+select throws_ok($$select private.promote_jubo_public_pending_candidate(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',
+ current_setting('test.jubo_pair')::uuid,
+ 'faa00000-0000-4000-8000-000000000001')$$,'42501',
+ 'JUBO_PUBLIC_PENDING_SCOPE_MISMATCH',
+ 'manager of another branch in the same tenant cannot promote source across branches');
 select set_config('test.jubo_good_jwt',current_setting('request.jwt.claims'),true);
 select set_config('request.jwt.claims',jsonb_set(
  current_setting('request.jwt.claims')::jsonb,'{aal}','"aal1"'::jsonb)::text,true);
@@ -468,6 +510,19 @@ select is((select count(*)::integer from public.clients
  where source_system='jubo' and organization_id='fa120000-0000-4000-8000-000000000001'),0,
  'failed public promotion leaves no client shell');
 drop trigger zz_public_pending_fault on public.clients;
+create function pg_temp.fail_pending_profile() returns trigger language plpgsql as $$
+ begin raise exception using errcode='P0001',message='synthetic profile fault'; end; $$;
+create trigger zz_pending_profile_fault after insert on private.client_intake_versions
+ for each row execute function pg_temp.fail_pending_profile();
+select throws_ok($$select pg_temp.promote_public()$$,'P0001','synthetic profile fault',
+ 'profile version failure rolls back the entire reviewed public promotion');
+select is((select count(*)::integer from private.client_intake_versions),0,
+ 'failed profile write leaves no partial intake versions');
+select is((select count(*)::integer from private.jubo_intake_profile_sources),0,
+ 'failed profile write leaves no JUBO version-source links');
+select is((select count(*)::integer from private.jubo_public_pending_promotions),0,
+ 'failed profile write leaves no promotion receipt');
+drop trigger zz_pending_profile_fault on private.client_intake_versions;
 select set_config('test.jubo_public_receipt',pg_temp.promote_public()::text,true);
 select is((current_setting('test.jubo_public_receipt')::jsonb->>'publicPendingClients')::integer,23,
  'single reviewed operation creates 23 pending public master shells');
@@ -483,6 +538,65 @@ select is((select count(*)::integer from public.clients
  'all 23 public cases remain pending without invented admission dates');
 select is((select count(*)::integer from private.jubo_public_pending_links),23,
  'each pending public case links back to one reviewed master row');
+select is((select count(*)::integer from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.source_system='jubo' and client.status='pending'
+   and version_row.version=1),23,
+ 'each of the 23 pending clients receives intake profile version one');
+select is((select count(*)::integer from private.jubo_intake_profile_sources),23,
+ 'each intake profile version has its own immutable JUBO source link');
+select is((select count(*)::integer from private.jubo_intake_profile_sources source_link
+ join private.jubo_source_rows original_row on original_row.id=source_link.master_source_row_id
+ where source_link.source_sheet_row=original_row.source_row_number
+   and source_link.source_field_indices->>'registeredAddress'='32'
+   and source_link.mapping_version='jubo-master-monthly-202610-v1'),23,
+ 'all profiles retain original row coordinates and a pinned field mapping');
+select is((select count(*)::integer from private.jubo_intake_profile_sources source_link
+ where 'MISSING_MONTHLY_SUMMARY'=any(source_link.warning_codes)),6,
+ 'six master-only records remain marked as lacking a monthly cross-check');
+select is((select count(*)::integer from private.jubo_intake_profile_sources source_link
+ where 'REVIEW_WEEKLY_SCHEDULE'=any(source_link.warning_codes)
+   and 'REVIEW_TRANSPORT'=any(source_link.warning_codes)
+   and 'REVIEW_ABCD_ASSESSMENTS'=any(source_link.warning_codes)
+   and 'REVIEW_MEDICATION_EVIDENCE'=any(source_link.warning_codes)),23,
+ 'all profiles preserve review warnings rather than treating source export as authorization');
+select ok((select version_row.profile->>'registeredAddress'=original_row.raw_values->>32
+   and version_row.profile->>'residentialAddress'=original_row.raw_values->>35
+ from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ join private.jubo_intake_profile_sources source_link on source_link.intake_version_id=version_row.id
+ join private.jubo_source_rows original_row on original_row.id=source_link.master_source_row_id
+ where client.display_name='合成個案1'),
+ 'mapped values can be reconciled to the linked immutable original cell values');
+select ok((select bool_and(source_link.profile_sha256=encode(sha256(
+ convert_to(version_row.profile::text,'UTF8')),'hex')
+ and source_link.master_source_row_sha256=master_row.row_sha256
+ and source_link.pair_id=current_setting('test.jubo_pair')::uuid)
+ from private.jubo_intake_profile_sources source_link
+ join private.client_intake_versions version_row on version_row.id=source_link.intake_version_id
+ join private.jubo_source_rows master_row on master_row.id=source_link.master_source_row_id),
+ 'profile content digest and exact reviewed master row remain linked');
+select ok((select version_row.profile->>'registeredAddress'='合成戶籍地址'
+ and version_row.profile->>'residentialAddress'='合成現住地址'
+ and version_row.profile->>'cmsLevel'='3'
+ and version_row.profile->>'disability'='合成身障註記'
+ and version_row.profile->>'identityNumber'='SYNID0001'
+ and version_row.profile->'contacts'->0->>'name'='合成主要聯絡人'
+ and version_row.profile->'contacts'->1->>'name'='合成代理人'
+ and version_row.profile->'consent'->>'status'='pending'
+ and version_row.profile->'phone'='null'::jsonb
+ from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.display_name='合成個案1'),
+ 'mapped profile contains addresses, CMS, disability, both contacts and unconfirmed consent');
+select ok((select bool_and(version_row.field_authority->>'identityNumber'='jubo_export'
+ and version_row.field_authority->>'cmsLevel'='jubo_export'
+ and version_row.field_authority->>'consent'='unverified'
+ and version_row.field_authority->>'displayName'<>'central')
+ from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.source_system='jubo'),
+ 'vendor source is not mislabeled as official central CMS authority');
 select is((select count(*)::integer from private.jubo_client_source_links
  where import_operation_id=(current_setting('test.jubo_public_receipt')::jsonb->>'promotionId')::uuid),23,
  'each public case has immutable original source-row provenance');
@@ -498,6 +612,20 @@ select ok((select count(*) filter(where pending.source_status='暫停服務')=1
  'source suspended/closed statuses and unknown first service dates remain intact');
 select is((pg_temp.promote_public()->>'replayed')::boolean,true,
  'public promotion replay returns immutable receipt without extra clients');
+select is((select count(*)::integer from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.source_system='jubo'),23,
+ 'idempotent replay does not duplicate profile versions');
+select throws_ok($$insert into private.client_intake_versions(organization_id,branch_id,
+ client_id,version,profile,field_authority,actor_user_id)
+ select version_row.organization_id,version_row.branch_id,version_row.client_id,2,
+   jsonb_set(version_row.profile,'{displayName}','"合成靜默改名"'::jsonb),
+   version_row.field_authority,'fa100000-0000-4000-8000-000000000001'
+ from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.display_name='合成個案1'$$,
+ '42501','JUBO_PENDING_PROFILE_SUPPLEMENT_NOT_PUBLISHED',
+ 'pending source fields cannot be silently overwritten via a generic v2 intake version');
 select throws_ok($$select pg_temp.promote_public(2)$$,'23505',
  'JUBO_PUBLIC_PENDING_ALREADY_COMMITTED',
  'new idempotency key cannot promote same source pair twice');
