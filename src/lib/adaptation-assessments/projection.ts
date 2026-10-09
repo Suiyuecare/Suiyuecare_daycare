@@ -6,7 +6,6 @@ import {
   ADAPTATION_FOLLOW_UP_STATUSES,
   ADAPTATION_RECORD_STATES,
   ADAPTATION_STATUSES,
-  CLIENT_SERVICE_STATUSES,
   type AdaptationAssessmentFilters,
   type AdaptationAssessmentListItem,
   type AdaptationAssessmentSnapshot,
