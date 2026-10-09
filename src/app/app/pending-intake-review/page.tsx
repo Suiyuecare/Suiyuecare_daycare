@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { StaffAccessDenied } from "@/components/app/staff-access-denied";
+import { notFound } from "next/navigation";
 import { PendingIntakeDirectorWorkspace } from "@/components/jubo-pending-director/workspace";
 import { requireTenantContext } from "@/lib/auth/context";
 import { readPendingDirectorDirectory, readPendingDirectorWorkspace } from "@/lib/jubo-pending-director/server";
@@ -14,7 +14,7 @@ export default async function PendingIntakeReviewPage({ searchParams }: { search
   const actor = await requireTenantContext("staff");
   if (actor.demo || !actor.roles.includes("branch_director") ||
     !actor.scopes.includes("clients.jubo_pending_source.read") ||
-    !actor.scopes.includes("clients.intake_draft.manage")) return <StaffAccessDenied />;
+    !actor.scopes.includes("clients.intake_draft.manage")) notFound();
 
   const query = await searchParams;
   const requestedClient = typeof query.client === "string" ? query.client : "";
