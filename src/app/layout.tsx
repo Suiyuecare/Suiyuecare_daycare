@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
+import { Noto_Sans_TC } from "next/font/google";
 import "./globals.css";
 
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 import { appBranding } from "@/lib/config/branding";
+
+const notoSansTc = Noto_Sans_TC({
+  variable: "--font-noto-sans-tc",
+  subsets: ["latin"],
+  weight: "variable",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -24,7 +32,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="zh-Hant">
+    <html lang="zh-Hant" className={notoSansTc.variable}>
       <body>
         <a className="skip-link" href="#main-content">
           跳至主要內容

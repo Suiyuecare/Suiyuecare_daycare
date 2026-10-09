@@ -1,14 +1,14 @@
 ---
 version: alpha
 name: "歲悅日照管理"
-description: "沿用 Finance OS 外框語言，以當班照顧工作為核心的繁體中文產品介面。"
+description: "對齊歲悅 APM／Finance CIS，以當班照顧工作為核心的繁體中文產品介面。"
 colors:
   primary: "#ea880c"
   primaryStrong: "#b45309"
   primaryActionHover: "#92400e"
   ink: "#2f2a26"
   muted: "#6e6259"
-  paper: "#fff9f2"
+  paper: "#f7f3ec"
   surface: "#ffffff"
   soft: "#fff4e4"
   line: "#f1cfa8"
@@ -17,15 +17,16 @@ colors:
   success: "#2a6010"
 typography:
   sans:
-    fontFamily: '"PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif'
+    fontFamily: 'Noto Sans TC, PingFang TC, Microsoft JhengHei, system-ui, sans-serif'
 rounded:
-  DEFAULT: "10px"
+  DEFAULT: "8px"
   sm: "8px"
   md: "10px"
   lg: "10px"
 spacing:
   sidebarDesktop: "300px"
   headerDesktop: "82px"
+  headerMobile: "64px"
   contentDesktop: "32px"
 components:
   button: {}
@@ -39,7 +40,7 @@ components:
 
 ### Creative North Star
 
-像值班交接板一樣，一眼看出「今天要照顧誰、下一步做什麼」；外框沿用公司 Finance OS 的淺紙色、橘色導覽與緊湊框線，不讓 89 個頁面入口壓過當班工作。這是現有產品的設計脈絡，不是新的品牌提案。
+像值班交接板一樣，一眼看出「今天要照顧誰、下一步做什麼」；外框對齊公司 APM 與 Finance 的暖白頁底、橘色導覽、Noto Sans TC 與細框線，不讓 89 個頁面入口壓過當班工作。這是共用的歲悅 CIS，不是新的品牌提案。
 
 - **使用者與場景：** 萬華日照機構的照服員、護理、社工與主管；桌機查核，手機當班快速搜尋個案與接續紀錄。家屬端有獨立外框。
 - **市場／語言：** 臺灣機構，介面使用繁體中文；業務日期以 `Asia/Taipei` 判定。機構全銜與授權分支來自正式情境，不以展示名稱覆寫。
@@ -50,7 +51,7 @@ components:
 
 ## Colors
 
-色票沿用現有 Finance 對齊基線。`primary` 是識別橘，`primaryStrong` 用於深色文字／選取狀態；`paper` 是外框底，`surface` 是資料面，`line` 定義細框，`ink`／`muted` 區分主要與次要資訊。`danger`、`warning`、`success` 只作語意，必須搭配文字與圖示。
+色票對齊 APM 的現行執行時基線。`primary` 是識別橘，`primaryStrong` 用於深色文字／選取狀態；`paper` 是 `#f7f3ec` 外框底，`surface` 是資料面，`line` 定義細框，`ink`／`muted` 區分主要與次要資訊。`danger`、`warning`、`success` 只作語意，必須搭配文字與圖示。
 
 | 本檔 | 執行時來源 | 使用處 |
 |---|---|---|
@@ -63,24 +64,24 @@ components:
 
 ## Typography
 
-字型家族精確鏡像 `--font-sans`，優先支援繁體中文字形。現行基礎本文為 15px、輸入欄位 16px，頁標題約 28–36px，按鈕約 14px；這些是目前程式值，不是所有文字已通過可讀性驗收。個案姓名、動作、錯誤原因優先清楚完整；代碼、日期與次要摘要才使用較小字級。不得為了壓成一行而裁切關鍵健康或權限資訊。
+字型家族鏡像 APM 的 `next/font` Noto Sans TC 與 `--font-sans` 堆疊，優先支援繁體中文字形。基礎本文與輸入欄位為 16px，頁標題約 28–36px，按鈕約 14px；這些是共用基線，不代表所有頁面已通過可讀性驗收。個案姓名、動作、錯誤原因優先清楚完整；代碼、日期與次要摘要才使用較小字級。不得為了壓成一行而裁切關鍵健康或權限資訊。
 
 ## Layout
 
-桌機使用 300px 側欄、82px 頂列與 32px 內容內距；`main-stage` 是主要垂直捲動容器。小於 760px 時使用 56px 頂列、覆蓋式側欄與底部常用功能列，內容需避開安全區。今日工作手機先呈現搜尋與清單，進階篩選可展開；個案中心桌機用表格、手機用卡片，兩者必須保留相同個案身分、狀態及動作。這些是目前切片的布局約定，不表示所有 89 頁已完成響應式驗收。
+1181px 以上使用與 APM 相同的 300px 側欄、82px 單列頂列與 44px 頂列操作目標，內容內距 32px；`main-stage` 是主要垂直捲動容器。761–1180px 保留日照的較窄側欄與 96px 雙列頂列，讓頁名、操作和帳號狀態都保持可見；760px 以下使用 APM 的 64px 頂列，保留日照現行的覆蓋式側欄與底部常用功能列，內容需避開安全區。今日工作手機先呈現搜尋與清單，進階篩選可展開；個案中心桌機用表格、手機用卡片，兩者必須保留相同個案身分、狀態及動作。這些是目前切片的布局約定，不表示所有 89 頁已完成響應式驗收。
 
 ## Elevation & Depth
 
-主要層級靠紙色、白色資料面和細邊框，不在每張靜態卡片加陰影。選單、抽屜和正在載入的覆蓋層可有有限陰影，但不能遮住焦點或讓工作結果看起來已完成。
+主要層級靠紙色、白色資料面和細邊框；共用 Panel 與指標卡使用 APM 的 `0 2px 8px rgb(180 83 9 / 4%)` 輕陰影，不額外堆出重浮卡。選單、抽屜和正在載入的覆蓋層可有有限陰影，但不能遮住焦點或讓工作結果看起來已完成。
 
 ## Shapes
 
-共用控制與卡片圓角依 `--control-radius`／`--card-radius` 為 10px；小尺寸 8px。側欄及少數圖示容器目前有 12–18px 的既有例外，屬需要逐步收斂的現況，不將任意新弧度視為設計規範。按鈕與關鍵觸控目標至少 44px 高。
+共用控制依 APM 為 8px、卡片為 10px 圓角；側欄選取項及少數圖示容器目前有 12–18px 的既有例外，屬需要逐步收斂的現況，不將任意新弧度視為設計規範。按鈕與關鍵觸控目標至少 44px 高。
 
 ## Components
 
 - **狀態：** 導覽有文字、當前頁與可見焦點；待處理、受限、無資料、載入失敗及資料尚未更新各有不同文案。已簽署／已完成不能只因橘色或動畫被推定。
-- **動作：** 既有 `.button` 為 44px 最小高度、10px 標準圓角；一個工作區以單一明確主要動作為主。高風險操作的審核與防重送以業務契約為準。
+- **動作：** 既有 `.button` 為 44px 最小高度、8px 標準圓角；一個工作區以單一明確主要動作為主。高風險操作的審核與防重送以業務契約為準。
 - **導覽：** `AppShell` 擁有 Finance 對齊的側欄／頂列；`NavigationLink` 擁有路由待載入回饋。不要在單頁重新做一套框架或假進度動畫。
 - **資料：** `panel`、`metric-card`、`status-pill` 只濃縮資訊；詳細資料仍可下鑽。手機卡片不得隱藏桌機可執行的核心操作。
 - **輸入與覆蓋層：** 搜尋須有明確清除與鍵盤焦點；原生選單是目前實作，開啟後的跨平台外觀尚未作為 Finance 像素對齊驗收。對話框及抽屜沿用共用層級。
