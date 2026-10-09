@@ -1,5 +1,5 @@
 begin;
-select plan(144);
+select plan(164);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -1052,6 +1052,204 @@ select lives_ok($$select private.assert_jubo_pending_private_client_boundary(
  'fa130000-0000-4000-8000-000000000002',
  'fb500000-0000-4000-8000-000000000001',false)$$,
  'existing active client formal path retains prior behavior');
+
+-- Formal admission needs more than a JUBO first-service date or two people
+-- typing document hashes. These candidate reviews are immutable and
+-- independent, while source verification and pending->active remain disabled.
+select set_config('test.jubo_pending_active_client',(
+ select client.id::text from public.clients client
+ join private.jubo_public_pending_links link on link.client_id=client.id
+ join private.jubo_pending_master_rows source_row on source_row.id=link.pending_row_id
+ where source_row.source_status='服務中' and source_row.source_first_service_on is not null
+ order by source_row.source_row_id limit 1),true);
+select ok((select client.admitted_on is null and client.status='pending'
+ from public.clients client where client.id=current_setting('test.jubo_pending_active_client')::uuid),
+ 'a source first-service date is never treated as formal admission');
+select ok(not has_function_privilege('anon',
+ 'public.propose_jubo_pending_admission(uuid,uuid,uuid,date,text,text,date,date,text,text,bigint,text,uuid)','execute')
+ and not has_function_privilege('service_role',
+ 'public.review_jubo_pending_admission(uuid,uuid,uuid,uuid,text,text,text,uuid)','execute')
+ and not has_function_privilege('authenticated',
+ 'private.activate_jubo_pending_client_candidate(uuid,uuid,uuid)','execute'),
+ 'anon/service cannot review and authenticated cannot activate pending client');
+select ok((select relrowsecurity and relforcerowsecurity from pg_class
+ where oid='private.jubo_pending_admission_proposals'::regclass)
+ and not has_table_privilege('authenticated','private.jubo_pending_admission_proposals','insert'),
+ 'proposal evidence is private, forced RLS and RPC-only');
+create function pg_temp.propose_admission(p_branch uuid default 'fa130000-0000-4000-8000-000000000001',
+ p_key uuid default 'fc100000-0000-4000-8000-000000000001',p_date date default current_date,
+ p_eligibility_hash text default repeat('a',64)) returns jsonb language sql security invoker as $$
+ select public.propose_jubo_pending_admission(
+ 'fa120000-0000-4000-8000-000000000001',p_branch,
+ current_setting('test.jubo_pending_active_client')::uuid,p_date,
+ 'OFFICIAL-SYNTHETIC-REF',p_eligibility_hash,current_date-1,current_date+1,
+ 'AGREEMENT-SYNTHETIC-REF',repeat('b',64),1,
+ '合成來源仍需正式附件和資格人工核對，不得自動收案',p_key);
+$$;
+set local role authenticated;
+select throws_ok($$select pg_temp.propose_admission('fa130000-0000-4000-8000-000000000003')$$,
+ '42501','JUBO_PENDING_ADMISSION_SCOPE_DENIED','sibling branch cannot propose admission');
+select throws_ok($$select pg_temp.propose_admission(
+ 'fa130000-0000-4000-8000-000000000001',
+ 'fc100000-0000-4000-8000-000000000002',current_date+1)$$,
+ '22023','JUBO_PENDING_ADMISSION_INVALID','future admission date is rejected');
+select set_config('test.jubo_admission_proposal',pg_temp.propose_admission()::text,true);
+select is((current_setting('test.jubo_admission_proposal')::jsonb->>'status'),
+ 'awaiting_second_review','proposal is not formal admission');
+select is((pg_temp.propose_admission()->>'replayed')::boolean,true,
+ 'same proposal idempotency key replays immutable receipt');
+select throws_ok($$select pg_temp.propose_admission(
+ 'fa130000-0000-4000-8000-000000000001',
+ 'fc100000-0000-4000-8000-000000000001',current_date,repeat('c',64))$$,
+ '23505','JUBO_PENDING_ADMISSION_IDEMPOTENCY_CONFLICT',
+ 'reusing key with another evidence digest is a conflict');
+select throws_ok($$select public.review_jubo_pending_admission(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_active_client')::uuid,
+ (current_setting('test.jubo_admission_proposal')::jsonb->>'proposalId')::uuid,
+ current_setting('test.jubo_admission_proposal')::jsonb->>'proposalSha256',
+ 'approved','合成獨立人員審核仍待官方證據核對',
+ 'fc200000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_PENDING_ADMISSION_INDEPENDENT_REVIEW_REQUIRED',
+ 'first reviewer cannot approve their own proposal');
+reset role;
+
+insert into auth.users(id,aud,role,email,email_confirmed_at,created_at,updated_at) values
+ ('fc300000-0000-4000-8000-000000000001','authenticated','authenticated',
+ 'synthetic-jubo-reviewer2@example.invalid',now()-interval '1 day',now()-interval '1 day',now());
+insert into auth.identities(id,provider_id,user_id,identity_data,provider) values
+ (gen_random_uuid(),'synthetic-jubo-google-2','fc300000-0000-4000-8000-000000000001',
+ '{"sub":"synthetic-jubo-google-2","email":"synthetic-jubo-reviewer2@example.invalid","email_verified":true}','google');
+insert into auth.sessions(id,user_id,created_at,aal) values
+ ('fc310000-0000-4000-8000-000000000001','fc300000-0000-4000-8000-000000000001',
+ now()-interval '3 minutes','aal2');
+insert into auth.mfa_amr_claims(id,session_id,created_at,updated_at,authentication_method)
+ select gen_random_uuid(),'fc310000-0000-4000-8000-000000000001',
+ to_timestamp(current_setting('test.jubo_amr')::bigint),
+ to_timestamp(current_setting('test.jubo_amr')::bigint),method
+ from unnest(array['oauth','totp']) method;
+insert into public.profiles(id,display_name,kind) values
+ ('fc300000-0000-4000-8000-000000000001','合成第二審查人','staff');
+insert into public.memberships(id,organization_id,branch_id,profile_id,status,starts_at) values
+ ('fc320000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ 'fc300000-0000-4000-8000-000000000001','active',now()-interval '1 day');
+insert into public.membership_roles(membership_id,role_id) values
+ ('fc320000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002');
+insert into private.staff_google_access_grants(allowed_user_id,organization_id,
+ company_email_domain,allowed_email,google_subject,enabled,approval_reference) values
+ ('fc300000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001','example.invalid',
+ 'synthetic-jubo-reviewer2@example.invalid','synthetic-jubo-google-2',true,
+ 'synthetic independent admission review fixture');
+insert into private.reauth_challenges(id,user_id,session_id,nonce_sha256,idempotency_key,
+ issued_jwt_iat,created_at,expires_at,consumed_at,consumed_jwt_iat,factor_method,factor_verified_at)
+ values ('fc330000-0000-4000-8000-000000000001',
+ 'fc300000-0000-4000-8000-000000000001',
+ 'fc310000-0000-4000-8000-000000000001',repeat('f',64),
+ 'fc340000-0000-4000-8000-000000000001',now()-interval '3 minutes',
+ now()-interval '2 minutes',now()+interval '3 minutes',now()-interval '1 minute',
+ now()-interval '1 minute','totp',now()-interval '1 minute');
+insert into private.reauth_events(user_id,session_id,challenge_id,aal,verification_method,verified_at)
+ values ('fc300000-0000-4000-8000-000000000001',
+ 'fc310000-0000-4000-8000-000000000001',
+ 'fc330000-0000-4000-8000-000000000001','aal2','totp',now()-interval '1 minute');
+select set_config('request.jwt.claims',jsonb_build_object(
+ 'sub','fc300000-0000-4000-8000-000000000001',
+ 'session_id','fc310000-0000-4000-8000-000000000001',
+ 'role','authenticated','aud','authenticated','aal','aal1',
+ 'is_anonymous',false,'email','synthetic-jubo-reviewer2@example.invalid',
+ 'iat',floor(extract(epoch from now())),
+ 'exp',floor(extract(epoch from now()+interval '30 minutes')),
+ 'amr',jsonb_build_array(jsonb_build_object('method','oauth',
+   'timestamp',current_setting('test.jubo_amr')::bigint)))::text,true);
+set local role authenticated;
+select throws_ok($$select public.review_jubo_pending_admission(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_active_client')::uuid,
+ (current_setting('test.jubo_admission_proposal')::jsonb->>'proposalId')::uuid,
+ current_setting('test.jubo_admission_proposal')::jsonb->>'proposalSha256',
+ 'approved','合成獨立審查仍待來源驗證',
+ 'fc200000-0000-4000-8000-000000000002')$$,
+ '42501',null,'second reviewer still requires current AAL2, not Google AAL1');
+reset role;
+select set_config('request.jwt.claims',jsonb_set(jsonb_set(
+ current_setting('request.jwt.claims')::jsonb,'{aal}','"aal2"'::jsonb),
+ '{amr}',jsonb_build_array(jsonb_build_object('method','oauth',
+  'timestamp',current_setting('test.jubo_amr')::bigint),
+  jsonb_build_object('method','totp',
+  'timestamp',current_setting('test.jubo_amr')::bigint)))::text,true);
+set local role authenticated;
+select throws_ok($$select public.review_jubo_pending_admission(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',
+ current_setting('test.jubo_pending_active_client')::uuid,
+ (current_setting('test.jubo_admission_proposal')::jsonb->>'proposalId')::uuid,
+ current_setting('test.jubo_admission_proposal')::jsonb->>'proposalSha256',
+ 'approved','合成其他分支不得審核',
+ 'fc200000-0000-4000-8000-000000000003')$$,
+ '42501','JUBO_PENDING_ADMISSION_SCOPE_DENIED',
+ 'second reviewer cannot cross branch');
+select set_config('test.jubo_admission_review',public.review_jubo_pending_admission(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_active_client')::uuid,
+ (current_setting('test.jubo_admission_proposal')::jsonb->>'proposalId')::uuid,
+ current_setting('test.jubo_admission_proposal')::jsonb->>'proposalSha256',
+ 'approved','合成獨立人員審核仍待官方證據核對',
+ 'fc200000-0000-4000-8000-000000000004')::text,true);
+select is(current_setting('test.jubo_admission_review')::jsonb->>'status',
+ 'source_verification_required',
+ 'two-person review cannot claim official source verification');
+select is((public.review_jubo_pending_admission(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_active_client')::uuid,
+ (current_setting('test.jubo_admission_proposal')::jsonb->>'proposalId')::uuid,
+ current_setting('test.jubo_admission_proposal')::jsonb->>'proposalSha256',
+ 'approved','合成獨立人員審核仍待官方證據核對',
+ 'fc200000-0000-4000-8000-000000000004')->>'replayed')::boolean,true,
+ 'second reviewer replay does not create duplicate review');
+reset role;
+select ok((select count(distinct actor)=2 from (
+ select proposed_by as actor from private.jubo_pending_admission_proposals
+ where client_id=current_setting('test.jubo_pending_active_client')::uuid
+ union all select reviewed_by from private.jubo_pending_admission_reviews
+ where client_id=current_setting('test.jubo_pending_active_client')::uuid) actors),
+ 'two independent authenticated users are stored in immutable evidence');
+select throws_ok($$update private.jubo_pending_admission_reviews set decision='held'$$,
+ '55000','IMPORT_STAGING_IMMUTABLE','second-person decision cannot be rewritten');
+select throws_ok($$select private.activate_jubo_pending_client_candidate(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_active_client')::uuid)$$,
+ '42501','JUBO_PENDING_ADMISSION_SOURCE_UNCONFIGURED',
+ 'even owner cannot activate pending without an official evidence source');
+select throws_ok($$update public.clients set status='active',admitted_on=current_date
+ where id=current_setting('test.jubo_pending_active_client')::uuid$$,
+ '42501','JUBO_PENDING_CLIENT_TRANSITION_DISABLED',
+ 'two reviews cannot bypass the pending client update guard');
+select ok((select status='pending' and admitted_on is null and row_version=1
+ from public.clients where id=current_setting('test.jubo_pending_active_client')::uuid),
+ 'no formal admission, service eligibility or inferred attendance is created');
+select is((select count(*)::integer from public.client_transitions
+ where client_id=current_setting('test.jubo_pending_active_client')::uuid),0,
+ 'no official lifecycle transition is emitted by candidate review');
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+set local role authenticated;
+select throws_ok($$select * from public.transition_client(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_active_client')::uuid,
+ 'admit',current_date,'合成不能略過來源驗證',null,1,
+ 'fc500000-0000-4000-8000-000000000001')$$,
+ '23514',null,
+ 'existing lifecycle admission RPC cannot bypass pending-source guard');
+reset role;
+
 update private.reauth_events set verified_at=now()-interval '16 minutes'
  where user_id='fa100000-0000-4000-8000-000000000001'
    and session_id='fa110000-0000-4000-8000-000000000001';
