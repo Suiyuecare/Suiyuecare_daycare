@@ -1,5 +1,5 @@
 begin;
-select plan(15);
+select plan(20);
 
 select ok(
   (select prosecdef and coalesce(proconfig,'{}'::text[]) @> array['search_path=""']
@@ -37,6 +37,15 @@ insert into public.clients(id,organization_id,branch_id,client_code,display_name
   ('97640000-0000-4000-8000-000000000002','97620000-0000-4000-8000-000000000001','97630000-0000-4000-8000-000000000001','A-2','待收案','active',null),
   ('97640000-0000-4000-8000-000000000003','97620000-0000-4000-8000-000000000001','97630000-0000-4000-8000-000000000001','A-3','暫停','suspended',current_date-30),
   ('97640000-0000-4000-8000-000000000004','97620000-0000-4000-8000-000000000001','97630000-0000-4000-8000-000000000002','B-1','他分支','active',current_date-30);
+insert into private.reauth_challenges(id,user_id,session_id,nonce_sha256,idempotency_key,
+  issued_jwt_iat,created_at,expires_at,consumed_at,consumed_jwt_iat,
+  factor_method,factor_verified_at) values
+  ('97650000-0000-4000-8000-000000000001','97610000-0000-4000-8000-000000000001',
+   '97651000-0000-4000-8000-000000000001',repeat('a',64),
+   '97652000-0000-4000-8000-000000000001',now()-interval '2 minutes',
+   now()-interval '2 minutes',now()+interval '5 minutes',
+   now()-interval '30 seconds',now()-interval '30 seconds','totp',
+   now()-interval '30 seconds');
 
 select lives_ok($$select private.assert_client_ids_service_day_locked(
   '97620000-0000-4000-8000-000000000001',
@@ -132,6 +141,93 @@ values ('97620000-0000-4000-8000-000000000001',
 select is((select count(*)::integer from public.activity_schedule_versions
   where organization_id='97620000-0000-4000-8000-000000000001'),1,
   'rejected direct activity write leaves no partial formal record');
+
+select throws_ok($$insert into public.meal_plan_versions(
+  organization_id,branch_id,plan_key,version,previous_version_id,status,
+  service_date,meal_kind,menu_title,ingredients,extra_planned_portions,
+  attendance_client_ids,attendance_snapshot_hash,assignment_snapshot,
+  conflict_snapshot,attendance_count,planned_portion_total,created_by,
+  reauth_challenge_id,created_at,content_hash)
+values('97620000-0000-4000-8000-000000000001',
+  '97630000-0000-4000-8000-000000000001',gen_random_uuid(),1,null,'review',
+  current_date,'lunch','合成午餐','[{"code":"rice","label":"米飯"}]'::jsonb,0,
+  array['97640000-0000-4000-8000-000000000001'::uuid],repeat('a',64),
+  '[{"client_id":"97640000-0000-4000-8000-000000000002"}]'::jsonb,
+  '[]'::jsonb,1,1,'97610000-0000-4000-8000-000000000001',
+  '97650000-0000-4000-8000-000000000001',now(),repeat('a',64))$$,
+  '23514','meal assignment does not match the attendee list',
+  'a pending client cannot be hidden in meal JSON while the UUID array names another client');
+
+select throws_ok($$insert into public.meal_plan_versions(
+  organization_id,branch_id,plan_key,version,previous_version_id,status,
+  service_date,meal_kind,menu_title,ingredients,extra_planned_portions,
+  attendance_client_ids,attendance_snapshot_hash,assignment_snapshot,
+  conflict_snapshot,attendance_count,planned_portion_total,created_by,
+  reauth_challenge_id,created_at,content_hash)
+values('97620000-0000-4000-8000-000000000001',
+  '97630000-0000-4000-8000-000000000001',gen_random_uuid(),1,null,'review',
+  current_date,'lunch','合成午餐','[{"code":"rice","label":"米飯"}]'::jsonb,0,
+  array['97640000-0000-4000-8000-000000000002'::uuid],repeat('a',64),
+  '[{"client_id":"97640000-0000-4000-8000-000000000002"}]'::jsonb,
+  '[]'::jsonb,1,1,'97610000-0000-4000-8000-000000000001',
+  '97650000-0000-4000-8000-000000000001',now(),repeat('a',64))$$,
+  '23514','client is not admitted for formal service day',
+  'a matching pending client still cannot be planned for a served meal');
+
+select lives_ok($$insert into public.meal_plan_versions(
+  organization_id,branch_id,plan_key,version,previous_version_id,status,
+  service_date,meal_kind,menu_title,ingredients,extra_planned_portions,
+  attendance_client_ids,attendance_snapshot_hash,assignment_snapshot,
+  conflict_snapshot,attendance_count,planned_portion_total,created_by,
+  reauth_challenge_id,created_at,content_hash)
+values('97620000-0000-4000-8000-000000000001',
+  '97630000-0000-4000-8000-000000000001',gen_random_uuid(),1,null,'review',
+  current_date,'lunch','合成午餐','[{"code":"rice","label":"米飯"}]'::jsonb,0,
+  array['97640000-0000-4000-8000-000000000001'::uuid],repeat('a',64),
+  '[{"client_id":"97640000-0000-4000-8000-000000000001"}]'::jsonb,
+  '[]'::jsonb,1,1,'97610000-0000-4000-8000-000000000001',
+  '97650000-0000-4000-8000-000000000001',now(),repeat('a',64))$$,
+  'an admitted client with a matching meal snapshot still works');
+
+select throws_ok($$insert into public.reassurance_calendar_event_versions(
+  organization_id,branch_id,event_key,version,previous_version_id,record_kind,
+  revision_reason,category,title,summary,starts_at,ends_at,location,
+  audience_kind,target_client_ids,audience_snapshot,responsible_user_id,
+  responsible_display_name,status,cancellation_reason,publication_state,
+  published_by,publisher_display_name,published_at,signature_status,
+  notification_status,notification_delivery,reauth_challenge_id,content_hash)
+values('97620000-0000-4000-8000-000000000001',
+  '97630000-0000-4000-8000-000000000001',gen_random_uuid(),1,null,'original',
+  null,'activity','合成活動','合成摘要',clock_timestamp()+interval '2 days',
+  clock_timestamp()+interval '2 days 1 hour','活動室','selected_clients',
+  array['97640000-0000-4000-8000-000000000001'::uuid],
+  '[{"target_kind":"client","target_id":"97640000-0000-4000-8000-000000000002"}]'::jsonb,
+  '97610000-0000-4000-8000-000000000001','合成照護員','scheduled',null,
+  'published','97610000-0000-4000-8000-000000000001','合成照護員',now(),
+  'not_configured','not_configured','none_not_sent',
+  '97650000-0000-4000-8000-000000000001',repeat('a',64))$$,
+  '23514','calendar audience does not match the selected clients',
+  'a pending client cannot be hidden in a selected-client calendar snapshot');
+
+select throws_ok($$insert into public.reassurance_calendar_event_versions(
+  organization_id,branch_id,event_key,version,previous_version_id,record_kind,
+  revision_reason,category,title,summary,starts_at,ends_at,location,
+  audience_kind,target_client_ids,audience_snapshot,responsible_user_id,
+  responsible_display_name,status,cancellation_reason,publication_state,
+  published_by,publisher_display_name,published_at,signature_status,
+  notification_status,notification_delivery,reauth_challenge_id,content_hash)
+values('97620000-0000-4000-8000-000000000001',
+  '97630000-0000-4000-8000-000000000001',gen_random_uuid(),1,null,'original',
+  null,'activity','合成活動','合成摘要',clock_timestamp()+interval '2 days',
+  clock_timestamp()+interval '2 days 1 hour','活動室','all_branch_clients',
+  '{}'::uuid[],
+  '[{"target_kind":"client","target_id":"97640000-0000-4000-8000-000000000002"}]'::jsonb,
+  '97610000-0000-4000-8000-000000000001','合成照護員','scheduled',null,
+  'published','97610000-0000-4000-8000-000000000001','合成照護員',now(),
+  'not_configured','not_configured','none_not_sent',
+  '97650000-0000-4000-8000-000000000001',repeat('a',64))$$,
+  '23514','branch-wide calendar audience must contain only its branch marker',
+  'a pending client cannot be disguised as a branch-wide audience marker');
 
 select ok(position('assert_client_ids_service_day_locked' in
   pg_get_functiondef('private.guard_meal_attendees_service_day()'::regprocedure))>0

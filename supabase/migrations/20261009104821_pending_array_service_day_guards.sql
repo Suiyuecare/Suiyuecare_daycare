@@ -65,7 +65,29 @@ execute function private.guard_activity_participants_service_day();
 
 create function private.guard_meal_attendees_service_day()
 returns trigger language plpgsql volatile security definer set search_path = '' as $$
+declare v_snapshot_ids uuid[];
 begin
+  if jsonb_typeof(new.assignment_snapshot) is distinct from 'array'
+    or exists (
+      select 1 from jsonb_array_elements(new.assignment_snapshot) assignment(value)
+      where jsonb_typeof(assignment.value) is distinct from 'object'
+        or coalesce(assignment.value->>'client_id','') !~*
+          '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    ) then
+    raise exception using errcode = '23514',
+      message = 'meal assignment does not match the attendee list';
+  end if;
+  select coalesce(array_agg((assignment.value->>'client_id')::uuid
+    order by (assignment.value->>'client_id')::uuid),'{}'::uuid[])
+    into v_snapshot_ids
+  from jsonb_array_elements(new.assignment_snapshot) assignment(value);
+  if v_snapshot_ids is distinct from coalesce((
+    select array_agg(attendee.client_id order by attendee.client_id)
+    from unnest(new.attendance_client_ids) attendee(client_id)
+  ),'{}'::uuid[]) then
+    raise exception using errcode = '23514',
+      message = 'meal assignment does not match the attendee list';
+  end if;
   perform private.assert_client_ids_service_day_locked(
     new.organization_id, new.branch_id, new.service_date,
     new.attendance_client_ids
@@ -79,9 +101,40 @@ execute function private.guard_meal_attendees_service_day();
 
 create function private.guard_selected_calendar_clients_service_day()
 returns trigger language plpgsql volatile security definer set search_path = '' as $$
+declare v_snapshot_ids uuid[];
 begin
   -- A branch-wide non-client-specific event has no selected-client array.
-  if new.audience_kind = 'selected_clients' then
+  if new.audience_kind = 'all_branch_clients' then
+    if jsonb_typeof(new.audience_snapshot) is distinct from 'array'
+      or jsonb_array_length(new.audience_snapshot) <> 1
+      or new.audience_snapshot->0->>'target_kind' is distinct from 'branch'
+      or new.audience_snapshot->0->>'target_id' is distinct from new.branch_id::text then
+      raise exception using errcode = '23514',
+        message = 'branch-wide calendar audience must contain only its branch marker';
+    end if;
+  elsif new.audience_kind = 'selected_clients' then
+    if jsonb_typeof(new.audience_snapshot) is distinct from 'array'
+      or exists (
+        select 1 from jsonb_array_elements(new.audience_snapshot) audience(value)
+        where jsonb_typeof(audience.value) is distinct from 'object'
+          or audience.value->>'target_kind' is distinct from 'client'
+          or coalesce(audience.value->>'target_id','') !~*
+            '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      ) then
+      raise exception using errcode = '23514',
+        message = 'calendar audience does not match the selected clients';
+    end if;
+    select coalesce(array_agg((audience.value->>'target_id')::uuid
+      order by (audience.value->>'target_id')::uuid),'{}'::uuid[])
+      into v_snapshot_ids
+    from jsonb_array_elements(new.audience_snapshot) audience(value);
+    if v_snapshot_ids is distinct from coalesce((
+      select array_agg(selected.client_id order by selected.client_id)
+      from unnest(new.target_client_ids) selected(client_id)
+    ),'{}'::uuid[]) then
+      raise exception using errcode = '23514',
+        message = 'calendar audience does not match the selected clients';
+    end if;
     perform private.assert_client_ids_service_day_locked(
       new.organization_id, new.branch_id,
       (new.starts_at at time zone 'Asia/Taipei')::date,
