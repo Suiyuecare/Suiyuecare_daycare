@@ -21,8 +21,8 @@ select results_eq(
 select results_eq(
   $$select p.permission_key from public.role_permissions rp join public.permissions p on p.id=rp.permission_id
     where rp.role_id='10000000-0000-4000-8000-000000000011' order by p.permission_key$$,
-  $$values ('attendance.read'),('care_records.read'),('clients.read'),('clients.view_all'),('notifications.read'),('services.read')$$,
-  'director has the exact six approved read-only permissions, not a manager or clinical clone');
+  $$values ('attendance.read'),('care_records.read'),('clients.intake_draft.manage'),('clients.read'),('clients.view_all'),('notifications.read'),('services.read')$$,
+  'director has six read permissions and only the narrow pending-intake draft write, not a manager or clinical clone');
 select is((select count(*)::integer from public.membership_roles where role_id='10000000-0000-4000-8000-000000000011'),0,
   'migration assigns no person to the new director role');
 select is((select count(*)::integer from private.staff_google_access_grants),0,
