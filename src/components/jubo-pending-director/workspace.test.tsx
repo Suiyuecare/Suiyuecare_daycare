@@ -105,4 +105,48 @@ describe("branch director pending JUBO intake workspace", () => {
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     expect(request.mock.calls[0]?.[1]?.body).toBe(request.mock.calls[1]?.[1]?.body);
   });
+
+  it("resolves the exact original receipt despite a newer local revision without issuing another write", async () => {
+    const request = vi.mocked(intakeRequest);
+    request.mockRejectedValueOnce(new Error("合成回覆遺失"))
+      .mockResolvedValueOnce({ found: true, clientId, expectedRevision: 0,
+        payload: { contactPreference: "unknown", visitPlanningNote: "", followUpNote: "合成待補" },
+        receipt: { draftId: "bb280000-0000-4000-8000-000000000001", revision: 1,
+          kind: "local_supplement", formKey: "intake_local", replayed: true, formalRecord: false },
+      })
+      .mockResolvedValueOnce({ ...workspace, localSupplement: { revision: 2, payload: {
+        contactPreference: "unknown", visitPlanningNote: "較新版本", followUpNote: "已追蹤",
+      } } });
+    vi.stubGlobal("crypto", { randomUUID: () => "bb290000-0000-4000-8000-000000000003" });
+    render(<PendingIntakeDirectorWorkspace branchName="合成萬華" initialDirectory={directory}
+      initialWorkspace={workspace} initialError={false} today="2026-10-09" />);
+    fireEvent.change(screen.getByLabelText("缺件與追蹤"), { target: { value: "合成待補" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存補件草稿" }));
+    fireEvent.click(await screen.findByRole("button", { name: "讀回核對" }));
+    expect(await screen.findByText("原次草稿已核對；已有較新版本，畫面已顯示最新內容。")).toBeVisible();
+    expect(screen.getByLabelText("到站規劃")).toHaveValue("較新版本");
+    expect(screen.queryByRole("button", { name: "重試原操作" })).not.toBeInTheDocument();
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      "/api/jubo-pending-director", "/api/jubo-pending-director/receipt",
+      `/api/jubo-pending-director?client=${clientId}`,
+    ]);
+    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({
+      clientId, idempotency_key: "bb290000-0000-4000-8000-000000000003",
+    });
+  });
+
+  it("does not unlock an unknown write when the exact original receipt is missing", async () => {
+    const request = vi.mocked(intakeRequest);
+    request.mockRejectedValueOnce(new Error("合成回覆遺失")).mockResolvedValueOnce({ found: false });
+    vi.stubGlobal("crypto", { randomUUID: () => "bb290000-0000-4000-8000-000000000004" });
+    render(<PendingIntakeDirectorWorkspace branchName="合成萬華" initialDirectory={directory}
+      initialWorkspace={workspace} initialError={false} today="2026-10-09" />);
+    fireEvent.change(screen.getByLabelText("缺件與追蹤"), { target: { value: "合成待補" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存補件草稿" }));
+    fireEvent.click(await screen.findByRole("button", { name: "讀回核對" }));
+    expect(await screen.findByText("尚未讀到原次回條。請用同一請求重試；不要另建一筆。")).toBeVisible();
+    expect(screen.getByLabelText("缺件與追蹤")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重試原操作" })).toBeEnabled();
+    expect(request).toHaveBeenCalledTimes(2);
+  });
 });

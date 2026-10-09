@@ -5,7 +5,7 @@ import { ClipboardCheck, FilePenLine, ShieldAlert, RefreshCw } from "lucide-reac
 import { requestCoreDraftLeave, useCoreDraftGuard } from "@/components/app/core-draft-guard";
 import { StatusPill } from "@/components/ui/status-pill";
 import { intakeErrorMessage, intakeRequest, isDefiniteIntakeRejection } from "@/lib/client-intake/client";
-import { directorDirectorySchema, directorDraftInputSchema, directorDraftReceiptSchema, directorWorkspaceSchema, type DirectorDirectory, type DirectorDraftInput, type DirectorWorkspace } from "@/lib/jubo-pending-director/contract";
+import { directorDirectorySchema, directorDraftInputSchema, directorDraftReceiptSchema, directorExactReceiptSchema, directorWorkspaceSchema, type DirectorDirectory, type DirectorDraftInput, type DirectorWorkspace } from "@/lib/jubo-pending-director/contract";
 import styles from "./workspace.module.css";
 
 const FORM_OPTIONS = [
@@ -50,6 +50,7 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
   const [assessmentDate, setAssessmentDate] = useState(initialPreparation?.payload.assessmentDate ?? today);
   const [qualitativeNote, setQualitativeNote] = useState(initialPreparation?.payload.qualitativeNote ?? "");
   const [pending, setPending] = useState<PendingOperation | null>(null);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
   const firstError = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => { if (error) firstError.current?.focus(); }, [error]);
@@ -104,7 +105,7 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
     try {
       const parsed = directorWorkspaceSchema.parse(await intakeRequest(`/api/jubo-pending-director?client=${encodeURIComponent(clientId)}`));
       if (parsed.clientId !== clientId || parsed.formalOperationsAllowed !== false) throw new Error("回覆個案不一致，請重新選擇。 ");
-      populate(parsed);
+      populate(parsed); setNeedsRefresh(false);
       window.history.replaceState(window.history.state, "", `/app/pending-intake-review?client=${encodeURIComponent(clientId)}`);
     } catch (cause) { setError(intakeErrorMessage(cause)); setWorkspace(null); }
     finally { setLoading(false); }
@@ -121,14 +122,41 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
     if (!pending || saving || loading) return;
     setLoading(true); setError("");
     try {
-      const data = directorWorkspaceSchema.parse(await intakeRequest(`/api/jubo-pending-director?client=${encodeURIComponent(pending.input.clientId)}`));
-      if (data.clientId !== pending.input.clientId || !draftConfirmed(data, pending)) {
-        setError("原次操作仍未核對。請使用下方按鈕以相同內容重試，不要另建一筆。");
+      const exact = directorExactReceiptSchema.parse(await intakeRequest("/api/jubo-pending-director/receipt", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId: pending.input.clientId, idempotency_key: pending.input.idempotency_key }),
+      }));
+      if (!exact.found) {
+        setError("尚未讀到原次回條。請用同一請求重試；不要另建一筆。");
         return;
       }
-      populate(data, pending.input.kind); setPending(null);
+      if (exact.clientId !== pending.input.clientId || exact.expectedRevision !== pending.input.expectedRevision ||
+        exact.receipt.revision !== pending.input.expectedRevision + 1 || exact.receipt.kind !== pending.input.kind ||
+        exact.receipt.formKey !== pending.input.formKey || exact.receipt.formalRecord !== false ||
+        canonicalJson(exact.payload) !== canonicalJson(pending.input.payload)) {
+        setError("原次回條與送出內容不一致。請保留畫面並聯絡主管核對。");
+        return;
+      }
+      const original = pending;
+      setPending(null);
       (pending.input.kind === "local_supplement" ? localGuard : assessmentGuard).saved();
-      setNotice("草稿已核對，尚未成為正式紀錄。");
+      // The immutable original receipt proves this exact write even when a
+      // second director has already appended a newer revision.
+      try {
+        const data = directorWorkspaceSchema.parse(await intakeRequest(`/api/jubo-pending-director?client=${encodeURIComponent(original.input.clientId)}`));
+        const latest = original.input.kind === "local_supplement" ? data.localSupplement
+          : newestPreparation(data, original.input.formKey);
+        if (data.clientId !== original.input.clientId || !latest || latest.revision < exact.receipt.revision) {
+          throw new Error("最新草稿尚未完成核對。 ");
+        }
+        populate(data, original.input.kind); setNeedsRefresh(false);
+        setNotice(latest.revision > exact.receipt.revision
+          ? "原次草稿已核對；已有較新版本，畫面已顯示最新內容。"
+          : "原次草稿已核對，尚未成為正式紀錄。");
+      } catch {
+        setNeedsRefresh(true);
+        setNotice("原次草稿已核對；最新版本尚未載入，重新核對個案後才能再編輯。");
+      }
     } catch (cause) { setError(intakeErrorMessage(cause)); }
     finally { setLoading(false); }
   }
@@ -158,7 +186,7 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
 
   function saveLocal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!workspace || pending) return;
+    if (!workspace || pending || needsRefresh) return;
     const parsed = directorDraftInputSchema.safeParse({
       clientId: workspace.clientId, kind: "local_supplement", formKey: "intake_local",
       expectedRevision: workspace.localSupplement?.revision ?? 0,
@@ -171,7 +199,7 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
 
   function saveAssessment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!workspace || pending) return;
+    if (!workspace || pending || needsRefresh) return;
     if (assessmentDate > today || !assessmentDate) { setError("評估日期不得晚於今天。 "); firstError.current?.focus(); return; }
     if (!qualitativeNote.trim()) { setError("請先填寫觀察與待確認內容。 "); firstError.current?.focus(); return; }
     const parsed = directorDraftInputSchema.safeParse({
@@ -200,6 +228,7 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
     </section>
     {error ? <p className={styles.error} role="alert" tabIndex={-1} ref={firstError}>{error}</p> : null}
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
+    {needsRefresh ? <p className={styles.unknown} role="status">最新草稿尚未載入。請使用上方「重新核對」後重新選擇個案。</p> : null}
     {pending ? <section className={styles.unknown} role="alert"><ShieldAlert aria-hidden="true" /><div><strong>這次儲存結果待核對</strong><p>內容已鎖定；可先讀回核對，或用同一請求重試。</p></div><button type="button" disabled={loading || saving} onClick={() => void reconcilePending()}>讀回核對</button><button type="button" disabled={loading || saving} onClick={() => void send(pending)}>重試原操作</button></section> : null}
     {loading && !workspace ? <section className={styles.empty} role="status">正在核對來源…</section> : null}
     {!selectedId && !loading && directory && <section className={styles.empty}><ClipboardCheck aria-hidden="true" /><h2>{directory.total ? "先選一位個案" : "目前沒有待收案個案"}</h2><p>{directory.total ? "名單只含目前分支、已匯入且尚未收案的 JUBO 個案。" : "請先由資料移轉負責人完成來源與建檔核對。"}</p></section>}
@@ -211,18 +240,18 @@ export function PendingIntakeDirectorWorkspace({ branchName, initialDirectory, i
       </section>
       <div className={styles.forms}>
         <form className={styles.panel} noValidate onSubmit={saveLocal}><div className={styles.sectionTitle}><FilePenLine aria-hidden="true" /><div><h2>補件說明草稿</h2><p>僅記錄聯絡與待補事項，不修改 JUBO 原值。</p></div></div>
-          <label>聯絡方式<select value={contactPreference} disabled={saving || Boolean(pending)} onChange={(event) => { localGuard.changed(); setContactPreference(event.target.value as typeof contactPreference); }}><option value="unknown">待確認</option><option value="phone">電話</option><option value="in_person">當面</option><option value="written">書面</option></select></label>
-          <label>到站規劃<textarea className="resize-none" value={visitPlanningNote} maxLength={1000} disabled={saving || Boolean(pending)} onChange={(event) => { localGuard.changed(); setVisitPlanningNote(event.target.value); }} /></label>
-          <label>缺件與追蹤<textarea className="resize-none" value={followUpNote} maxLength={1000} disabled={saving || Boolean(pending)} onChange={(event) => { localGuard.changed(); setFollowUpNote(event.target.value); }} /></label>
+          <label>聯絡方式<select value={contactPreference} disabled={saving || Boolean(pending) || needsRefresh} onChange={(event) => { localGuard.changed(); setContactPreference(event.target.value as typeof contactPreference); }}><option value="unknown">待確認</option><option value="phone">電話</option><option value="in_person">當面</option><option value="written">書面</option></select></label>
+          <label>到站規劃<textarea className="resize-none" value={visitPlanningNote} maxLength={1000} disabled={saving || Boolean(pending) || needsRefresh} onChange={(event) => { localGuard.changed(); setVisitPlanningNote(event.target.value); }} /></label>
+          <label>缺件與追蹤<textarea className="resize-none" value={followUpNote} maxLength={1000} disabled={saving || Boolean(pending) || needsRefresh} onChange={(event) => { localGuard.changed(); setFollowUpNote(event.target.value); }} /></label>
           <p className={styles.meta}>草稿第 {workspace.localSupplement?.revision ?? 0} 版。這不是正式基本資料變更或收案核准。</p>
-          <button className="button button--primary" type="submit" disabled={saving || loading || Boolean(pending)}>{saving ? "儲存中…" : "保存補件草稿"}</button>
+          <button className="button button--primary" type="submit" disabled={saving || loading || Boolean(pending) || needsRefresh}>{saving ? "儲存中…" : "保存補件草稿"}</button>
         </form>
         <form className={styles.panel} noValidate onSubmit={saveAssessment}><div className={styles.sectionTitle}><FilePenLine aria-hidden="true" /><div><h2>評估準備草稿</h2><p>先記觀察內容；不計分、不簽署、不進正式量表。</p></div></div>
-          <label>量表<select value={formKey} disabled={saving || Boolean(pending)} onChange={(event) => { const next = event.target.value as FormKey; assessmentGuard.discard(() => { setFormKey(next); const draft = workspace.assessmentPreparations.find((item) => item.formKey === next); setAssessmentDate(draft?.payload.assessmentDate ?? today); setQualitativeNote(draft?.payload.qualitativeNote ?? ""); }); }}>{FORM_OPTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <label>觀察日期<input type="date" value={assessmentDate} max={today} disabled={saving || Boolean(pending)} onChange={(event) => { assessmentGuard.changed(); setAssessmentDate(event.target.value); }} /></label>
-          <label>觀察與待確認內容<textarea className="resize-none" value={qualitativeNote} maxLength={2000} disabled={saving || Boolean(pending)} onChange={(event) => { assessmentGuard.changed(); setQualitativeNote(event.target.value); }} /></label>
+          <label>量表<select value={formKey} disabled={saving || Boolean(pending) || needsRefresh} onChange={(event) => { const next = event.target.value as FormKey; assessmentGuard.discard(() => { setFormKey(next); const draft = workspace.assessmentPreparations.find((item) => item.formKey === next); setAssessmentDate(draft?.payload.assessmentDate ?? today); setQualitativeNote(draft?.payload.qualitativeNote ?? ""); }); }}>{FORM_OPTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <label>觀察日期<input type="date" value={assessmentDate} max={today} disabled={saving || Boolean(pending) || needsRefresh} onChange={(event) => { assessmentGuard.changed(); setAssessmentDate(event.target.value); }} /></label>
+          <label>觀察與待確認內容<textarea className="resize-none" value={qualitativeNote} maxLength={2000} disabled={saving || Boolean(pending) || needsRefresh} onChange={(event) => { assessmentGuard.changed(); setQualitativeNote(event.target.value); }} /></label>
           <p className={styles.meta}>草稿第 {newestPreparation(workspace, formKey)?.revision ?? 0} 版。正式評估須完成收案與獨立授權。</p>
-          <button className="button button--primary" type="submit" disabled={saving || loading || Boolean(pending)}>{saving ? "儲存中…" : "保存評估準備草稿"}</button>
+          <button className="button button--primary" type="submit" disabled={saving || loading || Boolean(pending) || needsRefresh}>{saving ? "儲存中…" : "保存評估準備草稿"}</button>
         </form>
       </div>
     </>}

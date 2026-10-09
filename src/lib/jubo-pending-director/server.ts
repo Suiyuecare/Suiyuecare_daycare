@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getTenantContext } from "@/lib/auth/context";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { directorDirectorySchema, directorWorkspaceSchema, directorDraftReceiptSchema, type DirectorDraftInput } from "./contract";
+import { directorDirectorySchema, directorWorkspaceSchema, directorDraftReceiptSchema, directorExactReceiptSchema, type DirectorDraftInput } from "./contract";
 
 export async function requirePendingDirector() {
   const actor = await getTenantContext("staff");
@@ -57,4 +57,13 @@ export async function savePendingDirectorDraft(organizationId: string, branchId:
     pendingDirectorDatabaseError();
   }
   return receipt.data;
+}
+
+export async function readPendingDirectorExactReceipt(organizationId: string, branchId: string,
+  clientId: string, idempotencyKey: string) {
+  const result = directorExactReceiptSchema.safeParse(await rpc("jubo_pending_director_exact_receipt", {
+    p_org: organizationId, p_branch: branchId, p_client: clientId, p_idempotency_key: idempotencyKey,
+  }));
+  if (!result.success || result.data.found && result.data.clientId !== clientId) pendingDirectorDatabaseError();
+  return result.data;
 }

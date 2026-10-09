@@ -38,6 +38,16 @@ export const directorDraftReceiptSchema = z.object({
   formKey: z.string(), replayed: z.boolean(), formalRecord: z.literal(false),
 }).strict();
 
+export const directorExactReceiptQuerySchema = z.object({ clientId: uuid, idempotency_key: uuid }).strict();
+export const directorExactReceiptSchema = z.discriminatedUnion("found", [
+  z.object({ found: z.literal(false) }).strict(),
+  z.object({
+    found: z.literal(true), clientId: uuid, expectedRevision: z.number().int().min(0),
+    payload: z.union([localPayload, preparationPayload]),
+    receipt: directorDraftReceiptSchema,
+  }).strict(),
+]);
+
 const sourceFieldKeys = [
   "displayName", "sex", "dateOfBirth", "identityNumber", "registeredAddress", "residentialAddress",
   "cmsLevel", "disability", "primaryContactName", "primaryContactPhone", "proxyName", "proxyPhone",
@@ -76,3 +86,4 @@ export const directorWorkspaceSchema = z.object({
 export type DirectorDirectory = z.infer<typeof directorDirectorySchema>;
 export type DirectorWorkspace = z.infer<typeof directorWorkspaceSchema>;
 export type DirectorDraftInput = z.infer<typeof directorDraftInputSchema>;
+export type DirectorExactReceipt = z.infer<typeof directorExactReceiptSchema>;

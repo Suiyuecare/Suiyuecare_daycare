@@ -1,5 +1,5 @@
 begin;
-select plan(44);
+select plan(50);
 
 -- Synthetic fixtures only. This test deliberately constructs one reviewed
 -- pending link; it neither reads nor writes a hosted Supabase project.
@@ -285,6 +285,24 @@ select throws_ok($$select pg_temp.save_local(0,'bb260000-0000-4000-8000-00000000
 select is(pg_temp.save_local(1,'bb260000-0000-4000-8000-000000000003',
  '{"followUpNote":"合成追蹤"}'::jsonb)->>'revision','2',
  'next local revision appends instead of modifying source or first revision');
+select is(public.jubo_pending_director_exact_receipt(
+ 'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001','bb260000-0000-4000-8000-000000000001'
+ )->'receipt'->>'revision','1',
+ 'exact original receipt remains resolvable after a newer local revision');
+select is(public.jubo_pending_director_exact_receipt(
+ 'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001','bb260000-0000-4000-8000-000000000001'
+ )->'payload'->>'visitPlanningNote','合成到站討論',
+ 'original receipt returns the exact original payload, not the latest payload');
+select is(public.jubo_pending_director_exact_receipt(
+ 'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001','bb260000-0000-4000-8000-000000000099'
+ )->>'found','false','unknown original key is not mistaken for a saved draft');
+select throws_ok($$select public.jubo_pending_director_exact_receipt(
+ 'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000002',
+ 'bb240000-0000-4000-8000-000000000001','bb260000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_PENDING_DRAFT_ACCESS_DENIED','exact receipt rejects another branch');
 select is(public.save_jubo_pending_director_draft(
  'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
  'bb240000-0000-4000-8000-000000000001','assessment_preparation','abcd',0,
@@ -383,6 +401,11 @@ select throws_ok($$select public.jubo_pending_director_directory(
  'bb150000-0000-4000-8000-000000000001')$$,
  '42501','JUBO_DIRECTOR_SOURCE_ACCESS_DENIED',
  'approved branch_supervisor cannot use director source directory');
+select throws_ok($$select public.jubo_pending_director_exact_receipt(
+ 'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001','bb260000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_PENDING_DRAFT_ACCESS_DENIED',
+ 'another authorized staff member cannot read the original actor receipt');
 reset role;
 update private.staff_google_access_grants set enabled=false
  where allowed_user_id='bb100000-0000-4000-8000-000000000001';
@@ -396,6 +419,11 @@ select throws_ok($$select public.jubo_pending_director_directory(
  'bb150000-0000-4000-8000-000000000001')$$,
  '42501','JUBO_DIRECTOR_SOURCE_ACCESS_DENIED',
  'revoked Google approval also denies the pending-source directory');
+select throws_ok($$select public.jubo_pending_director_exact_receipt(
+ 'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001','bb260000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_PENDING_DRAFT_ACCESS_DENIED',
+ 'revoked director cannot recover a private original receipt');
 reset role;
 
 select * from finish();
