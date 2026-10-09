@@ -183,6 +183,40 @@ describe("client master write contracts", () => {
 });
 
 describe("client master fail-closed projection", () => {
+  it("shows a JUBO pending main file without inventing active service", () => {
+    const snapshot = projectClientMasterSnapshot({
+      rows: [sourceRow({
+        status: "pending",
+        admitted_on: null,
+        source_system: "jubo",
+        source_updated_at: "2026-08-31T00:00:00.000Z",
+      })],
+      expectedOrganizationId: organizationId,
+      expectedBranchId: branchId,
+      generatedAt: "2026-09-01T04:00:00.000Z",
+      demo: false,
+    });
+    expect(snapshot.clients[0]).toMatchObject({
+      status: "pending", serviceState: "pending_admission", admittedOn: null,
+      editable: false, editBlockReason: "central_authority",
+    });
+    expect(snapshot.metrics).toMatchObject({ active: 0, pendingAdmission: 1 });
+    expect(filterClientMasterItems(snapshot, { query: "", status: "pending_admission", source: "central" }))
+      .toHaveLength(1);
+    for (const unsafe of [
+      { admitted_on: "2026-09-01" },
+      { ended_on: "2026-09-01" },
+    ]) {
+      expect(() => projectClientMasterSnapshot({
+        rows: [sourceRow({ status: "pending", source_system: "jubo", ...unsafe })],
+        expectedOrganizationId: organizationId,
+        expectedBranchId: branchId,
+        generatedAt: "2026-09-01T04:00:00.000Z",
+        demo: false,
+      })).toThrow("INVALID_CLIENT_MASTER_PROJECTION");
+    }
+  });
+
   it("derives editability from source authority and terminal state", () => {
     const snapshot = projectClientMasterSnapshot({
       rows: [

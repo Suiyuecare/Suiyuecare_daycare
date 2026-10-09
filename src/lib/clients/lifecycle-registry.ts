@@ -245,7 +245,10 @@ export async function loadClientLifecycleSnapshot(
     metrics: {
       admittedThisMonth: admissionsResult.count ?? 0,
       pendingAdmission: clientRows.filter(
-        (client) => client.status === "active" && client.admitted_on === null,
+        (client) => clientServiceState({
+          status: client.status,
+          admittedOn: client.admitted_on,
+        }) === "pending_admission",
       ).length,
       suspended: clientRows.filter((client) => client.status === "suspended").length,
       endedThisMonth: endedResult.count ?? 0,

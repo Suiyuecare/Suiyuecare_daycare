@@ -151,6 +151,32 @@ describe("case center front-line next step", () => {
     expect(screen.queryByRole("link", { name: /心理社會評估|用藥計畫|用藥紀錄/ })).toBeNull();
   });
 
+  it("shows a pending roster as awaiting admission with no clinical or service shortcuts", () => {
+    const pending = client({
+      lifecycleStatus: "pending",
+      lifecycleState: "pending_admission",
+      serviceStatus: "pending",
+      admittedOn: null,
+    });
+    const { container } = render(<CaseCenterWorkspace
+      page={page}
+      filters={filters({ lifecycle: "pending_admission", service: "pending" })}
+      snapshot={snapshot({
+        clients: [pending],
+        summary: { serving: 0, paused: 0, pending: 1, ended: 0 },
+      })}
+      allowedDailyPages={[46]}
+      allowedContinuationPages={[7, 8, 28]}
+      canViewSummary
+    />);
+    expect(screen.getByRole("cell", { name: "待收案" })).toBeTruthy();
+    expect(within(container.querySelector<HTMLElement>(".mobile-records")!).getByText("待收案")).toBeTruthy();
+    expect(screen.getAllByText("收案日與服務資格待核，暫不可執行正式作業。")).toHaveLength(2);
+    expect(workLinks(container)).toHaveLength(0);
+    expect(container.querySelectorAll("[data-case-client-id]")).toHaveLength(0);
+    expect(screen.queryByRole("link", { name: /用藥|心理社會評估|當日紀錄/ })).toBeNull();
+  });
+
   it("puts the mobile next step immediately after identity while retaining safety details and all five metrics", () => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46]} />);
     const mobileCard = container.querySelector<HTMLElement>(".core-care-mobile .record-card")!;
@@ -196,11 +222,11 @@ describe("case center front-line next step", () => {
     ["inconsistent missing admission", { admittedOn: null }],
     ["inconsistent expired status", { endedOn: "2026-09-09" }],
     ["inconsistent lifecycle", { lifecycleStatus: "closed" }],
-  ] satisfies [string, Partial<CaseCenterClient>][]) ("never starts services for %s; authorized summary remains read-only navigation", (_name, override) => {
+  ] satisfies [string, Partial<CaseCenterClient>][]) ("never starts services for %s; authorized summary remains read-only navigation where admitted", (_name, override) => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [client(override)] })} allowedDailyPages={[46, 3, 6]} canViewSummary />);
     expect(workLinks(container)).toHaveLength(0);
-    const links = screen.getAllByRole("link", { name: /查看 合成個案甲 的當日紀錄/ });
-    expect(links).toHaveLength(2);
+    const links = screen.queryAllByRole("link", { name: /查看 合成個案甲 的當日紀錄/ });
+    expect(links).toHaveLength(override.lifecycleState === "pending_admission" || override.admittedOn === null ? 0 : 2);
     for (const link of links) {
       expect(new URL((link as HTMLAnchorElement).href).pathname).toBe("/app/staff/service-management/daily-summary");
     }

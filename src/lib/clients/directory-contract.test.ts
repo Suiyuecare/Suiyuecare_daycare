@@ -54,6 +54,28 @@ describe("client directory result contract", () => {
     });
   });
 
+  it("accepts a reviewed pending roster row but rejects invented admission dates", () => {
+    const input = {
+      expectedOrganizationId: organizationId,
+      expectedBranchId: branchId,
+      purpose: "case_center" as const,
+      pageSize: 1,
+    };
+    expect(parseClientDirectoryPage({
+      ...input,
+      value: [row({ status: "pending", visible_count: 1, has_more: false })],
+    }).rows[0]).toMatchObject({ status: "pending", admitted_on: null, ended_on: null });
+    for (const unsafe of [
+      { admitted_on: "2026-09-01" },
+      { ended_on: "2026-09-01" },
+    ]) {
+      expect(() => parseClientDirectoryPage({
+        ...input,
+        value: [row({ status: "pending", visible_count: 1, has_more: false, ...unsafe })],
+      })).toThrow(ClientDirectoryContractError);
+    }
+  });
+
   it.each([
     [row({ date_of_birth: "1940-01-01" })],
     [row({ organization_id: crypto.randomUUID() })],

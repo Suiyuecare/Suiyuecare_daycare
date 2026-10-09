@@ -36,6 +36,7 @@ export function caseCenterServiceStatus(
   >,
   serviceDate: string,
 ): CaseCenterServiceStatus {
+  if (client.status === "pending") return "pending";
   if (["transferred", "closed", "deceased"].includes(client.status)) {
     return "ended";
   }
