@@ -9,7 +9,7 @@ vi.mock("@/lib/auth/context", () => ({ getTenantContext: stubs.context, hasRecen
 vi.mock("@/lib/env", () => ({ hasSupabaseConfiguration: stubs.supabaseConfigured, isSyntheticPreviewMode: stubs.synthetic }));
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: vi.fn() }));
 
-import { authorizeJuboReview, canReviewJuboProfiles } from "./server";
+import { authorizeJuboReview, authorizeJuboReviewScope, canReviewJuboProfiles } from "./server";
 
 const actor: TenantContext = { organizationId: "c1000000-0000-4000-8000-000000000001",
   branchId: "c2000000-0000-4000-8000-000000000001", userId: "c3000000-0000-4000-8000-000000000001",
@@ -48,4 +48,13 @@ it("requires both AAL2 and a recent same-session challenge", async () => {
   await expect(authorizeJuboReview()).rejects.toMatchObject({ code: "JUBO_REAUTH_REQUIRED", httpStatus: 403 });
   stubs.context.mockResolvedValue(actor);
   await expect(authorizeJuboReview()).resolves.toBe(actor);
+});
+it("permits only the same scoped manager to query an old receipt after AAL2 expires", async () => {
+  stubs.context.mockResolvedValue({ ...actor, assuranceLevel: "aal1" });
+  stubs.recentAal2.mockResolvedValue(false);
+  await expect(authorizeJuboReviewScope()).resolves.toMatchObject({ userId: actor.userId });
+  expect(stubs.recentAal2).not.toHaveBeenCalled();
+  await expect(authorizeJuboReview()).rejects.toMatchObject({ code: "JUBO_REAUTH_REQUIRED" });
+  stubs.context.mockResolvedValue({ ...actor, assuranceLevel: "aal1", roles: ["care_worker"] });
+  await expect(authorizeJuboReviewScope()).rejects.toMatchObject({ code: "JUBO_REVIEW_DENIED" });
 });

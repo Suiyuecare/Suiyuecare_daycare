@@ -3,18 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 const stubs = vi.hoisted(() => ({
-  authorize: vi.fn(), queue: vi.fn(), preview: vi.fn(), decision: vi.fn(),
+  authorize: vi.fn(), authorizeScope: vi.fn(), queue: vi.fn(), preview: vi.fn(), decision: vi.fn(), receipt: vi.fn(),
 }));
 vi.mock("@/lib/jubo-review/server", () => ({
   authorizeJuboReview: stubs.authorize,
+  authorizeJuboReviewScope: stubs.authorizeScope,
   readJuboReviewQueue: stubs.queue,
   previewJuboProfile: stubs.preview,
   reviewJuboProfile: stubs.decision,
+  readJuboReviewReceipt: stubs.receipt,
 }));
 
 import { GET as queueGet } from "./queue/route";
 import { POST as previewPost } from "./preview/route";
 import { POST as decisionPost } from "./decision/route";
+import { POST as receiptPost } from "./receipt/route";
 
 const pairId = "b1000000-0000-4000-8000-000000000001";
 const sourceRowId = "b2000000-0000-4000-8000-000000000001";
@@ -34,9 +37,13 @@ describe("JUBO source-bound review API", () => {
     vi.clearAllMocks();
     stubs.authorize.mockResolvedValue({ organizationId: "b5000000-0000-4000-8000-000000000001",
       branchId: "b6000000-0000-4000-8000-000000000001" });
+    stubs.authorizeScope.mockResolvedValue({ organizationId: "b5000000-0000-4000-8000-000000000001",
+      branchId: "b6000000-0000-4000-8000-000000000001" });
     stubs.queue.mockResolvedValue({ reviewPurpose: "jubo_intake_profile_mapping_v2", pairs: [] });
     stubs.preview.mockResolvedValue({ pairId, sourceRowId, previewId: body.previewId });
     stubs.decision.mockResolvedValue({ reviewVersion: 1, decision: "held" });
+    stubs.receipt.mockResolvedValue({ status: "found", receipt: { reviewId: "b7000000-0000-4000-8000-000000000001",
+      reviewVersion: 1, decision: "held", replayed: true } });
   });
 
   it("never accepts review POSTs without same-origin JSON", async () => {
@@ -79,5 +86,25 @@ describe("JUBO source-bound review API", () => {
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(stubs.authorize).toHaveBeenCalledOnce();
     expect(stubs.queue).toHaveBeenCalledOnce();
+  });
+
+  it("uses scope-only authorization for read-only recovery, not the write AAL2 gate", async () => {
+    const result = await receiptPost(request("receipt", body));
+    expect(result.status).toBe(200);
+    expect(result.headers.get("Cache-Control")).toContain("no-store");
+    expect(stubs.authorizeScope).toHaveBeenCalledOnce();
+    expect(stubs.authorize).not.toHaveBeenCalled();
+    expect(stubs.receipt).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: "b5000000-0000-4000-8000-000000000001",
+      branchId: "b6000000-0000-4000-8000-000000000001",
+    }), body);
+    expect(stubs.decision).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cross-origin or altered receipt lookup before reading any receipt", async () => {
+    expect((await receiptPost(request("receipt", body, "https://other.invalid"))).status).toBe(403);
+    expect((await receiptPost(request("receipt", { ...body, organizationId: "other" }))).status).toBe(400);
+    expect(stubs.authorizeScope).not.toHaveBeenCalled();
+    expect(stubs.receipt).not.toHaveBeenCalled();
   });
 });

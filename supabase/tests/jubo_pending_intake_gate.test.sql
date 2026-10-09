@@ -1,5 +1,5 @@
 begin;
-select plan(198);
+select plan(208);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -540,6 +540,23 @@ create function pg_temp.v2_review_one(p_preview jsonb,p_decision text,p_number i
   '合成測試逐欄核對原值、顯示值與正規化警示後作出決定',
   ('fab00000-0000-4000-8000-'||lpad(p_number::text,12,'0'))::uuid);
 $$;
+create function pg_temp.v2_receipt_one(p_preview jsonb,p_decision text,p_number integer)
+ returns jsonb language sql security invoker as $$
+ select public.jubo_profile_mapping_v2_review_receipt(
+  'fa120000-0000-4000-8000-000000000001',
+  'fa130000-0000-4000-8000-000000000001',
+  current_setting('test.jubo_pair')::uuid,(p_preview->>'sourceRowId')::uuid,
+  (p_preview->>'previewId')::uuid,
+  p_preview->>'sourceRowSha256',p_preview->>'mappingReviewSha256',
+  p_preview->>'previewSha256','jubo_intake_profile_mapping_v2',p_decision,
+  '合成測試逐欄核對原值、顯示值與正規化警示後作出決定',
+  ('fab00000-0000-4000-8000-'||lpad(p_number::text,12,'0'))::uuid);
+$$;
+select ok(not has_function_privilege('anon',
+ 'public.jubo_profile_mapping_v2_review_receipt(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,uuid)','execute')
+ and not has_function_privilege('service_role',
+ 'public.jubo_profile_mapping_v2_review_receipt(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,uuid)','execute'),
+ 'read-only receipt lookup is unavailable to anon and service role');
 select ok(not has_function_privilege('anon',
  'public.jubo_profile_mapping_v2_review_queue(uuid,uuid)','execute')
  and not has_function_privilege('service_role',
@@ -673,7 +690,7 @@ reset role;
 delete from public.membership_roles where membership_id='fa140000-0000-4000-8000-000000000001';
 set local role authenticated;
 select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
- 'approved',1)$$,'42501','INTAKE_ACCESS_DENIED',
+ 'approved',1)$$,'42501','JUBO_PROFILE_V2_REVIEW_DENIED',
  'revoked import permission blocks review even with a prior preview and AAL2');
 reset role;
 insert into public.membership_roles(membership_id,role_id) values
@@ -695,7 +712,75 @@ select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_fi
 select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
  'approved',2)$$,'23505','JUBO_PROFILE_V2_PREVIEW_ALREADY_REVIEWED',
  'one preview cannot support two different decisions');
+select is((pg_temp.v2_receipt_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'held',1)->>'status'),'found','same actor/session/exact request can recover a committed receipt');
+select throws_ok($$select pg_temp.v2_receipt_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1)$$,'23505','JUBO_PROFILE_V2_IDEMPOTENCY_CONFLICT',
+ 'receipt cannot be obtained by changing the original decision under the same key');
 reset role;
+insert into auth.sessions(id,user_id,created_at,aal) values
+ ('fa110000-0000-4000-8000-000000000099','fa100000-0000-4000-8000-000000000001',
+ now()-interval '1 minute','aal1');
+insert into auth.mfa_amr_claims(id,session_id,created_at,updated_at,authentication_method)
+ values (gen_random_uuid(),'fa110000-0000-4000-8000-000000000099',
+ to_timestamp(current_setting('test.jubo_amr')::bigint),
+ to_timestamp(current_setting('test.jubo_amr')::bigint),'oauth');
+select set_config('request.jwt.claims',jsonb_set(jsonb_set(jsonb_set(
+ current_setting('test.jubo_good_jwt')::jsonb,
+ '{session_id}','"fa110000-0000-4000-8000-000000000099"'::jsonb),
+ '{aal}','"aal1"'::jsonb),'{amr}',jsonb_build_array(jsonb_build_object(
+ 'method','oauth','timestamp',current_setting('test.jubo_amr')::bigint)))::text,true);
+set local role authenticated;
+select is((pg_temp.v2_receipt_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'held',1)->>'status'),'unconfirmed',
+ 'same user in a different session cannot retrieve the old session receipt');
+select throws_ok($$select public.jubo_profile_mapping_v2_review_receipt(
+ 'fa120000-0000-4000-8000-000000000002','fa130000-0000-4000-8000-000000000002',
+ current_setting('test.jubo_pair')::uuid,current_setting('test.jubo_first_row')::uuid,
+ (current_setting('test.jubo_v2_first_preview')::jsonb->>'previewId')::uuid,
+ current_setting('test.jubo_v2_first_preview')::jsonb->>'sourceRowSha256',
+ current_setting('test.jubo_v2_first_preview')::jsonb->>'mappingReviewSha256',
+ current_setting('test.jubo_v2_first_preview')::jsonb->>'previewSha256',
+ 'jubo_intake_profile_mapping_v2','held',
+ '合成測試逐欄核對原值、顯示值與正規化警示後作出決定',
+ 'fab00000-0000-4000-8000-000000000001')$$,'42501',null,
+ 'receipt lookup remains scoped to the current tenant and branch');
+reset role;
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+-- Synthetic time shift only, inside this rolled-back pgTAP transaction.
+-- Production preview records remain immutable.
+alter table private.jubo_profile_mapping_v2_previews disable trigger jubo_profile_v2_previews_immutable;
+update private.jubo_profile_mapping_v2_previews
+ set presented_at=now()-interval '20 minutes',expires_at=now()-interval '5 minutes'
+ where id=(current_setting('test.jubo_v2_first_preview')::jsonb->>'previewId')::uuid;
+alter table private.jubo_profile_mapping_v2_previews enable trigger jubo_profile_v2_previews_immutable;
+update private.reauth_events set verified_at=now()-interval '16 minutes'
+ where user_id='fa100000-0000-4000-8000-000000000001'
+   and session_id='fa110000-0000-4000-8000-000000000001';
+select set_config('request.jwt.claims',jsonb_set(current_setting('test.jubo_good_jwt')::jsonb,
+ '{aal}','"aal1"'::jsonb)::text,true);
+set local role authenticated;
+select is((pg_temp.v2_receipt_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'held',1)->'receipt'->>'reviewVersion')::integer,1,
+ 'timeout recovery returns only the committed receipt after both preview and AAL2 expiry');
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',3)$$,'42501',null,
+ 'stale AAL2 cannot create a new decision even while receipt recovery is allowed');
+select is((pg_temp.v2_receipt_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'held',999)->>'status'),'unconfirmed',
+ 'an unknown key never falsely proves noncommit while the original request may still run');
+reset role;
+update private.reauth_events set verified_at=now()-interval '1 minute'
+ where user_id='fa100000-0000-4000-8000-000000000001'
+   and session_id='fa110000-0000-4000-8000-000000000001';
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',3)$$,'42501','JUBO_PROFILE_V2_PREVIEW_MISMATCH',
+ 'restored AAL2 still cannot create a new decision from the expired preview');
+reset role;
+select is((select count(*)::integer from private.jubo_profile_mapping_v2_reviews),1,
+ 'receipt reads and rejected retries leave exactly one v2 review');
 select throws_ok($$select pg_temp.promote_public()$$,'42501',
  'JUBO_PROFILE_MAPPING_V2_REVIEW_REQUIRED',
  'a held latest v2 decision blocks promotion');

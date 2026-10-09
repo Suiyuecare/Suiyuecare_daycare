@@ -98,3 +98,8 @@ export const juboReviewReceiptSchema = z.object({
   reviewId: z.uuid(), reviewVersion: z.number().int().positive(),
   decision: z.enum(["approved", "held", "rejected"]), replayed: z.boolean(),
 }).strict();
+
+export const juboReviewReceiptLookupSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("found"), receipt: juboReviewReceiptSchema }).strict(),
+  z.object({ status: z.literal("unconfirmed"), receipt: z.null() }).strict(),
+]);

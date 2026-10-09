@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Clock3, FileSearch, RotateCcw, ShieldCheck } from "lucide-react";
 
 import {
-  juboReviewPreviewSchema, juboReviewQueueSchema, juboReviewReceiptSchema,
+  juboReviewPreviewSchema, juboReviewQueueSchema, juboReviewReceiptLookupSchema, juboReviewReceiptSchema,
   type JuboReviewPreview, type JuboReviewQueue, type JuboReviewRequest,
 } from "@/lib/jubo-review/model";
 import { tryAcquirePendingOperation } from "@/lib/navigation/pending-operation-lock";
@@ -27,6 +27,7 @@ const knownNonCommitCodes = new Set([
 const queueUrl = "/api/jubo-profile-review/queue";
 const previewUrl = "/api/jubo-profile-review/preview";
 const decisionUrl = "/api/jubo-profile-review/decision";
+const receiptUrl = "/api/jubo-profile-review/receipt";
 const sensitiveHeaders = { "Content-Type": "application/json" };
 const decisionLabels: Record<string, string> = {
   unreviewed: "待覆核", approved: "已核准", held: "暫緩", rejected: "退回", stale: "來源已變更",
@@ -221,6 +222,31 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
     } finally { sending.current = false; setDecisionBusy(false); }
   }
 
+  async function checkAttemptReceipt() {
+    const current = attempt.current;
+    if (!current || sending.current) return;
+    sending.current = true;
+    setDecisionBusy(true); setError("");
+    try {
+      // This route is read-only. An expired preview or AAL2 must never trigger
+      // another call to the write endpoint after an ambiguous first response.
+      const parsed = juboReviewReceiptLookupSchema.safeParse(await privateJson(receiptUrl, current.request));
+      if (!parsed.success ||
+        (parsed.data.status === "found" && parsed.data.receipt.decision !== current.request.decision)) {
+        throw new Error("原操作回執未能核對；請聯絡管理員。");
+      }
+      if (parsed.data.status === "unconfirmed") {
+        setError("尚未查到原操作回執；原請求仍可能在處理。請稍後再查，勿重新送出。");
+        return;
+      }
+      releaseKnownAttempt(); setUncertain(false); setPreview(null);
+      setQueue(null);
+      setMessage(`第 ${current.sourceSheetRow} 列已查到原操作回執：${decisionLabels[current.request.decision]}，審核版本 ${parsed.data.receipt.reviewVersion}。請重新驗證後更新清單。`);
+    } catch (cause) {
+      setError(`${safeError(cause, "暫時查不到原操作回執。")} 原結果仍未確認；請稍後再查或聯絡管理員。`);
+    } finally { sending.current = false; setDecisionBusy(false); }
+  }
+
   function selectPair(pairId: string) {
     if (hasUnsaved || decisionBusy || uncertain) return;
     previewController.current?.abort(); setSelectedPairId(pairId); setSelectedRowId("");
@@ -243,10 +269,10 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
     {error ? <div className={styles.error} role="alert"><AlertCircle aria-hidden="true" />{error}</div> : null}
     {message ? <div className={styles.success} role="status"><Check aria-hidden="true" />{message}</div> : null}
     {uncertain && attemptExpiry ? <div className={styles.warning} role="status"><ShieldCheck aria-hidden="true" />
-      <span>這筆覆核尚待確認；切換分支、登出與重新整理會被暫停。</span>
-      <button className="button button--secondary" disabled={decisionBusy || Date.parse(attemptExpiry) <= now}
-        onClick={() => void sendAttempt()} type="button">以原操作核對</button>
-      {Date.parse(attemptExpiry) <= now ? <span>預覽已逾時，請由管理員核對結果。</span> : null}
+      <span>這筆覆核尚待確認；切換分支、登出與重新整理會被暫停。僅查原操作回執，不重送覆核。</span>
+      <button className="button button--secondary" disabled={decisionBusy}
+        onClick={() => void checkAttemptReceipt()} type="button">查原操作回執</button>
+      {Date.parse(attemptExpiry) <= now ? <span>預覽已逾時，仍可查回執；查無結果請聯絡管理員。</span> : null}
     </div> : null}
     {queueBusy ? <p className={styles.loading} role="status">清單讀取中…</p> : null}
     {!queueBusy && queue?.pairs.length === 0 ? <section className={styles.empty}><FileSearch aria-hidden="true" />

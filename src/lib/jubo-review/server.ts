@@ -9,6 +9,7 @@ import {
   JUBO_PROFILE_REVIEW_PURPOSE,
   juboReviewPreviewSchema,
   juboReviewQueueSchema,
+  juboReviewReceiptLookupSchema,
   juboReviewReceiptSchema,
   type JuboReviewRequest,
 } from "./model";
@@ -29,7 +30,7 @@ export function canReviewJuboProfiles(actor: TenantContext | null) {
     requiredScopes.every((scope) => actor.scopes.includes(scope)));
 }
 
-export async function authorizeJuboReview() {
+export async function authorizeJuboReviewScope() {
   if (!juboReviewFeatureEnabled() || isSyntheticPreviewMode() || !hasSupabaseConfiguration()) {
     throw new IntegrationError("JUBO_REVIEW_NOT_READY", "JUBO 個案覆核尚未開通，正式個案資料不會因此建立。", 503);
   }
@@ -38,6 +39,11 @@ export async function authorizeJuboReview() {
   if (!canReviewJuboProfiles(actor)) {
     throw new IntegrationError("JUBO_REVIEW_DENIED", "這項覆核需要機構管理與匯入核准權限。", 403);
   }
+  return actor;
+}
+
+export async function authorizeJuboReview() {
+  const actor = await authorizeJuboReviewScope();
   if (actor.assuranceLevel !== "aal2" || !(await hasRecentAal2())) {
     throw new IntegrationError("JUBO_REAUTH_REQUIRED", "請先完成最近 15 分鐘內的重新驗證，再返回此頁重新整理。", 403);
   }
@@ -109,6 +115,26 @@ export async function reviewJuboProfile(actor: TenantContext, input: JuboReviewR
   ));
   if (!result.success || result.data.decision !== input.decision) {
     throw new IntegrationError("JUBO_REVIEW_RESPONSE_INVALID", "覆核回執未通過核對；請先查清單狀態，不要重複核准。", 502);
+  }
+  return result.data;
+}
+
+export async function readJuboReviewReceipt(actor: TenantContext, input: JuboReviewRequest) {
+  const result = juboReviewReceiptLookupSchema.safeParse(await callJuboReviewRpc(
+    "jubo_profile_mapping_v2_review_receipt",
+    { p_org: actor.organizationId, p_branch: actor.branchId,
+      p_pair: input.pairId, p_source_row: input.sourceRowId,
+      p_preview: input.previewId,
+      p_expected_source_sha256: input.sourceRowSha256,
+      p_expected_fingerprint: input.mappingReviewSha256,
+      p_expected_preview_sha256: input.previewSha256,
+      p_purpose: JUBO_PROFILE_REVIEW_PURPOSE,
+      p_decision: input.decision, p_reason: input.reason,
+      p_idempotency_key: input.idempotencyKey },
+  ));
+  if (!result.success ||
+    (result.data.status === "found" && result.data.receipt.decision !== input.decision)) {
+    throw new IntegrationError("JUBO_REVIEW_RESPONSE_INVALID", "原操作回執未通過核對；請聯絡管理員。", 502);
   }
   return result.data;
 }
