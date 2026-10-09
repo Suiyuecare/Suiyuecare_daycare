@@ -1,5 +1,5 @@
 begin;
-select plan(93);
+select plan(98);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -54,9 +54,10 @@ create function pg_temp.master_row(p_n integer) returns jsonb language sql as $$
    when 32 then case when p_n=1 then to_jsonb('合成戶籍地址'::text) else 'null'::jsonb end
    when 35 then case when p_n=1 then to_jsonb('合成現住地址'::text) else 'null'::jsonb end
    when 48 then case when p_n=1 then to_jsonb('第 3 級'::text) else 'null'::jsonb end
-   when 54 then case when p_n=1 then to_jsonb('合成身障註記'::text) else 'null'::jsonb end
-   when 78 then case when p_n=1 then to_jsonb('合成主要聯絡人'::text) else 'null'::jsonb end
-   when 79 then case when p_n=1 then to_jsonb('0900000001'::text) else 'null'::jsonb end
+   when 54 then case when p_n=1 then to_jsonb('合成身障註記'::text)
+     when p_n=2 then to_jsonb('不適用'::text) else 'null'::jsonb end
+   when 78 then case when p_n=1 then to_jsonb('合成Ａ'||chr(10)||'聯絡人') else 'null'::jsonb end
+   when 79 then case when p_n=1 then to_jsonb('0900'||chr(10)||'000001') else 'null'::jsonb end
    when 80 then case when p_n=1 then to_jsonb('合成代理人'::text) else 'null'::jsonb end
    when 81 then case when p_n=1 then to_jsonb('0900000002'::text) else 'null'::jsonb end
    else 'null'::jsonb end order by i)
@@ -510,6 +511,31 @@ select is((select count(*)::integer from public.clients
  where source_system='jubo' and organization_id='fa120000-0000-4000-8000-000000000001'),0,
  'failed public promotion leaves no client shell');
 drop trigger zz_public_pending_fault on public.clients;
+select throws_ok($$select pg_temp.promote_public()$$,'42501',
+ 'JUBO_PROFILE_MAPPING_V2_REVIEW_REQUIRED',
+ 'all prior v1 row approvals remain insufficient after the v2 display mapping change');
+select is((select count(*)::integer from public.clients where source_system='jubo'),0,
+ 'missing v2 profile review rolls back every pending client shell');
+-- Synthetic fixture inserts directly as postgres. The real candidate grants
+-- no review-table write role or RPC; an AAL2 review UI/RPC is still required.
+insert into private.jubo_profile_mapping_v2_reviews(
+ organization_id,branch_id,pair_id,master_source_row_id,review_version,
+ source_row_sha256,mapping_review_sha256,mapping_version,decision,
+ review_reason,reviewer_user_id,reauth_challenge_id)
+select pending.organization_id,pending.branch_id,current_setting('test.jubo_pair')::uuid,
+ master.id,1,master.row_sha256,
+ private.jubo_profile_mapping_fingerprint(master.raw_values,pending),
+ 'jubo-master-monthly-202610-v2','approved',
+ '合成測試逐欄覆核新版聯絡顯示與來源原文一致',
+ latest.reviewer_user_id,latest.reauth_challenge_id
+from private.jubo_pending_master_rows pending
+join private.jubo_source_rows master on master.id=pending.source_row_id
+join lateral (select review.reviewer_user_id,review.reauth_challenge_id
+ from private.jubo_master_row_reviews review
+ where review.pair_id=current_setting('test.jubo_pair')::uuid
+   and review.source_row_id=master.id
+ order by review.review_version desc limit 1) latest on true
+where pending.operation_id=(current_setting('test.jubo_receipt')::jsonb->>'operationId')::uuid;
 create function pg_temp.fail_pending_profile() returns trigger language plpgsql as $$
  begin raise exception using errcode='P0001',message='synthetic profile fault'; end; $$;
 create trigger zz_pending_profile_fault after insert on private.client_intake_versions
@@ -549,7 +575,7 @@ select is((select count(*)::integer from private.jubo_intake_profile_sources sou
  join private.jubo_source_rows original_row on original_row.id=source_link.master_source_row_id
  where source_link.source_sheet_row=original_row.source_row_number
    and source_link.source_field_indices->>'registeredAddress'='32'
-   and source_link.mapping_version='jubo-master-monthly-202610-v1'),23,
+   and source_link.mapping_version='jubo-master-monthly-202610-v2'),23,
  'all profiles retain original row coordinates and a pinned field mapping');
 select is((select count(*)::integer from private.jubo_intake_profile_sources source_link
  where 'MISSING_MONTHLY_SUMMARY'=any(source_link.warning_codes)),6,
@@ -581,7 +607,8 @@ select ok((select version_row.profile->>'registeredAddress'='合成戶籍地址'
  and version_row.profile->>'cmsLevel'='3'
  and version_row.profile->>'disability'='合成身障註記'
  and version_row.profile->>'identityNumber'='SYNID0001'
- and version_row.profile->'contacts'->0->>'name'='合成主要聯絡人'
+ and version_row.profile->'contacts'->0->>'name'='合成A / 聯絡人'
+ and version_row.profile->'contacts'->0->>'phone'='0900 / 000001'
  and version_row.profile->'contacts'->1->>'name'='合成代理人'
  and version_row.profile->'consent'->>'status'='pending'
  and version_row.profile->'phone'='null'::jsonb
@@ -589,6 +616,26 @@ select ok((select version_row.profile->>'registeredAddress'='合成戶籍地址'
  join public.clients client on client.id=version_row.client_id
  where client.display_name='合成個案1'),
  'mapped profile contains addresses, CMS, disability, both contacts and unconfirmed consent');
+select ok((select version_row.profile->>'disability'='不適用'
+ and version_row.profile->'registeredAddress'='null'::jsonb
+ from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.display_name='合成個案2'),
+ 'literal not-applicable remains distinct from a missing address');
+select ok((select source_link.normalization_field_indices->'nfkc' @> '[78]'::jsonb
+ and source_link.normalization_field_indices->'contactSeparator' @> '[78,79]'::jsonb
+ and 'REVIEW_SOURCE_NORMALIZATION'=any(source_link.warning_codes)
+ and original_row.raw_values->>78='合成Ａ'||chr(10)||'聯絡人'
+ from private.jubo_intake_profile_sources source_link
+ join private.jubo_source_rows original_row on original_row.id=source_link.master_source_row_id
+ join public.clients client on client.id=source_link.client_id
+ where client.display_name='合成個案1'),
+ 'display separators and NFKC are flagged while original source name remains immutable');
+select ok((select version_row.profile->'contacts'->0->>'relationship'=''
+ from private.client_intake_versions version_row
+ join public.clients client on client.id=version_row.client_id
+ where client.display_name='合成個案1'),
+ 'import never invents a relationship from a multi-line contact cell');
 select ok((select bool_and(version_row.field_authority->>'identityNumber'='jubo_export'
  and version_row.field_authority->>'cmsLevel'='jubo_export'
  and version_row.field_authority->>'consent'='unverified'

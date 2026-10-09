@@ -18,14 +18,16 @@ create table private.jubo_intake_profile_sources (
   monthly_source_row_id uuid,
   master_source_row_sha256 text not null check (master_source_row_sha256 ~ '^[a-f0-9]{64}$'),
   profile_sha256 text not null check (profile_sha256 ~ '^[a-f0-9]{64}$'),
+  mapping_review_sha256 text not null check (mapping_review_sha256 ~ '^[a-f0-9]{64}$'),
   source_sheet_row integer not null check (source_sheet_row > 0),
   source_field_indices jsonb not null check (jsonb_typeof(source_field_indices)='object'),
   warning_codes text[] not null check (warning_codes <@ array[
-    'MISSING_MONTHLY_SUMMARY','MISSING_DATE_OF_BIRTH','MISSING_CONTACT_PHONE',
+    'MISSING_MONTHLY_SUMMARY','MISSING_DATE_OF_BIRTH','MISSING_CONTACT_PHONE','REVIEW_SOURCE_NORMALIZATION',
     'REVIEW_WEEKLY_SCHEDULE','REVIEW_TRANSPORT','REVIEW_ABCD_ASSESSMENTS',
     'REVIEW_IDENTITY_DOCUMENT','REVIEW_MEDICATION_EVIDENCE',
     'REVIEW_HEALTH_EXAM','REVIEW_CONSENT']::text[]),
-  mapping_version text not null check (mapping_version = 'jubo-master-monthly-202610-v1'),
+  normalization_field_indices jsonb not null check (jsonb_typeof(normalization_field_indices)='object'),
+  mapping_version text not null check (mapping_version = 'jubo-master-monthly-202610-v2'),
   parser_version text not null check (char_length(btrim(parser_version)) between 8 and 80),
   created_at timestamptz not null default clock_timestamp(),
   foreign key (promotion_id,organization_id,branch_id)
@@ -52,6 +54,44 @@ create trigger jubo_intake_profile_sources_immutable before update or delete
   execute function private.prevent_import_upload_mutation();
 create trigger jubo_intake_profile_sources_audit after insert
   on private.jubo_intake_profile_sources for each row execute function private.audit_row_change();
+
+-- V1 approvals bind only original source rows. They cannot authorize the V2
+-- display transformation. This intentionally has no browser/service-role
+-- grants or publication RPC: a separate AAL2 review workflow must be built
+-- and accepted before any real pending-client promotion is possible.
+create table private.jubo_profile_mapping_v2_reviews (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null,
+  branch_id uuid not null,
+  pair_id uuid not null,
+  master_source_row_id uuid not null,
+  review_version integer not null check (review_version>0),
+  source_row_sha256 text not null check (source_row_sha256 ~ '^[a-f0-9]{64}$'),
+  mapping_review_sha256 text not null check (mapping_review_sha256 ~ '^[a-f0-9]{64}$'),
+  mapping_version text not null check (mapping_version='jubo-master-monthly-202610-v2'),
+  decision text not null check (decision in ('approved','held','rejected')),
+  review_reason text not null check (char_length(btrim(review_reason)) between 10 and 1000),
+  reviewer_user_id uuid not null references auth.users(id) on delete restrict,
+  reauth_challenge_id uuid not null references private.reauth_challenges(id) on delete restrict,
+  reviewed_at timestamptz not null default clock_timestamp(),
+  foreign key (pair_id,organization_id,branch_id)
+    references private.jubo_verified_source_pairs(id,organization_id,branch_id) on delete restrict,
+  foreign key (master_source_row_id,organization_id,branch_id)
+    references private.jubo_source_rows(id,organization_id,branch_id) on delete restrict,
+  unique(pair_id,master_source_row_id,review_version)
+);
+create index jubo_profile_mapping_v2_reviews_latest_idx on private.jubo_profile_mapping_v2_reviews
+  (pair_id,master_source_row_id,review_version desc);
+create index jubo_profile_mapping_v2_reviews_reauth_idx on private.jubo_profile_mapping_v2_reviews
+  (reauth_challenge_id);
+alter table private.jubo_profile_mapping_v2_reviews enable row level security;
+alter table private.jubo_profile_mapping_v2_reviews force row level security;
+revoke all on private.jubo_profile_mapping_v2_reviews from public,anon,authenticated,service_role;
+create trigger jubo_profile_mapping_v2_reviews_immutable before update or delete
+  on private.jubo_profile_mapping_v2_reviews for each row
+  execute function private.prevent_import_upload_mutation();
+create trigger jubo_profile_mapping_v2_reviews_audit after insert
+  on private.jubo_profile_mapping_v2_reviews for each row execute function private.audit_row_change();
 
 -- Source values in v1 are not automatically editable just because they are
 -- tagged jubo_export rather than central. In particular, merely adding
@@ -88,7 +128,40 @@ begin
   if jsonb_typeof(v)<>'string' then
     raise exception using errcode='22023',message='JUBO_PROFILE_SOURCE_INVALID';
   end if;
-  return nullif(btrim(v#>>'{}'),'');
+  return nullif(btrim(pg_catalog.normalize(v#>>'{}','NFKC')),'');
+end;
+$$;
+
+create function private.jubo_contact_display_text(p_values jsonb,p_index integer) returns text
+language plpgsql immutable security invoker set search_path='' as $$
+declare v text;
+begin
+  v:=private.jubo_plan_text(p_values,p_index);
+  -- Preserve boundaries between source lines rather than concatenating
+  -- potentially distinct people or phone numbers. Original bytes stay in
+  -- jubo_source_rows.raw_values for mandatory human review.
+  return pg_catalog.regexp_replace(v,'[[:cntrl:]]+',' / ','g');
+end;
+$$;
+
+create function private.jubo_normalization_evidence(p_values jsonb) returns jsonb
+language plpgsql immutable security invoker set search_path='' as $$
+declare v_nfkc jsonb:='[]'::jsonb; v_separator jsonb:='[]'::jsonb;
+  v_index integer; v_raw text;
+begin
+  if jsonb_typeof(p_values)<>'array' or jsonb_array_length(p_values)<>95 then
+    raise exception using errcode='22023',message='JUBO_PROFILE_SOURCE_INVALID';
+  end if;
+  foreach v_index in array array[2,3,23,25,32,35,48,54,78,79,80,81] loop
+    v_raw:=p_values->>v_index;
+    if v_raw is not null and pg_catalog.normalize(v_raw,'NFKC') is distinct from v_raw then
+      v_nfkc:=v_nfkc||to_jsonb(v_index);
+    end if;
+    if v_index in (78,79,80,81) and v_raw ~ '[[:cntrl:]]' then
+      v_separator:=v_separator||to_jsonb(v_index);
+    end if;
+  end loop;
+  return jsonb_build_object('nfkc',v_nfkc,'contactSeparator',v_separator);
 end;
 $$;
 
@@ -123,10 +196,10 @@ begin
   if jsonb_typeof(p_values->48) not in ('null','string','number') then
     raise exception using errcode='22023',message='JUBO_PROFILE_CMS_INVALID';
   end if;
-  v_primary_name:=private.jubo_plan_text(p_values,78);
-  v_primary_phone:=private.jubo_plan_text(p_values,79);
-  v_proxy_name:=private.jubo_plan_text(p_values,80);
-  v_proxy_phone:=private.jubo_plan_text(p_values,81);
+  v_primary_name:=private.jubo_contact_display_text(p_values,78);
+  v_primary_phone:=private.jubo_contact_display_text(p_values,79);
+  v_proxy_name:=private.jubo_contact_display_text(p_values,80);
+  v_proxy_phone:=private.jubo_contact_display_text(p_values,81);
   if (v_primary_name is null and v_primary_phone is not null)
     or (v_proxy_name is null and v_proxy_phone is not null) then
     raise exception using errcode='22023',message='JUBO_PROFILE_CONTACT_INVALID';
@@ -154,6 +227,24 @@ begin
 end;
 $$;
 
+create function private.jubo_profile_mapping_fingerprint(
+  p_values jsonb,p_pending private.jubo_pending_master_rows
+) returns text language plpgsql volatile security invoker set search_path='' as $$
+declare v_profile jsonb; v_normalization jsonb; v_row_sha text;
+begin
+  -- clientCode is generated only at public creation. Exclude it from the
+  -- reviewed display digest so the pre-promotion candidate is deterministic.
+  v_profile:=private.jubo_profile_from_master(p_values,p_pending,'JUBO-REVIEW-CANDIDATE');
+  v_normalization:=private.jubo_normalization_evidence(p_values);
+  v_row_sha:=encode(sha256(convert_to(p_values::text,'UTF8')),'hex');
+  return encode(sha256(convert_to(jsonb_build_object(
+    'mappingVersion','jubo-master-monthly-202610-v2',
+    'sourceRowSha256',v_row_sha,
+    'displayProfile',v_profile-'clientCode',
+    'normalization',v_normalization)::text,'UTF8')),'hex');
+end;
+$$;
+
 create function private.create_jubo_pending_intake_profile() returns trigger
 language plpgsql volatile security definer set search_path='' as $$
 declare v_promotion private.jubo_public_pending_promotions%rowtype;
@@ -163,6 +254,8 @@ declare v_promotion private.jubo_public_pending_promotions%rowtype;
   v_monthly private.jubo_source_rows%rowtype;
   v_client public.clients%rowtype;
   v_profile jsonb; v_version uuid; v_authority jsonb; v_warnings text[]:='{}';
+  v_normalization jsonb; v_mapping_fingerprint text;
+  v_mapping_review private.jubo_profile_mapping_v2_reviews%rowtype;
 begin
   -- The private table is ungranted to API roles. The transaction marker also
   -- binds this side-effect to the reviewed promotion that inserted the link.
@@ -201,7 +294,22 @@ begin
       raise exception using errcode='22023',message='JUBO_PROFILE_SOURCE_MISMATCH';
     end if;
   end if;
+  v_mapping_fingerprint:=private.jubo_profile_mapping_fingerprint(v_master.raw_values,v_pending);
+  select * into v_mapping_review from private.jubo_profile_mapping_v2_reviews
+    where pair_id=v_pair.id and master_source_row_id=v_master.id
+      and organization_id=new.organization_id and branch_id=new.branch_id
+    order by review_version desc limit 1;
+  if v_mapping_review.id is null or v_mapping_review.decision<>'approved'
+    or v_mapping_review.source_row_sha256<>v_master.row_sha256
+    or v_mapping_review.mapping_review_sha256<>v_mapping_fingerprint then
+    raise exception using errcode='42501',message='JUBO_PROFILE_MAPPING_V2_REVIEW_REQUIRED';
+  end if;
   v_profile:=private.jubo_profile_from_master(v_master.raw_values,v_pending,v_client.client_code);
+  v_normalization:=private.jubo_normalization_evidence(v_master.raw_values);
+  if jsonb_array_length(v_normalization->'nfkc')>0
+    or jsonb_array_length(v_normalization->'contactSeparator')>0 then
+    v_warnings:=array_append(v_warnings,'REVIEW_SOURCE_NORMALIZATION');
+  end if;
   if v_pending.monthly_source_row_id is null then
     v_warnings:=array_append(v_warnings,'MISSING_MONTHLY_SUMMARY');
   end if;
@@ -230,17 +338,18 @@ begin
   insert into private.jubo_intake_profile_sources(organization_id,branch_id,
     promotion_id,promotion_link_id,client_id,intake_version_id,pair_id,
     master_source_row_id,monthly_source_row_id,master_source_row_sha256,
-    profile_sha256,source_sheet_row,source_field_indices,warning_codes,
-    mapping_version,parser_version)
+    profile_sha256,mapping_review_sha256,source_sheet_row,source_field_indices,warning_codes,
+    normalization_field_indices,mapping_version,parser_version)
     values(new.organization_id,new.branch_id,new.promotion_id,new.id,new.client_id,
       v_version,v_pair.id,v_master.id,v_pending.monthly_source_row_id,
       v_master.row_sha256,encode(sha256(convert_to(v_profile::text,'UTF8')),'hex'),
+      v_mapping_fingerprint,
       v_master.source_row_number,
       jsonb_build_object('displayName',2,'sex',3,'dateOfBirth',23,
         'identityNumber',25,'registeredAddress',32,'residentialAddress',35,
         'cmsLevel',48,'disability',54,'contacts',jsonb_build_array(78,79,80,81)),
-      v_warnings,
-      'jubo-master-monthly-202610-v1',v_pair.parser_version);
+      v_warnings,v_normalization,
+      'jubo-master-monthly-202610-v2',v_pair.parser_version);
   return new;
 end;
 $$;
@@ -249,9 +358,15 @@ create trigger jubo_public_pending_profile after insert on private.jubo_public_p
 
 revoke all on function private.jubo_plan_text(jsonb,integer)
   from public,anon,authenticated,service_role;
+revoke all on function private.jubo_contact_display_text(jsonb,integer)
+  from public,anon,authenticated,service_role;
+revoke all on function private.jubo_normalization_evidence(jsonb)
+  from public,anon,authenticated,service_role;
 revoke all on function private.guard_jubo_pending_profile_version()
   from public,anon,authenticated,service_role;
 revoke all on function private.jubo_profile_from_master(jsonb,private.jubo_pending_master_rows,text)
+  from public,anon,authenticated,service_role;
+revoke all on function private.jubo_profile_mapping_fingerprint(jsonb,private.jubo_pending_master_rows)
   from public,anon,authenticated,service_role;
 revoke all on function private.create_jubo_pending_intake_profile()
   from public,anon,authenticated,service_role;

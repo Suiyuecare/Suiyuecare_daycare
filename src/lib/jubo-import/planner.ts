@@ -55,6 +55,7 @@ export type JuboWarningCode =
   | "MISSING_MONTHLY_SUMMARY"
   | "MISSING_DATE_OF_BIRTH"
   | "MISSING_CONTACT_PHONE"
+  | "REVIEW_SOURCE_NORMALIZATION"
   | "REVIEW_WEEKLY_SCHEDULE"
   | "REVIEW_TRANSPORT"
   | "REVIEW_ABCD_ASSESSMENTS"
@@ -70,10 +71,15 @@ export type JuboPlannedClient = {
   readonly master: JuboRawRow;
   readonly monthlySummary: JuboRawRow | null;
   readonly warnings: readonly JuboWarningCode[];
+  /** Original OOXML values remain in master.columns; these indices flag display-only transformations. */
+  readonly normalizationFieldIndices: {
+    readonly nfkc: readonly number[];
+    readonly contactSeparator: readonly number[];
+  };
 };
 
 export type JuboImportPlan = {
-  readonly mappingVersion: "jubo-master-monthly-202610-v1";
+  readonly mappingVersion: "jubo-master-monthly-202610-v2";
   readonly organizationId: string;
   readonly branchId: string;
   readonly masterRowCount: number;
@@ -137,6 +143,8 @@ const masterColumns = {
   primaryContact: 78, primaryContactPhone: 79, proxy: 80, proxyPhone: 81,
 } as const;
 const summaryColumns = { status: 3, name: 7, identity: 29 } as const;
+const profileSourceIndices = [2, 3, 23, 25, 32, 35, 48, 54, 78, 79, 80, 81] as const;
+const contactSourceIndices = [78, 79, 80, 81] as const;
 
 const requiredHeaders = {
   master: [
@@ -188,6 +196,23 @@ function sourceString(value: unknown, source: "master" | "monthlySummary", sheet
   if (typeof value !== "string") throw new JuboPlanningError("INVALID_FIELD", location(source, sheetRow, columnIndex));
   const trimmed = value.normalize("NFKC").trim();
   return trimmed || null;
+}
+
+/** v2 display rule: retain each source cell unchanged, but preserve an in-cell
+ *  line/control separator as a visible delimiter acceptable to the formal
+ *  intake validator. It never guesses the number or relationship of people. */
+function contactSourceString(value: unknown, sheetRow: number, columnIndex: number) {
+  const text = sourceString(value, "master", sheetRow, columnIndex);
+  return text?.replace(/[\u0000-\u001f\u007f]+/gu, " / ") ?? null;
+}
+
+function normalizationEvidence(original: readonly unknown[]) {
+  return {
+    nfkc: profileSourceIndices.filter((index) =>
+      typeof original[index] === "string" && original[index].normalize("NFKC") !== original[index]),
+    contactSeparator: contactSourceIndices.filter((index) =>
+      typeof original[index] === "string" && /[\u0000-\u001f\u007f]/u.test(original[index])),
+  };
 }
 
 export function normalizeJuboIdentity(value: unknown, source: "master" | "monthlySummary", sheetRow: number, columnIndex: number): string {
@@ -251,10 +276,10 @@ function rawRow(sheet: JuboSheet, row: readonly unknown[], sheetRow: number, row
 function validatedProfile(row: readonly unknown[], sheetRow: number, clientCode: string, identity: string): IntakeProfile {
   const name = sourceString(row[masterColumns.name], "master", sheetRow, masterColumns.name);
   if (!name) throw new JuboPlanningError("INVALID_FIELD", location("master", sheetRow, masterColumns.name));
-  const primaryName = sourceString(row[masterColumns.primaryContact], "master", sheetRow, masterColumns.primaryContact);
-  const primaryPhone = sourceString(row[masterColumns.primaryContactPhone], "master", sheetRow, masterColumns.primaryContactPhone);
-  const proxyName = sourceString(row[masterColumns.proxy], "master", sheetRow, masterColumns.proxy);
-  const proxyPhone = sourceString(row[masterColumns.proxyPhone], "master", sheetRow, masterColumns.proxyPhone);
+  const primaryName = contactSourceString(row[masterColumns.primaryContact], sheetRow, masterColumns.primaryContact);
+  const primaryPhone = contactSourceString(row[masterColumns.primaryContactPhone], sheetRow, masterColumns.primaryContactPhone);
+  const proxyName = contactSourceString(row[masterColumns.proxy], sheetRow, masterColumns.proxy);
+  const proxyPhone = contactSourceString(row[masterColumns.proxyPhone], sheetRow, masterColumns.proxyPhone);
   // A phone without a contact name cannot be safely attributed to a person.
   if ((!primaryName && primaryPhone) || (!proxyName && proxyPhone)) {
     throw new JuboPlanningError("INVALID_FIELD", location("master", sheetRow, !primaryName ? masterColumns.primaryContactPhone : masterColumns.proxyPhone));
@@ -298,11 +323,12 @@ export function assertUniqueJuboClientCodes(rows: readonly { readonly clientCode
   }
 }
 
-function warnings(profile: IntakeProfile, hasSummary: boolean): JuboWarningCode[] {
+function warnings(profile: IntakeProfile, hasSummary: boolean, normalized: JuboPlannedClient["normalizationFieldIndices"]): JuboWarningCode[] {
   const result: JuboWarningCode[] = [];
   if (!hasSummary) result.push("MISSING_MONTHLY_SUMMARY");
   if (!profile.dateOfBirth) result.push("MISSING_DATE_OF_BIRTH");
   if (profile.contacts.some((contact) => !contact.phone)) result.push("MISSING_CONTACT_PHONE");
+  if (normalized.nfkc.length || normalized.contactSeparator.length) result.push("REVIEW_SOURCE_NORMALIZATION");
   // These workbooks are not evidence of an approved schedule, signed form,
   // medication order/administration, identity scan, or health examination.
   result.push(
@@ -344,6 +370,7 @@ export function planJuboImport(input: JuboImportInput): JuboImportPlan {
     const clientCode = hmacCode(secret, organizationId, branchId, identity);
     codeRows.push({ clientCode, sheetRow });
     const profile = validatedProfile(row, sheetRow, clientCode, identity);
+    const normalized = normalizationEvidence(input.master.rawRows?.[index] ?? row);
     const summary = summaryByIdentity.get(identity) ?? null;
     const status = serviceStatus(row[masterColumns.status], sheetRow);
     if (status === "active" && !summary) {
@@ -382,7 +409,8 @@ export function planJuboImport(input: JuboImportInput): JuboImportPlan {
       },
       master: rawRow(input.master, row, sheetRow, index),
       monthlySummary: summary,
-      warnings: warnings(profile, summary !== null),
+      warnings: warnings(profile, summary !== null, normalized),
+      normalizationFieldIndices: normalized,
     };
   });
   assertUniqueJuboClientCodes(codeRows);
@@ -390,7 +418,7 @@ export function planJuboImport(input: JuboImportInput): JuboImportPlan {
     if (!seenMaster.has(identity)) throw new JuboPlanningError("UNMATCHED_SUMMARY", { source: "monthlySummary" });
   }
   return {
-    mappingVersion: "jubo-master-monthly-202610-v1",
+    mappingVersion: "jubo-master-monthly-202610-v2",
     organizationId,
     branchId,
     masterRowCount: input.master.rows.length,

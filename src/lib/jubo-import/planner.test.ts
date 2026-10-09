@@ -88,6 +88,22 @@ function errorCode(action: () => unknown) {
 }
 
 describe("Jubo master + monthly import plan (synthetic data only)", () => {
+  it("preserves original contact cells, marks Unicode changes and separates in-cell lines in v2 display", () => {
+    const input = mutableInput();
+    input.master.rows[0][32] = "虛構Ａ地址";
+    input.master.rows[0][78] = "合成Ａ\n聯絡人";
+    input.master.rows[0][79] = "0000\t0000";
+    const plan = planJuboImport(input);
+    const client = plan.clients[0];
+    expect(plan.mappingVersion).toBe("jubo-master-monthly-202610-v2");
+    expect(client.master.columns[78].value).toBe("合成Ａ\n聯絡人");
+    expect(client.master.columns[79].value).toBe("0000\t0000");
+    expect(client.profile.contacts[0]).toMatchObject({ name: "合成A / 聯絡人", phone: "0000 / 0000" });
+    expect(client.profile.registeredAddress).toBe("虛構A地址");
+    expect(client.normalizationFieldIndices).toEqual({ nfkc: [32, 78], contactSeparator: [78, 79] });
+    expect(client.warnings).toContain("REVIEW_SOURCE_NORMALIZATION");
+  });
+
   it("joins 17 of 23 by normalized ID, verifies names and statuses, and keeps every source cell", () => {
     const input = syntheticInput();
     const plan = planJuboImport(input);
