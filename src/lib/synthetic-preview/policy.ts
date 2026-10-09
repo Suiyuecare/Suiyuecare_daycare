@@ -42,7 +42,8 @@ export function validateSyntheticPreviewEnvironment(source: Environment): boolea
     }
   }
   if (Object.entries(source).some(([key, value]) => Boolean(value?.trim()) &&
-      (externalKeys.test(key) || key.startsWith("FINANCE_STORE_") || key.startsWith("CLIENT_DOCUMENTS_")))) {
+      (externalKeys.test(key) || key.startsWith("FINANCE_STORE_") ||
+        key.startsWith("CLIENT_DOCUMENTS_") || key.startsWith("JUBO_PRIVATE_STAGE_")))) {
     fail("SYNTHETIC_PREVIEW_EXTERNAL_CONFIGURATION_FORBIDDEN");
   }
   if (source.SMS_PROVIDER && source.SMS_PROVIDER !== "mock") {
