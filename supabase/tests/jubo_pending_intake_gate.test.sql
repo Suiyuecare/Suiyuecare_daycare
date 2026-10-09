@@ -1,5 +1,5 @@
 begin;
-select plan(142);
+select plan(144);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -1029,6 +1029,19 @@ select ok(not exists(select 1 from private.taipei_abcd_review_events
  and not exists(select 1 from private.custom_response_print_jobs
  where client_id=current_setting('test.jubo_pending_client')::uuid),
  'failed formal writes leave review, export and print ledgers empty');
+select throws_ok($$insert into private.external_assessment_results(
+ organization_id,branch_id,client_id,instrument_key,external_version,assessed_on,
+ external_result,performed_by,source,content_hash,actor_id)
+ values ('fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'spmsq','synthetic-v1',current_date,'synthetic','synthetic','synthetic',
+ repeat('a',64),'fa100000-0000-4000-8000-000000000001')$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending client cannot receive a formal external score, even by owner insert');
+select is((select count(*)::integer from private.external_assessment_results
+ where client_id=current_setting('test.jubo_pending_client')::uuid),0,
+ 'denied formal external result leaves its ledger empty');
 insert into public.clients(id,organization_id,branch_id,client_code,display_name,status)
  values ('fb500000-0000-4000-8000-000000000001',
  'fa120000-0000-4000-8000-000000000002',
