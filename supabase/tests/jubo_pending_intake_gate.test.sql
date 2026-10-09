@@ -1,5 +1,5 @@
 begin;
-select plan(179);
+select plan(187);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -540,6 +540,39 @@ create function pg_temp.v2_review_one(p_preview jsonb,p_decision text,p_number i
   '合成測試逐欄核對原值、顯示值與正規化警示後作出決定',
   ('fab00000-0000-4000-8000-'||lpad(p_number::text,12,'0'))::uuid);
 $$;
+select ok(not has_function_privilege('anon',
+ 'public.jubo_profile_mapping_v2_review_queue(uuid,uuid)','execute')
+ and not has_function_privilege('service_role',
+ 'public.jubo_profile_mapping_v2_review_queue(uuid,uuid)','execute'),
+ 'JUBO v2 review queue is not exposed to anonymous or service role');
+set local role authenticated;
+select throws_ok($$select public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002')$$,'42501',null,
+ 'other organization cannot list JUBO v2 source row ordinals');
+select is((public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003')->>'eligiblePairCount')::integer,0,
+ 'sibling branch with active membership sees no JUBO v2 source row ordinals');
+select is((public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')->>'eligiblePairCount')::integer,1,
+ 'queue exposes one exact reviewed pair, not another tenant or branch');
+select is(jsonb_array_length(public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')->'pairs'->0->'sourceRows'),23,
+ 'queue shows exactly 23 source row ordinals');
+select ok(public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')::text not like '%合成個案%'
+ and public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')::text not like '%SYN-ID%'
+ and (public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')->'pairs'->0->'sourceRows'->0->>'decision')='unreviewed',
+ 'queue contains ordinal and review state only, never profile or identity cells');
+reset role;
 select set_config('test.jubo_first_row',(select id::text from private.jubo_source_rows
  where batch_id='fa150000-0000-4000-8000-000000000003' and source_row_number=6),true);
 select ok(not has_function_privilege('anon',
@@ -567,6 +600,10 @@ reset role;
 select set_config('request.jwt.claims',jsonb_set(current_setting('test.jubo_good_jwt')::jsonb,
  '{aal}','"aal1"'::jsonb)::text,true);
 set local role authenticated;
+select throws_ok($$select public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')$$,
+ '42501',null,'v2 queue requires current AAL2 evidence');
 select throws_ok($$select pg_temp.v2_preview_one(current_setting('test.jubo_first_row')::uuid)$$,
  '42501',null,'v2 preview requires fresh AAL2');
 reset role;
@@ -644,6 +681,12 @@ insert into public.membership_roles(membership_id,role_id) values
 set local role authenticated;
 select is((pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
  'held',1)->>'decision'),'held','held decision is persisted for one exact preview');
+select ok((select row_item->>'decision'='held' and (row_item->>'reviewVersion')::integer=1
+ from jsonb_array_elements(public.jubo_profile_mapping_v2_review_queue(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')->'pairs'->0->'sourceRows') row_item
+ where row_item->>'sourceRowId'=current_setting('test.jubo_first_row')),
+ 'queue reflects a persisted held review version without exposing its reason');
 select is((pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
  'held',1)->>'replayed')::boolean,true,'same request key replays without a second row');
 select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,

@@ -89,12 +89,14 @@ export function AppShell({
   navigation,
   showStoreOverview = false,
   showAssessmentMatrix = false,
+  showJuboReview = false,
   children,
 }: {
   context: TenantContext;
   navigation: readonly NavigationGroup[];
   showStoreOverview?: boolean;
   showAssessmentMatrix?: boolean;
+  showJuboReview?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -521,6 +523,14 @@ export function AppShell({
               {showClientIntake ? <NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink> : null}
               {showPendingDirectorReview ? <NavigationLink aria-current={pathname === "/app/pending-intake-review" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/pending-intake-review" prefetch={false} loadingLabel="主任待收案核對" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>主任待收案核對</span></NavigationLink> : null}
             </div>
+          </section> : null}
+          {showJuboReview ? <section className="nav-group">
+            <div className="nav-group__label nav-group__label--static">資料移轉</div>
+            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/governance/jubo-profile-review" ? "page" : undefined}
+              className="nav-link" fullDocument href="/app/governance/jubo-profile-review" prefetch={false}
+              loadingLabel="JUBO 個案主檔覆核" onClick={() => closeMenu({ returnFocus: false })}>
+              <span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>JUBO 個案覆核</span>
+            </NavigationLink></div>
           </section> : null}
           {showStoreOverview ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">主管檢視</div>

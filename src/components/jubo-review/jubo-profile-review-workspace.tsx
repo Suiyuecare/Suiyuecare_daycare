@@ -1,0 +1,278 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, Check, Clock3, FileSearch, RotateCcw, ShieldCheck } from "lucide-react";
+
+import {
+  juboReviewPreviewSchema, juboReviewQueueSchema, juboReviewReceiptSchema,
+  type JuboReviewPreview, type JuboReviewQueue, type JuboReviewRequest,
+} from "@/lib/jubo-review/model";
+
+import styles from "./jubo-profile-review.module.css";
+
+type Decision = JuboReviewRequest["decision"];
+type ApiError = { code?: string; message?: string };
+
+const queueUrl = "/api/jubo-profile-review/queue";
+const previewUrl = "/api/jubo-profile-review/preview";
+const decisionUrl = "/api/jubo-profile-review/decision";
+const sensitiveHeaders = { "Content-Type": "application/json" };
+const decisionLabels: Record<string, string> = {
+  unreviewed: "待覆核", approved: "已核准", held: "暫緩", rejected: "退回", stale: "來源已變更",
+};
+const columns: Array<{ key: keyof JuboReviewPreview["originalMappedValues"]; label: string; display: (profile: JuboReviewPreview["displayProfile"]) => string | number | null }> = [
+  { key: "displayName", label: "姓名", display: (p) => p.displayName },
+  { key: "sex", label: "性別", display: (p) => ({ male: "男", female: "女", other: "其他", unknown: "未確認" })[p.sex] },
+  { key: "dateOfBirth", label: "出生日期", display: (p) => p.dateOfBirth },
+  { key: "identityNumber", label: "身分證字號", display: (p) => p.identityNumber },
+  { key: "registeredAddress", label: "戶籍地址", display: (p) => p.registeredAddress },
+  { key: "residentialAddress", label: "居住地址", display: (p) => p.residentialAddress },
+  { key: "cmsLevel", label: "CMS 等級", display: (p) => p.cmsLevel },
+  { key: "disability", label: "身障註記", display: (p) => p.disability },
+  { key: "primaryContactName", label: "主要聯絡人", display: (p) => p.contacts.find((c) => c.isPrimary)?.name ?? null },
+  { key: "primaryContactPhone", label: "聯絡電話", display: (p) => p.contacts.find((c) => c.isPrimary)?.phone ?? null },
+  { key: "proxyName", label: "代理人", display: (p) => p.contacts.find((c) => !c.isPrimary)?.name ?? null },
+  { key: "proxyPhone", label: "代理電話", display: (p) => p.contacts.find((c) => !c.isPrimary)?.phone ?? null },
+];
+
+function timestamp(value: string) {
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function cellValue(value: string | number | null) {
+  return value === null || value === "" ? "未提供" : String(value);
+}
+
+async function privateJson(url: string, body?: object, signal?: AbortSignal) {
+  const deadline = AbortSignal.timeout(url === decisionUrl ? 25_000 : 15_000);
+  const response = await fetch(url, {
+    method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store",
+    headers: body ? sensitiveHeaders : undefined, body: body ? JSON.stringify(body) : undefined,
+    signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+  });
+  // The response is kept in component memory only; never put private fields in URLs or storage.
+  const envelope: unknown = await response.json();
+  if (!envelope || typeof envelope !== "object") throw new Error("INVALID_RESPONSE");
+  const record = envelope as { status?: unknown; data?: unknown; errors?: ApiError[] };
+  if (!response.ok || record.status !== "ok") {
+    const first = Array.isArray(record.errors) ? record.errors[0] : undefined;
+    throw new Error(first?.code === "JUBO_REAUTH_REQUIRED"
+      ? "重新驗證已逾時；驗證後再載入。"
+      : typeof first?.message === "string" ? first.message : "暫時無法載入；請稍後重試。");
+  }
+  return record.data;
+}
+
+function safeError(cause: unknown, fallback: string) {
+  if (!(cause instanceof Error) || cause.name === "AbortError" || cause.name === "TimeoutError" || cause.message === "INVALID_RESPONSE") return fallback;
+  return cause.message;
+}
+
+export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchName: string; recentAal2: boolean }) {
+  const [queue, setQueue] = useState<JuboReviewQueue | null>(null);
+  const [selectedPairId, setSelectedPairId] = useState("");
+  const [selectedRowId, setSelectedRowId] = useState("");
+  const [preview, setPreview] = useState<JuboReviewPreview | null>(null);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  const [decision, setDecision] = useState<Decision>("held");
+  const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [uncertain, setUncertain] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const previewController = useRef<AbortController | null>(null);
+  const queueController = useRef<AbortController | null>(null);
+  const uncertainSource = useRef<{ pairId: string; sourceRowId: string; reviewVersion: number } | null>(null);
+
+  const loadQueue = useCallback(async () => {
+    queueController.current?.abort();
+    const controller = new AbortController(); queueController.current = controller;
+    previewController.current?.abort();
+    setPreview(null); setSelectedRowId(""); setError(""); setQueueBusy(true);
+    try {
+      const parsed = juboReviewQueueSchema.safeParse(await privateJson(queueUrl, undefined, controller.signal));
+      if (!parsed.success) throw new Error("清單格式未通過核對，請聯絡管理員。");
+      setQueue(parsed.data);
+      setSelectedPairId((previous) => parsed.data.pairs.some((pair) => pair.pairId === previous)
+        ? previous : parsed.data.pairs[0]?.pairId ?? "");
+      const pending = uncertainSource.current;
+      if (pending) {
+        const latest = parsed.data.pairs.find((pair) => pair.pairId === pending.pairId)
+          ?.sourceRows.find((row) => row.sourceRowId === pending.sourceRowId);
+        if (latest && latest.reviewVersion > pending.reviewVersion) {
+          uncertainSource.current = null; setUncertain(false);
+          setMessage(`第 ${latest.sourceSheetRow} 列有新的審核版本 v${latest.reviewVersion}；請核對決定後再繼續。`);
+        } else {
+          setUncertain(true);
+          setError("尚未確認原送出結果。請稍後再核對狀態，暫勿重新送出。");
+        }
+      } else setUncertain(false);
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setQueue(null); setError(safeError(cause, "清單暫時無法載入，請重試。"));
+      }
+    } finally { if (!controller.signal.aborted) setQueueBusy(false); }
+  }, []);
+
+  useEffect(() => {
+    const timer = recentAal2 ? window.setTimeout(() => void loadQueue(), 0) : null;
+    return () => { if (timer !== null) window.clearTimeout(timer);
+      queueController.current?.abort(); previewController.current?.abort(); };
+  }, [loadQueue, recentAal2]);
+
+  useEffect(() => {
+    if (!preview) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
+  }, [preview]);
+
+  const selectedPair = queue?.pairs.find((pair) => pair.pairId === selectedPairId);
+  const selectedRow = selectedPair?.sourceRows.find((row) => row.sourceRowId === selectedRowId);
+  const expires = preview ? Date.parse(preview.expiresAt) <= now : true;
+  const hasUnsaved = reason.trim().length > 0 || confirmed;
+
+  async function selectRow(sourceRowId: string) {
+    if (!selectedPair || decisionBusy || uncertain || (hasUnsaved && selectedRowId !== sourceRowId)) return;
+    previewController.current?.abort();
+    const controller = new AbortController(); previewController.current = controller;
+    setSelectedRowId(sourceRowId); setPreview(null); setError(""); setMessage("");
+    setReason(""); setConfirmed(false); setDecision("held"); setPreviewBusy(true);
+    try {
+      const parsed = juboReviewPreviewSchema.safeParse(await privateJson(previewUrl,
+        { pairId: selectedPair.pairId, sourceRowId }, controller.signal));
+      if (!parsed.success || parsed.data.pairId !== selectedPair.pairId || parsed.data.sourceRowId !== sourceRowId) {
+        throw new Error("預覽與來源不一致，請重新讀取。");
+      }
+      setPreview(parsed.data);
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(safeError(cause, "此筆暫時無法預覽，請重試。"));
+    } finally { if (!controller.signal.aborted) setPreviewBusy(false); }
+  }
+
+  async function submitDecision(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!preview || expires || !confirmed || reason.trim().length < 10 || decisionBusy || uncertain) return;
+    const request: JuboReviewRequest = {
+      pairId: preview.pairId, sourceRowId: preview.sourceRowId, previewId: preview.previewId,
+      sourceRowSha256: preview.sourceRowSha256, mappingReviewSha256: preview.mappingReviewSha256,
+      previewSha256: preview.previewSha256, decision, reason: reason.trim(),
+      idempotencyKey: crypto.randomUUID(),
+    };
+    setDecisionBusy(true); setError(""); setMessage("");
+    try {
+      const parsed = juboReviewReceiptSchema.safeParse(await privateJson(decisionUrl, request));
+      if (!parsed.success || parsed.data.decision !== decision) throw new Error("回執未能核對；請先查清單狀態。");
+      setReason(""); setConfirmed(false); setPreview(null);
+      setMessage(`第 ${preview.sourceSheetRow} 列已記錄「${decisionLabels[decision]}」，審核版本 ${parsed.data.reviewVersion}。`);
+      await loadQueue();
+    } catch (cause) {
+      // A timeout or broken response might have committed. Never create a second attempt automatically.
+      uncertainSource.current = { pairId: preview.pairId, sourceRowId: preview.sourceRowId,
+        reviewVersion: selectedRow?.reviewVersion ?? 0 };
+      setUncertain(true); setPreview(null); setReason(""); setConfirmed(false);
+      setError(`${safeError(cause, "結果尚未確認。")} 請先核對清單，不要重複送出。`);
+    } finally { setDecisionBusy(false); }
+  }
+
+  function selectPair(pairId: string) {
+    if (hasUnsaved || decisionBusy || uncertain) return;
+    previewController.current?.abort(); setSelectedPairId(pairId); setSelectedRowId("");
+    setPreview(null); setError(""); setMessage("");
+  }
+
+  return <main className={styles.workspace}>
+    <header className={styles.heading}>
+      <div><p className="eyebrow">資料移轉 · 人工覆核</p><h1><FileSearch aria-hidden="true" />JUBO 個案主檔</h1>
+        <p>{branchName} · 逐筆核對後才可進入下一關；此頁不建立正式個案。</p></div>
+      <button className="button button--secondary" onClick={() => void loadQueue()} disabled={queueBusy || decisionBusy || hasUnsaved} type="button">
+        <RotateCcw aria-hidden="true" size={18} />核對狀態
+      </button>
+    </header>
+
+    {!recentAal2 && !queue ? <section className={styles.notice} role="status"><ShieldCheck aria-hidden="true" />
+      <div><strong>請先完成近期驗證</strong><p>完成後回到此頁，按「核對狀態」。</p></div>
+      <a className="button button--secondary" href="/mfa?audience=staff&purpose=sensitive-action" rel="noopener noreferrer" target="_blank">前往驗證</a>
+    </section> : null}
+    {error ? <div className={styles.error} role="alert"><AlertCircle aria-hidden="true" />{error}</div> : null}
+    {message ? <div className={styles.success} role="status"><Check aria-hidden="true" />{message}</div> : null}
+    {queueBusy ? <p className={styles.loading} role="status">清單讀取中…</p> : null}
+    {!queueBusy && queue?.pairs.length === 0 ? <section className={styles.empty}><FileSearch aria-hidden="true" />
+      <h2>目前沒有可覆核的 23 筆來源組</h2><p>這不代表已完成移轉；請在管理端確認來源配對與核准狀態。</p>
+    </section> : null}
+    {queue && queue.pairs.length > 0 ? <>
+      <section className={styles.summary} aria-label="來源組選擇">
+        <div><small>可覆核來源組</small><strong>{queue.eligiblePairCount}</strong></div>
+        <label>來源組<select aria-label="來源組" disabled={hasUnsaved || decisionBusy || uncertain}
+          onChange={(event) => selectPair(event.target.value)} value={selectedPairId}>
+          {queue.pairs.map((pair, index) => <option key={pair.pairId} value={pair.pairId}>
+            第 {index + 1} 組 · 核驗 {timestamp(pair.verifiedAt)}
+          </option>)}
+        </select></label>
+        {queue.eligiblePairCount > queue.pairs.length ? <small>僅列最近 {queue.pairs.length} 組</small> : null}
+      </section>
+      {selectedPair ? <div className={styles.layout}>
+        <section className={styles.list} aria-labelledby="source-list-title">
+          <div className={styles.listHeading}><h2 id="source-list-title">來源列</h2><span>23 筆</span></div>
+          {hasUnsaved ? <p className={styles.switchHint}>切換來源列前，請先取消本筆輸入。</p> : null}
+          <div className={styles.rows}>{selectedPair.sourceRows.map((row) => <button
+            aria-current={row.sourceRowId === selectedRowId ? "true" : undefined}
+            className={styles.rowButton} data-active={row.sourceRowId === selectedRowId}
+            disabled={decisionBusy || uncertain || (hasUnsaved && row.sourceRowId !== selectedRowId)}
+            key={row.sourceRowId} onClick={() => void selectRow(row.sourceRowId)} type="button">
+            <span>第 {row.sourceSheetRow} 列</span><span>{decisionLabels[row.decision]}</span>
+            {row.reviewVersion ? <small>v{row.reviewVersion}</small> : null}
+          </button>)}</div>
+        </section>
+        <section className={styles.detail} aria-labelledby="detail-title">
+          {!selectedRow ? <div className={styles.empty}><FileSearch aria-hidden="true" /><h2 id="detail-title">選擇來源列</h2><p>查看原值、轉換後內容與差異。</p></div> : null}
+          {selectedRow && previewBusy ? <div className={styles.empty} role="status">第 {selectedRow.sourceSheetRow} 列讀取中…</div> : null}
+          {selectedRow && !previewBusy && !preview ? <div className={styles.empty}>
+            <h2 id="detail-title">預覽未載入</h2><button className="button button--secondary" onClick={() => void selectRow(selectedRow.sourceRowId)} type="button">重新預覽</button>
+          </div> : null}
+          {preview ? <>
+            <div className={styles.detailHeader}><div><p className="eyebrow">來源第 {preview.sourceSheetRow} 列 · 映射 v2</p><h2 id="detail-title">逐欄核對</h2></div>
+              <span><Clock3 aria-hidden="true" size={16} />有效至 {timestamp(preview.expiresAt)}</span></div>
+            {preview.normalizationRequiresConfirmation ? <div className={styles.warning} role="status"><AlertCircle aria-hidden="true" />有文字轉換，請特別確認標示欄位。</div> : null}
+            <div className={styles.compare} role="region" aria-label="原值與轉換後欄位">
+              <div className={styles.compareHead}><span>欄位</span><span>原始值</span><span>匯入顯示值</span></div>
+              {columns.map(({ key, label, display }) => {
+                const source = preview.originalMappedValues[key];
+                const mapped = display(preview.displayProfile);
+                const changed = cellValue(source.value) !== cellValue(mapped);
+                const normalized = preview.normalizationFieldIndices.nfkc.includes(source.index) ||
+                  preview.normalizationFieldIndices.contactSeparator.includes(source.index);
+                return <div className={styles.compareRow} data-changed={changed} key={key}>
+                  <strong>{label}{normalized ? <small>已轉換</small> : null}</strong>
+                  <span>{cellValue(source.value)}</span><span>{cellValue(mapped)}{changed ? <small>有差異</small> : null}</span>
+                </div>;
+              })}
+            </div>
+            <div className={styles.sourceNote}>來源列指紋 {preview.sourceRowSha256.slice(0, 8)}… · 用於確認來源版本</div>
+            {expires ? <div className={styles.warning} role="alert">預覽已逾時；請重新讀取，再作決定。
+              <button className="button button--secondary" onClick={() => void selectRow(preview.sourceRowId)} type="button">重新預覽</button>
+            </div> : <form className={styles.form} onSubmit={(event) => void submitDecision(event)}>
+              <fieldset><legend>覆核決定</legend><div className={styles.choices}>
+                {(["approved", "held", "rejected"] as const).map((value) => <label key={value}>
+                  <input checked={decision === value} name="decision" onChange={() => setDecision(value)} type="radio" value={value} />
+                  {decisionLabels[value]}</label>)}
+              </div></fieldset>
+              <label className={styles.reason}>覆核理由（至少 10 字）
+                <textarea maxLength={1000} minLength={10} onChange={(event) => setReason(event.target.value)} required rows={3}
+                  value={reason} placeholder="寫下已核對的差異與處理依據" />
+              </label>
+              <label className={styles.confirm}><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />
+                我已核對此列原值、轉換與差異，且了解這不是正式收案。</label>
+              <div className={styles.actions}><button className="button button--primary" disabled={!confirmed || reason.trim().length < 10 || decisionBusy}
+                type="submit">{decisionBusy ? "送出中…" : `記錄：${decisionLabels[decision]}`}</button>
+                {hasUnsaved ? <button className="button button--secondary" onClick={() => { setReason(""); setConfirmed(false); }} type="button">取消本筆輸入</button> : null}
+              </div>
+            </form>}
+          </> : null}
+        </section>
+      </div> : null}
+    </> : null}
+  </main>;
+}
