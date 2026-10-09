@@ -1,5 +1,5 @@
 begin;
-select plan(118);
+select plan(142);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -516,26 +516,170 @@ select throws_ok($$select pg_temp.promote_public()$$,'42501',
  'all prior v1 row approvals remain insufficient after the v2 display mapping change');
 select is((select count(*)::integer from public.clients where source_system='jubo'),0,
  'missing v2 profile review rolls back every pending client shell');
--- Synthetic fixture inserts directly as postgres. The real candidate grants
--- no review-table write role or RPC; an AAL2 review UI/RPC is still required.
-insert into private.jubo_profile_mapping_v2_reviews(
- organization_id,branch_id,pair_id,master_source_row_id,review_version,
- source_row_sha256,mapping_review_sha256,mapping_version,decision,
- review_reason,reviewer_user_id,reauth_challenge_id)
-select pending.organization_id,pending.branch_id,current_setting('test.jubo_pair')::uuid,
- master.id,1,master.row_sha256,
- private.jubo_profile_mapping_fingerprint(master.raw_values,pending),
- 'jubo-master-monthly-202610-v2','approved',
- '合成測試逐欄覆核新版聯絡顯示與來源原文一致',
- latest.reviewer_user_id,latest.reauth_challenge_id
-from private.jubo_pending_master_rows pending
-join private.jubo_source_rows master on master.id=pending.source_row_id
-join lateral (select review.reviewer_user_id,review.reauth_challenge_id
- from private.jubo_master_row_reviews review
- where review.pair_id=current_setting('test.jubo_pair')::uuid
-   and review.source_row_id=master.id
- order by review.review_version desc limit 1) latest on true
-where pending.operation_id=(current_setting('test.jubo_receipt')::jsonb->>'operationId')::uuid;
+-- V2 is separately previewed and approved. The original cells and display
+-- transformation are returned to an authorized person, never in audit output.
+create function pg_temp.v2_preview_one(p_row uuid,p_purpose text default 'jubo_intake_profile_mapping_v2')
+ returns jsonb language sql security invoker as $$
+ select public.preview_jubo_profile_mapping_v2(
+  'fa120000-0000-4000-8000-000000000001',
+  'fa130000-0000-4000-8000-000000000001',
+  current_setting('test.jubo_pair')::uuid,p_row,p_purpose);
+$$;
+create function pg_temp.v2_review_one(p_preview jsonb,p_decision text,p_number integer,
+ p_source_sha text default null,p_fingerprint text default null,p_preview_sha text default null,
+ p_purpose text default 'jubo_intake_profile_mapping_v2')
+ returns jsonb language sql security invoker as $$
+ select public.review_jubo_profile_mapping_v2(
+  'fa120000-0000-4000-8000-000000000001',
+  'fa130000-0000-4000-8000-000000000001',
+  current_setting('test.jubo_pair')::uuid,(p_preview->>'sourceRowId')::uuid,
+  (p_preview->>'previewId')::uuid,
+  coalesce(p_source_sha,p_preview->>'sourceRowSha256'),
+  coalesce(p_fingerprint,p_preview->>'mappingReviewSha256'),
+  coalesce(p_preview_sha,p_preview->>'previewSha256'),p_purpose,p_decision,
+  '合成測試逐欄核對原值、顯示值與正規化警示後作出決定',
+  ('fab00000-0000-4000-8000-'||lpad(p_number::text,12,'0'))::uuid);
+$$;
+select set_config('test.jubo_first_row',(select id::text from private.jubo_source_rows
+ where batch_id='fa150000-0000-4000-8000-000000000003' and source_row_number=6),true);
+select ok(not has_function_privilege('anon',
+ 'public.preview_jubo_profile_mapping_v2(uuid,uuid,uuid,uuid,text)','execute')
+ and not has_function_privilege('service_role',
+ 'public.review_jubo_profile_mapping_v2(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,uuid)','execute')
+ and not has_table_privilege('authenticated','private.jubo_profile_mapping_v2_previews','select'),
+ 'raw v2 preview and immutable evidence are inaccessible to anon and service role');
+set local role authenticated;
+select throws_ok($$select public.preview_jubo_profile_mapping_v2(
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ current_setting('test.jubo_pair')::uuid,current_setting('test.jubo_first_row')::uuid,
+ 'jubo_intake_profile_mapping_v2')$$,'42501',null,
+ 'other organization cannot preview a v2 source row');
+select throws_ok($$select public.preview_jubo_profile_mapping_v2(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',
+ current_setting('test.jubo_pair')::uuid,current_setting('test.jubo_first_row')::uuid,
+ 'jubo_intake_profile_mapping_v2')$$,'42501',null,
+ 'sibling branch cannot preview a source row');
+select throws_ok($$select pg_temp.v2_preview_one(current_setting('test.jubo_first_row')::uuid,'other purpose')$$,
+ '22023','JUBO_PROFILE_V2_PREVIEW_INVALID','preview rejects an unrelated purpose');
+reset role;
+select set_config('request.jwt.claims',jsonb_set(current_setting('test.jubo_good_jwt')::jsonb,
+ '{aal}','"aal1"'::jsonb)::text,true);
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_preview_one(current_setting('test.jubo_first_row')::uuid)$$,
+ '42501',null,'v2 preview requires fresh AAL2');
+reset role;
+select set_config('request.jwt.claims',jsonb_set(current_setting('test.jubo_good_jwt')::jsonb,
+ '{session_id}','"fa110000-0000-4000-8000-000000000099"'::jsonb)::text,true);
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_preview_one(current_setting('test.jubo_first_row')::uuid)$$,
+ '42501',null,'v2 preview refuses another session without reauthentication');
+reset role;
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+set local role authenticated;
+select set_config('test.jubo_v2_first_preview',
+ pg_temp.v2_preview_one(current_setting('test.jubo_first_row')::uuid)::text,true);
+select ok((current_setting('test.jubo_v2_first_preview')::jsonb
+  ->'originalMappedValues'->'primaryContactName'->>'value') like '%'||chr(10)||'%'
+ and (current_setting('test.jubo_v2_first_preview')::jsonb
+  ->'displayProfile'->'contacts'->0->>'name')='合成A / 聯絡人'
+ and (current_setting('test.jubo_v2_first_preview')::jsonb
+  ->'normalizationFieldIndices'->'nfkc') @> '[78]'::jsonb
+ and (current_setting('test.jubo_v2_first_preview')::jsonb
+  ->'normalizationFieldIndices'->'contactSeparator') @> '[78]'::jsonb,
+ 'one preview shows original control/NFKC values beside explicit display changes');
+reset role;
+select ok((select presented_payload_sha256=current_setting('test.jubo_v2_first_preview')::jsonb->>'previewSha256'
+ and mapping_review_sha256=current_setting('test.jubo_v2_first_preview')::jsonb->>'mappingReviewSha256'
+ and source_row_sha256=current_setting('test.jubo_v2_first_preview')::jsonb->>'sourceRowSha256'
+ from private.jubo_profile_mapping_v2_previews
+ where id=(current_setting('test.jubo_v2_first_preview')::jsonb->>'previewId')::uuid),
+ 'preview binds purpose, original source SHA, normalized display fingerprint and payload hash');
+select set_config('request.jwt.claims',jsonb_set(current_setting('test.jubo_good_jwt')::jsonb,
+ '{session_id}','"fa110000-0000-4000-8000-000000000099"'::jsonb)::text,true);
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1)$$,'42501',null,'review cannot reuse another session preview');
+reset role;
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+select throws_ok($$update private.jubo_source_rows
+ set raw_values=jsonb_set(raw_values,'{78}','"changed after preview"'::jsonb)
+ where id=current_setting('test.jubo_first_row')::uuid$$,
+ '55000',null,'attested source cells cannot change after a preview was issued');
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1,repeat('0',64))$$,'42501','JUBO_PROFILE_V2_PREVIEW_MISMATCH',
+ 'changed source digest cannot be approved');
+select throws_ok($$select public.review_jubo_profile_mapping_v2(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',current_setting('test.jubo_pair')::uuid,
+ current_setting('test.jubo_first_row')::uuid,
+ (current_setting('test.jubo_v2_first_preview')::jsonb->>'previewId')::uuid,
+ null,current_setting('test.jubo_v2_first_preview')::jsonb->>'mappingReviewSha256',
+ current_setting('test.jubo_v2_first_preview')::jsonb->>'previewSha256',
+ 'jubo_intake_profile_mapping_v2','approved',
+ '合成測試逐欄核對原值與顯示值後作出決定',
+ 'fab00000-0000-4000-8000-000000000001')$$,
+ '22023','JUBO_PROFILE_V2_REVIEW_INVALID',
+ 'null source hash is rejected before any decision is written');
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1,null,repeat('0',64))$$,'42501','JUBO_PROFILE_V2_PREVIEW_MISMATCH',
+ 'stale v2 mapping fingerprint cannot be approved');
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1,null,null,repeat('0',64))$$,'42501','JUBO_PROFILE_V2_PREVIEW_MISMATCH',
+ 'changed original/display preview hash cannot be approved');
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1,null,null,null,'other purpose')$$,'22023','JUBO_PROFILE_V2_REVIEW_INVALID',
+ 'review purpose cannot be substituted');
+reset role;
+delete from public.membership_roles where membership_id='fa140000-0000-4000-8000-000000000001';
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1)$$,'42501','INTAKE_ACCESS_DENIED',
+ 'revoked import permission blocks review even with a prior preview and AAL2');
+reset role;
+insert into public.membership_roles(membership_id,role_id) values
+ ('fa140000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002');
+set local role authenticated;
+select is((pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'held',1)->>'decision'),'held','held decision is persisted for one exact preview');
+select is((pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'held',1)->>'replayed')::boolean,true,'same request key replays without a second row');
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',1)$$,'23505','JUBO_PROFILE_V2_IDEMPOTENCY_CONFLICT',
+ 'same key cannot change its decision');
+select throws_ok($$select pg_temp.v2_review_one(current_setting('test.jubo_v2_first_preview')::jsonb,
+ 'approved',2)$$,'23505','JUBO_PROFILE_V2_PREVIEW_ALREADY_REVIEWED',
+ 'one preview cannot support two different decisions');
+reset role;
+select throws_ok($$select pg_temp.promote_public()$$,'42501',
+ 'JUBO_PROFILE_MAPPING_V2_REVIEW_REQUIRED',
+ 'a held latest v2 decision blocks promotion');
+create function pg_temp.review_all_v2() returns void language plpgsql security invoker as $$
+declare r record; n integer:=2; p jsonb;
+begin
+ for r in select id from private.jubo_source_rows
+   where batch_id='fa150000-0000-4000-8000-000000000003'
+   order by source_row_number loop
+   p:=pg_temp.v2_preview_one(r.id);
+   perform pg_temp.v2_review_one(p,'approved',n);
+   n:=n+1;
+ end loop;
+end;
+$$;
+select pg_temp.review_all_v2();
+select is((select count(*)::integer from private.jubo_profile_mapping_v2_reviews),24,
+ '23 new human-review calls produce 23 latest approved v2 decisions plus held history');
+select ok((select bool_and(review.review_purpose='jubo_intake_profile_mapping_v2'
+  and review.presented_payload_sha256=preview.presented_payload_sha256
+  and review.mapping_review_sha256=preview.mapping_review_sha256
+  and review.source_row_sha256=preview.source_row_sha256
+  and review.reviewer_user_id=preview.actor_user_id
+  and review.reauth_challenge_id=preview.reauth_challenge_id)
+ from private.jubo_profile_mapping_v2_reviews review
+ join private.jubo_profile_mapping_v2_previews preview on preview.id=review.preview_id),
+ 'each decision preserves the same reviewer, AAL2, purpose and exact preview evidence');
 create function pg_temp.fail_pending_profile() returns trigger language plpgsql as $$
  begin raise exception using errcode='P0001',message='synthetic profile fault'; end; $$;
 create trigger zz_pending_profile_fault after insert on private.client_intake_versions
@@ -895,5 +1039,12 @@ select lives_ok($$select private.assert_jubo_pending_private_client_boundary(
  'fa130000-0000-4000-8000-000000000002',
  'fb500000-0000-4000-8000-000000000001',false)$$,
  'existing active client formal path retains prior behavior');
+update private.reauth_events set verified_at=now()-interval '16 minutes'
+ where user_id='fa100000-0000-4000-8000-000000000001'
+   and session_id='fa110000-0000-4000-8000-000000000001';
+set local role authenticated;
+select throws_ok($$select pg_temp.v2_preview_one(current_setting('test.jubo_first_row')::uuid)$$,
+ '42501',null,'stale same-session AAL2 evidence cannot open another v2 review');
+reset role;
 select * from finish();
 rollback;
