@@ -18,12 +18,14 @@ insert into auth.identities(id,provider_id,user_id,identity_data,provider) value
   '{"sub":"synthetic-manager-google","email":"synthetic-manager@example.invalid","email_verified":true}','google');
 insert into auth.sessions(id,user_id,created_at,aal) values
  ('bb120000-0000-4000-8000-000000000001','bb100000-0000-4000-8000-000000000001',now()-interval '3 minutes','aal1'),
- ('bb120000-0000-4000-8000-000000000002','bb100000-0000-4000-8000-000000000002',now()-interval '3 minutes','aal1');
+ ('bb120000-0000-4000-8000-000000000002','bb100000-0000-4000-8000-000000000002',now()-interval '3 minutes','aal2');
 insert into auth.mfa_amr_claims(id,session_id,created_at,updated_at,authentication_method) values
  ('bb130000-0000-4000-8000-000000000001','bb120000-0000-4000-8000-000000000001',
   to_timestamp(current_setting('test.director_amr')::bigint),to_timestamp(current_setting('test.director_amr')::bigint),'oauth'),
  ('bb130000-0000-4000-8000-000000000002','bb120000-0000-4000-8000-000000000002',
-  to_timestamp(current_setting('test.director_amr')::bigint),to_timestamp(current_setting('test.director_amr')::bigint),'oauth');
+  to_timestamp(current_setting('test.director_amr')::bigint),to_timestamp(current_setting('test.director_amr')::bigint),'oauth'),
+ ('bb130000-0000-4000-8000-000000000003','bb120000-0000-4000-8000-000000000002',
+  to_timestamp(current_setting('test.director_amr')::bigint),to_timestamp(current_setting('test.director_amr')::bigint),'totp');
 insert into public.organizations(id,code,name) values
  ('bb140000-0000-4000-8000-000000000001','director_synthetic','合成主任機構'),
  ('bb140000-0000-4000-8000-000000000002','director_foreign','合成其他機構');
@@ -65,12 +67,20 @@ insert into private.jubo_source_batches(id,organization_id,branch_id,source_kind
   (select jsonb_agg('合成欄位'||i order by i) from generate_series(0,190)i),
   (select jsonb_agg('合成區段'||i order by i) from generate_series(0,190)i),1,'synthetic-v1');
 insert into private.jubo_source_rows(id,batch_id,organization_id,branch_id,
- source_row_number,identity_sha256,raw_values,row_sha256) values
- ('bb180000-0000-4000-8000-000000000001','bb170000-0000-4000-8000-000000000001',
-  'bb140000-0000-4000-8000-000000000001','bb150000-0000-4000-8000-000000000001',
-  1,repeat('c',64),
-  (select jsonb_agg(case when i=25 then to_jsonb('SYNTH0001'::text)
-    else 'null'::jsonb end order by i) from generate_series(0,94)i),repeat('d',64));
+ source_row_number,identity_sha256,raw_values,row_sha256)
+select 'bb180000-0000-4000-8000-000000000001',
+ 'bb170000-0000-4000-8000-000000000001',
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',1,
+ encode(sha256(convert_to('SYNTH0001','UTF8')),'hex'),cells.raw_values,
+ encode(sha256(convert_to(cells.raw_values::text,'UTF8')),'hex')
+from (select jsonb_agg(case i
+  when 2 then to_jsonb('合成個案甲'::text)
+  when 3 then to_jsonb('男性'::text)
+  when 23 then to_jsonb('1945/01/02'::text)
+  when 25 then to_jsonb('SYNTH0001'::text)
+  else 'null'::jsonb end order by i) as raw_values
+  from generate_series(0,94)i) cells;
 insert into private.jubo_verified_source_pairs(id,organization_id,branch_id,
  master_batch_id,monthly_batch_id,master_byte_sha256,monthly_byte_sha256,
  master_byte_length,monthly_byte_length,master_rows_sha256,
@@ -83,6 +93,9 @@ insert into private.reauth_challenges(id,user_id,session_id,nonce_sha256,idempot
  issued_jwt_iat,created_at,expires_at) values
  ('bb200000-0000-4000-8000-000000000001','bb100000-0000-4000-8000-000000000001',
   'bb120000-0000-4000-8000-000000000001',repeat('f',64),gen_random_uuid(),
+  now()-interval '3 minutes',now()-interval '3 minutes',now()+interval '3 minutes'),
+ ('bb200000-0000-4000-8000-000000000002','bb100000-0000-4000-8000-000000000002',
+  'bb120000-0000-4000-8000-000000000002',repeat('e',64),gen_random_uuid(),
   now()-interval '3 minutes',now()-interval '3 minutes',now()+interval '3 minutes');
 insert into private.jubo_pending_master_operations(id,organization_id,branch_id,pair_id,
  actor_user_id,reauth_challenge_id,idempotency_key,request_sha256,receipt) values
@@ -98,6 +111,22 @@ select
   'bb180000-0000-4000-8000-000000000001',identity_sha256,
   '合成個案甲',date '1945-01-02','male','服務中'
 from private.jubo_source_rows where id='bb180000-0000-4000-8000-000000000001';
+-- The profile-link trigger now requires an independently reviewed v2 mapping.
+-- Seed only this synthetic fixture; production review uses the governed RPC.
+insert into private.jubo_profile_mapping_v2_reviews(
+ organization_id,branch_id,pair_id,master_source_row_id,review_version,
+ source_row_sha256,mapping_review_sha256,mapping_version,decision,
+ review_reason,reviewer_user_id,reauth_challenge_id)
+select pending.organization_id,pending.branch_id,
+ 'bb190000-0000-4000-8000-000000000001',master.id,1,
+ master.row_sha256,private.jubo_profile_mapping_fingerprint(master.raw_values,pending),
+ 'jubo-master-monthly-202610-v2','approved',
+ '合成測試已逐欄確認來源與新版顯示映射',
+ 'bb100000-0000-4000-8000-000000000002',
+ 'bb200000-0000-4000-8000-000000000002'
+from private.jubo_pending_master_rows pending
+join private.jubo_source_rows master on master.id=pending.source_row_id
+where pending.id='bb220000-0000-4000-8000-000000000001';
 insert into private.jubo_public_pending_promotions(id,organization_id,branch_id,pair_id,
  pending_operation_id,actor_user_id,reauth_challenge_id,idempotency_key,
  request_sha256,receipt) values
