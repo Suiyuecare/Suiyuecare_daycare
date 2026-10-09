@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const OCCUPATIONAL_THERAPY_RECORD_STATES = [
   "draft", "signed", "corrected",
 ] as const;
@@ -25,7 +27,7 @@ export type OccupationalTherapyMeasurement = {
 export type OccupationalTherapyClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };
@@ -61,7 +63,7 @@ export type OccupationalTherapyVersionHistoryItem = {
 export type OccupationalTherapyAssessmentListItem = {
   clientId: string;
   clientDisplayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
   versionId: string | null;

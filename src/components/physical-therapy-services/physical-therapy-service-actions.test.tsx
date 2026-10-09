@@ -109,6 +109,16 @@ describe("physical therapy service client boundary", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not offer a formal service form for only pending admissions", () => {
+    render(<PhysicalTherapyServiceCreateAction canManage canSign={false}
+      hasRecentAal2={false} snapshot={{ ...formal, clientOptions: [{
+        ...formal.clientOptions[0]!, serviceStatus: "pending",
+      }] }} />);
+    expect(screen.getByRole("button", { name: "新增服務草稿（尚無已收案個案）" }))
+      .toHaveProperty("disabled", true);
+    expect(screen.queryByLabelText("指派個案")).toBeNull();
+  });
+
   it("sends exact explicit values without a browser-selected assessment", async () => {
     const fetchMock = vi.fn().mockImplementation(
       (_input: RequestInfo | URL, init: RequestInit) =>

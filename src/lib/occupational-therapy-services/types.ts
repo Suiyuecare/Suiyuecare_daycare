@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const OCCUPATIONAL_THERAPY_SERVICE_RECORD_STATES = [
   "draft", "signed", "corrected",
 ] as const;
@@ -23,7 +25,7 @@ export type OccupationalTherapyServiceValue = {
 export type OccupationalTherapyServiceClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };

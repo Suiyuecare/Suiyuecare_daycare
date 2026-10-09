@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const MNA_GOVERNANCE_VERSION =
   "mna-electronic-license-gate-v1" as const;
 
@@ -73,7 +75,7 @@ export type MnaVersionHistoryItem = {
 export type MnaClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };
@@ -81,7 +83,7 @@ export type MnaClientOption = {
 export type MnaAssessmentListItem = {
   clientId: string;
   clientDisplayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
   versionId: string | null;
@@ -197,4 +199,3 @@ export type CorrectMnaAssessmentInput = MnaBlockedBase & {
 
 export type MnaAssessmentMutationInput = ReviseMnaAssessmentInput |
   SignMnaAssessmentInput | CorrectMnaAssessmentInput;
-
