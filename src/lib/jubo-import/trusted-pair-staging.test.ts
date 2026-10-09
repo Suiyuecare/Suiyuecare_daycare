@@ -47,7 +47,7 @@ function syntheticPair(): JuboPreparedPair {
       columnLabels: Array(191).fill("合成欄位"), rows: monthlyRows },
     masterNonRecordRows: [{ sheetRow: 29, rawValues: footerValues,
       normalizedValues: [...footerValues], rawCellTypes: Array(95).fill(null) }],
-    plan: { mappingVersion: "jubo-master-monthly-202610-v1", organizationId: ORG,
+    plan: { mappingVersion: "jubo-master-monthly-202610-v2", organizationId: ORG,
       branchId: BRANCH, masterRowCount: 23, monthlySummaryRowCount: 17,
       matchedSummaryRowCount: 17, clients: [] }, formallyImported: false,
   };
