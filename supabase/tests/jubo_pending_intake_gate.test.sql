@@ -1,5 +1,5 @@
 begin;
-select plan(187);
+select plan(193);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -1067,6 +1067,60 @@ select set_config('test.jubo_pending_client',(
  select id::text from public.clients where source_system='jubo' order by id limit 1
 ),true);
 select ok(not has_function_privilege('authenticated',
+ 'private.reject_pending_jubo_care_roster_insert()','execute')
+ and not has_function_privilege('service_role',
+ 'private.reject_pending_jubo_transport_plan_insert()','execute'),
+ 'pending direct-insert guards cannot be called from Data API roles');
+select throws_ok($$insert into private.care_roster_versions(
+ organization_id,branch_id,client_id,service_date,shift,version,state,source_note,tasks,created_by)
+ values ('fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,current_date,'morning',1,
+ 'scheduled','合成個案不可排班','[]'::jsonb,
+ 'fa100000-0000-4000-8000-000000000001')$$,
+ '23514','JUBO_PENDING_CLIENT_OPERATION_DENIED',
+ 'owner direct insert cannot schedule a pending JUBO client in the care roster');
+create function pg_temp.insert_pending_transport_draft(p_org uuid,p_branch uuid)
+returns void language plpgsql as $fn$
+begin
+ insert into public.transport_trip_plan_versions(
+ organization_id,branch_id,trip_key,version,draft_status,direction,service_date,
+ starts_at,ends_at,vehicle_code,vehicle_name_snapshot,vehicle_capacity_snapshot,
+ driver_membership_id,driver_user_id,driver_display_name_snapshot,
+ driver_authorization_label_snapshot,pickup_label,dropoff_label,passenger_snapshot,
+ conflict_snapshot,rule_version_id,revision_reason,created_by,
+ created_by_display_name,reauth_challenge_id,content_hash)
+ values (p_org,p_branch,gen_random_uuid(),1,'draft_ready',
+ 'pickup',current_date,
+ (current_date::text||' 08:00:00')::timestamp at time zone 'Asia/Taipei',
+ (current_date::text||' 09:00:00')::timestamp at time zone 'Asia/Taipei',
+ 'SYN-VAN','合成接送車',8,'fa140000-0000-4000-8000-000000000001',
+ 'fa100000-0000-4000-8000-000000000001','合成駕駛','合成授權',
+ '合成上車點','合成下車點',jsonb_build_array(jsonb_build_object(
+ 'client_id',current_setting('test.jubo_pending_client')::uuid,
+ 'pickup_label','合成上車點','dropoff_label','合成下車點')),
+ '[]'::jsonb,gen_random_uuid(),'合成測試草稿',
+ 'fa100000-0000-4000-8000-000000000001','合成管理員',
+ 'fa160000-0000-4000-8000-000000000001',repeat('a',64));
+end;
+$fn$;
+select throws_ok($$select pg_temp.insert_pending_transport_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001')$$,
+ '23514','JUBO_PENDING_CLIENT_OPERATION_DENIED',
+ 'owner direct insert cannot add a pending JUBO passenger even to a draft trip');
+select throws_ok($$select pg_temp.insert_pending_transport_draft(
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002')$$,
+ '23503',null,
+ 'another tenant does not learn the JUBO pending status from the transport guard');
+select ok(not exists(select 1 from private.care_roster_versions
+ where client_id=current_setting('test.jubo_pending_client')::uuid)
+ and not exists(select 1 from public.transport_trip_plan_versions trip,
+ jsonb_array_elements(trip.passenger_snapshot) passenger(value)
+ where passenger.value->>'client_id'=current_setting('test.jubo_pending_client')),
+ 'rejected direct DML leaves no care-roster or transport passenger evidence');
+select ok(not has_function_privilege('authenticated',
  'private.assert_jubo_pending_private_client_boundary(uuid,uuid,uuid,boolean)','execute')
  and not has_function_privilege('service_role',
  'private.guard_jubo_pending_private_client_write()','execute'),
@@ -1273,6 +1327,14 @@ insert into public.clients(id,organization_id,branch_id,client_code,display_name
  'fa120000-0000-4000-8000-000000000002',
  'fa130000-0000-4000-8000-000000000002',
  'SYN-ACTIVE','合成正常個案','active');
+select lives_ok($$insert into private.care_roster_versions(
+ organization_id,branch_id,client_id,service_date,shift,version,state,source_note,tasks,created_by)
+ values ('fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ 'fb500000-0000-4000-8000-000000000001',current_date,'morning',1,
+ 'scheduled','其他機構的合成正常個案','[]'::jsonb,
+ 'fa100000-0000-4000-8000-000000000001')$$,
+ 'unrelated tenant active client keeps its direct roster insert semantics');
 select lives_ok($$select private.assert_jubo_pending_private_client_boundary(
  'fa120000-0000-4000-8000-000000000002',
  'fa130000-0000-4000-8000-000000000002',
