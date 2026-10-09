@@ -160,9 +160,12 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
     if (nextReason.length > 0 || nextConfirmed || nextDecision !== "held") reviewDraftGuard.changed();
     else reviewDraftGuard.saved();
   }
+  function cancelDraft() {
+    setReason(""); setConfirmed(false); setDecision("held"); reviewDraftGuard.saved();
+  }
 
   async function selectRow(sourceRowId: string) {
-    if (!selectedPair || decisionBusy || uncertain || (hasUnsaved && selectedRowId !== sourceRowId)) return;
+    if (!selectedPair || decisionBusy || uncertain || hasUnsaved) return;
     previewController.current?.abort();
     const controller = new AbortController(); previewController.current = controller;
     setSelectedRowId(sourceRowId); setPreview(null); setError(""); setMessage("");
@@ -302,7 +305,7 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
           <div className={styles.rows}>{selectedPair.sourceRows.map((row) => <button
             aria-current={row.sourceRowId === selectedRowId ? "true" : undefined}
             className={styles.rowButton} data-active={row.sourceRowId === selectedRowId}
-            disabled={decisionBusy || uncertain || (hasUnsaved && row.sourceRowId !== selectedRowId)}
+            disabled={decisionBusy || uncertain || hasUnsaved}
             key={row.sourceRowId} onClick={() => void selectRow(row.sourceRowId)} type="button">
             <span>第 {row.sourceSheetRow} 列</span><span>{decisionLabels[row.decision]}</span>
             {row.reviewVersion ? <small>v{row.reviewVersion}</small> : null}
@@ -335,7 +338,8 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
             </table>
             <div className={styles.sourceNote}>來源列指紋 {preview.sourceRowSha256.slice(0, 8)}… · 用於確認來源版本</div>
             {expires ? <div className={styles.warning} role="alert">預覽已逾時；請重新讀取，再作決定。
-              <button className="button button--secondary" onClick={() => void selectRow(preview.sourceRowId)} type="button">重新預覽</button>
+              {hasUnsaved ? <button className="button button--secondary" onClick={cancelDraft} type="button">取消本筆輸入</button> : null}
+              <button className="button button--secondary" disabled={hasUnsaved} onClick={() => void selectRow(preview.sourceRowId)} type="button">重新預覽</button>
             </div> : <form className={styles.form} method="post" onSubmit={(event) => void submitDecision(event)}>
               <fieldset><legend>覆核決定</legend><div className={styles.choices}>
                 {(["approved", "held", "rejected"] as const).map((value) => <label key={value}>
@@ -350,7 +354,7 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
                 我已核對此列原值、轉換與差異，且了解這不是正式收案。</label>
               <div className={styles.actions}><button className="button button--primary" disabled={!confirmed || reason.trim().length < 10 || decisionBusy}
                 type="submit">{decisionBusy ? "送出中…" : `記錄：${decisionLabels[decision]}`}</button>
-                {hasUnsaved ? <button className="button button--secondary" onClick={() => { setReason(""); setConfirmed(false); setDecision("held"); reviewDraftGuard.saved(); }} type="button">取消本筆輸入</button> : null}
+                {hasUnsaved ? <button className="button button--secondary" onClick={cancelDraft} type="button">取消本筆輸入</button> : null}
               </div>
             </form>}
           </> : null}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { hasPendingOperations, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
 import { hasCoreDraftPending } from "@/components/app/core-draft-guard";
@@ -67,7 +67,7 @@ beforeEach(() => {
     return response(receipt);
   }));
 });
-afterEach(() => { cleanup(); for (const release of controls.releases.splice(0)) release(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); for (const release of controls.releases.splice(0)) release(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it("shows only 23 source ordinals before a row is explicitly previewed", async () => {
   render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
@@ -97,6 +97,8 @@ it("guards unsaved review reasons and decisions against app-wide leave, then cle
   expect(hasCoreDraftPending()).toBe(false);
   fireEvent.change(screen.getByRole("textbox", { name: /覆核理由/ }), { target: { value: " " } });
   expect(hasCoreDraftPending()).toBe(true);
+  expect(screen.getByRole("button", { name: /第 6 列/ })).toBeDisabled();
+  expect(screen.getByRole("textbox", { name: /覆核理由/ })).toHaveValue(" ");
   const beforeUnload = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(beforeUnload);
   expect(beforeUnload.defaultPrevented).toBe(true);
@@ -106,6 +108,25 @@ it("guards unsaved review reasons and decisions against app-wide leave, then cle
   expect(hasCoreDraftPending()).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "取消本筆輸入" }));
   expect(hasCoreDraftPending()).toBe(false);
+});
+
+it("keeps a typed reason when its preview expires until the reviewer explicitly cancels", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
+  fireEvent.click(await screen.findByRole("button", { name: /第 6 列/ }));
+  await screen.findByRole("table", { name: "原值與轉換後欄位" });
+  fireEvent.change(screen.getByRole("textbox", { name: /覆核理由/ }),
+    { target: { value: "合成來源需要再核對" } });
+  act(() => {
+    vi.setSystemTime(new Date(Date.parse(preview.expiresAt) + 1000));
+    vi.advanceTimersByTime(10_000);
+  });
+  expect(screen.getByText(/預覽已逾時/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "重新預覽" })).toBeDisabled();
+  expect(hasCoreDraftPending()).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "取消本筆輸入" }));
+  expect(hasCoreDraftPending()).toBe(false);
+  expect(screen.getByRole("button", { name: "重新預覽" })).toBeEnabled();
 });
 
 it("requires explicit field acknowledgment and reason; sends source-bound hashes, not PII", async () => {
