@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildDemoClientServicePlanSnapshot } from "./demo";
 import { clientServicePlanMutationArgs, parseClientServicePlanApiEnvelope,
   parseClientServicePlanMutation, parseClientServicePlanReceipt } from "./parser";
+import { projectClientServicePlanSnapshot } from "./projection";
 import { emptyClientServicePlanFilters, parseClientServicePlanFilters } from "./query";
 
 const ORG = "52310000-0000-4000-8000-000000000001";
@@ -16,6 +17,32 @@ const GOAL = "52380000-0000-4000-8000-000000000001";
 const MEASURE = "52390000-0000-4000-8000-000000000001";
 const KEY = "523a0000-0000-4000-8000-000000000001";
 const HASH = "a".repeat(64);
+
+it("keeps pending-admission clients visible but non-manageable in the plan snapshot", () => {
+  const asOf = "2026-09-08";
+  const snapshot = projectClientServicePlanSnapshot({
+    row: {
+      organization_id: ORG, branch_id: BRANCH, generated_at: "2026-09-08T01:00:00Z",
+      as_of: asOf, plans: [], matching_total: 0, plans_truncated: false,
+      history_returned_total: 0, history_maximum: 500, history_truncated: false,
+      plan_total: 0, draft_total: 0, approved_total: 0, signed_total: 0,
+      voided_total: 0, review_due_total: 0, needs_mapping_total: 0,
+      outdated_authorization_total: 0, executable_total: 0,
+      clients: [{ client_id: CLIENT, display_name: "合成待收案個案",
+        client_code: "SYN-PENDING", service_status: "pending", can_manage: true }],
+      client_total: 1, clients_truncated: false,
+      staff: [], staff_total: 0, staff_truncated: false,
+      authorizations: [], authorization_total: 0, authorizations_truncated: false,
+      official_qualification_rule_status: "not_configured",
+      legal_rule_status: "not_configured", claim_eligibility_status: "blocked_not_configured",
+      claim_eligibility_reason: "official_service_codes_rates_and_qualification_rules_not_configured",
+      offline_status: "not_configured", export_status: "not_configured",
+    },
+    expectedOrganizationId: ORG, expectedBranchId: BRANCH,
+    filters: { asOf, clientId: null, status: "all", query: "" }, demo: false,
+  });
+  expect(snapshot.clients[0]).toMatchObject({ serviceStatus: "pending", canManage: false });
+});
 
 function body(overrides: Record<string, unknown> = {}) {
   return { action: "create_draft", client_id: CLIENT, plan_key: PLAN,

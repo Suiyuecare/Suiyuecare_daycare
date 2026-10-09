@@ -60,6 +60,7 @@ function statusText(item: ProfessionalServiceSummaryItem) {
 
 function serviceStatusText(status: ProfessionalServiceSummaryItem["serviceStatus"]) {
   return {
+    pending: "待收案",
     active: "服務中",
     suspended: "暫停",
     transferred: "轉出",

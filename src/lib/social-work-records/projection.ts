@@ -1,4 +1,5 @@
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { z } from "zod";
 
 import {
@@ -89,7 +90,7 @@ const recordSchema = z.object({
 const clientOptionSchema = z.object({
   client_id: uuid,
   display_name: z.string().trim().min(1).max(120),
-  client_status: z.enum(["active", "suspended", "transferred", "closed", "deceased"]),
+  client_status: z.enum(CLIENT_LIFECYCLE_STATUSES),
   admitted_on: date.nullable(),
   ended_on: date.nullable(),
 }).strict();

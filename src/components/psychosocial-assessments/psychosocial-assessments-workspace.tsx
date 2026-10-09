@@ -59,6 +59,7 @@ function formatDate(value: string | null) {
 
 function serviceStatusText(value: PsychosocialAssessmentListItem["serviceStatus"]) {
   return {
+    pending: "待收案",
     active: "服務中",
     suspended: "暫停服務",
     transferred: "已轉出",

@@ -4,6 +4,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 const CLIENT_STATUSES = new Set<ClientLifecycleStatus>([
+  "pending",
   "active",
   "suspended",
   "transferred",
@@ -166,6 +167,7 @@ export function parseClientDirectoryPage(input: {
     }
     const admittedOn = optionalDate(record.admitted_on);
     const endedOn = optionalDate(record.ended_on);
+    if (status === "pending" && (admittedOn !== null || endedOn !== null)) invalid();
     if (admittedOn && endedOn && endedOn < admittedOn) invalid();
     const rowVersion = safeCount(record.row_version);
     if (rowVersion < 1) invalid();
