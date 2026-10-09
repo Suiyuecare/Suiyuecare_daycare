@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { hasPendingOperations, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
+import { hasCoreDraftPending } from "@/components/app/core-draft-guard";
 
 import { JuboProfileReviewWorkspace } from "./jubo-profile-review-workspace";
 
@@ -80,8 +81,31 @@ it("shows only 23 source ordinals before a row is explicitly previewed", async (
   expect(screen.getByText("０９１２－３４５６７８")).toBeInTheDocument();
   expect(screen.getByText("0912345678")).toBeInTheDocument();
   expect(screen.getByText("有文字轉換，請特別確認標示欄位。")).toBeInTheDocument();
+  const comparison = screen.getByRole("table", { name: "原值與轉換後欄位" });
+  expect(comparison).toBeInTheDocument();
+  expect(screen.getAllByRole("rowheader")).toHaveLength(12);
+  expect(screen.getByRole("columnheader", { name: "原始值" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "匯入顯示值" })).toBeInTheDocument();
   expect(requests[1]?.options.cache).toBe("no-store");
   expect(JSON.stringify(requests[1]?.options.body)).not.toContain("SYN-ID-0001");
+});
+
+it("guards unsaved review reasons and decisions against app-wide leave, then clears on explicit cancellation", async () => {
+  render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
+  fireEvent.click(await screen.findByRole("button", { name: /第 6 列/ }));
+  await screen.findByRole("table", { name: "原值與轉換後欄位" });
+  expect(hasCoreDraftPending()).toBe(false);
+  fireEvent.change(screen.getByRole("textbox", { name: /覆核理由/ }), { target: { value: " " } });
+  expect(hasCoreDraftPending()).toBe(true);
+  const beforeUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(beforeUnload);
+  expect(beforeUnload.defaultPrevented).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "取消本筆輸入" }));
+  expect(hasCoreDraftPending()).toBe(false);
+  fireEvent.click(screen.getByRole("radio", { name: "已核准" }));
+  expect(hasCoreDraftPending()).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "取消本筆輸入" }));
+  expect(hasCoreDraftPending()).toBe(false);
 });
 
 it("requires explicit field acknowledgment and reason; sends source-bound hashes, not PII", async () => {

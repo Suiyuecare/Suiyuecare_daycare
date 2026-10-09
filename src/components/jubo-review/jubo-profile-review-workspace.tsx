@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Clock3, FileSearch, RotateCcw, ShieldCheck } from "lucide-react";
+import { useCoreDraftGuard } from "@/components/app/core-draft-guard";
 
 import {
   juboReviewPreviewSchema, juboReviewQueueSchema, juboReviewReceiptLookupSchema, juboReviewReceiptSchema,
@@ -82,6 +83,7 @@ function safeError(cause: unknown, fallback: string) {
 }
 
 export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchName: string; recentAal2: boolean }) {
+  const reviewDraftGuard = useCoreDraftGuard();
   const [queue, setQueue] = useState<JuboReviewQueue | null>(null);
   const [selectedPairId, setSelectedPairId] = useState("");
   const [selectedRowId, setSelectedRowId] = useState("");
@@ -153,14 +155,18 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
   const selectedPair = queue?.pairs.find((pair) => pair.pairId === selectedPairId);
   const selectedRow = selectedPair?.sourceRows.find((row) => row.sourceRowId === selectedRowId);
   const expires = preview ? Date.parse(preview.expiresAt) <= now : true;
-  const hasUnsaved = reason.trim().length > 0 || confirmed;
+  const hasUnsaved = reason.length > 0 || confirmed || decision !== "held";
+  function trackDraft(nextDecision: Decision, nextReason: string, nextConfirmed: boolean) {
+    if (nextReason.length > 0 || nextConfirmed || nextDecision !== "held") reviewDraftGuard.changed();
+    else reviewDraftGuard.saved();
+  }
 
   async function selectRow(sourceRowId: string) {
     if (!selectedPair || decisionBusy || uncertain || (hasUnsaved && selectedRowId !== sourceRowId)) return;
     previewController.current?.abort();
     const controller = new AbortController(); previewController.current = controller;
     setSelectedRowId(sourceRowId); setPreview(null); setError(""); setMessage("");
-    setReason(""); setConfirmed(false); setDecision("held"); setPreviewBusy(true);
+    setReason(""); setConfirmed(false); setDecision("held"); reviewDraftGuard.saved(); setPreviewBusy(true);
     try {
       const parsed = juboReviewPreviewSchema.safeParse(await privateJson(previewUrl,
         { pairId: selectedPair.pairId, sourceRowId }, controller.signal));
@@ -203,13 +209,13 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
       const parsed = juboReviewReceiptSchema.safeParse(await privateJson(decisionUrl, current.request));
       if (!parsed.success || parsed.data.decision !== current.request.decision) throw new Error("回執未能核對；請先查清單狀態。");
       releaseKnownAttempt(); setUncertain(false);
-      setReason(""); setConfirmed(false); setPreview(null);
+      setReason(""); setConfirmed(false); setDecision("held"); setPreview(null); reviewDraftGuard.saved();
       setMessage(`第 ${current.sourceSheetRow} 列已記錄「${decisionLabels[current.request.decision]}」，審核版本 ${parsed.data.reviewVersion}。`);
       await loadQueue();
     } catch (cause) {
       if (!current.ambiguous && cause instanceof ReviewHttpError && [400, 401, 403, 415].includes(cause.status)
         && knownNonCommitCodes.has(cause.code)) {
-        releaseKnownAttempt(); setUncertain(false); setPreview(null); setReason(""); setConfirmed(false);
+        releaseKnownAttempt(); setUncertain(false); setPreview(null); setReason(""); setConfirmed(false); setDecision("held"); reviewDraftGuard.saved();
         setError(`${safeError(cause, "操作未通過驗證。")} 未建立本次覆核，請重新驗證或預覽。`);
         return;
       }
@@ -217,7 +223,7 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
       current.ambiguous = true;
       uncertainSource.current = { pairId: current.request.pairId, sourceRowId: current.request.sourceRowId,
         reviewVersion: current.reviewVersion };
-      setUncertain(true); setPreview(null); setReason(""); setConfirmed(false);
+      setUncertain(true); setPreview(null); setReason(""); setConfirmed(false); setDecision("held");
       setError(`${safeError(cause, "結果尚未確認。")} 請以原操作核對；不要另開新一次覆核。`);
     } finally { sending.current = false; setDecisionBusy(false); }
   }
@@ -250,7 +256,7 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
   function selectPair(pairId: string) {
     if (hasUnsaved || decisionBusy || uncertain) return;
     previewController.current?.abort(); setSelectedPairId(pairId); setSelectedRowId("");
-    setPreview(null); setError(""); setMessage("");
+    setPreview(null); setError(""); setMessage(""); reviewDraftGuard.saved();
   }
 
   return <main className={styles.workspace}>
@@ -312,38 +318,39 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
             <div className={styles.detailHeader}><div><p className="eyebrow">來源第 {preview.sourceSheetRow} 列 · 映射 v2</p><h2 id="detail-title">逐欄核對</h2></div>
               <span><Clock3 aria-hidden="true" size={16} />有效至 {timestamp(preview.expiresAt)}</span></div>
             {preview.normalizationRequiresConfirmation ? <div className={styles.warning} role="status"><AlertCircle aria-hidden="true" />有文字轉換，請特別確認標示欄位。</div> : null}
-            <div className={styles.compare} role="region" aria-label="原值與轉換後欄位">
-              <div className={styles.compareHead}><span>欄位</span><span>原始值</span><span>匯入顯示值</span></div>
-              {columns.map(({ key, label, display }) => {
+            <table className={styles.compare} aria-label="原值與轉換後欄位">
+              <thead><tr><th scope="col">欄位</th><th scope="col">原始值</th><th scope="col">匯入顯示值</th></tr></thead>
+              <tbody>{columns.map(({ key, label, display }) => {
                 const source = preview.originalMappedValues[key];
                 const mapped = display(preview.displayProfile);
                 const changed = cellValue(source.value) !== cellValue(mapped);
                 const normalized = preview.normalizationFieldIndices.nfkc.includes(source.index) ||
                   preview.normalizationFieldIndices.contactSeparator.includes(source.index);
-                return <div className={styles.compareRow} data-changed={changed} key={key}>
-                  <strong>{label}{normalized ? <small>已轉換</small> : null}</strong>
-                  <span>{cellValue(source.value)}</span><span>{cellValue(mapped)}{changed ? <small>有差異</small> : null}</span>
-                </div>;
-              })}
-            </div>
+                return <tr data-changed={changed} key={key}>
+                  <th scope="row">{label}{normalized ? <small>已轉換</small> : null}</th>
+                  <td data-label="原始值">{cellValue(source.value)}</td>
+                  <td data-label="匯入顯示值">{cellValue(mapped)}{changed ? <small>有差異</small> : null}</td>
+                </tr>;
+              })}</tbody>
+            </table>
             <div className={styles.sourceNote}>來源列指紋 {preview.sourceRowSha256.slice(0, 8)}… · 用於確認來源版本</div>
             {expires ? <div className={styles.warning} role="alert">預覽已逾時；請重新讀取，再作決定。
               <button className="button button--secondary" onClick={() => void selectRow(preview.sourceRowId)} type="button">重新預覽</button>
-            </div> : <form className={styles.form} onSubmit={(event) => void submitDecision(event)}>
+            </div> : <form className={styles.form} method="post" onSubmit={(event) => void submitDecision(event)}>
               <fieldset><legend>覆核決定</legend><div className={styles.choices}>
                 {(["approved", "held", "rejected"] as const).map((value) => <label key={value}>
-                  <input checked={decision === value} name="decision" onChange={() => setDecision(value)} type="radio" value={value} />
+                  <input checked={decision === value} name="decision" onChange={() => { setDecision(value); trackDraft(value, reason, confirmed); }} type="radio" value={value} />
                   {decisionLabels[value]}</label>)}
               </div></fieldset>
               <label className={styles.reason}>覆核理由（至少 10 字）
-                <textarea maxLength={1000} minLength={10} onChange={(event) => setReason(event.target.value)} required rows={3}
+                <textarea maxLength={1000} minLength={10} onChange={(event) => { setReason(event.target.value); trackDraft(decision, event.target.value, confirmed); }} required rows={3}
                   value={reason} placeholder="寫下已核對的差異與處理依據" />
               </label>
-              <label className={styles.confirm}><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />
+              <label className={styles.confirm}><input checked={confirmed} onChange={(event) => { setConfirmed(event.target.checked); trackDraft(decision, reason, event.target.checked); }} type="checkbox" />
                 我已核對此列原值、轉換與差異，且了解這不是正式收案。</label>
               <div className={styles.actions}><button className="button button--primary" disabled={!confirmed || reason.trim().length < 10 || decisionBusy}
                 type="submit">{decisionBusy ? "送出中…" : `記錄：${decisionLabels[decision]}`}</button>
-                {hasUnsaved ? <button className="button button--secondary" onClick={() => { setReason(""); setConfirmed(false); }} type="button">取消本筆輸入</button> : null}
+                {hasUnsaved ? <button className="button button--secondary" onClick={() => { setReason(""); setConfirmed(false); setDecision("held"); reviewDraftGuard.saved(); }} type="button">取消本筆輸入</button> : null}
               </div>
             </form>}
           </> : null}
