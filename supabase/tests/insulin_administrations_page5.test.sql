@@ -1,6 +1,17 @@
 begin;
 
-select plan(59);
+select plan(72);
+
+select ok((select bool_and(relrowsecurity and relforcerowsecurity) from pg_class
+  where oid in ('private.insulin_order_source_evidence'::regclass,
+    'private.insulin_order_source_approvals'::regclass)),
+  'order source and second-review ledgers force RLS');
+select ok(not has_table_privilege('authenticated','private.insulin_order_source_evidence','select,insert,update,delete')
+  and not has_table_privilege('service_role','private.insulin_order_source_approvals','select,insert,update,delete')
+  and has_function_privilege('authenticated','public.propose_insulin_order_source(uuid,uuid,uuid,uuid,uuid,bigint,uuid)','execute')
+  and has_function_privilege('authenticated','public.approve_insulin_order_source(uuid,uuid,uuid,uuid,uuid)','execute')
+  and not has_function_privilege('anon','public.approve_insulin_order_source(uuid,uuid,uuid,uuid,uuid)','execute'),
+  'source evidence can only be registered through authenticated guarded RPCs');
 
 select results_eq(
   $$select permission_key collate "C" from public.permissions where permission_key like 'insulin_administrations.%' order by permission_key collate "C"$$,
@@ -125,9 +136,9 @@ select ok(
 );
 
 create temporary table page5_values as select
-  date_trunc('minute',clock_timestamp()) on_time,
+  date_trunc('minute',clock_timestamp()) + interval '1 minute' on_time,
   date_trunc('minute',clock_timestamp()) - interval '2 hours' late_time,
-  date_trunc('minute',clock_timestamp()) + interval '1 minute' governed_dose_time,
+  date_trunc('minute',clock_timestamp()) + interval '2 minutes' governed_dose_time,
   clock_timestamp() - interval '30 seconds' verified_at;
 grant select on page5_values to authenticated;
 
@@ -251,6 +262,138 @@ select is(private.insulin_plan_slot_is_valid(
   '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000101',
   '05b00000-0000-4000-8000-000000000102',(select on_time from page5_values)+interval '1 day'
 ),false,'an old designation cannot be silently evaluated under a different governance version');
+
+select is(private.insulin_plan_slot_is_valid(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000101',
+  '05b00000-0000-4000-8000-000000000101',(select on_time from page5_values)
+),false,'published governance and designated plan do not substitute for an approved physician-order source');
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000102"}',true);
+select throws_ok($$select * from public.mutate_insulin_administration(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000118')$$,
+  '23514','exactly one approved effective designated Page-8 plan is required',
+  'verbal order review cannot permit an insulin event without linked evidence');
+reset role;
+
+insert into private.client_document_versions(
+  id,organization_id,branch_id,client_id,category,version,sha256,mime_type,
+  file_size_bytes,object_path,created_by,document_label,provider,document_date,
+  valid_until,period_from,period_to,created_at,idempotency_key,input_hash
+) values (
+  '05e00000-0000-4000-8000-000000000101','05100000-0000-4000-8000-000000000101',
+  '05200000-0000-4000-8000-000000000101','05400000-0000-4000-8000-000000000101',
+  'medication_plan',1,repeat('8',64),'application/pdf',128,'synthetic/order-source/page5',
+  '05000000-0000-4000-8000-000000000101','合成胰島素醫囑','合成醫師來源',
+  (clock_timestamp() at time zone 'Asia/Taipei')::date-2,
+  (clock_timestamp() at time zone 'Asia/Taipei')::date+30,
+  (clock_timestamp() at time zone 'Asia/Taipei')::date-30,
+  (clock_timestamp() at time zone 'Asia/Taipei')::date+30,
+  clock_timestamp()-interval '2 days','05e10000-0000-4000-8000-000000000101',repeat('8',64)
+);
+select is(private.insulin_order_document_is_current(
+  '05e00000-0000-4000-8000-000000000101',
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101',(select on_time from page5_values)
+),false,'a reserved but unscanned order source cannot qualify');
+insert into private.client_document_scan_results(document_id,verdict,scanner,scanned_at)
+values ('05e00000-0000-4000-8000-000000000101','clean','synthetic-scanner',
+  clock_timestamp()-interval '2 days'+interval '1 minute');
+select is(private.insulin_order_document_is_current(
+  '05e00000-0000-4000-8000-000000000101',
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101',(select on_time from page5_values)
+),false,'a clean scan alone cannot substitute for individual review');
+insert into private.client_document_disposition_events(
+  organization_id,branch_id,client_id,document_id,category,revision,disposition,
+  reason,actor_user_id,created_at
+) values (
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101','05e00000-0000-4000-8000-000000000101',
+  'medication_plan',1,'reviewed','合成醫囑來源已核對',
+  '05000000-0000-4000-8000-000000000101',
+  clock_timestamp()-interval '2 days'+interval '2 minutes'
+);
+
+create temporary table page5_order_proposal(evidence_id uuid,document_hash text,replayed boolean);
+create temporary table page5_order_approval(approval_id uuid,evidence_id uuid,replayed boolean);
+grant select,insert on page5_order_proposal,page5_order_approval to authenticated;
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000102"}',true);
+insert into page5_order_proposal select * from public.propose_insulin_order_source(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000101',
+  '05e00000-0000-4000-8000-000000000101',3,'05e20000-0000-4000-8000-000000000101');
+select ok((select document_hash=repeat('8',64) and not replayed from page5_order_proposal),
+  'qualified assigned actor proposes the exact approved plan and clean reviewed source');
+select ok((select replayed and evidence_id=(select evidence_id from page5_order_proposal)
+  from public.propose_insulin_order_source(
+    '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+    '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000101',
+    '05e00000-0000-4000-8000-000000000101',3,'05e20000-0000-4000-8000-000000000101'
+  )), 'exact proposal retry returns the same immutable receipt');
+select throws_ok($$select * from public.approve_insulin_order_source(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101',
+  (select evidence_id from page5_order_proposal),'05e30000-0000-4000-8000-000000000101')$$,
+  '42501','independent order source reviewer is required',
+  'the proposing nurse cannot approve the same physician-order source');
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000103","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000103"}',true);
+insert into page5_order_approval select * from public.approve_insulin_order_source(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101',
+  (select evidence_id from page5_order_proposal),'05e30000-0000-4000-8000-000000000102');
+select ok((select evidence_id=(select evidence_id from page5_order_proposal) and not replayed
+  from page5_order_approval),'independent qualified actor explicitly approves exact order source');
+select ok((select replayed and approval_id=(select approval_id from page5_order_approval)
+  from public.approve_insulin_order_source(
+    '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+    '05400000-0000-4000-8000-000000000101',
+    (select evidence_id from page5_order_proposal),'05e30000-0000-4000-8000-000000000102'
+  )), 'exact approval retry returns the same immutable receipt');
+reset role;
+select is(private.insulin_plan_slot_is_valid(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000101',
+  '05b00000-0000-4000-8000-000000000101',(select on_time from page5_values)
+),true,'exact plan gains eligibility only after current source and independent approval');
+
+-- Synthetic historical approvals predate the late-entry slot; real callers
+-- cannot backdate these append-only rows and must use the guarded RPC above.
+insert into private.insulin_order_source_evidence(
+  organization_id,branch_id,client_id,medication_plan_id,
+  medication_plan_version,medication_plan_content_hash,
+  document_id,document_sha256,document_version,
+  proposed_by,proposed_reauth_challenge_id,proposed_at,idempotency_key,request_hash
+) values
+  ('05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+    '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000102',
+    1,repeat('b',64),'05e00000-0000-4000-8000-000000000101',repeat('8',64),1,
+    '05000000-0000-4000-8000-000000000102','05600000-0000-4000-8000-000000000102',
+    clock_timestamp()-interval '1 day','05e20000-0000-4000-8000-000000000102',repeat('a',64)),
+  ('05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+    '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000103',
+    1,repeat('c',64),'05e00000-0000-4000-8000-000000000101',repeat('8',64),1,
+    '05000000-0000-4000-8000-000000000102','05600000-0000-4000-8000-000000000102',
+    clock_timestamp()-interval '1 day','05e20000-0000-4000-8000-000000000103',repeat('b',64));
+insert into private.insulin_order_source_approvals(
+  source_evidence_id,organization_id,branch_id,client_id,approved_by,
+  approval_reauth_challenge_id,attestation,approved_at,idempotency_key,request_hash
+) select source.id,source.organization_id,source.branch_id,source.client_id,
+  '05000000-0000-4000-8000-000000000103',
+  '05600000-0000-4000-8000-000000000103',
+  'I independently verified the physician order against this exact plan and document version',
+  clock_timestamp()-interval '1 day'+interval '1 minute',gen_random_uuid(),repeat('c',64)
+from private.insulin_order_source_evidence source
+where source.medication_plan_id in (
+  '05900000-0000-4000-8000-000000000102','05900000-0000-4000-8000-000000000103'
+);
 
 -- A human saying a certificate was reviewed is not enough: the latest Page 72
 -- version must retain trusted evidence. A newer evidence-less version must not
@@ -696,6 +839,19 @@ select ok((select event_count = (select count(*) from public.insulin_administrat
   and operation_count = (select count(*) from private.insulin_administration_operations)
   from page5_receipt_baseline),
   'receipt checks do not add events or operations');
+
+insert into private.client_document_disposition_events(
+  organization_id,branch_id,client_id,document_id,category,revision,disposition,
+  reason,actor_user_id
+) values (
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  '05400000-0000-4000-8000-000000000101','05e00000-0000-4000-8000-000000000101',
+  'medication_plan',2,'inactive','合成醫囑文件已撤回',
+  '05000000-0000-4000-8000-000000000101'
+);
+select is(private.insulin_order_source_is_current(
+  '05900000-0000-4000-8000-000000000101',(select on_time from page5_values)+interval '1 day'
+),false,'an inactive source document immediately revokes future slot eligibility');
 
 select * from finish();
 rollback;
