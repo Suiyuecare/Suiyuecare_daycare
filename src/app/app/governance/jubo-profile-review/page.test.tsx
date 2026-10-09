@@ -10,7 +10,6 @@ vi.mock("@/lib/auth/context", () => ({ requireTenantContext: stubs.context, hasR
 vi.mock("@/lib/env", () => ({ isSyntheticPreviewMode: stubs.synthetic, hasSupabaseConfiguration: stubs.configured }));
 vi.mock("@/lib/jubo-review/server", () => ({ juboReviewFeatureEnabled: stubs.feature, canReviewJuboProfiles: stubs.allowed }));
 vi.mock("@/components/jubo-review/jubo-profile-review-workspace", () => ({ JuboProfileReviewWorkspace: () => null }));
-vi.mock("@/components/app/staff-access-denied", () => ({ StaffAccessDenied: () => null }));
 
 import JuboProfileReviewPage from "./page";
 
@@ -33,8 +32,7 @@ it("does not expose preview data to synthetic mode or a non-manager", async () =
   stubs.synthetic.mockReturnValue(true);
   await expect(JuboProfileReviewPage()).rejects.toThrow("NOT_FOUND");
   stubs.synthetic.mockReturnValue(false); stubs.allowed.mockReturnValue(false);
-  const page = await JuboProfileReviewPage();
-  expect(page.type.name).toBe("StaffAccessDenied");
+  await expect(JuboProfileReviewPage()).rejects.toThrow("NOT_FOUND");
   expect(stubs.recent).not.toHaveBeenCalled();
 });
 it("passes only recent-AAL2 readiness and remounts by principal + branch", async () => {

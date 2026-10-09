@@ -174,6 +174,7 @@ export function AppShell({
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
     : pathname === AD8_CANDIDATE_PATH ? AD8_CANDIDATE_TITLE
     : pathname === "/app/pending-intake-review" ? "主任待收案核對"
+    : pathname === "/app/governance/jubo-profile-review" ? "JUBO 個案覆核"
     : activePage?.title ?? (pathname === "/app/staff/assessments/external-results"
       ? "外部評估結果登錄" : appBranding.applicationName);
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
