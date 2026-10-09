@@ -63,6 +63,21 @@ describe("approved JUBO source-pair preparation", () => {
     expect(prepared.plan.clients.filter((client) => client.serviceStatus === "closed")).toHaveLength(5);
     expect(prepared.plan.clients.every((client) => client.dates.admittedOn === null)).toBe(true);
 
+    const originalRawCell = prepared.master.rows[0].rawValues[0];
+    const originalHeader = prepared.master.columnLabels[0];
+    const originalFooterCell = prepared.masterNonRecordRows[0].rawValues[0];
+    expect(Object.isFrozen(prepared)).toBe(true);
+    expect(Object.isFrozen(prepared.master.rows[0].rawValues)).toBe(true);
+    expect(Object.isFrozen(prepared.master.columnLabels)).toBe(true);
+    expect(Object.isFrozen(prepared.masterNonRecordRows[0].rawValues)).toBe(true);
+    expect(Object.isFrozen(prepared.plan.clients[0].master.columns[0])).toBe(true);
+    expect(Reflect.set(prepared.master.rows[0].rawValues, "0", "synthetic-tamper")).toBe(false);
+    expect(Reflect.set(prepared.master.columnLabels, "0", "synthetic-tamper")).toBe(false);
+    expect(Reflect.set(prepared.masterNonRecordRows[0].rawValues, "0", "synthetic-tamper")).toBe(false);
+    expect(prepared.master.rows[0].rawValues[0]).toBe(originalRawCell);
+    expect(prepared.master.columnLabels[0]).toBe(originalHeader);
+    expect(prepared.masterNonRecordRows[0].rawValues[0]).toBe(originalFooterCell);
+
     expect(prepared.requestSha256).toBe(createHash("sha256").update(JSON.stringify([
       prepared.parserVersion, ORG, BRANCH, ACTOR, KEY,
       APPROVED_JUBO_SOURCE_SHA256.master, APPROVED_JUBO_SOURCE_SHA256.monthlySummary,

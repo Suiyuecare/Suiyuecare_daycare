@@ -67,6 +67,18 @@ export type JuboPrepareInput = {
 function invalidRequest(): never { throw new JuboPairPreparationError("INVALID_REQUEST"); }
 function invalidSource(): never { throw new JuboPairPreparationError("INVALID_SOURCE_SHAPE"); }
 
+/** TypeScript readonly alone does not prevent an adapter from mutating rows. */
+function freezePreparedTree<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== "object") return value;
+  if (ArrayBuffer.isView(value) ||
+      (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype &&
+        Object.getPrototypeOf(value) !== null)) invalidSource();
+  if (seen.has(value)) return value;
+  seen.add(value);
+  for (const nested of Object.values(value)) freezePreparedTree(nested, seen);
+  return Object.freeze(value);
+}
+
 function ownFile(input: JuboXlsxInput, kind: JuboWorkbookKind): JuboXlsxInput {
   if (!input || input.kind !== kind || typeof input.fileName !== "string" ||
       typeof input.mimeType !== "string" || !(input.bytes instanceof Uint8Array)) invalidRequest();
@@ -128,7 +140,7 @@ export function prepareApprovedJuboPair(input: JuboPrepareInput): JuboPreparedPa
     sourceBytesHex: Buffer.from(file.bytes).toString("hex"),
     columnLabels: result.sheet.headers, rows,
   });
-  return {
+  return freezePreparedTree({
     organizationId, branchId, actorUserId, idempotencyKey, requestSha256,
     parserVersion: JUBO_PAIR_PARSER_VERSION,
     master: batch("master", masterFile, master, masterRows),
@@ -137,5 +149,5 @@ export function prepareApprovedJuboPair(input: JuboPrepareInput): JuboPreparedPa
       rawValues: row.rawValues, normalizedValues: row.normalizedValues,
       rawCellTypes: row.rawCellTypes })),
     plan, formallyImported: false,
-  };
+  });
 }
