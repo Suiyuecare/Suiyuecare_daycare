@@ -134,6 +134,20 @@ function successEnvelope(overrides: Record<string, unknown> = {}) {
 }
 
 describe("social-work record projection and parsers", () => {
+  it("shows pending-admission clients in the read-only roster", () => {
+    const pendingId = "29400000-0000-4000-8000-000000000099";
+    const row = sourceRow();
+    row.client_options.push({ client_id: pendingId,
+      display_name: "合成待收案個案", client_status: "pending",
+      admitted_on: null, ended_on: null });
+    row.client_total = 2;
+    const snapshot = projectSocialWorkRecordSnapshot({ row,
+      expectedOrganizationId: organizationId, expectedBranchId: branchId,
+      demo: false });
+    expect(snapshot.clientOptions.find((item) => item.clientId === pendingId))
+      .toMatchObject({ clientStatus: "pending", admittedOn: null });
+  });
+
   it("projects a scoped immutable record and rejects a scope mismatch", () => {
     const snapshot = projectSocialWorkRecordSnapshot({
       row: sourceRow(), expectedOrganizationId: organizationId,

@@ -83,7 +83,7 @@ export function ClientVaccinationsWorkspace({
       <label><span>個案</span><select name="client" defaultValue={filters.clientId ?? "all"}>
         <option value="all">全部已授權個案</option>{snapshot.clientOptions.map((client) =>
           <option key={client.clientId} value={client.clientId}>{client.clientCode} · {
-            client.displayName}</option>)}</select></label>
+            client.displayName}{client.serviceStatus === "pending" ? " · 待收案" : ""}</option>)}</select></label>
       <label><span>疫苗名稱</span><select name="vaccine" defaultValue={filters.vaccineName ?? "all"}>
         <option value="all">全部名稱</option>{snapshot.vaccineOptions.map((option) =>
           <option key={option.value} value={option.value}>{option.value}（{option.recordCount}）</option>)}</select></label>
