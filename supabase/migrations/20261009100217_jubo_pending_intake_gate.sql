@@ -25,6 +25,8 @@ create table private.jubo_source_nonrecord_rows (
 );
 create index jubo_nonrecord_scope_idx
   on private.jubo_source_nonrecord_rows(organization_id, branch_id, batch_id);
+create index jubo_nonrecord_reviewer_idx
+  on private.jubo_source_nonrecord_rows(reviewed_by);
 alter table private.jubo_source_nonrecord_rows enable row level security;
 alter table private.jubo_source_nonrecord_rows force row level security;
 revoke all on private.jubo_source_nonrecord_rows from public, anon, authenticated, service_role;
