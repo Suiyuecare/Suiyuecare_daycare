@@ -1,5 +1,5 @@
 begin;
-select plan(52);
+select plan(74);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -407,5 +407,112 @@ select ok(current_setting('test.jubo_receipt') not like '%合成個案%'
  and not exists(select 1 from public.audit_events
    where table_name like 'private.jubo_%' and metadata::text like '%SYN-ID%'),
  'receipts and audits expose no source identities');
+
+-- Public master promotion remains owner-only and disabled to app roles. This
+-- test invokes it locally as postgres with synthetic AAL2 evidence only.
+select ok(not has_function_privilege('authenticated',
+ 'private.promote_jubo_public_pending_candidate(uuid,uuid,uuid,uuid)','execute')
+ and not has_function_privilege('service_role',
+ 'private.promote_jubo_public_pending_candidate(uuid,uuid,uuid,uuid)','execute'),
+ 'public pending promotion has no Data API or service-role execute grant');
+set local role authenticated;
+select throws_ok($$insert into public.clients(organization_id,branch_id,client_code,
+ display_name,status) values('fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001','SYN-BYPASS','合成未審個案','pending')$$,
+ '42501',null,
+ 'authenticated manager cannot directly insert an unreviewed pending client');
+reset role;
+select throws_ok($$insert into public.clients(organization_id,branch_id,client_code,
+ display_name,status) values('fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001','SYN-BYPASS-OWNER','合成未審個案','pending')$$,
+ '42501','JUBO_PENDING_CLIENT_REQUIRES_REVIEWED_OPERATION',
+ 'even table owner needs an immutable promotion operation to insert pending');
+select ok((select count(*)=0 from information_schema.columns column_info
+ where column_info.table_schema='public' and column_info.column_name='client_id'
+   and column_info.data_type='uuid'
+   and not exists(select 1 from pg_trigger trigger_info
+     where trigger_info.tgrelid=(quote_ident(column_info.table_schema)||'.'||
+       quote_ident(column_info.table_name))::regclass
+       and trigger_info.tgname='jubo_pending_client_no_activity')),
+ 'every public UUID client_id table has pending-client write gate');
+create function pg_temp.promote_public(p_number integer default 1) returns jsonb
+ language sql security invoker as $$
+ select private.promote_jubo_public_pending_candidate(
+  'fa120000-0000-4000-8000-000000000001',
+  'fa130000-0000-4000-8000-000000000001',current_setting('test.jubo_pair')::uuid,
+  ('faa00000-0000-4000-8000-'||lpad(p_number::text,12,'0'))::uuid);
+$$;
+select throws_ok($$select private.promote_jubo_public_pending_candidate(
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ current_setting('test.jubo_pair')::uuid,
+ 'faa00000-0000-4000-8000-000000000001')$$,'42501',null,
+ 'different tenant cannot promote the reviewed source pair');
+select set_config('test.jubo_good_jwt',current_setting('request.jwt.claims'),true);
+select set_config('request.jwt.claims',jsonb_set(
+ current_setting('request.jwt.claims')::jsonb,'{aal}','"aal1"'::jsonb)::text,true);
+select throws_ok($$select pg_temp.promote_public()$$,'42501',null,
+ 'public pending promotion requires fresh AAL2 evidence even for an administrator');
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+create function pg_temp.fail_public_pending() returns trigger language plpgsql as $$
+ begin if new.status='pending' then
+   raise exception using errcode='P0001',message='synthetic public pending fault';
+ end if; return new; end; $$;
+create trigger zz_public_pending_fault after insert on public.clients
+ for each row execute function pg_temp.fail_public_pending();
+select throws_ok($$select pg_temp.promote_public()$$,'P0001','synthetic public pending fault',
+ 'fault after first public client insert rolls back all 23');
+select is((select count(*)::integer from private.jubo_public_pending_promotions),0,
+ 'failed public promotion leaves no immutable receipt');
+select is((select count(*)::integer from public.clients
+ where source_system='jubo' and organization_id='fa120000-0000-4000-8000-000000000001'),0,
+ 'failed public promotion leaves no client shell');
+drop trigger zz_public_pending_fault on public.clients;
+select set_config('test.jubo_public_receipt',pg_temp.promote_public()::text,true);
+select is((current_setting('test.jubo_public_receipt')::jsonb->>'publicPendingClients')::integer,23,
+ 'single reviewed operation creates 23 pending public master shells');
+select is((current_setting('test.jubo_public_receipt')::jsonb->>'monthlyMatches')::integer,17,
+ '17 monthly rows are linked only and not duplicated');
+select ok((current_setting('test.jubo_public_receipt')::jsonb->>'sourceActive')::integer=17
+ and (current_setting('test.jubo_public_receipt')::jsonb->>'sourceSuspended')::integer=1
+ and (current_setting('test.jubo_public_receipt')::jsonb->>'sourceClosed')::integer=5,
+ 'receipt distinguishes all three source lifecycle counts');
+select is((select count(*)::integer from public.clients
+ where source_system='jubo' and status='pending' and admitted_on is null
+   and ended_on is null),23,
+ 'all 23 public cases remain pending without invented admission dates');
+select is((select count(*)::integer from private.jubo_public_pending_links),23,
+ 'each pending public case links back to one reviewed master row');
+select is((select count(*)::integer from private.jubo_client_source_links
+ where import_operation_id=(current_setting('test.jubo_public_receipt')::jsonb->>'promotionId')::uuid),23,
+ 'each public case has immutable original source-row provenance');
+select is((select count(*)::integer from private.jubo_public_pending_links link
+ join private.jubo_pending_master_rows pending on pending.id=link.pending_row_id
+ where pending.monthly_source_row_id is not null),17,
+ 'monthly cross-check never produces another public client');
+select ok((select count(*) filter(where pending.source_status='暫停服務')=1
+   and count(*) filter(where pending.source_status='結案')=5
+   and count(*) filter(where pending.source_first_service_on is null)=18
+   from private.jubo_public_pending_links link
+   join private.jubo_pending_master_rows pending on pending.id=link.pending_row_id),
+ 'source suspended/closed statuses and unknown first service dates remain intact');
+select is((pg_temp.promote_public()->>'replayed')::boolean,true,
+ 'public promotion replay returns immutable receipt without extra clients');
+select throws_ok($$select pg_temp.promote_public(2)$$,'23505',
+ 'JUBO_PUBLIC_PENDING_ALREADY_COMMITTED',
+ 'new idempotency key cannot promote same source pair twice');
+select throws_ok($$insert into public.client_assignments(
+ organization_id,branch_id,client_id,assignee_user_id,assignment_kind)
+ select organization_id,branch_id,id,'fa100000-0000-4000-8000-000000000001','case_manager'
+ from public.clients where source_system='jubo' limit 1$$,
+ '23514','JUBO_PENDING_CLIENT_OPERATION_DENIED',
+ 'pending client cannot receive an operational assignment');
+select throws_ok($$update public.clients set status='active'
+ where id=(select id from public.clients where source_system='jubo' limit 1)$$,
+ '42501','JUBO_PENDING_CLIENT_TRANSITION_DISABLED',
+ 'pending client cannot be silently promoted to active or admitted');
+select ok(current_setting('test.jubo_public_receipt') not like '%合成個案%'
+ and current_setting('test.jubo_public_receipt') not like '%SYN-ID%',
+ 'public promotion receipt contains no client names or identifiers');
 select * from finish();
 rollback;
