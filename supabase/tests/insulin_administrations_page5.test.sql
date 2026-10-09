@@ -1,6 +1,6 @@
 begin;
 
-select plan(55);
+select plan(59);
 
 select results_eq(
   $$select permission_key collate "C" from public.permissions where permission_key like 'insulin_administrations.%' order by permission_key collate "C"$$,
@@ -251,6 +251,70 @@ select is(private.insulin_plan_slot_is_valid(
   '05400000-0000-4000-8000-000000000101','05900000-0000-4000-8000-000000000101',
   '05b00000-0000-4000-8000-000000000102',(select on_time from page5_values)+interval '1 day'
 ),false,'an old designation cannot be silently evaluated under a different governance version');
+
+-- A human saying a certificate was reviewed is not enough: the latest Page 72
+-- version must retain trusted evidence. A newer evidence-less version must not
+-- fall back to its previously verified, attachment-backed predecessor.
+insert into public.staff_certificate_versions(
+  id,organization_id,branch_id,certificate_key,version,previous_version_id,
+  record_status,correction_reason,staff_membership_id,staff_user_id,
+  staff_display_name,staff_employee_code,certificate_type,certificate_number,
+  effective_on,expires_on,registration_status,verification_status,evidence_status,
+  attachment_reference,attachment_sha256,recorded_by,recorded_at,content_hash
+) values (
+  '05d00000-0000-4000-8000-000000000105','05100000-0000-4000-8000-000000000101',
+  '05200000-0000-4000-8000-000000000101','05d10000-0000-4000-8000-000000000102',
+  2,'05d00000-0000-4000-8000-000000000102','active','合成證明待補',
+  '05300000-0000-4000-8000-000000000102','05000000-0000-4000-8000-000000000102',
+  '合成執行護理師',null,'insulin_executor','SYN-EXE-001',current_date-30,current_date+30,
+  'registered','verified','missing',null,null,
+  '05000000-0000-4000-8000-000000000101',clock_timestamp(),repeat('e',64)
+);
+select is(private.insulin_qualification_version(
+  '05100000-0000-4000-8000-000000000101',
+  '05200000-0000-4000-8000-000000000101',
+  '05300000-0000-4000-8000-000000000102',
+  '05000000-0000-4000-8000-000000000102',
+  array['insulin_executor'],clock_timestamp()
+),null::uuid,'verified text without provided evidence cannot qualify the terminal certificate');
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000102"}',true);
+select throws_ok($$select * from public.mutate_insulin_administration(
+  '05100000-0000-4000-8000-000000000101','05200000-0000-4000-8000-000000000101',
+  'execute',null,null,0,'05900000-0000-4000-8000-000000000101',
+  (select on_time from page5_values),'12.5','U','LEFT_ARM','左上臂',null,
+  '05a00000-0000-4000-8000-000000000117')$$,
+  '42501','current terminal Page-72 insulin qualification is not permitted',
+  'execution remains blocked even with a governed plan and verbal qualification approval');
+reset role;
+select is((select count(*)::integer from public.insulin_administration_events),0,
+  'an evidence-less terminal qualification cannot append a signed insulin event');
+
+-- Restore only the synthetic local fixture so the established success-path
+-- assertions below still exercise two independently qualified actors.
+insert into public.staff_certificate_versions(
+  id,organization_id,branch_id,certificate_key,version,previous_version_id,
+  record_status,correction_reason,staff_membership_id,staff_user_id,
+  staff_display_name,staff_employee_code,certificate_type,certificate_number,
+  effective_on,expires_on,registration_status,verification_status,evidence_status,
+  attachment_reference,attachment_sha256,recorded_by,recorded_at,content_hash
+) values (
+  '05d00000-0000-4000-8000-000000000106','05100000-0000-4000-8000-000000000101',
+  '05200000-0000-4000-8000-000000000101','05d10000-0000-4000-8000-000000000102',
+  3,'05d00000-0000-4000-8000-000000000105','active','合成測試證明補齊',
+  '05300000-0000-4000-8000-000000000102','05000000-0000-4000-8000-000000000102',
+  '合成執行護理師',null,'insulin_executor','SYN-EXE-001',current_date-30,current_date+30,
+  'registered','verified','provided','trusted-upload://synthetic/page5/executor-restored',
+  repeat('6',64),'05000000-0000-4000-8000-000000000101',clock_timestamp(),repeat('f',64)
+);
+select is(private.insulin_qualification_version(
+  '05100000-0000-4000-8000-000000000101',
+  '05200000-0000-4000-8000-000000000101',
+  '05300000-0000-4000-8000-000000000102',
+  '05000000-0000-4000-8000-000000000102',
+  array['insulin_executor'],clock_timestamp()
+),'05d00000-0000-4000-8000-000000000106'::uuid,
+  'only the newest provided and verified qualification version restores synthetic eligibility');
 
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"05000000-0000-4000-8000-000000000102","role":"authenticated","aal":"aal2","session_id":"05700000-0000-4000-8000-000000000102"}',true);
