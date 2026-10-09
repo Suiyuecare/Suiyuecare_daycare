@@ -1,5 +1,5 @@
 begin;
-select plan(193);
+select plan(198);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -1112,8 +1112,8 @@ select throws_ok($$select pg_temp.insert_pending_transport_draft(
 select throws_ok($$select pg_temp.insert_pending_transport_draft(
  'fa120000-0000-4000-8000-000000000002',
  'fa130000-0000-4000-8000-000000000002')$$,
- '23503',null,
- 'another tenant does not learn the JUBO pending status from the transport guard');
+ '23514','TRANSPORT_PASSENGER_SCOPE_INVALID',
+ 'another tenant is denied before JUBO pending status is inspected');
 select ok(not exists(select 1 from private.care_roster_versions
  where client_id=current_setting('test.jubo_pending_client')::uuid)
  and not exists(select 1 from public.transport_trip_plan_versions trip,
@@ -1537,6 +1537,96 @@ select throws_ok($$select * from public.transition_client(
  '23514',null,
  'existing lifecycle admission RPC cannot bypass pending-source guard');
 reset role;
+
+-- Exercise the JSON passenger guard with a real, scoped transport rule. A
+-- random rule UUID would only prove that the policy foreign key rejects the
+-- draft, leaving the cross-branch passenger snapshot path untested.
+insert into public.clients(id,organization_id,branch_id,client_code,display_name,
+ status,admitted_on) values (
+ 'fc500000-0000-4000-8000-000000000002',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',
+ 'SYN-SIBLING-ACTIVE','合成同分支服務個案','active',current_date);
+with fixture as (
+ select 'fa120000-0000-4000-8000-000000000001'::uuid organization_id,
+  'fa130000-0000-4000-8000-000000000003'::uuid branch_id,
+  'fc600000-0000-4000-8000-000000000002'::uuid policy_key,
+  current_date effective_from,
+  jsonb_build_object(
+   'source_status','manual_unstandardized',
+   'vehicles',jsonb_build_array(jsonb_build_object('code','SYN-VAN',
+    'name','合成接送車','capacity',8,'taxonomy_status','manual_unstandardized')),
+   'driver_authorizations',jsonb_build_array(jsonb_build_object(
+    'membership_id','fa140000-0000-4000-8000-000000000003',
+    'authorization_label','合成駕駛授權',
+    'taxonomy_status','manual_unstandardized'))) rule_payload,
+  '合成接送規則供分支驗證測試'::text publication_note,
+  'fa100000-0000-4000-8000-000000000001'::uuid created_by,
+  'fc300000-0000-4000-8000-000000000001'::uuid approved_by
+)
+insert into private.transport_policy_versions(id,organization_id,branch_id,
+ policy_key,version,effective_from,rule_payload,publication_note,created_by,
+ approved_by,created_reauth_challenge_id,approved_reauth_challenge_id,
+ content_hash)
+select 'fc600000-0000-4000-8000-000000000001',organization_id,branch_id,
+ policy_key,1,effective_from,rule_payload,publication_note,created_by,
+ approved_by,'fa160000-0000-4000-8000-000000000001',
+ 'fc330000-0000-4000-8000-000000000001',
+ encode(sha256(convert_to(jsonb_build_object(
+  'schema_version',1,'organization_id',organization_id,'branch_id',branch_id,
+  'policy_key',policy_key,'version',1,'previous_version_id',null,
+  'effective_from',effective_from,'effective_to',null,
+  'rule_payload',rule_payload,'publication_note',publication_note,
+  'created_by',created_by,'approved_by',approved_by)::text,'UTF8')),'hex')
+from fixture;
+create function pg_temp.insert_sibling_transport_draft(p_clients uuid[])
+returns void language plpgsql as $fn$
+declare v_passengers jsonb;
+begin
+ select jsonb_agg(jsonb_build_object('client_id',client_id,
+  'pickup_label','合成上車點','dropoff_label','合成下車點') order by ordinality)
+ into v_passengers from unnest(p_clients) with ordinality passenger(client_id,ordinality);
+ insert into public.transport_trip_plan_versions(
+  organization_id,branch_id,trip_key,version,draft_status,direction,service_date,
+  starts_at,ends_at,vehicle_code,vehicle_name_snapshot,vehicle_capacity_snapshot,
+  driver_membership_id,driver_user_id,driver_display_name_snapshot,
+  driver_authorization_label_snapshot,pickup_label,dropoff_label,passenger_snapshot,
+  conflict_snapshot,rule_version_id,revision_reason,created_by,
+  created_by_display_name,reauth_challenge_id,content_hash)
+ values ('fa120000-0000-4000-8000-000000000001',
+  'fa130000-0000-4000-8000-000000000003',gen_random_uuid(),1,'draft_ready',
+  'pickup',current_date,
+  (current_date::text||' 08:00:00')::timestamp at time zone 'Asia/Taipei',
+  (current_date::text||' 09:00:00')::timestamp at time zone 'Asia/Taipei',
+  'SYN-VAN','合成接送車',8,'fa140000-0000-4000-8000-000000000003',
+  'fa100000-0000-4000-8000-000000000001','合成駕駛','合成駕駛授權',
+  '合成上車點','合成下車點',v_passengers,'[]'::jsonb,
+  'fc600000-0000-4000-8000-000000000001','合成測試草稿',
+  'fa100000-0000-4000-8000-000000000001','合成管理員',
+  'fa160000-0000-4000-8000-000000000001',repeat('a',64));
+end;
+$fn$;
+select throws_ok($$select pg_temp.insert_sibling_transport_draft(array[
+ current_setting('test.jubo_pending_client')::uuid])$$,
+ '23514','TRANSPORT_PASSENGER_SCOPE_INVALID',
+ 'valid sibling rule cannot hide a pending client from another branch in a draft');
+select throws_ok($$select pg_temp.insert_sibling_transport_draft(array[
+ 'fc500000-0000-4000-8000-000000000002'::uuid,
+ current_setting('test.jubo_pending_client')::uuid])$$,
+ '23514','TRANSPORT_PASSENGER_SCOPE_INVALID',
+ 'every passenger is checked even when the first client is same-branch active');
+select throws_ok($$select pg_temp.insert_sibling_transport_draft(array[
+ 'fc500000-0000-4000-8000-000000000099'::uuid])$$,
+ '23514','TRANSPORT_PASSENGER_SCOPE_INVALID',
+ 'valid sibling rule requires every passenger UUID to resolve to a client');
+select lives_ok($$select pg_temp.insert_sibling_transport_draft(array[
+ 'fc500000-0000-4000-8000-000000000002'::uuid])$$,
+ 'valid sibling rule permits an active client from the same branch');
+select ok((select count(*)=1 from public.transport_trip_plan_versions trip
+ where trip.rule_version_id='fc600000-0000-4000-8000-000000000001'
+   and trip.passenger_snapshot @> jsonb_build_array(jsonb_build_object(
+    'client_id','fc500000-0000-4000-8000-000000000002'::uuid))),
+ 'only the authorized same-branch draft was persisted');
 
 update private.reauth_events set verified_at=now()-interval '16 minutes'
  where user_id='fa100000-0000-4000-8000-000000000001'
