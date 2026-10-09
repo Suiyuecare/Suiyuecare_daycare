@@ -222,7 +222,7 @@ describe("case center front-line next step", () => {
     ["inconsistent missing admission", { admittedOn: null }],
     ["inconsistent expired status", { endedOn: "2026-09-09" }],
     ["inconsistent lifecycle", { lifecycleStatus: "closed" }],
-  ] satisfies [string, Partial<CaseCenterClient>][]) ("never starts services for %s; authorized summary remains read-only navigation where admitted", (_name, override) => {
+  ] as [string, Partial<CaseCenterClient>][]) ("never starts services for %s; authorized summary remains read-only navigation where admitted", (_name, override) => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [client(override)] })} allowedDailyPages={[46, 3, 6]} canViewSummary />);
     expect(workLinks(container)).toHaveLength(0);
     const links = screen.queryAllByRole("link", { name: /查看 合成個案甲 的當日紀錄/ });

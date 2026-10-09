@@ -187,6 +187,17 @@ describe("medication plan input boundary", () => {
 });
 
 describe("medication plan snapshot projection", () => {
+  it("shows a pending-admission client without allowing a medication plan", () => {
+    const waiting = { ...client, status: "pending" as const, admittedOn: null, canCreatePlan: false };
+    const snapshot = projectMedicationPlanSnapshot({
+      rows: [], clients: [waiting], selectedClient: waiting,
+      generatedAt: "2026-09-01T10:00:00+08:00", demo: false,
+    });
+    expect(snapshot.selectedClient?.status).toBe("pending");
+    expect(snapshot.selectedClient?.canCreatePlan).toBe(false);
+    expect(snapshot.plans).toHaveLength(0);
+  });
+
   it("renders all governed lifecycle labels, lineage, high risk, and stop reason", () => {
     const snapshot = buildDemoMedicationPlanSnapshot(
       client.id,
