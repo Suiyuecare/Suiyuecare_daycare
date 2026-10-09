@@ -1,5 +1,5 @@
 begin;
-select plan(98);
+select plan(118);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -689,5 +689,211 @@ select throws_ok($$update public.clients set status='active'
 select ok(current_setting('test.jubo_public_receipt') not like '%合成個案%'
  and current_setting('test.jubo_public_receipt') not like '%SYN-ID%',
  'public promotion receipt contains no client names or identifiers');
+
+-- A public pending shell is not an active service case. Private assessment
+-- draft storage is permitted, while signing/review/export/print remains
+-- impossible even when a privileged writer bypasses the browser RPC layer.
+select set_config('test.jubo_pending_client',(
+ select id::text from public.clients where source_system='jubo' order by id limit 1
+),true);
+select ok(not has_function_privilege('authenticated',
+ 'private.assert_jubo_pending_private_client_boundary(uuid,uuid,uuid,boolean)','execute')
+ and not has_function_privilege('service_role',
+ 'private.guard_jubo_pending_private_client_write()','execute'),
+ 'private pending boundary has no Data API or service-role function grant');
+select lives_ok($$select private.assert_jubo_pending_private_client_boundary(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,true)$$,
+ 'pending same-branch assessment draft passes the narrow boundary');
+select throws_ok($$select private.assert_jubo_pending_private_client_boundary(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,false)$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending formal workflow denied even for privileged caller');
+select throws_ok($$select private.assert_jubo_pending_private_client_boundary(
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ current_setting('test.jubo_pending_client')::uuid,true)$$,
+ '42501','JUBO_PRIVATE_CLIENT_SCOPE_MISMATCH',
+ 'cross-organization draft cannot borrow another branch scope');
+
+insert into public.form_definitions(id,organization_id,form_key,name,category,is_official)
+ values ('fb100000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'tenant.custom.pending_test','合成待收案表單','行政表單',false);
+insert into public.form_versions(id,form_definition_id,version,status,effective_from,
+ schema_json,scoring_json,published_at,published_by)
+ values ('fb200000-0000-4000-8000-000000000001',
+ 'fb100000-0000-4000-8000-000000000001',1,'published','2026-01-01',
+ '{"builder":"tenant-custom.v1","fields":[{"key":"note","label":"合成文字","required":false,"type":"text","maxLength":500}]}','{}',now(),
+ 'fa100000-0000-4000-8000-000000000001');
+select lives_ok($$insert into private.custom_form_responses(id,organization_id,
+ branch_id,client_id,form_version_id,record_key,revision,service_date,status,
+ schema_snapshot,answers,content_hash,actor_id) values(
+ 'fb300000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'fb200000-0000-4000-8000-000000000001',
+ 'fb310000-0000-4000-8000-000000000001',1,current_date,'draft',
+ '{"builder":"tenant-custom.v1","fields":[{"key":"note","label":"合成文字","required":false,"type":"text","maxLength":500}]}','{}',repeat('a',64),
+ 'fa100000-0000-4000-8000-000000000001')$$,
+ 'custom assessment draft can be stored for pending client');
+select throws_ok($$insert into private.custom_form_responses(id,organization_id,
+ branch_id,client_id,form_version_id,record_key,revision,service_date,status,
+ schema_snapshot,answers,signature_evidence,content_hash,actor_id) values(
+ 'fb300000-0000-4000-8000-000000000002',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'fb200000-0000-4000-8000-000000000001',
+ 'fb310000-0000-4000-8000-000000000002',1,current_date,'signed',
+ '{"builder":"tenant-custom.v1","fields":[{"key":"note","label":"合成文字","required":false,"type":"text","maxLength":500}]}','{}','{}',repeat('b',64),
+ 'fa100000-0000-4000-8000-000000000001')$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending custom form cannot be signed by a privileged writer');
+select throws_ok($$insert into private.custom_form_responses(id,organization_id,
+ branch_id,client_id,form_version_id,record_key,revision,service_date,status,
+ schema_snapshot,answers,content_hash,actor_id) values(
+ 'fb300000-0000-4000-8000-000000000003',
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'fb200000-0000-4000-8000-000000000001',
+ 'fb310000-0000-4000-8000-000000000003',1,current_date,'draft',
+ '{"builder":"tenant-custom.v1","fields":[{"key":"note","label":"合成文字","required":false,"type":"text","maxLength":500}]}','{}',repeat('c',64),
+ 'fa100000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_PRIVATE_CLIENT_SCOPE_MISMATCH',
+ 'pending custom draft cross-branch write is rejected before FK checks');
+
+select lives_ok($$insert into private.taipei_abcd_draft_versions(id,
+ organization_id,branch_id,client_id,form,usage_year,month,template_key,
+ source_revision,source_sha256,version,answers,content_hash,actor_user_id)
+ values ('fb400000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,'A',115,0,
+ 'taipei.daycare.abcd.115.114-11.draft-v1','114.11',
+ '64bb716b19362580295fe8ee2e452d32e82d6f3c67773d5956f66c7e17d3c481',
+ 1,'{}',repeat('d',64),'fa100000-0000-4000-8000-000000000001')$$,
+ 'Taipei A draft can be stored for pending client');
+select lives_ok($$insert into private.taipei_abcd_draft_operations(actor_user_id,
+ idempotency_key,organization_id,branch_id,client_id,request_hash,result_id)
+ values ('fa100000-0000-4000-8000-000000000001',
+ 'fb410000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,repeat('e',64),
+ 'fb400000-0000-4000-8000-000000000001')$$,
+ 'Taipei draft idempotency operation can be stored with same scope');
+set local role authenticated;
+select lives_ok($$select public.save_taipei_abcd_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ jsonb_build_object('client_id',current_setting('test.jubo_pending_client')::uuid,
+  'form','A','usage_year',115,'month',0,
+  'template_key','taipei.daycare.abcd.115.114-11.draft-v1',
+  'source_revision','114.11',
+  'source_sha256','64bb716b19362580295fe8ee2e452d32e82d6f3c67773d5956f66c7e17d3c481',
+  'expected_version',1,'expected_content_hash',repeat('d',64),
+  'answers','{}'::jsonb,'idempotency_key','fb410000-0000-4000-8000-000000000002'::uuid),
+ 'fb410000-0000-4000-8000-000000000002')$$,
+ 'authorized manager can save a pending Taipei A draft through the public RPC');
+select lives_ok($$select public.write_custom_form_response(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'fb320000-0000-4000-8000-000000000001',
+ jsonb_build_object('action','save',
+  'formVersionId','fb200000-0000-4000-8000-000000000001'::uuid,
+  'previousId',null,'baseRevision',null,
+  'serviceDate',(now() at time zone 'Asia/Taipei')::date,
+  'answers','{}'::jsonb,'reason',null))$$,
+ 'authorized manager can save a pending custom form draft through public RPC');
+reset role;
+select throws_ok($$insert into private.taipei_abcd_draft_versions(id,
+ organization_id,branch_id,client_id,form,usage_year,month,template_key,
+ source_revision,source_sha256,version,answers,content_hash,actor_user_id)
+ values ('fb400000-0000-4000-8000-000000000002',
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ current_setting('test.jubo_pending_client')::uuid,'A',115,0,
+ 'taipei.daycare.abcd.115.114-11.draft-v1','114.11',
+ '64bb716b19362580295fe8ee2e452d32e82d6f3c67773d5956f66c7e17d3c481',
+ 1,'{}',repeat('f',64),'fa100000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_PRIVATE_CLIENT_SCOPE_MISMATCH',
+ 'Taipei draft cross-organization write is denied');
+select throws_ok($$insert into private.taipei_abcd_review_events(
+ draft_id,organization_id,branch_id,client_id,sequence,action,state,
+ actor_user_id,reason,checklist,input_hash,idempotency_key)
+ values ('fb400000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,1,'submit','submitted',
+ 'fa100000-0000-4000-8000-000000000001','合成送審','{}',repeat('a',64),
+ 'fb420000-0000-4000-8000-000000000001')$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending Taipei ABC cannot submit an administrative review');
+select throws_ok($$insert into private.taipei_abcd_review_events(
+ draft_id,organization_id,branch_id,client_id,sequence,action,state,
+ actor_user_id,reason,checklist,input_hash,idempotency_key)
+ values ('fb400000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,1,'approve','approved',
+ 'fa100000-0000-4000-8000-000000000001','合成核准','{}',repeat('a',64),
+ 'fb420000-0000-4000-8000-000000000002')$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending Taipei ABC cannot be administratively approved');
+select throws_ok($$insert into private.taipei_abcd_export_snapshots(
+ organization_id,branch_id,client_id,draft_id,actor_user_id,
+ font_asset_key,snapshot,snapshot_hash,input_hash,idempotency_key)
+ values ('fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'fb400000-0000-4000-8000-000000000001',
+ 'fa100000-0000-4000-8000-000000000001','taipei-crosswalk-font-v1',
+ '{}',repeat('a',64),repeat('b',64),
+ 'fb430000-0000-4000-8000-000000000001')$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending Taipei ABC cannot create an export snapshot');
+select throws_ok($$insert into private.custom_response_print_jobs(
+ organization_id,branch_id,client_id,response_id,actor_id,reauth_challenge_id,
+ idempotency_key,request_hash,snapshot,snapshot_hash,created_at,expires_at)
+ values ('fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_client')::uuid,
+ 'fb300000-0000-4000-8000-000000000001',
+ 'fa100000-0000-4000-8000-000000000001',
+ 'fa160000-0000-4000-8000-000000000001',
+ 'fb440000-0000-4000-8000-000000000001',repeat('a',64),'{}',
+ repeat('b',64),now(),now()+interval '5 minutes')$$,
+ '23514','JUBO_PENDING_CLIENT_FORMAL_WORKFLOW_DENIED',
+ 'pending custom draft cannot be printed');
+select is((select count(*)::integer from private.custom_form_responses
+ where client_id=current_setting('test.jubo_pending_client')::uuid
+   and status='draft'),2,'both direct and authenticated custom drafts remain');
+select is((select count(*)::integer from private.custom_form_responses
+ where client_id=current_setting('test.jubo_pending_client')::uuid
+   and status='signed'),0,'no pending custom response was signed');
+select ok(not exists(select 1 from private.taipei_abcd_review_events
+ where client_id=current_setting('test.jubo_pending_client')::uuid)
+ and not exists(select 1 from private.taipei_abcd_export_snapshots
+ where client_id=current_setting('test.jubo_pending_client')::uuid)
+ and not exists(select 1 from private.custom_response_print_jobs
+ where client_id=current_setting('test.jubo_pending_client')::uuid),
+ 'failed formal writes leave review, export and print ledgers empty');
+insert into public.clients(id,organization_id,branch_id,client_code,display_name,status)
+ values ('fb500000-0000-4000-8000-000000000001',
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ 'SYN-ACTIVE','合成正常個案','active');
+select lives_ok($$select private.assert_jubo_pending_private_client_boundary(
+ 'fa120000-0000-4000-8000-000000000002',
+ 'fa130000-0000-4000-8000-000000000002',
+ 'fb500000-0000-4000-8000-000000000001',false)$$,
+ 'existing active client formal path retains prior behavior');
 select * from finish();
 rollback;
