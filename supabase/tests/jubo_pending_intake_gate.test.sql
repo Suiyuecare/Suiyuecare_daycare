@@ -1,5 +1,5 @@
 begin;
-select plan(164);
+select plan(179);
 
 -- Every row below is synthetic. The two pinned digest strings are metadata
 -- fixtures only, not proof that these generated rows came from those files.
@@ -807,6 +807,189 @@ select is((select count(*)::integer from private.client_intake_versions version_
  join public.clients client on client.id=version_row.client_id
  where client.source_system='jubo'),23,
  'idempotent replay does not duplicate profile versions');
+-- A reviewed public pending client may hold candidate drafts in precisely five
+-- assessment tables. These are actual RPC writes, not privilege-only checks.
+select set_config('test.jubo_pending_assess_client',(select link.client_id::text
+ from private.jubo_public_pending_links link
+ join private.jubo_pending_master_rows pending on pending.id=link.pending_row_id
+ join private.jubo_source_rows source_row on source_row.id=pending.source_row_id
+ where source_row.source_row_number=6),true);
+create function pg_temp.assessment_answers(p_prefix text,p_count integer,p_first text)
+ returns jsonb language sql immutable as $$
+ select jsonb_set((select jsonb_object_agg(p_prefix||lpad(i::text,2,'0'),
+   '{"state":"missing"}'::jsonb) from generate_series(1,p_count) i),
+   array[p_prefix||'01'],jsonb_build_object('state','answered','value',p_first));
+$$;
+set local role authenticated;
+select set_config('test.jubo_draft_spmsq',to_jsonb(draft)::text,true)
+ from public.create_spmsq_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,current_date,
+ pg_temp.assessment_answers('spmsq_',10,'correct'),'{"state":"missing"}'::jsonb,
+ '{"state":"missing"}'::jsonb,'spmsq-pfeiffer-10-education-adjusted-v1',
+ 'fac00000-0000-4000-8000-000000000001') draft;
+select set_config('test.jubo_draft_gds',to_jsonb(draft)::text,true)
+ from public.create_gds_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,current_date,
+ pg_temp.assessment_answers('gds_',15,'yes'),'gds-15-strict-complete-v1',
+ 'fac00000-0000-4000-8000-000000000002') draft;
+select set_config('test.jubo_draft_fall',to_jsonb(draft)::text,true)
+ from public.create_fall_risk_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,current_date,
+ pg_temp.assessment_answers('fall_factor_',6,'present'),
+ 'fall-risk-manual-factors-candidate-v1',
+ 'fac00000-0000-4000-8000-000000000003') draft;
+select set_config('test.jubo_draft_nsi',to_jsonb(draft)::text,true)
+ from public.create_nsi_nutrition_screening_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,current_date,
+ pg_temp.assessment_answers('nutrition_observation_',6,'present'),
+ 'nsi-manual-nutrition-observations-candidate-v1',
+ 'fac00000-0000-4000-8000-000000000004') draft;
+select ok((select replayed and version_id=
+   (current_setting('test.jubo_draft_gds')::jsonb->>'version_id')::uuid
+  from public.create_gds_assessment_draft(
+   'fa120000-0000-4000-8000-000000000001',
+   'fa130000-0000-4000-8000-000000000001',
+   current_setting('test.jubo_pending_assess_client')::uuid,current_date,
+   pg_temp.assessment_answers('gds_',15,'yes'),'gds-15-strict-complete-v1',
+   'fac00000-0000-4000-8000-000000000002')),
+ 'pending draft RPC replay keeps the same immutable version');
+select throws_ok($$insert into public.spmsq_assessment_versions default values$$,
+ '42501',null,'direct assessment table writes remain denied to staff');
+-- Chewing is intentionally professional-only. Model an HR-approved change to
+-- the synthetic manager's professional role; no permission rule is loosened.
+reset role;
+select set_config('request.jwt.claims','{}',true);
+update public.profiles set kind='professional'
+ where id='fa100000-0000-4000-8000-000000000001';
+insert into public.membership_roles(membership_id,role_id) values
+ ('fa140000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000007');
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+set local role authenticated;
+select set_config('test.jubo_draft_chewing',to_jsonb(draft)::text,true)
+ from public.create_chewing_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,current_date,
+ pg_temp.assessment_answers('chewing_observation_',6,'present'),
+ 'chewing-manual-observations-candidate-v1',
+ 'fac00000-0000-4000-8000-000000000005') draft;
+select ok((current_setting('test.jubo_draft_spmsq')::jsonb->>'record_state')='draft_preview'
+ and (current_setting('test.jubo_draft_gds')::jsonb->>'record_state')='draft_preview'
+ and (current_setting('test.jubo_draft_fall')::jsonb->>'record_state')='draft_preview'
+ and (current_setting('test.jubo_draft_nsi')::jsonb->>'record_state')='draft_preview'
+ and (current_setting('test.jubo_draft_chewing')::jsonb->>'record_state')='draft_preview',
+ 'five authorized RPC calls create only candidate draft versions');
+select throws_ok($$select * from public.create_spmsq_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',current_setting('test.jubo_pending_assess_client')::uuid,
+ current_date,pg_temp.assessment_answers('spmsq_',10,'correct'),
+ '{"state":"missing"}'::jsonb,'{"state":"missing"}'::jsonb,
+ 'spmsq-pfeiffer-10-education-adjusted-v1','fac00000-0000-4000-8000-000000000011')$$,
+ '42501',null,'SPMSQ draft rejects a sibling branch');
+select throws_ok($$select * from public.create_gds_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',current_setting('test.jubo_pending_assess_client')::uuid,
+ current_date,pg_temp.assessment_answers('gds_',15,'yes'),
+ 'gds-15-strict-complete-v1','fac00000-0000-4000-8000-000000000012')$$,
+ '42501',null,'GDS draft rejects a sibling branch');
+select throws_ok($$select * from public.create_fall_risk_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',current_setting('test.jubo_pending_assess_client')::uuid,
+ current_date,pg_temp.assessment_answers('fall_factor_',6,'present'),
+ 'fall-risk-manual-factors-candidate-v1','fac00000-0000-4000-8000-000000000013')$$,
+ '42501',null,'fall-risk draft rejects a sibling branch');
+select throws_ok($$select * from public.create_nsi_nutrition_screening_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',current_setting('test.jubo_pending_assess_client')::uuid,
+ current_date,pg_temp.assessment_answers('nutrition_observation_',6,'present'),
+ 'nsi-manual-nutrition-observations-candidate-v1',
+ 'fac00000-0000-4000-8000-000000000014')$$,
+ '42501',null,'NSI draft rejects a sibling branch');
+select throws_ok($$select * from public.create_chewing_assessment_draft(
+ 'fa120000-0000-4000-8000-000000000001',
+ 'fa130000-0000-4000-8000-000000000003',current_setting('test.jubo_pending_assess_client')::uuid,
+ current_date,pg_temp.assessment_answers('chewing_observation_',6,'present'),
+ 'chewing-manual-observations-candidate-v1',
+ 'fac00000-0000-4000-8000-000000000015')$$,
+ '42501',null,'chewing draft rejects a sibling branch');
+select throws_ok($$select * from public.sign_spmsq_assessment(
+ 'fa120000-0000-4000-8000-000000000001','fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,
+ (current_setting('test.jubo_draft_spmsq')::jsonb->>'assessment_key')::uuid,
+ (current_setting('test.jubo_draft_spmsq')::jsonb->>'version_id')::uuid,1,
+ 'fac00000-0000-4000-8000-000000000021')$$,'55000',null,
+ 'SPMSQ formal signing remains blocked');
+select throws_ok($$select * from public.sign_gds_assessment(
+ 'fa120000-0000-4000-8000-000000000001','fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,
+ (current_setting('test.jubo_draft_gds')::jsonb->>'assessment_key')::uuid,
+ (current_setting('test.jubo_draft_gds')::jsonb->>'version_id')::uuid,1,
+ 'fac00000-0000-4000-8000-000000000022')$$,'55000',null,
+ 'GDS formal signing remains blocked');
+select throws_ok($$select * from public.sign_fall_risk_assessment(
+ 'fa120000-0000-4000-8000-000000000001','fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,
+ (current_setting('test.jubo_draft_fall')::jsonb->>'assessment_key')::uuid,
+ (current_setting('test.jubo_draft_fall')::jsonb->>'version_id')::uuid,1,
+ 'fac00000-0000-4000-8000-000000000023')$$,'55000',null,
+ 'fall-risk formal signing remains blocked');
+select throws_ok($$select * from public.sign_nsi_nutrition_screening(
+ 'fa120000-0000-4000-8000-000000000001','fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,
+ (current_setting('test.jubo_draft_nsi')::jsonb->>'assessment_key')::uuid,
+ (current_setting('test.jubo_draft_nsi')::jsonb->>'version_id')::uuid,1,
+ 'fac00000-0000-4000-8000-000000000024')$$,'55000',null,
+ 'NSI formal signing remains blocked');
+select throws_ok($$select * from public.sign_chewing_assessment(
+ 'fa120000-0000-4000-8000-000000000001','fa130000-0000-4000-8000-000000000001',
+ current_setting('test.jubo_pending_assess_client')::uuid,
+ (current_setting('test.jubo_draft_chewing')::jsonb->>'assessment_key')::uuid,
+ (current_setting('test.jubo_draft_chewing')::jsonb->>'version_id')::uuid,1,
+ 'fac00000-0000-4000-8000-000000000025')$$,'55000',null,
+ 'chewing formal signing remains blocked');
+reset role;
+select set_config('request.jwt.claims','{}',true);
+update public.profiles set kind='staff'
+ where id='fa100000-0000-4000-8000-000000000001';
+select set_config('request.jwt.claims',current_setting('test.jubo_good_jwt'),true);
+select ok((select record_state='draft_preview' and governance_status='candidate_unactivated'
+  and service_status_at_assessment='pending'
+  and answers->'spmsq_01'->>'value'='correct'
+  from public.spmsq_assessment_versions
+  where id=(current_setting('test.jubo_draft_spmsq')::jsonb->>'version_id')::uuid)
+ and (select record_state='draft_preview' and governance_status='candidate_unactivated'
+  and service_status_at_assessment='pending'
+  and answers->'gds_01'->>'value'='yes'
+  from public.gds_assessment_versions
+  where id=(current_setting('test.jubo_draft_gds')::jsonb->>'version_id')::uuid)
+ and (select record_state='draft_preview' and governance_status='candidate_unactivated'
+  and service_status_at_assessment='pending'
+  and answers->'fall_factor_01'->>'value'='present'
+  from public.fall_risk_assessment_versions
+  where id=(current_setting('test.jubo_draft_fall')::jsonb->>'version_id')::uuid)
+ and (select record_state='draft_preview' and governance_status='candidate_unactivated'
+  and service_status_at_assessment='pending'
+  and answers->'nutrition_observation_01'->>'value'='present'
+  from public.nsi_nutrition_screening_versions
+  where id=(current_setting('test.jubo_draft_nsi')::jsonb->>'version_id')::uuid)
+ and (select record_state='draft_preview' and governance_status='candidate_unactivated'
+  and service_status_at_assessment='pending'
+  and answers->'chewing_observation_01'->>'value'='present'
+  from public.chewing_assessment_versions
+  where id=(current_setting('test.jubo_draft_chewing')::jsonb->>'version_id')::uuid),
+ 'all five writes persist answered drafts without formal status or score');
+select throws_ok($$update public.spmsq_assessment_versions set record_state='signed'
+ where id=(current_setting('test.jubo_draft_spmsq')::jsonb->>'version_id')::uuid$$,
+ '23514',null,'pending SPMSQ draft cannot be changed into a signed version');
 select throws_ok($$insert into private.client_intake_versions(organization_id,branch_id,
  client_id,version,profile,field_authority,actor_user_id)
  select version_row.organization_id,version_row.branch_id,version_row.client_id,2,
