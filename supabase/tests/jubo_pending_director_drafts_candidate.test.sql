@@ -113,17 +113,35 @@ select
 from private.jubo_source_rows where id='bb180000-0000-4000-8000-000000000001';
 -- The profile-link trigger now requires an independently reviewed v2 mapping.
 -- Seed only this synthetic fixture; production review uses the governed RPC.
+insert into private.jubo_profile_mapping_v2_previews(
+ id,organization_id,branch_id,pair_id,master_source_row_id,actor_user_id,
+ actor_session_id,reauth_challenge_id,review_purpose,source_row_sha256,
+ mapping_review_sha256,presented_payload_sha256,presented_at,expires_at)
+select 'bb250000-0000-4000-8000-000000000001',pending.organization_id,
+ pending.branch_id,'bb190000-0000-4000-8000-000000000001',master.id,
+ 'bb100000-0000-4000-8000-000000000002',
+ 'bb120000-0000-4000-8000-000000000002',
+ 'bb200000-0000-4000-8000-000000000002',
+ 'jubo_intake_profile_mapping_v2',master.row_sha256,
+ private.jubo_profile_mapping_fingerprint(master.raw_values,pending),repeat('c',64),
+ now(),now()+interval '5 minutes'
+from private.jubo_pending_master_rows pending
+join private.jubo_source_rows master on master.id=pending.source_row_id
+where pending.id='bb220000-0000-4000-8000-000000000001';
 insert into private.jubo_profile_mapping_v2_reviews(
  organization_id,branch_id,pair_id,master_source_row_id,review_version,
  source_row_sha256,mapping_review_sha256,mapping_version,decision,
- review_reason,reviewer_user_id,reauth_challenge_id)
+ review_reason,reviewer_user_id,reauth_challenge_id,review_purpose,preview_id,
+ presented_payload_sha256,idempotency_key,request_sha256)
 select pending.organization_id,pending.branch_id,
  'bb190000-0000-4000-8000-000000000001',master.id,1,
  master.row_sha256,private.jubo_profile_mapping_fingerprint(master.raw_values,pending),
  'jubo-master-monthly-202610-v2','approved',
  '合成測試已逐欄確認來源與新版顯示映射',
  'bb100000-0000-4000-8000-000000000002',
- 'bb200000-0000-4000-8000-000000000002'
+ 'bb200000-0000-4000-8000-000000000002',
+ 'jubo_intake_profile_mapping_v2','bb250000-0000-4000-8000-000000000001',
+ repeat('c',64),gen_random_uuid(),repeat('d',64)
 from private.jubo_pending_master_rows pending
 join private.jubo_source_rows master on master.id=pending.source_row_id
 where pending.id='bb220000-0000-4000-8000-000000000001';
