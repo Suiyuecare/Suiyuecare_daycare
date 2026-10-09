@@ -152,6 +152,8 @@ export function AppShell({
     ((pathname === ASSESSMENT_MATRIX_PATH || pathname === AD8_CANDIDATE_PATH) && group.id === "assessments"));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
+  const showPendingDirectorReview = !context.demo && context.roles.includes("branch_director") &&
+    context.scopes.includes("clients.jubo_pending_source.read") && context.scopes.includes("clients.intake_draft.manage");
   const showAssessmentMatrixLink = showAssessmentMatrix && canViewAssessmentMatrix(context);
   const mobilePages = mobilePrimaryPages(navigation, context.roles);
   const mobileCurrentInMore = !mobilePages.some((page) => pathname === `/app/${page.slug}`);
@@ -169,6 +171,7 @@ export function AppShell({
     ? STORE_OVERVIEW_TITLE
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
     : pathname === AD8_CANDIDATE_PATH ? AD8_CANDIDATE_TITLE
+    : pathname === "/app/pending-intake-review" ? "主任待收案核對"
     : activePage?.title ?? (pathname === "/app/staff/assessments/external-results"
       ? "外部評估結果登錄" : appBranding.applicationName);
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
@@ -512,9 +515,12 @@ export function AppShell({
               })}</div> : null}
             </section>;
           })}
-          {showClientIntake ? <section className="nav-group">
+          {(showClientIntake || showPendingDirectorReview) ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">個案管理</div>
-            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
+            <div className="nav-group__items">
+              {showClientIntake ? <NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink> : null}
+              {showPendingDirectorReview ? <NavigationLink aria-current={pathname === "/app/pending-intake-review" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/pending-intake-review" prefetch={false} loadingLabel="主任待收案核對" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>主任待收案核對</span></NavigationLink> : null}
+            </div>
           </section> : null}
           {showStoreOverview ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">主管檢視</div>

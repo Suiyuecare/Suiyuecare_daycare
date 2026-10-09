@@ -1,5 +1,5 @@
 begin;
-select plan(32);
+select plan(44);
 
 -- Synthetic fixtures only. This test deliberately constructs one reviewed
 -- pending link; it neither reads nor writes a hosted Supabase project.
@@ -217,10 +217,60 @@ select ok(not exists(select 1 from public.role_permissions rp
  where rp.role_id='10000000-0000-4000-8000-000000000011'
  and p.permission_key='clients.manage'),
  'director template remains without clients.manage');
+select ok(exists(select 1 from public.role_permissions rp join public.permissions p
+ on p.id=rp.permission_id where rp.role_id='10000000-0000-4000-8000-000000000011'
+ and p.permission_key='clients.jubo_pending_source.read') and not exists(
+ select 1 from public.role_permissions rp join public.permissions p on p.id=rp.permission_id
+ where rp.role_id='10000000-0000-4000-8000-000000000011'
+ and p.permission_key='clients.demographics.read'),
+ 'director gets the narrow pending source read without general demographics');
+select ok(not has_function_privilege('service_role',
+ 'public.jubo_pending_director_source_workspace(uuid,uuid,uuid)','execute')
+ and not has_function_privilege('anon',
+ 'public.jubo_pending_director_directory(uuid,uuid)','execute'),
+ 'service and anonymous roles cannot use the source workspace RPC');
 
 select pg_temp.login();
 set local role authenticated;
 select is(public.is_staff_login_allowed(),true,'synthetic approved Google director is a real staff session');
+select is(public.jubo_pending_director_directory(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001')->>'total','1',
+ 'director list contains only linked pending source from exact branch');
+select is(public.jubo_pending_director_source_workspace(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001')->'fields'->2->>'original',
+ '1945/01/02','source workspace exposes original unnormalized birth date');
+select is(public.jubo_pending_director_source_workspace(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001')->'fields'->2->>'display',
+ '1945-01-02','source workspace exposes the reviewed normalized display date');
+select is(public.jubo_pending_director_source_workspace(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001')->'fields'->3->>'display',
+ '••••0001','source workspace masks the displayed identity');
+select ok(public.jubo_pending_director_source_workspace(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001')::text not like '%SYNTH0001%',
+ 'source workspace never returns the complete identity');
+select is(public.jubo_pending_director_source_workspace(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000001')->'humanReview'->>'decision',
+ 'approved','source workspace includes the independent human review result');
+select throws_ok($$select public.jubo_pending_director_directory(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000002')$$,
+ '42501','JUBO_DIRECTOR_SOURCE_ACCESS_DENIED','cross-branch pending directory denied');
+select throws_ok($$select public.jubo_pending_director_source_workspace(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001',
+ 'bb240000-0000-4000-8000-000000000002')$$,
+ '42501','JUBO_PENDING_DRAFT_ACCESS_DENIED','unlinked pending shell denied source access');
 select set_config('test.director_receipt',pg_temp.save_local()::text,true);
 select is(current_setting('test.director_receipt')::jsonb->>'revision','1',
  'local supplement creates revision one');
@@ -328,6 +378,11 @@ set local role authenticated;
 select throws_ok($$select pg_temp.read_draft()$$,
  '42501','JUBO_PENDING_DRAFT_ACCESS_DENIED',
  'approved branch_supervisor is not the exact branch_director role');
+select throws_ok($$select public.jubo_pending_director_directory(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_DIRECTOR_SOURCE_ACCESS_DENIED',
+ 'approved branch_supervisor cannot use director source directory');
 reset role;
 update private.staff_google_access_grants set enabled=false
  where allowed_user_id='bb100000-0000-4000-8000-000000000001';
@@ -336,6 +391,11 @@ set local role authenticated;
 select throws_ok($$select pg_temp.save_local()$$,
  '42501','JUBO_PENDING_DRAFT_ACCESS_DENIED',
  'revoked Google approval denies even idempotent replay');
+select throws_ok($$select public.jubo_pending_director_directory(
+ 'bb140000-0000-4000-8000-000000000001',
+ 'bb150000-0000-4000-8000-000000000001')$$,
+ '42501','JUBO_DIRECTOR_SOURCE_ACCESS_DENIED',
+ 'revoked Google approval also denies the pending-source directory');
 reset role;
 
 select * from finish();
