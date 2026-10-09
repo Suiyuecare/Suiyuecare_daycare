@@ -4,7 +4,8 @@ set local statement_timeout = '30s';
 
 -- The public client status is not sufficient evidence of service eligibility:
 -- an active shell with no admission date is still pending. Lock each client in
--- a stable order so a concurrent lifecycle change cannot race a formal write.
+-- a stable order to serialize with lifecycle row updates. Managed PostgreSQL
+-- concurrency tests remain required before this can be a production gate.
 create function private.assert_client_ids_service_day_locked(
   p_organization_id uuid,
   p_branch_id uuid,
