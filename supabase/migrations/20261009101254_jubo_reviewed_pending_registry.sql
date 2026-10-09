@@ -109,7 +109,8 @@ create table private.jubo_pending_master_rows (
   foreign key (monthly_source_row_id,organization_id,branch_id)
     references private.jubo_source_rows(id,organization_id,branch_id) on delete restrict,
   unique (operation_id,source_row_id), unique (source_row_id),
-  unique (organization_id,identity_sha256)
+  unique (organization_id,identity_sha256),
+  unique (id,organization_id,branch_id)
 );
 create index jubo_pending_rows_scope_idx on private.jubo_pending_master_rows
   (organization_id,branch_id,source_status);
@@ -503,7 +504,5 @@ grant execute on function public.commit_jubo_pending_registry(uuid,uuid,uuid,uui
 
 comment on function public.commit_jubo_pending_registry(uuid,uuid,uuid,uuid) is
   'Creates private, non-operational pending source registry only. Does not create public.clients or authorize care.';
-
-commit;
 
 commit;
