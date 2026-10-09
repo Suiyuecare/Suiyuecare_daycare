@@ -18,6 +18,29 @@ describe("Taipei intake draft UI", () => {
     expect(screen.getByText("A24 · 服務期待與目標")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeDisabled(); expect(fetchMock).not.toHaveBeenCalled();
   });
+  it("mounts fields on first section expansion and keeps entered values after collapse", async () => {
+    render(<TaipeiAbcdIntakeStep {...ids} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
+    expect(screen.getByLabelText("個案姓名內容")).toBeInTheDocument();
+    expect(screen.queryByLabelText("聯絡人 1 姓名內容")).not.toBeInTheDocument();
+    const section = screen.getByText("A21 · 聯絡人").closest("details")!;
+    const summary = section.querySelector("summary")!;
+    fireEvent.click(summary);
+    const contact = await screen.findByLabelText("聯絡人 1 姓名內容");
+    fireEvent.change(contact, { target: { value: "合成聯絡人" } });
+    fireEvent.click(summary);
+    expect(section).not.toHaveAttribute("open");
+    fireEvent.click(summary);
+    expect(screen.getByLabelText("聯絡人 1 姓名內容")).toHaveValue("合成聯絡人");
+  });
+  it("keeps B sections in the inventory without mounting hundreds of hidden fields", async () => {
+    render(<TaipeiAbcdIntakeStep {...ids} demo />);
+    fireEvent.click(screen.getByRole("button", { name: "B 表 · 需求與照顧計畫" }));
+    expect(screen.getByText("B19 · 精神及行為症狀")).toBeInTheDocument();
+    expect(screen.queryByLabelText("體溫（℃）內容")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("B1 · 生命徵象"));
+    expect(await screen.findByLabelText("體溫（℃）內容")).toBeInTheDocument();
+  });
   it("loads before allowing save, then preserves exact idempotency key on uncertain retry", async () => {
     render(<TaipeiAbcdIntakeStep {...ids} />); await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
     fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "合成個案" } });
