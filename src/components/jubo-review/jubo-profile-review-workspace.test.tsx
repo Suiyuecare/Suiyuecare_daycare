@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import Link from "next/link";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { hasPendingOperations, tryAcquireViewTransition } from "@/lib/navigation/pending-operation-lock";
-import { hasCoreDraftPending } from "@/components/app/core-draft-guard";
+import { hasCoreDraftBlocked, hasCoreDraftPending } from "@/components/app/core-draft-guard";
 
 import { JuboProfileReviewWorkspace } from "./jubo-profile-review-workspace";
 
@@ -172,7 +173,8 @@ it("holds branch/logout/reload during uncertainty and checks only the exact orig
     writes += 1;
     throw new Error("network timeout");
   }));
-  render(<JuboProfileReviewWorkspace branchName="合成分支" recentAal2 />);
+  render(<><Link href="/app/other">前往其他頁</Link>
+    <JuboProfileReviewWorkspace branchName="合成分支" recentAal2 /></>);
   fireEvent.click(await screen.findByRole("button", { name: /第 6 列/ }));
   await screen.findByText("SYN-ID-0001");
   fireEvent.change(screen.getByRole("textbox", { name: /覆核理由/ }),
@@ -181,7 +183,11 @@ it("holds branch/logout/reload during uncertainty and checks only the exact orig
   fireEvent.click(screen.getByRole("button", { name: "記錄：暫緩" }));
   await screen.findByRole("alert");
   expect(hasPendingOperations()).toBe(true);
+  expect(hasCoreDraftBlocked()).toBe(true);
   expect(tryAcquireViewTransition()).toBeNull();
+  const leave = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+  screen.getByRole("link", { name: "前往其他頁" }).dispatchEvent(leave);
+  expect(leave.defaultPrevented).toBe(true);
   const beforeUnload = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(beforeUnload);
   expect(beforeUnload.defaultPrevented).toBe(true);
@@ -195,12 +201,41 @@ it("holds branch/logout/reload during uncertainty and checks only the exact orig
   expect(hasPendingOperations()).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "查原操作回執" }));
   await waitFor(() => expect(hasPendingOperations()).toBe(false));
+  expect(hasCoreDraftBlocked()).toBe(false);
+  expect(hasCoreDraftPending()).toBe(false);
   const decisions = requests.filter((entry) => entry.url.endsWith("/decision"));
   const lookups = requests.filter((entry) => entry.url.endsWith("/receipt"));
   expect(decisions).toHaveLength(1);
   expect(lookups).toHaveLength(1);
   expect(decisions[0]?.options.body).toBe(lookups[0]?.options.body);
   expect(writes).toBe(1);
+});
+
+it("blocks ordinary navigation while the review write is still in flight", async () => {
+  let resolveDecision!: (value: ReturnType<typeof response>) => void;
+  const pendingDecision = new Promise<ReturnType<typeof response>>((resolve) => { resolveDecision = resolve; });
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit = {}) => {
+    requests.push({ url, options });
+    if (url.endsWith("/queue")) return response(queue);
+    if (url.endsWith("/preview")) return response(preview);
+    return pendingDecision;
+  }));
+  render(<><Link href="/app/other">前往其他頁</Link>
+    <JuboProfileReviewWorkspace branchName="合成分支" recentAal2 /></>);
+  fireEvent.click(await screen.findByRole("button", { name: /第 6 列/ }));
+  await screen.findByText("SYN-ID-0001");
+  fireEvent.change(screen.getByRole("textbox", { name: /覆核理由/ }),
+    { target: { value: "合成來源逐欄確認後請先暫緩入庫" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /我已核對此列原值/ }));
+  fireEvent.click(screen.getByRole("button", { name: "記錄：暫緩" }));
+  await waitFor(() => expect(requests.some((request) => request.url.endsWith("/decision"))).toBe(true));
+  expect(hasCoreDraftBlocked()).toBe(true);
+  const leave = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+  screen.getByRole("link", { name: "前往其他頁" }).dispatchEvent(leave);
+  expect(leave.defaultPrevented).toBe(true);
+  resolveDecision(response({ ...receipt, decision: "held" }));
+  await waitFor(() => expect(hasPendingOperations()).toBe(false));
+  expect(hasCoreDraftPending()).toBe(false);
 });
 
 it("uses read-only receipt recovery after preview and AAL2 expire, without another write", async () => {

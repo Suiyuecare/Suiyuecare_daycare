@@ -200,6 +200,11 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
     } catch {
       releaseKnownAttempt(); setError("尚未送出，請重新確認後再試。"); return;
     }
+    // The tab-wide lease protects branch/logout/refresh. The draft guard also
+    // blocks ordinary links while this high-impact write is in flight.
+    if (!reviewDraftGuard.begin()) {
+      releaseKnownAttempt(); setError("另有操作正在處理，請先確認結果後再覆核。"); return;
+    }
     await sendAttempt();
   }
 
@@ -226,9 +231,12 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
       current.ambiguous = true;
       uncertainSource.current = { pairId: current.request.pairId, sourceRowId: current.request.sourceRowId,
         reviewVersion: current.reviewVersion };
+      // A missing response may still mean a committed review. Do not let the
+      // generic unsaved-draft dialog discard the only receipt recovery path.
+      reviewDraftGuard.hold();
       setUncertain(true); setPreview(null); setReason(""); setConfirmed(false); setDecision("held");
       setError(`${safeError(cause, "結果尚未確認。")} 請以原操作核對；不要另開新一次覆核。`);
-    } finally { sending.current = false; setDecisionBusy(false); }
+    } finally { sending.current = false; reviewDraftGuard.finish(); setDecisionBusy(false); }
   }
 
   async function checkAttemptReceipt() {
@@ -248,7 +256,7 @@ export function JuboProfileReviewWorkspace({ branchName, recentAal2 }: { branchN
         setError("尚未查到原操作回執；原請求仍可能在處理。請稍後再查，勿重新送出。");
         return;
       }
-      releaseKnownAttempt(); setUncertain(false); setPreview(null);
+      releaseKnownAttempt(); reviewDraftGuard.saved(); setUncertain(false); setPreview(null);
       setQueue(null);
       setMessage(`第 ${current.sourceSheetRow} 列已查到原操作回執：${decisionLabels[current.request.decision]}，審核版本 ${parsed.data.receipt.reviewVersion}。請重新驗證後更新清單。`);
     } catch (cause) {
