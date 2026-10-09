@@ -92,18 +92,22 @@ begin
     raise exception using errcode = '42501', message = 'infection incident snapshot is not permitted';
   end if;
 
-  v_can_view_all := private.has_permission(
-    p_expected_organization_id, p_expected_branch_id, 'clients.view_all'
-  );
-
-  with authorized_clients as materialized (
+  -- Compute the broad-scope grant in the *same statement snapshot* as the
+  -- client projection. A separate PL/pgSQL assignment can retain a grant that
+  -- was revoked before the following SELECT begins (READ COMMITTED).
+  with projection_authority as materialized (
+    select private.has_permission(
+      p_expected_organization_id, p_expected_branch_id, 'clients.view_all'
+    ) as can_view_all
+  ), authorized_clients as materialized (
     select client.id, client.organization_id, client.branch_id,
       client.display_name, client.status, client.admitted_on, client.ended_on
     from public.clients client
+    cross join projection_authority authority
     where client.organization_id = p_expected_organization_id
       and client.branch_id = p_expected_branch_id
       and (
-        v_can_view_all
+        authority.can_view_all
         or exists (
           select 1 from public.client_assignments assignment
           where assignment.client_id = client.id
@@ -322,6 +326,7 @@ begin
     cluster_option_result.options,
     cluster_option_result.available_total,
     cluster_option_result.truncated,
+    projection_authority.can_view_all,
     coalesce(jsonb_agg(jsonb_build_object(
       'incident_id', incident.id,
       'client_id', incident.client_id,
@@ -384,12 +389,14 @@ begin
     v_cluster_options,
     v_cluster_options_available_total,
     v_cluster_options_truncated,
+    v_can_view_all,
     v_items
   from selected_stats
   cross join stats
   cross join client_option_result
   cross join infection_option_result
   cross join cluster_option_result
+  cross join projection_authority
   left join selected incident on true
   group by
     selected_stats.item_total,
@@ -407,7 +414,8 @@ begin
     infection_option_result.truncated,
     cluster_option_result.options,
     cluster_option_result.available_total,
-    cluster_option_result.truncated;
+    cluster_option_result.truncated,
+    projection_authority.can_view_all;
 
   if coalesce(auth.jwt() ->> 'aal', '') <> 'aal2'
      or not (select private.has_permission(
@@ -415,7 +423,10 @@ begin
      ))
      or not (select private.has_permission(
        p_expected_organization_id, p_expected_branch_id, 'quality_events.read'
-     )) then
+     ))
+     or (v_can_view_all and not (select private.has_permission(
+       p_expected_organization_id, p_expected_branch_id, 'clients.view_all'
+     ))) then
     raise exception using errcode = '42501', message = 'infection incident snapshot authority expired';
   end if;
 
@@ -459,7 +470,10 @@ begin
      ))
      or not (select private.has_permission(
        p_expected_organization_id, p_expected_branch_id, 'quality_events.read'
-     )) then
+     ))
+     or (v_can_view_all and not (select private.has_permission(
+       p_expected_organization_id, p_expected_branch_id, 'clients.view_all'
+     ))) then
     raise exception using errcode = '42501', message = 'infection incident snapshot authority expired';
   end if;
 
