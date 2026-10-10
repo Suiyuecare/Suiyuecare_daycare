@@ -86,16 +86,38 @@ function workLinks(container: HTMLElement) {
 describe("case center front-line next step", () => {
   it("shows a clear next step without engineering copy or a fake add action", () => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46, 3, 6]} canViewSummary />);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("個案中心");
-    expect(screen.getByText("選好個案，直接接續有權限的工作。")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("找個案");
     expect(screen.getByText("服務日期：2026/09/10")).toBeTruthy();
     const overview = screen.getByText("個案概況").closest("details")!;
+    const find = container.querySelector(".case-center-find")!;
+    expect(find.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(find as HTMLElement).getByRole("navigation", { name: "個案快速篩選" })).toBeTruthy();
     expect(overview.hasAttribute("open")).toBe(false);
     fireEvent.click(screen.getByText("個案概況"));
     expect(screen.getByRole("region", { name: "五項個案統計" }).classList.contains("case-center-metrics")).toBe(true);
     expect(container.textContent).not.toMatch(/穩定個案 ID|資料列權限|保存在網址|尚未接線/);
     expect(screen.queryByRole("button", { name: /新增個案/ })).toBeNull();
     expect(container.querySelector("button[disabled]")).toBeNull();
+  });
+
+  it("labels synthetic client lists before search without showing that warning for formal data", () => {
+    const view = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ demo: true })} />);
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain("合成展示・請勿輸入真實個資");
+    expect(note.compareDocumentPosition(view.container.querySelector(".case-center-find")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.rerender(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ demo: false })} />);
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("quick status filters retain the search and service date", () => {
+    render(<CaseCenterWorkspace page={page} filters={filters({ query: "合成" })} snapshot={snapshot()} />);
+    const filterNav = screen.getByRole("navigation", { name: "個案快速篩選" });
+    const target = within(filterNav).getByRole("link", { name: "服務中" }) as HTMLAnchorElement;
+    expect(Object.fromEntries(new URL(target.href).searchParams)).toMatchObject({
+      date: serviceDate,
+      q: "合成",
+      service: "serving",
+    });
   });
 
   it("takes both desktop and mobile actions to attendance with only the same date and stable client ID", () => {
@@ -159,11 +181,13 @@ describe("case center front-line next step", () => {
     const mobileCard = container.querySelector<HTMLElement>(".core-care-mobile .record-card")!;
     expect(mobileCard.children[0]?.classList.contains("record-card__top")).toBe(true);
     expect(mobileCard.children[1]?.classList.contains("case-center-actions")).toBe(true);
-    expect(mobileCard.children[2]?.classList.contains("core-care-card-grid")).toBe(true);
+    expect(mobileCard.children[2]?.classList.contains("case-center-card-details")).toBe(true);
+    expect(mobileCard.querySelector(".case-center-card-details")?.hasAttribute("open")).toBe(false);
     expect(within(mobileCard).getByText("生命週期")).toBeTruthy();
     expect(within(mobileCard).getByText("負責人")).toBeTruthy();
     expect(container.querySelectorAll(".case-center-metrics .metric-card")).toHaveLength(5);
-    expect(container.querySelector(".case-center-context")).toBeTruthy();
+    expect(container.querySelector(".case-center-context")).toBeNull();
+    expect(container.querySelector(".case-center-find")).toBeTruthy();
     expect(container.querySelector(".case-center-heading")).toBeTruthy();
   });
 

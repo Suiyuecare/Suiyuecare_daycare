@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { FlaskConical, Plus } from "lucide-react";
 import { INTAKE_STEPS, intakeSnapshotSchema, intakeMissingItems, type IntakeSnapshot } from "@/lib/client-intake/model";
 import { intakeErrorMessage, intakeRequest } from "@/lib/client-intake/client";
 import type { TenantContext } from "@/lib/domain/types";
@@ -327,8 +328,17 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   }
   const saved = (id: string) => readClient(id, true);
   return <div className={styles.workspace}>
-    <header className={styles.heading}><div><p className={styles.eyebrow}>收案</p><div className={styles.titleRow}><h1>個案建檔</h1><Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link></div><p>先建立基本資料，再安排服務與文件。</p></div></header>
-    <section className={styles.selector}><label>目前處理的個案<select ref={clientSelector} value={selectedId} disabled={loading || saving} onChange={(e) => choose(e.target.value)}><option value="">＋建立新個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName} · {client.clientCode}</option>)}</select></label><div><span className={styles.badge}>{snapshot ? snapshot.pending ? "待收案 · 尚未開始服務" : "已建檔 · 依服務狀態執行" : "尚未建檔"}</span><p>{snapshot ? `基本資料待核對 ${intakeMissingItems(snapshot.profile).length} 項` : error ? "個案資料尚未讀取成功，請先重試。" : !canCreateScope ? "此帳號沒有建立新個案的權限；請選擇已授權的既有個案。" : manual ? "先建立基本資料，其餘項目可後續核對。" : "先匯入 CMS，或選擇手動建檔。"}</p></div></section>
+    <header className={styles.heading}>
+      <div className={styles.titleRow}>
+        <div><p className={styles.eyebrow}>收案</p><h1>個案建檔</h1></div>
+        <Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link>
+      </div>
+    </header>
+    <section className={styles.selector} aria-label="選擇收案個案">
+      <label>目前處理的個案<select ref={clientSelector} value={selectedId} disabled={loading || saving} onChange={(e) => choose(e.target.value)}><option value="">＋建立新個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName} · {client.clientCode}</option>)}</select></label>
+      {selectedId && canCreateAtEntry ? <button className={`button button--secondary ${styles.newClientAction}`} type="button" disabled={loading || saving || unknown} onClick={() => void choose("")}><Plus size={17} aria-hidden="true" />建立新個案</button> : null}
+      <div className={styles.selectionMeta}><span className={styles.badge}>{snapshot ? snapshot.pending ? "待收案 · 尚未開始服務" : "已建檔 · 依服務狀態執行" : "尚未建檔"}</span><p>{snapshot ? `基本資料待核對 ${intakeMissingItems(snapshot.profile).length} 項` : error ? "個案資料尚未讀取成功，請先重試。" : !canCreateScope ? "此帳號沒有建立新個案的權限；請選擇已授權的既有個案。" : manual ? "先填姓名與編號，其餘資料稍後核對。" : "先匯入 CMS，或選擇手動建檔。"}</p></div>
+    </section>
     {leaveError ? <p className={styles.error} role="alert">{leaveError}</p> : null}
     {unknown ? <p className={styles.notice} role="status">上次寫入結果尚未確認；請回到原步驟，以同一次內容重試。暫時不能切換其他步驟或個案。</p> : null}
     <dialog aria-describedby={`${stepsId}-leave-description`} aria-labelledby={`${stepsId}-leave-title`} className={`core-dialog ${styles.leaveDialog}`} onCancel={(event) => { event.preventDefault(); closeLeaveDialog(); }} onClose={leaveDialogClosed} onKeyDown={(event) => {
@@ -346,7 +356,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
         <footer className="drawer__footer"><button autoFocus className="button button--secondary" onClick={closeLeaveDialog} ref={leaveCancel} type="button">繼續填寫</button><button className="button button--danger" onClick={() => void confirmLeave()} ref={leaveDiscard} type="button">{leaveIntent?.kind === "client" ? "放棄並更換個案" : "放棄輸入並離開"}</button></footer>
       </div>
     </dialog>
-    {context.demo ? <p className={styles.notice}>目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
+    {context.demo ? <p className={`${styles.notice} ${styles.demoNotice}`}><FlaskConical size={18} aria-hidden="true" />目前為本機合成資料試看，不會保存或上傳任何真實個案。</p> : null}
     {snapshot ? <AdmissionHandoff snapshot={snapshot} canRead={scope("clients.read")} blocked={dirty || saving || unknown || loading || Boolean(error)} /> : null}
     {!snapshot && manual && !context.demo ? <p className={styles.notice} role="status">目前可先手動建立待收案個案；CMS 匯入需由具權限人員在服務就緒後核對。</p> : null}
     <nav aria-label="收案流程"><button ref={stepsToggleRef} className={styles.stepsToggle} type="button" aria-expanded={showSteps} aria-controls={stepsId} onClick={() => setShowSteps((value) => !value)}>第 {step + 1}／{INTAKE_STEPS.length} 步：{INTAKE_STEPS[step]} <span aria-hidden="true">⌄</span></button><ol id={stepsId} className={styles.steps} data-open={showSteps}>{INTAKE_STEPS.map((title, index) => <li key={title}><button type="button" aria-current={step === index ? "step" : undefined} disabled={loading || saving || unknown && unknownStep !== String(index) || index > 0 && !snapshot && !(index === 1 && manual)} onClick={() => goTo(index)}><b>{index + 1}</b><span>{title}</span></button></li>)}</ol></nav>

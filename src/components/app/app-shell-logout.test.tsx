@@ -29,6 +29,11 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("staff shell logout privacy", () => {
+  it("names the intake task consistently in the header", () => {
+    mocks.pathname = "/app/client-intake";
+    render(<AppShell context={actor} navigation={[]}><p>合成收案頁</p></AppShell>);
+    expect(document.querySelector(".topbar__title")).toHaveTextContent("個案建檔");
+  });
   it("returns to the fixed company portal without forwarding identity or request context", () => {
     render(<AppShell context={actor} navigation={[]}><p>合成工作頁</p></AppShell>);
     const links = screen.getAllByRole("link", { name: "回模組頁" });

@@ -49,6 +49,20 @@ describe("intake usability and truthful writes", () => {
     expect(screen.getByLabelText("姓名／顯示稱呼（必填）")).toHaveValue("");
     expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeEnabled();
   });
+  it("keeps the new-client shortcut behind the unsaved-change confirmation", async () => {
+    const snapshot = { clientId: id, profileVersion: 1, clientRowVersion: 1, pending: true, profile: { ...emptyIntakeProfile, displayName: "合成既有個案", clientCode: "TEST-001" }, fieldAuthority: {}, sourceBatchId: null };
+    render(<IntakeWorkspace context={newCaseContext} clients={[{ id, displayName: "合成既有個案", clientCode: "TEST-001" }]} initialSnapshot={snapshot} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    fireEvent.change(screen.getByLabelText("個案電話"), { target: { value: "合成未儲存電話" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立新個案" }));
+    expect(await screen.findByRole("alertdialog", { name: "放棄輸入並更換個案？" })).toBeVisible();
+    expect(screen.getByLabelText("目前處理的個案")).toHaveValue(id);
+    expect(screen.getByLabelText("個案電話")).toHaveValue("合成未儲存電話");
+  });
+  it("keeps the synthetic preview warning and blocks real creation", () => {
+    render(<IntakeWorkspace context={{ ...newCaseContext, demo: true }} clients={[]} initialSnapshot={null} loadError={false} today="2026-09-14" archiveConfigured={false} />);
+    expect(screen.getByText("目前為本機合成資料試看，不會保存或上傳任何真實個案。")).toBeVisible();
+    expect(screen.getByRole("button", { name: "建立待收案個案" })).toBeDisabled();
+  });
   it("keeps staging available without implying a cross-person handoff", () => {
     render(<CmsIntakeStep current={null} canImport canApprove={false} archiveConfigured demo={false} onSaved={vi.fn()} onManual={vi.fn()} onDirty={vi.fn()} />);
     expect(screen.getByLabelText(/CMS HTML/)).toBeEnabled();

@@ -1,9 +1,13 @@
 import {
   ArrowRight,
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  CircleCheck,
+  Clock3,
+  FlaskConical,
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
@@ -286,23 +290,16 @@ export function CaseCenterWorkspace({
   return (
     <>
       <CaseCenterHistory readyKey={`${caseCenterHref(filters)}:${snapshot.generatedAt}:${snapshot.clients.map((client) => client.id).join(",")}`} />
-      <nav aria-label="所在位置" className="context-bar case-center-context">
-        <span>工作台</span>
-        <ChevronRight aria-hidden="true" />
-        <span aria-current="page" className="context-bar__crumb">
-          個案中心
-        </span>
-      </nav>
-
       <header className="page-heading case-center-heading">
         <div>
-          <p className="eyebrow">日常照顧</p>
-          <h1>{page.title}</h1>
-          <p className="page-heading__description">選好個案，直接接續有權限的工作。</p>
-          <p className="data-table__secondary">服務日期：{formatDate(filters.date)}</p>
+          <p className="eyebrow">{page.title}</p>
+          <h1>找個案</h1>
+          <p className="case-center-service-date"><CalendarDays aria-hidden="true" />服務日期：{formatDate(filters.date)}</p>
         </div>
         <IntakeEntryLink allowed={canOpenIntake && !showEmptyIntakeAction} label="收案中心" variant="secondary" />
       </header>
+
+      {snapshot.demo ? <p className="case-center-demo" role="note"><FlaskConical aria-hidden="true" />合成展示・請勿輸入真實個資</p> : null}
 
       {snapshot.access.assignments === "self_only" || snapshot.access.profileLabels !== "names" ? <div className="callout core-care-callout">
         <ShieldCheck aria-hidden="true" />
@@ -314,6 +311,68 @@ export function CaseCenterWorkspace({
               : "負責人以人員代碼顯示；如需確認承辦人，請洽主管。"}
         </span>
       </div> : null}
+
+      <section aria-label="搜尋個案" className="case-center-find" key={caseCenterHref(filters)}>
+        <Form action={`${CASE_CENTER_PATH}#case-center-list`} className="filter-bar case-center-filters" noValidate prefetch={false} scroll={false}>
+          <input name="date" type="hidden" value={filters.date} />
+          <div className="case-center-search-row">
+            <CaseCenterSearchField clearHref={caseCenterHref({ ...filters, query: "", page: 1 })} query={filters.query} />
+            <CaseCenterSubmitButton label="搜尋" recovery />
+          </div>
+          <nav aria-label="個案快速篩選" className="case-center-quick-filters">
+            <Link aria-current={filters.service === "all" ? "page" : undefined} href={caseCenterHref({ ...filters, service: "all", page: 1 })} prefetch={false}><UsersRound aria-hidden="true" />全部</Link>
+            <Link aria-current={filters.service === "serving" ? "page" : undefined} href={caseCenterHref({ ...filters, service: "serving", page: 1 })} prefetch={false}><CircleCheck aria-hidden="true" />服務中</Link>
+            <Link aria-current={filters.service === "pending" ? "page" : undefined} href={caseCenterHref({ ...filters, service: "pending", page: 1 })} prefetch={false}><Clock3 aria-hidden="true" />未開始</Link>
+          </nav>
+          <details className="case-center-advanced-filters">
+            <summary>
+              <span className="case-center-filter-label--closed">展開篩選</span>
+              <span className="case-center-filter-label--open">收合篩選</span>
+              {activeFilterLabels.length ? <span className="case-center-filter-summary">已套用：{activeFilterLabels.join("、")}</span> : null}
+              <ChevronDown aria-hidden="true" />
+            </summary>
+            <div className="case-center-filter-options">
+              <label className="field case-center-filter-field">
+                <span>生命週期</span>
+                <select defaultValue={filters.lifecycle} name="lifecycle">
+                  {Object.entries(lifecycleLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field case-center-filter-field">
+                <span>服務狀態</span>
+                <select defaultValue={filters.service} name="service">
+                  {Object.entries(serviceLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field case-center-filter-field">
+                <span>負責人</span>
+                <select defaultValue={responsibleValue} name="responsible">
+                  <option value="all">全部可見指派</option>
+                  {currentUser && <option value="me">{currentUser.label}</option>}
+                  {snapshot.responsibleOptions
+                    .filter((person) => !person.currentUser)
+                    .map((person) => (
+                      <option key={person.userId} value={person.userId}>{person.label}</option>
+                    ))}
+                  {selectedResponsibleMissing && (
+                    <option value={filters.responsible}>
+                      人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
+                    </option>
+                  )}
+                </select>
+              </label>
+              <div className="case-center-filter-actions">
+                <CaseCenterSubmitButton label="套用篩選" />
+                <Link className="button button--secondary" href={clearHref} prefetch={false}>清除</Link>
+              </div>
+            </div>
+          </details>
+        </Form>
+      </section>
 
       <details className="case-center-overview">
         <summary><span><UsersRound aria-hidden="true" />個案概況</span>
@@ -360,65 +419,6 @@ export function CaseCenterWorkspace({
               第 {snapshot.page} / {snapshot.pageCount} 頁，共 {snapshot.total} 位符合條件
             </p>
           </div>
-        </div>
-
-        <div key={caseCenterHref(filters)}>
-          <Form action={`${CASE_CENTER_PATH}#case-center-list`} className="filter-bar case-center-filters" noValidate prefetch={false} scroll={false}>
-            <input name="date" type="hidden" value={filters.date} />
-            <div className="case-center-search-row">
-              <CaseCenterSearchField clearHref={caseCenterHref({ ...filters, query: "", page: 1 })} query={filters.query} />
-              <CaseCenterSubmitButton label="搜尋" recovery />
-            </div>
-            <details className="case-center-advanced-filters">
-              <summary>
-                <span className="case-center-filter-label--closed">展開篩選</span>
-                <span className="case-center-filter-label--open">收合篩選</span>
-                <span className="case-center-filter-summary">
-                  {activeFilterLabels.length ? `已套用：${activeFilterLabels.join("、")}` : "未設定進階條件"}
-                </span>
-                <ChevronDown aria-hidden="true" />
-              </summary>
-              <div className="case-center-filter-options">
-                <label className="field case-center-filter-field">
-                  <span>生命週期</span>
-                  <select defaultValue={filters.lifecycle} name="lifecycle">
-                    {Object.entries(lifecycleLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field case-center-filter-field">
-                  <span>服務狀態</span>
-                  <select defaultValue={filters.service} name="service">
-                    {Object.entries(serviceLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field case-center-filter-field">
-                  <span>負責人</span>
-                  <select defaultValue={responsibleValue} name="responsible">
-                    <option value="all">全部可見指派</option>
-                    {currentUser && <option value="me">{currentUser.label}</option>}
-                    {snapshot.responsibleOptions
-                      .filter((person) => !person.currentUser)
-                      .map((person) => (
-                        <option key={person.userId} value={person.userId}>{person.label}</option>
-                      ))}
-                    {selectedResponsibleMissing && (
-                      <option value={filters.responsible}>
-                        人員代碼 {filters.responsible.slice(-6).toUpperCase()}（受限）
-                      </option>
-                    )}
-                  </select>
-                </label>
-                <div className="case-center-filter-actions">
-                  <CaseCenterSubmitButton label="套用篩選" />
-                  <Link className="button button--secondary" href={clearHref} prefetch={false}>清除</Link>
-                </div>
-              </div>
-            </details>
-          </Form>
         </div>
 
         {snapshot.access.responsibleFilterRestricted ? (
@@ -501,11 +501,14 @@ export function CaseCenterWorkspace({
                     date={filters.date}
                     demoOnly={Boolean(demoDailyIds && !demoDailyIds.has(client.id))}
                   />
-                  <dl className="core-care-card-grid">
-                    <div><dt>生命週期</dt><dd>{lifecycleLabels[client.lifecycleState]}</dd></div>
-                    <div><dt>收案日</dt><dd>{formatDate(client.admittedOn)}</dd></div>
-                    <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
-                  </dl>
+                  <details className="case-center-card-details">
+                    <summary>更多資訊<ChevronDown aria-hidden="true" /></summary>
+                    <dl className="core-care-card-grid">
+                      <div><dt>生命週期</dt><dd>{lifecycleLabels[client.lifecycleState]}</dd></div>
+                      <div><dt>收案日</dt><dd>{formatDate(client.admittedOn)}</dd></div>
+                      <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
+                    </dl>
+                  </details>
                 </article>
               ))}
             </div>

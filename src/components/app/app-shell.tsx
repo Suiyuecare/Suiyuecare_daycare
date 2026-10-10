@@ -6,8 +6,10 @@ import {
   Building2,
   ChevronDown,
   ClipboardList,
+  LayoutGrid,
   LogOut,
   Menu,
+  RefreshCw,
   UsersRound,
   X,
 } from "lucide-react";
@@ -166,6 +168,7 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
+    : pathname === "/app/client-intake" ? "個案建檔"
     : activePage?.title ?? appBranding.applicationName;
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
     if (selection.scope.organizationId !== context.organizationId ||
@@ -566,10 +569,10 @@ export function AppShell({
           </div>
           {notificationPage ? <NavigationLink aria-label="開啟通知" className="icon-button notification-button" fullDocument={sensitiveDocument} href={`/app/${notificationPage.slug}`} loadingLabel={notificationPage.title}><Bell /></NavigationLink> : null}
           <div className="topbar__actions" role="group" aria-label="系統功能">
-            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending || draftPending || Boolean(scopeChangeReason)} onClick={refreshCurrentPage} title={scopeChangeBlockedReason ?? (draftPending ? "有未儲存或結果未確認的輸入，請先儲存或核對再重新整理。" : operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined)} type="button">{refreshPending ? "更新中…" : "重新整理"}</button>
-            {portalLeaveBlocked ? <span aria-disabled="true" className="button button--secondary" title={scopeChangeBlockedReason}>回模組頁</span>
-              : <a className="button button--secondary" href={companyNavigation.portalUrl} onClick={guardPortalLeave} referrerPolicy="no-referrer" rel="noreferrer">回模組頁</a>}
-            <button className="button button--primary" disabled={Boolean(logoutBlockedReason) || logoutReview.status !== "idle"} title={logoutBlockedReason} onClick={(event) => requestLogout(event.currentTarget)} type="button">登出</button>
+            <button className="button button--secondary" disabled={refreshPending || operationPending || viewPending || draftPending || Boolean(scopeChangeReason)} onClick={refreshCurrentPage} title={scopeChangeBlockedReason ?? (draftPending ? "有未儲存或結果未確認的輸入，請先儲存或核對再重新整理。" : operationPending ? "有一筆操作尚待確認，目前不能重新整理。" : viewPending && !refreshPending ? "系統正在更新，請稍候。" : undefined)} type="button"><RefreshCw aria-hidden="true" className={refreshPending ? "topbar__action-icon topbar__action-icon--loading" : "topbar__action-icon"} />{refreshPending ? "更新中…" : "重新整理"}</button>
+            {portalLeaveBlocked ? <span aria-disabled="true" className="button button--secondary" title={scopeChangeBlockedReason}><LayoutGrid aria-hidden="true" className="topbar__action-icon" />回模組頁</span>
+              : <a className="button button--secondary" href={companyNavigation.portalUrl} onClick={guardPortalLeave} referrerPolicy="no-referrer" rel="noreferrer"><LayoutGrid aria-hidden="true" className="topbar__action-icon" />回模組頁</a>}
+            <button className="button button--primary" disabled={Boolean(logoutBlockedReason) || logoutReview.status !== "idle"} title={logoutBlockedReason} onClick={(event) => requestLogout(event.currentTarget)} type="button"><LogOut aria-hidden="true" className="topbar__action-icon" />登出</button>
           </div>
           <div className="topbar__context">
             <span className="topbar__date" role="status" aria-live="polite" title={`${context.displayName}・${primaryRoleLabel}・${runtimeLabel}`}>{context.displayName}・{primaryRoleLabel}・{runtimeLabel}</span>

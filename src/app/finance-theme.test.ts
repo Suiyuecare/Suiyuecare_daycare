@@ -77,7 +77,7 @@ describe("Suiyue APM / Finance CIS contract", () => {
     expect(css).toContain(".branch-switcher__button .branch-switcher__current-branch");
     expect(css).toContain(".topbar .notification-button { width: 44px; height: 44px; border-radius: 10px; }");
     expect(css).toContain(".mobile-primary-nav a, .mobile-primary-nav button { display: flex;");
-    expect(css).toContain("color: var(--ink-muted); font-size: 10px; font-weight: 900;");
+    expect(css).toContain("color: var(--ink-muted); font-size: 11px; font-weight: 700;");
     expect(css).toContain('.mobile-primary-nav [aria-current="page"] { background: #fff1df; color: var(--brand-strong);');
     expect(css).toContain('.family-bottom-nav a[aria-current="page"] { background: #fff1df; color: var(--brand-strong); }');
     expect(css).toContain("scroll-padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));");
