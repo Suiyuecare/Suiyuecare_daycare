@@ -114,6 +114,7 @@ function clientWorkNote(client: CaseCenterClient, date: string) {
 function ClientWorkActions({
   client,
   date,
+  caregiverMode = false,
   canOpenAttendance,
   canViewSummary,
   allowedContinuationPages,
@@ -122,6 +123,7 @@ function ClientWorkActions({
 }: {
   client: CaseCenterClient;
   date: string;
+  caregiverMode?: boolean;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
   allowedContinuationPages: readonly number[];
@@ -132,6 +134,7 @@ function ClientWorkActions({
   // These links only carry the selected stable ID. Every destination still
   // rechecks the employee's scope and this client's assignment on the server.
   const options = previewMode ? [] : continuationPages.filter((entry) =>
+    (!caregiverMode || entry.number === 7) &&
     allowedContinuationPages.includes(entry.number) &&
     (!entry.daily || canStartClientWork(client, date)),
   );
@@ -141,14 +144,14 @@ function ClientWorkActions({
     <div className="case-center-actions">
       {canStart ? (
         <NavigationLink
-          aria-label={`開始 ${client.displayName} 的當日工作（${formatDate(date)}）`}
+          aria-label={`${caregiverMode ? "查看" : "開始"} ${client.displayName} 的當日工作（${formatDate(date)}）`}
           className="button button--primary"
           data-case-client-id={client.id}
           href={dailyWorkflowHref(46, date, client.id)}
           loadingLabel="當日工作"
           prefetch={false}
         >
-          開始當日工作<ArrowRight aria-hidden="true" />
+          {caregiverMode ? "查看當日工作" : "開始當日工作"}<ArrowRight aria-hidden="true" />
         </NavigationLink>
       ) : primaryOption ? (
         <NavigationLink
@@ -199,6 +202,7 @@ function paginationHref(filters: CaseCenterFilters, page: number) {
 }
 
 export function CaseCenterWorkspace({
+  caregiverMode = false,
   canOpenIntake = false,
   canCreateIntake = false,
   page,
@@ -212,6 +216,7 @@ export function CaseCenterWorkspace({
   page: PageCatalogEntry;
   snapshot: CaseCenterSnapshot | null;
   filters: CaseCenterFilters;
+  caregiverMode?: boolean;
   loadError?: boolean;
   allowedDailyPages?: readonly number[];
   allowedContinuationPages?: readonly number[];
@@ -274,7 +279,7 @@ export function CaseCenterWorkspace({
   const hasAppliedFilters = Boolean(filters.query.trim()) || filters.lifecycle !== "all" ||
     filters.service !== "all" || filters.responsible !== "all";
   const unfilteredEmpty = snapshot.visibleTotal === 0 && !hasAppliedFilters;
-  const showEmptyIntakeAction = unfilteredEmpty && !snapshot.clients.length &&
+  const showEmptyIntakeAction = !caregiverMode && unfilteredEmpty && !snapshot.clients.length &&
     !snapshot.access.responsibleFilterRestricted && canOpenIntake && canCreateIntake;
 
   return (
@@ -292,13 +297,13 @@ export function CaseCenterWorkspace({
         <div>
           <p className="eyebrow">日常照顧</p>
           <h1>{page.title}</h1>
-          <p className="page-heading__description">選好個案，直接接續有權限的工作。</p>
+          <p className="page-heading__description">{caregiverMode ? "找人，開始照顧。" : "選好個案，直接接續有權限的工作。"}</p>
           <p className="data-table__secondary">服務日期：{formatDate(filters.date)}</p>
         </div>
-        <IntakeEntryLink allowed={canOpenIntake && !showEmptyIntakeAction} />
+        <IntakeEntryLink allowed={!caregiverMode && canOpenIntake && !showEmptyIntakeAction} />
       </header>
 
-      <div className="callout core-care-callout">
+      {!caregiverMode && <div className="callout core-care-callout">
         <ShieldCheck aria-hidden="true" />
         <span>
           {snapshot.access.assignments === "self_only"
@@ -307,9 +312,9 @@ export function CaseCenterWorkspace({
               ? "服務中的個案可接續當日照顧；待收案、暫停或服務結束的個案，請先確認狀態或查看紀錄。"
               : "負責人以人員代碼顯示；如需確認承辦人，請洽主管。"}
         </span>
-      </div>
+      </div>}
 
-      <section aria-label="個案摘要，左右捲動可查看五項統計" className="metric-grid case-center-metrics" tabIndex={0}>
+      {!caregiverMode && <section aria-label="個案摘要，左右捲動可查看五項統計" className="metric-grid case-center-metrics" tabIndex={0}>
         <article className="metric-card">
           <div className="metric-card__top"><span>符合條件</span></div>
           <div className="metric-card__value">
@@ -338,7 +343,7 @@ export function CaseCenterWorkspace({
           <div className="metric-card__value"><strong>{snapshot.summary.paused + snapshot.summary.ended}</strong><span>人</span></div>
           <p className="metric-card__foot">此日期暫停或已結束服務</p>
         </article>
-      </section>
+      </section>}
 
       <section className="panel case-center-panel">
         <div className="panel__header">
@@ -427,14 +432,14 @@ export function CaseCenterWorkspace({
         ) : snapshot.clients.length ? (
           <>
             <div className="table-wrap case-center-table">
-              <table className="data-table">
+              <table className="data-table" style={caregiverMode ? { minWidth: 0 } : undefined}>
                 <thead>
                   <tr>
                     <th scope="col">個案</th>
-                    <th scope="col">生命週期</th>
+                    {!caregiverMode && <th scope="col">生命週期</th>}
                     <th scope="col">服務狀態</th>
-                    <th scope="col">負責人</th>
-                    <th scope="col">收案／異動</th>
+                    {!caregiverMode && <th scope="col">負責人</th>}
+                    {!caregiverMode && <th scope="col">收案／異動</th>}
                     <th scope="col"><span className="sr-only">動作</span></th>
                   </tr>
                 </thead>
@@ -447,15 +452,16 @@ export function CaseCenterWorkspace({
                           <span>{client.displayName}<small className="data-table__secondary">{client.clientCode}</small></span>
                         </span>
                       </td>
-                      <td><StatusPill status={lifecycleLabels[client.lifecycleState]} /></td>
+                      {!caregiverMode && <td><StatusPill status={lifecycleLabels[client.lifecycleState]} /></td>}
                       <td><StatusPill status={serviceLabels[client.serviceStatus]} /></td>
-                      <td className="case-center-responsibility">{responsibility(client)}</td>
-                      <td>
+                      {!caregiverMode && <td className="case-center-responsibility">{responsibility(client)}</td>}
+                      {!caregiverMode && <td>
                         <span>{formatDate(client.admittedOn)}</span>
                         <small className="data-table__secondary">更新 {formatTimestamp(client.updatedAt)}</small>
-                      </td>
+                      </td>}
                       <td>
                         <ClientWorkActions
+                          caregiverMode={caregiverMode}
                           canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
                           allowedContinuationPages={allowedContinuationPages}
                           previewMode={snapshot.demo}
@@ -479,6 +485,7 @@ export function CaseCenterWorkspace({
                     <StatusPill status={serviceLabels[client.serviceStatus]} />
                   </div>
                   <ClientWorkActions
+                    caregiverMode={caregiverMode}
                     canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
                     allowedContinuationPages={allowedContinuationPages}
                     previewMode={snapshot.demo}
@@ -487,11 +494,11 @@ export function CaseCenterWorkspace({
                     date={filters.date}
                     demoOnly={Boolean(demoDailyIds && !demoDailyIds.has(client.id))}
                   />
-                  <dl className="core-care-card-grid">
+                  {!caregiverMode && <dl className="core-care-card-grid">
                     <div><dt>生命週期</dt><dd>{lifecycleLabels[client.lifecycleState]}</dd></div>
                     <div><dt>收案日</dt><dd>{formatDate(client.admittedOn)}</dd></div>
                     <div className="case-center-card-wide"><dt>負責人</dt><dd>{responsibility(client)}</dd></div>
-                  </dl>
+                  </dl>}
                 </article>
               ))}
             </div>

@@ -84,6 +84,48 @@ function workLinks(container: HTMLElement) {
 }
 
 describe("case center front-line next step", () => {
+  it("gives a pure care worker a compact person list without removing search, filters or authorized work", () => {
+    const selected = filters({ query: "合成", lifecycle: "active", service: "serving", responsible: actorId });
+    const { container } = render(<CaseCenterWorkspace caregiverMode page={page} filters={selected} snapshot={snapshot()}
+      allowedDailyPages={[46]} canViewSummary />);
+    expect(screen.getByText("找人，開始照顧。")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "個案摘要，左右捲動可查看五項統計" })).toBeNull();
+    expect(container.querySelector(".core-care-callout")).toBeNull();
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent?.trim())).toEqual([
+      "個案", "服務狀態", "動作",
+    ]);
+    expect(within(table).getByText("合成個案甲")).toBeTruthy();
+    expect(within(table).getByText("服務中")).toBeTruthy();
+    expect(container.querySelector(".core-care-mobile .core-care-card-grid")).toBeNull();
+    expect(workLinks(container)).toHaveLength(2);
+    const form = container.querySelector<HTMLFormElement>("form.case-center-filters")!;
+    expect(Object.fromEntries(new FormData(form))).toEqual({
+      date: serviceDate, q: "合成", lifecycle: "active", service: "serving", responsible: "me",
+    });
+    expect(screen.getByText("第 1 / 1 頁，共 1 位符合條件")).toBeTruthy();
+  });
+
+  it("does not advertise intake or guaranteed work completion to a pure care worker", () => {
+    const { container } = render(<CaseCenterWorkspace caregiverMode page={page} filters={filters()} snapshot={snapshot()}
+      allowedDailyPages={[46]} canViewSummary canOpenIntake canCreateIntake />);
+    expect(container.querySelector('a[href="/app/client-intake"]')).toBeNull();
+    expect(screen.getAllByRole("link", { name: /查看 合成個案甲 的當日工作/ })).toHaveLength(2);
+    expect(screen.queryByRole("link", { name: /開始 合成個案甲 的當日工作/ })).toBeNull();
+  });
+
+  it.each([
+    ["待收案", { lifecycleState: "pending_admission", admittedOn: null, serviceStatus: "pending" }, "尚未收案，請先完成收案。"],
+    ["暫停", { lifecycleStatus: "suspended", lifecycleState: "suspended", serviceStatus: "paused" }, "目前暫停服務，不開啟當日照顧。"],
+  ] satisfies [string, Partial<CaseCenterClient>, string][])("keeps a pure care worker's %s person read-only, with the reason visible", (_state, override, reason) => {
+    const { container } = render(<CaseCenterWorkspace caregiverMode page={page} filters={filters()}
+      snapshot={snapshot({ clients: [client(override)] })}
+      allowedDailyPages={[46]} canViewSummary />);
+    expect(workLinks(container)).toHaveLength(0);
+    expect(screen.getAllByText(reason)).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /查看 合成個案甲 的當日紀錄/ })).toHaveLength(2);
+  });
+
   it("shows a clear next step without engineering copy or a fake add action", () => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()} allowedDailyPages={[46, 3, 6]} canViewSummary />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("個案中心");

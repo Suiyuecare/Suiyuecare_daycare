@@ -22,6 +22,30 @@ const selectedClientId = clients[1]!.id;
 const date = "2026-09-10";
 
 describe("care diary shift continuation", () => {
+  it("shows quick observations before required care item for pure caregivers and keeps the draft payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} caregiverMode />);
+    fireEvent.click(screen.getByRole("button", { name: "新增照顧紀錄" }));
+    const dialog = screen.getByRole("dialog", { name: "記錄照顧" });
+    const form = dialog.querySelector("form")!;
+    expect(within(dialog).getByText("先存草稿，確認並簽署後才完成；異常標記僅供人工確認。")).toBeVisible();
+    const observation = within(dialog).getByRole("group", { name: "本次觀察（選填）" });
+    const careItem = within(dialog).getByLabelText("照顧項目 *");
+    expect(observation.compareDocumentPosition(careItem) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);
+    expect(within(dialog).getByLabelText("班別 *")).toHaveValue("morning");
+    expect(within(dialog).getByLabelText("發生日期與時間 *")).toBeRequired();
+    expect(careItem).toBeRequired();
+    fireEvent.change(within(observation).getByLabelText("本次飲水量（毫升）"), { target: { value: "observed" } });
+    fireEvent.change(within(observation).getByRole("spinbutton"), { target: { value: "120" } });
+    fireEvent.change(careItem, { target: { value: "合成日常照顧" } });
+    fireEvent.submit(form); await within(dialog).findByRole("alert");
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(body.data).toMatchObject({ shift: "morning", care_item: "合成日常照顧", observations: {
+      water: { state: "observed", value: 120 }, toileting: { state: "unknown" },
+      activity: { state: "unknown" }, meal: { state: "unknown" },
+    } });
+  });
   it.each(["morning", "afternoon", "full_day"] as const)("uses selected %s in the actual draft payload", async (shift) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
     render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift={shift} enabled demo={false} />);

@@ -91,6 +91,7 @@ describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, 
     expect(result.type).toBe(CoreDailyWorkspace);
     expect(result.props).toMatchObject({
       page: { number }, serviceDate, selectedClientId, selectedShift: "morning",
+      caregiverMode: true,
       validatedScope: { organizationId: context.organizationId, branchId: context.branchId, userId: context.userId },
       canWrite: true, canWriteNextStep: number !== 6, loadError: false, snapshot: { clients: [{ clientId: selectedClientId }] },
     });
@@ -107,6 +108,13 @@ describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, 
     expect(result.props.clientAttention).toBeUndefined();
     expect(result.props.diaryLifecycle).toBeUndefined();
   });
+});
+
+it("does not apply pure caregiver diary layout to a staff member with another role", async () => {
+  mocks.context.mockResolvedValue({ ...context, roles: ["care_worker", "nurse"] });
+  const result = await CareDiaryPage(pageProps({ date: serviceDate, client: selectedClientId }));
+  expect(result.type).toBe(CoreDailyWorkspace);
+  expect(result.props.caregiverMode).toBe(false);
 });
 
 it.each([

@@ -176,6 +176,7 @@ export function CoreDailyWorkspace({
   snapshot,
   loadError = false,
   canViewManagementDetails = false,
+  caregiverMode = false,
   clientAttention,
   diaryLifecycle,
 }: {
@@ -191,6 +192,7 @@ export function CoreDailyWorkspace({
   snapshot: DailyCareSnapshot | null;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
+  caregiverMode?: boolean;
   clientAttention?: ReactNode;
   diaryLifecycle?: ReactNode;
 }) {
@@ -227,7 +229,7 @@ export function CoreDailyWorkspace({
     page.number === 3 ? <VitalSignComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
       serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext} />
       : page.number === 6 ? <CareDiaryComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-        serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} />
+        serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} caregiverMode={caregiverMode} />
         : page.number === 46 ? <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
           serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext} /> : null
   ) : null;
@@ -263,7 +265,7 @@ export function CoreDailyWorkspace({
           <ClientContinuation key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "none"}`} page={workflowPage}
             clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate}
             validatedScope={validatedScope} sourceAccess={snapshot.sourceAccess} action={composer} />
-          {selectedClient && pageSourceAllowed ? clientAttention : null}
+          {selectedClient && pageSourceAllowed && clientAttention ? <div id="client-care-reminder">{clientAttention}</div> : null}
           {selectedClient && page.number === 6 && pageSourceAllowed && selectedSourceAllowed ? diaryLifecycle : null}
           <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>更新於 {generatedAt}；週表、單日調整與實到共同決定本日名單。請假、未到或未排服務不列照顧待填；既有紀錄仍保留。缺少安排時列待確認，當班項目請看「今日工作」。</span></div>
           {!canWrite ? <p className="callout core-care-callout" role="status">目前僅可查看；新增紀錄需要對應權限及身分驗證。補登與簽署另有驗證及覆核要求。</p> : null}

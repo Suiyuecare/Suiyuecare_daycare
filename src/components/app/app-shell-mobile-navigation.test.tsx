@@ -40,6 +40,10 @@ function bottomNavigation() {
   return within(screen.getByRole("navigation", { name: "常用功能" }));
 }
 
+function sidebarNavigation() {
+  return within(screen.getByRole("complementary", { name: "主要功能" }));
+}
+
 function bottomHrefs() {
   return bottomNavigation().getAllByRole("link").map((link) => link.getAttribute("href"));
 }
@@ -62,12 +66,52 @@ describe("authorized role-aware mobile navigation", () => {
     const third = renderShell(["nurse"], ["clients.read"], true);
     expect(third.container.querySelector('a[href="/app/assessment-matrix"]')).toBeNull();
   });
-  it("keeps the care worker's today, case and measurement destinations", () => {
-    renderShell(["care_worker"], ["clients.read", "health.read"]);
+  it("puts a care worker's today and case first, then their contextual measurement shortcut", () => {
+    const { container } = renderShell(["care_worker"], ["clients.read", "health.read"]);
     expect(bottomHrefs()).toEqual([
       "/app/staff/workspace/dashboard", "/app/staff/workspace/case-center", "/app/staff/daily-care/vital-signs",
     ]);
+    expect(bottomNavigation().getByRole("link", { name: "今日照顧" })).toHaveTextContent("今日照顧");
     expect(bottomNavigation().getByRole("button", { name: "更多功能" })).toBeInTheDocument();
+    expect(container.querySelector(".topbar__title")).toHaveTextContent("今日照顧");
+  });
+
+  it("shows only today's care actions in a pure care worker's navigation", () => {
+    renderShell(["care_worker"], ["clients.read", "health.read"]);
+    const sidebar = sidebarNavigation();
+    expect(sidebar.getByText("照服工作")).toBeInTheDocument();
+    expect(sidebar.getByRole("link", { name: "今日照顧" })).toHaveAttribute("href", "/app/staff/workspace/dashboard");
+    expect(sidebar.getByRole("link", { name: "個案" })).toHaveAttribute("href", "/app/staff/workspace/case-center");
+    const more = sidebar.getByRole("button", { name: "更多功能" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(sidebar.queryByRole("link", { name: "生命徵象紀錄" })).not.toBeInTheDocument();
+    fireEvent.click(more);
+    expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(sidebar.getByText("日常操作")).toBeInTheDocument();
+    expect(sidebar.getByRole("link", { name: "生命徵象紀錄" })).toHaveAttribute("href", "/app/staff/daily-care/vital-signs");
+    expect(sidebar.queryByRole("link", { name: "用藥紀錄 2.0" })).not.toBeInTheDocument();
+    expect(sidebar.queryByRole("link", { name: "個案匯入與收案" })).not.toBeInTheDocument();
+    expect(sidebar.queryByRole("link", { name: "單店出勤與收支" })).not.toBeInTheDocument();
+  });
+
+  it("opens a pure care worker's More menu on a direct authorized deep link", () => {
+    mocks.pathname = "/app/staff/daily-care/vital-signs";
+    renderShell(["care_worker"], ["clients.read", "health.read"]);
+    const sidebar = sidebarNavigation();
+    expect(sidebar.getByRole("button", { name: "更多功能" })).toHaveAttribute("aria-expanded", "true");
+    expect(sidebar.getByRole("link", { name: "生命徵象紀錄" })).toHaveAttribute("aria-current", "page");
+    expect(bottomNavigation().getByRole("link", { name: "生命徵象紀錄" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("leaves a combined nurse and care worker's existing role-aware navigation intact", () => {
+    renderShell(["care_worker", "nurse"], ["clients.read", "health.read", "medications.read"]);
+    expect(bottomHrefs()).toEqual([
+      "/app/staff/workspace/dashboard", "/app/staff/workspace/case-center", "/app/staff/daily-care/medication-records",
+    ]);
+    const sidebar = sidebarNavigation();
+    expect(sidebar.queryByText("照服工作")).not.toBeInTheDocument();
+    expect(sidebar.queryByRole("button", { name: "更多功能" })).not.toBeInTheDocument();
+    expect(sidebar.getByRole("button", { name: "共用工作入口" })).toBeInTheDocument();
   });
 
   it("puts the nurse's medication record before generic measurement when authorized", () => {

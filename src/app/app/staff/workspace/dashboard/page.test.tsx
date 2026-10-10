@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   daily: vi.fn(),
   roster: vi.fn(),
   expected: vi.fn(),
+  routine: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/context", () => ({ requireTenantContext: mocks.context }));
@@ -20,6 +21,7 @@ vi.mock("@/lib/core-care/snapshot", () => ({
 vi.mock("@/lib/care-roster/snapshot", () => ({
   loadCareRosterSnapshot: mocks.roster,
 }));
+vi.mock("@/lib/auth/routine-care", () => ({ canUseRoutineCare: mocks.routine }));
 vi.mock("@/lib/client-weekly/daily-projection-loader", () => ({
   loadDailyExpectedClients: mocks.expected,
 }));
@@ -68,6 +70,7 @@ beforeEach(() => {
   mocks.daily.mockResolvedValue({ marker: "daily-snapshot" });
   mocks.roster.mockResolvedValue({ marker: "roster-snapshot" });
   mocks.expected.mockResolvedValue({ status: "demo", serviceDate });
+  mocks.routine.mockResolvedValue(false);
 });
 
 describe("dedicated dashboard route", () => {
@@ -134,10 +137,15 @@ describe("dedicated dashboard route", () => {
     mocks.context.mockResolvedValue({ ...context, roles: ["care_worker"], scopes: ["clients.read"] });
 
     const result = await DashboardPage(props());
-    const [workspace] = result.props.children;
+    const [workspace, expectedClients] = result.props.children;
 
     expect(workspace.props.canOpenReadiness).toBe(false);
     expect(workspace.props.canViewManagementDetails).toBe(false);
+    expect(workspace.props.caregiverMode).toBe(true);
+    expect(workspace.props.caregiverWrites).toEqual({ vitals: false, diary: false, attendance: false, medication: false });
+    expect(mocks.routine.mock.calls.map((call) => call[1])).toEqual(["health.write", "care_records.write", "attendance.write"]);
+    expect(expectedClients).toBeNull();
+    expect(mocks.expected).not.toHaveBeenCalled();
   });
 
   it("shows a known daily load error and tolerates an unavailable roster", async () => {

@@ -166,7 +166,7 @@ describe("staff shell logout privacy", () => {
   });
   it("marks only intake current in the sidebar, not a fallback care page", () => {
     mocks.pathname = "/app/client-intake";
-    const { container } = render(<AppShell context={{ ...actor, demo: true }} navigation={getNavigationGroups("staff")}><p>合成收案頁</p></AppShell>);
+    const { container } = render(<AppShell context={{ ...actor, roles: ["branch_supervisor"], demo: true }} navigation={getNavigationGroups("staff")}><p>合成收案頁</p></AppShell>);
     const current = container.querySelectorAll('.sidebar__nav [aria-current="page"]');
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveAttribute("href", "/app/client-intake");
