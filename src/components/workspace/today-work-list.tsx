@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowRight, Search, X } from "lucide-react";
+import { ArrowRight, ChevronDown, ClipboardCheck, HeartPulse, NotebookPen, Search, ShieldAlert, X } from "lucide-react";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { filterTodayWorkRows, scopeTodayWorkShift, todayWorkAction, type TodayWorkRow, type WorkFilter, type WorkTask } from "@/lib/core-care/today-work";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
@@ -9,11 +9,11 @@ import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { ROSTER_TASK_LABELS, type CareRosterSnapshot, type RosterShift } from "@/lib/care-roster/types";
 import styles from "@/components/care-roster/care-roster.module.css";
 
-const filters: { id: WorkTask; label: string; access: keyof DailyCareSnapshot["sourceAccess"] }[] = [
-  { id: "attendance", label: "尚無出勤", access: "attendance" },
-  { id: "measurements", label: "尚無量測", access: "measurements" },
-  { id: "diary", label: "日誌待完成", access: "careDiaries" },
-  { id: "attention", label: "需留意", access: "careDiaries" },
+const filters: { id: WorkTask; label: string; access: keyof DailyCareSnapshot["sourceAccess"]; icon: typeof ClipboardCheck }[] = [
+  { id: "attendance", label: "尚無出勤", access: "attendance", icon: ClipboardCheck },
+  { id: "measurements", label: "尚無量測", access: "measurements", icon: HeartPulse },
+  { id: "diary", label: "日誌待完成", access: "careDiaries", icon: NotebookPen },
+  { id: "attention", label: "需留意", access: "careDiaries", icon: ShieldAlert },
 ];
 const PAGE_SIZE = 20;
 const RESUME_STATE_KEY = "__daycareTodayResume";
@@ -154,7 +154,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
     target?.scrollIntoView?.({ block: "start" });
   });
   function changeFilter(next: WorkFilter) {
-    if (mobileFiltersOpen) requestedPageFocus.current = 1;
+    requestedPageFocus.current = 1;
     setFilter(next); setPage(1); setMobileFiltersOpen(false);
   }
   function clearSearchAndShowAll() {
@@ -256,31 +256,32 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
         {displayedSearch && <button className="icon-button today-search__clear" type="button" aria-label="清除搜尋今日個案姓名或代碼"
           disabled={compositionDraft !== null} onClick={() => { setSearch(""); setPage(1); searchInput.current?.focus(); }}><X aria-hidden="true" /></button>}
       </div>
-      <button className="today-mobile-filter-toggle" type="button" aria-controls="today-filter-counters today-filter-controls"
-        aria-expanded={mobileFiltersOpen} aria-label={`篩選個案與工作，${activeScope}：${filterRestricted ? "目前無查閱權限" : `${filtered.length} 位`}`}
-        onClick={() => setMobileFiltersOpen((open) => !open)}>篩選 <strong>{filterRestricted ? "—" : filtered.length}</strong></button>
+      {rosterReady ? <button className="today-mobile-filter-toggle" type="button" aria-controls="today-filter-controls"
+        aria-expanded={mobileFiltersOpen} aria-label={`${mobileFiltersOpen ? "收合" : "展開"}班別與指派條件`}
+        onClick={() => setMobileFiltersOpen((open) => !open)}>條件<ChevronDown aria-hidden="true" /></button> : null}
     </div>
     {(filter !== "pending" || shift !== "all" || unassigned) && <p className="today-mobile-active-scope">{activeScope}・{filterRestricted ? "無查閱權限" : `${filtered.length} 位`}</p>}
-    <div className={`today-counters${mobileFiltersOpen ? "" : " today-filters--collapsed"}`} id="today-filter-counters" role="group" aria-label="篩選待處理工作">
+    <div className="today-counters" id="today-filter-counters" role="group" aria-label="篩選待處理工作">
       {visibleFilters.map((item) => { const matchingCount = access[item.access] ? filterTodayWorkRows(authorizedRows, item.id, search).length : null;
-        return <button key={item.id} type="button" className="today-counter"
+        const Icon = item.icon;
+        return <button key={item.id} type="button" className="today-counter" data-task={item.id} data-restricted={matchingCount === null}
         aria-label={`${item.label} ${matchingCount === null ? "無查閱權限" : `${matchingCount} 位${searching ? "（目前搜尋）" : ""}，查看名單`}`}
         disabled={!access[item.access]} aria-pressed={filter === item.id} aria-controls="today-client-list"
         onClick={() => changeFilter(item.id)}>
-        <span>{item.label}</span><strong>{matchingCount ?? "—"}</strong>
+        <span className="today-counter__icon"><Icon aria-hidden="true" /></span>
+        <span className="today-counter__label">{item.label}</span><strong>{matchingCount ?? "—"}</strong>
         <small>{matchingCount === null ? "無查閱權限" : searching ? "位・搜尋內" : "位・查看名單"}</small>
       </button>; })}
     </div>
     <div className="panel today-list-panel">
-      <div className="panel__header"><div className="panel__title"><h2 id="today-list-title">{rosterReady ? roster.manager ? "分支當班照顧清單" : "我的當班個案" : "在案工作清單"}</h2><p>{rosterReady ? "依已確認分工顯示；上午、下午工作分別確認。" : roster?.status === "unavailable" ? "每日分工暫時無法取得，以下僅為授權在案名單，不代表今天應到人數。請聯絡主管確認分工。" : "尚未比對今日排程，請先確認個案今天是否接受服務。"}</p></div></div>
-      <div className={`today-filter-controls${mobileFiltersOpen ? "" : " today-filters--collapsed"}`} id="today-filter-controls">
-      {rosterReady && <div className="today-toolbar"><label className="field"><span>班別</span><select value={shift} onChange={(e) => { setShift(e.target.value as RosterShift | "all"); setPage(1); }}><option value="all">全部班別</option><option value="morning">上午</option><option value="afternoon">下午</option></select></label>{roster.manager && <label className="check-field"><input type="checkbox" checked={unassigned} onChange={(e) => { setUnassigned(e.target.checked); setFilter("all"); setPage(1); }} />只看待指派</label>}</div>}
-      <div className="today-toolbar">
+      <div className="panel__header today-list-header" data-roster-status={roster?.status ?? "none"}><div className="panel__title"><h2 id="today-list-title">{rosterReady ? roster.manager ? "分支當班照顧清單" : "我的當班個案" : "在案工作清單"}</h2><p>{rosterReady ? "依確認分工顯示，上午、下午分開確認。" : roster?.status === "unavailable" ? "每日分工暫時無法取得；以下僅為授權在案名單，請先向主管確認今日安排。" : "尚未比對今日排程，請先確認個案今天是否接受服務。"}</p></div>
         <div className="today-view-buttons" role="group" aria-label="清單範圍">
           <button className="button button--secondary" aria-pressed={filter === "pending"} type="button" onClick={() => changeFilter("pending")}>待處理</button>
           <button className="button button--secondary" aria-pressed={filter === "all"} type="button" onClick={() => changeFilter("all")}>{rosterReady ? "全部當班" : "全部在案"}</button>
         </div>
       </div>
+      <div className={`today-filter-controls${mobileFiltersOpen ? "" : " today-filters--collapsed"}`} id="today-filter-controls">
+      {rosterReady && <div className="today-toolbar"><label className="field"><span>班別</span><select value={shift} onChange={(e) => { setShift(e.target.value as RosterShift | "all"); setPage(1); }}><option value="all">全部班別</option><option value="morning">上午</option><option value="afternoon">下午</option></select></label>{roster.manager && <label className="check-field"><input type="checkbox" checked={unassigned} onChange={(e) => { setUnassigned(e.target.checked); setFilter("all"); setPage(1); }} />只看待指派</label>}</div>}
       </div>
       <p className="today-result" role="status" ref={resultStatus} tabIndex={-1}>{filterRestricted
         ? `目前沒有「${selectedFilter?.label}」查閱權限，請切換清單範圍或聯絡管理員。`
@@ -299,10 +300,10 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
           return <li className="today-client" key={row.id} ref={index === 0 ? firstRow : undefined} tabIndex={-1}>
           <div className="today-client__identity"><span className="avatar" aria-hidden="true">{row.name.slice(0, 1)}</span><div><h3>{row.name}</h3><small>{row.code}</small></div>
             {row.tasks.includes("attention") && <span className="today-attention">需留意</span>}</div>
-          <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{row.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{row.diary}</dd></div></dl>
+          <dl className="today-client__status"><div><dt><ClipboardCheck aria-hidden="true" />出勤</dt><dd>{row.attendance}</dd></div><div><dt><HeartPulse aria-hidden="true" />量測</dt><dd>{row.measurements}</dd></div><div><dt><NotebookPen aria-hidden="true" />照顧日誌</dt><dd>{row.diary}</dd></div></dl>
           {actionPage ? <div className="today-client__actions">{actionShifts.map((actionShift) => {
             const shiftLabel = actionShift === "morning" ? "上午・" : actionShift === "afternoon" ? "下午・" : "";
-            return <NavigationLink className="button button--secondary today-client__action" loadingLabel={action.label}
+            return <NavigationLink className={`button ${actionShifts.length === 1 ? "button--primary" : "button--secondary"} today-client__action`} loadingLabel={action.label}
               href={dailyWorkflowHref(actionPage, serviceDate, row.id, actionShift)} aria-label={`${row.name}（${row.code}）：${shiftLabel}${action.label}`}
               data-today-client-id={row.id} data-today-shift={actionShift ?? "all"} key={actionShift ?? "all"}
               onClick={() => rememberBeforeNavigation(row.id, actionShift)}>{shiftLabel}{action.label}<ArrowRight aria-hidden="true" /></NavigationLink>;

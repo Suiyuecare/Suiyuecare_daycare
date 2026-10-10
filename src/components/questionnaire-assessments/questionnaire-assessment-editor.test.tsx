@@ -113,20 +113,40 @@ describe("shared questionnaire assessment editor", () => {
     render(workspace("spmsq"));
 
     const first = document.getElementById(`spmsq-${form.questions[0].id}`)!;
+    const context = screen.getByRole("group", { name: "本次評估資訊" });
     expect(first).toBeInTheDocument();
     expect(first).toHaveTextContent(form.questions[0].prompt);
+    expect(within(context).getByText("合成測試個案甲")).toBeVisible();
+    expect(within(context).getByLabelText("評估日期")).toHaveAttribute("type", "date");
+    expect(within(context).getByText("合成測試評估員")).toBeVisible();
+    expect(context.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(first.compareDocumentPosition(screen.getByLabelText(/補充觀察與後續事項/u)) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
     expect(screen.getByRole("progressbar", { name: `${form.title}題目與計分條件進度` }))
       .toHaveAttribute("max", "11");
     expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
     expect(screen.getByRole("button", { name: "從進度前往第 1 題" })).toHaveTextContent("待補 11");
+    expect(screen.getByText("填寫進度 0／11 項")).toBeVisible();
+    expect(screen.getAllByText(form.instructions)).toHaveLength(1);
+    expect(screen.getByText("逐題口頭詢問，記錄答對或答錯。")).toBeVisible();
     const group = within(first).getByRole("radiogroup");
     expect(group).toHaveAccessibleName(`1. ${form.questions[0].prompt}`);
     expect(within(group).getAllByRole("radio")).toHaveLength(2);
 
+    const instructions = screen.getByText("填寫說明與來源").closest("details");
+    expect(instructions).not.toHaveAttribute("open");
     fireEvent.click(screen.getByText("填寫說明與來源"));
+    expect(within(instructions!).getByText(form.instructions)).toBeVisible();
     expect(screen.getByRole("link", { name: form.sourceLabel })).toHaveAttribute("href", form.sourceUrl);
+  });
+
+  it.each([
+    ["gds_15", "以最近一週的感受回答。"],
+    ["bsrs5", "以最近一週（含今天）的困擾程度作答；自殺想法另行留意。"],
+  ] as const)("keeps the critical administration cue visible for %s when full instructions are closed", (formKey, cue) => {
+    render(workspace(formKey));
+    expect(screen.getByText("填寫說明與來源").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(cue)).toBeVisible();
   });
 
   it("updates completion, can return a response to waiting, and focuses the first waiting question", () => {
@@ -136,9 +156,11 @@ describe("shared questionnaire assessment editor", () => {
     fireEvent.click(within(first).getAllByRole("radio")[0]);
     expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
     expect(within(first).getByText("已答")).toBeVisible();
+    expect(within(first).getByText("已答")).toHaveAttribute("data-state", "answered");
     fireEvent.click(within(first).getByRole("button", { name: "改為待答" }));
     expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
     expect(within(first).getByText("待答")).toBeVisible();
+    expect(within(first).getByText("待答")).toHaveAttribute("data-state", "missing");
     fireEvent.click(screen.getByRole("button", { name: "前往第 1 題" }));
     expect(first).toHaveFocus();
   });

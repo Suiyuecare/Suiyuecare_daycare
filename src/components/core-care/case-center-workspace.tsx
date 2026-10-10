@@ -95,7 +95,7 @@ function canStartClientWork(client: CaseCenterClient, date: string) {
 }
 
 function clientWorkNote(client: CaseCenterClient, date: string) {
-  if (client.lifecycleState === "pending_admission" || !client.admittedOn) {
+  if (client.lifecycleState === "pending_admission") {
     return "尚未收案，請先完成收案。";
   }
   if (client.lifecycleState === "suspended" || client.serviceStatus === "paused") {
@@ -105,6 +105,7 @@ function clientWorkNote(client: CaseCenterClient, date: string) {
       client.serviceStatus === "ended" || (client.endedOn && client.endedOn <= date)) {
     return "服務已結束，僅供查閱紀錄。";
   }
+  if (!client.admittedOn) return "收案日尚未確認，不能開始當日照顧。";
   if (client.serviceStatus === "pending" || client.admittedOn > date) {
     return "此日期尚未開始服務。";
   }
@@ -116,6 +117,7 @@ function ClientWorkActions({
   date,
   canOpenAttendance,
   canViewSummary,
+  canOpenIntake,
   allowedContinuationPages,
   previewMode = false,
   demoOnly = false,
@@ -124,6 +126,7 @@ function ClientWorkActions({
   date: string;
   canOpenAttendance: boolean;
   canViewSummary: boolean;
+  canOpenIntake: boolean;
   allowedContinuationPages: readonly number[];
   previewMode?: boolean;
   demoOnly?: boolean;
@@ -135,8 +138,9 @@ function ClientWorkActions({
     allowedContinuationPages.includes(entry.number) &&
     (!entry.daily || canStartClientWork(client, date)),
   );
-  const primaryOption = !canStart ? options[0] : undefined;
-  const moreOptions = canStart ? options : options.slice(1);
+  const pendingIntake = canOpenIntake && client.lifecycleState === "pending_admission" && client.serviceStatus === "pending";
+  const primaryOption = !canStart && !pendingIntake ? options[0] : undefined;
+  const moreOptions = canStart || pendingIntake ? options : options.slice(1);
   return (
     <div className="case-center-actions">
       {canStart ? (
@@ -150,6 +154,8 @@ function ClientWorkActions({
         >
           開始當日工作<ArrowRight aria-hidden="true" />
         </NavigationLink>
+      ) : pendingIntake ? (
+        <IntakeEntryLink allowed clientId={client.id} clientName={client.displayName} label="開啟收案資料" />
       ) : primaryOption ? (
         <NavigationLink
           aria-label={`開啟 ${client.displayName} 的${primaryOption.label}`}
@@ -295,21 +301,25 @@ export function CaseCenterWorkspace({
           <p className="page-heading__description">選好個案，直接接續有權限的工作。</p>
           <p className="data-table__secondary">服務日期：{formatDate(filters.date)}</p>
         </div>
-        <IntakeEntryLink allowed={canOpenIntake && !showEmptyIntakeAction} />
+        <IntakeEntryLink allowed={canOpenIntake && !showEmptyIntakeAction} label="收案中心" variant="secondary" />
       </header>
 
-      <div className="callout core-care-callout">
+      {snapshot.access.assignments === "self_only" || snapshot.access.profileLabels !== "names" ? <div className="callout core-care-callout">
         <ShieldCheck aria-hidden="true" />
         <span>
           {snapshot.access.assignments === "self_only"
             ? "可依「我」篩選自己的個案；負責人顯示「權限受限」時，請向主管確認，不代表尚未指派。"
             : snapshot.access.profileLabels === "names"
-              ? "服務中的個案可接續當日照顧；待收案、暫停或服務結束的個案，請先確認狀態或查看紀錄。"
+              ? "服務中的個案可接續當日照顧；未開始服務、暫停或服務結束的個案，請先確認狀態或查看紀錄。"
               : "負責人以人員代碼顯示；如需確認承辦人，請洽主管。"}
         </span>
-      </div>
+      </div> : null}
 
-      <section aria-label="個案摘要，左右捲動可查看五項統計" className="metric-grid case-center-metrics" tabIndex={0}>
+      <details className="case-center-overview">
+        <summary><span><UsersRound aria-hidden="true" />個案概況</span>
+          <span className="case-center-overview__counts">可見 {snapshot.visibleTotal}・服務中 {snapshot.summary.serving}・未開始 {snapshot.summary.pending}</span>
+          <ChevronDown aria-hidden="true" /></summary>
+      <section aria-label="五項個案統計" className="metric-grid case-center-metrics" tabIndex={0}>
         <article className="metric-card">
           <div className="metric-card__top"><span>符合條件</span></div>
           <div className="metric-card__value">
@@ -329,9 +339,9 @@ export function CaseCenterWorkspace({
           <p className="metric-card__foot">依 {snapshot.serviceDate} 判定</p>
         </article>
         <article className="metric-card">
-          <div className="metric-card__top"><span>待收案</span></div>
+          <div className="metric-card__top"><span>未開始服務</span></div>
           <div className="metric-card__value"><strong>{snapshot.summary.pending}</strong><span>人</span></div>
-          <p className="metric-card__foot">已建檔但尚未開始服務</p>
+          <p className="metric-card__foot">待收案或尚未到服務生效日</p>
         </article>
         <article className="metric-card">
           <div className="metric-card__top"><span>暫停／結束</span></div>
@@ -339,6 +349,8 @@ export function CaseCenterWorkspace({
           <p className="metric-card__foot">此日期暫停或已結束服務</p>
         </article>
       </section>
+      <p className="case-center-overview__note">服務中的個案可接續當日照顧；未開始服務、暫停或服務結束的個案，請先確認狀態或查看紀錄。</p>
+      </details>
 
       <section className="panel case-center-panel">
         <div className="panel__header">
@@ -457,6 +469,7 @@ export function CaseCenterWorkspace({
                       <td>
                         <ClientWorkActions
                           canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
+                          canOpenIntake={canOpenIntake}
                           allowedContinuationPages={allowedContinuationPages}
                           previewMode={snapshot.demo}
                           canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}
@@ -480,6 +493,7 @@ export function CaseCenterWorkspace({
                   </div>
                   <ClientWorkActions
                     canOpenAttendance={canOpenAttendance && (!demoDailyIds || demoDailyIds.has(client.id))}
+                    canOpenIntake={canOpenIntake}
                     allowedContinuationPages={allowedContinuationPages}
                     previewMode={snapshot.demo}
                     canViewSummary={canViewSummary && (!demoDailyIds || demoDailyIds.has(client.id))}

@@ -89,7 +89,10 @@ describe("case center front-line next step", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("個案中心");
     expect(screen.getByText("選好個案，直接接續有權限的工作。")).toBeTruthy();
     expect(screen.getByText("服務日期：2026/09/10")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "個案摘要，左右捲動可查看五項統計" }).classList.contains("case-center-metrics")).toBe(true);
+    const overview = screen.getByText("個案概況").closest("details")!;
+    expect(overview.hasAttribute("open")).toBe(false);
+    fireEvent.click(screen.getByText("個案概況"));
+    expect(screen.getByRole("region", { name: "五項個案統計" }).classList.contains("case-center-metrics")).toBe(true);
     expect(container.textContent).not.toMatch(/穩定個案 ID|資料列權限|保存在網址|尚未接線/);
     expect(screen.queryByRole("button", { name: /新增個案/ })).toBeNull();
     expect(container.querySelector("button[disabled]")).toBeNull();
@@ -205,6 +208,34 @@ describe("case center front-line next step", () => {
       expect(new URL((link as HTMLAnchorElement).href).pathname).toBe("/app/staff/service-management/daily-summary");
     }
     expect(container.querySelectorAll(".case-center-action-note")).toHaveLength(2);
+  });
+
+  it("opens the same pending-admission client in intake on desktop and mobile only with intake read access", () => {
+    const pending = client({ lifecycleState: "pending_admission", admittedOn: null, serviceStatus: "pending" });
+    const view = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [pending] })}
+      canOpenIntake allowedDailyPages={[46]} canViewSummary />);
+    const links = screen.getAllByRole("link", { name: "開啟 合成個案甲 的收案資料" });
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      const url = new URL((link as HTMLAnchorElement).href);
+      expect(url.pathname).toBe("/app/client-intake");
+      expect(Object.fromEntries(url.searchParams)).toEqual({ client: clientId });
+      expect(link.getAttribute("data-case-client-id")).toBe(clientId);
+    }
+    expect(workLinks(view.container)).toHaveLength(0);
+    view.unmount();
+    render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [pending] })}
+      allowedDailyPages={[46]} />);
+    expect(screen.queryByRole("link", { name: "開啟 合成個案甲 的收案資料" })).toBeNull();
+  });
+
+  it("counts a future service date as not started without calling it pending admission", () => {
+    const future = client({ admittedOn: "2026-09-11", serviceStatus: "pending" });
+    render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({
+      clients: [future], summary: { serving: 0, paused: 0, pending: 1, ended: 0 },
+    })} canOpenIntake />);
+    expect(screen.getByText(/未開始 1/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "開啟 合成個案甲 的收案資料" })).toBeNull();
   });
 
   it.each([undefined, [], [3], [6], [3, 6], [54]])("does not infer attendance permission from %j", (allowedDailyPages) => {
@@ -340,7 +371,7 @@ describe("case center filters and readable fallback states", () => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()}
       snapshot={snapshot({ clients: [], total: 0, visibleTotal: 0 })} canOpenIntake />);
     expect(screen.getByText("請主管確認個案指派或資料來源。")).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: "個案匯入與收案" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "收案中心" })).toHaveLength(1);
     expect(container.querySelector(".empty-card a")).toBeNull();
     expect(screen.queryByText("可前往收案頁建立個案。")).toBeNull();
   });
@@ -389,6 +420,25 @@ describe("case center return history", () => {
       __NA: true, preserved: "existing-router-state", caseCenterScrollTop: 456, caseCenterFocusClientId: clientId,
     });
     expect(`${window.location.pathname}${window.location.search}`).toBe(caseCenterHref(selected));
+  });
+
+  it("keeps the pending client's position and accessible action when returning from intake", () => {
+    const pending = client({ lifecycleState: "pending_admission", admittedOn: null, serviceStatus: "pending" });
+    const { container } = renderInStage(<CaseCenterWorkspace page={page} filters={filters()}
+      snapshot={snapshot({ clients: [pending] })} canOpenIntake />);
+    const mobile = container.querySelector<HTMLElement>(".mobile-records")!;
+    const link = within(mobile).getByRole("link", { name: "開啟 合成個案甲 的收案資料" });
+    vi.spyOn(link, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+    link.addEventListener("click", (event) => event.preventDefault());
+    stage!.scrollTop = 456;
+    fireEvent.click(link);
+    expect(window.history.state).toMatchObject({ caseCenterScrollTop: 456, caseCenterFocusClientId: clientId });
+    stage!.scrollTop = 0;
+    fireEvent(window, new Event("pageshow"));
+    flushFrame();
+    flushFrame();
+    expect(stage!.scrollTop).toBe(456);
+    expect(document.activeElement).toBe(link);
   });
 
   it("restores scroll and focuses the visible mobile link after returning", () => {
