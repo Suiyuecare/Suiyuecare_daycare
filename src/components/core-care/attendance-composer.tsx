@@ -34,9 +34,9 @@ const eventLabels: Record<AttendanceEventKind, string> = {
   leave: "請假",
 };
 
-function allowedEvents(client: ClientOption): readonly AttendanceEventKind[] {
+function allowedEvents(client: ClientOption, caregiverMode = false): readonly AttendanceEventKind[] {
   if (!client.attendance || client.attendance.status === "cancelled") {
-    return ["check_in", "absent", "leave"];
+    return caregiverMode ? [] : ["check_in", "absent", "leave"];
   }
   if (
     client.attendance.status === "present" &&
@@ -101,6 +101,7 @@ export function AttendanceComposer({
   selectedClientId,
   selectedShift,
   canContinueToNext = false,
+  caregiverMode = false,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
@@ -109,6 +110,7 @@ export function AttendanceComposer({
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
   canContinueToNext?: boolean;
+  caregiverMode?: boolean;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -120,15 +122,15 @@ export function AttendanceComposer({
   const offline = useOfflineCareForm({ kind: "attendance", serviceDate, enabled, demo,
     allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const eligibleClients = useMemo(
-    () => clients.filter((client) => allowedEvents(client).length > 0),
-    [clients],
+    () => clients.filter((client) => allowedEvents(client, caregiverMode).length > 0),
+    [clients, caregiverMode],
   );
   const [clientId, setClientId] = useState(selectedClientId ?? "");
   const selectedClient =
     eligibleClients.find((client) => client.id === clientId);
   const unavailableSelection = selectedClientId !== undefined && !eligibleClients.some((client) => client.id === selectedClientId);
   const effectiveClientId = selectedClient?.id ?? "";
-  const availableEvents = selectedClient ? allowedEvents(selectedClient) : [];
+  const availableEvents = selectedClient ? allowedEvents(selectedClient, caregiverMode) : [];
   const [eventKind, setEventKind] = useState<AttendanceEventKind>(
     availableEvents[0] ?? "check_in",
   );
@@ -145,10 +147,12 @@ export function AttendanceComposer({
   const [noticePending, setNoticePending] = useState(false);
   const [nextClientId, setNextClientId] = useState<string | null>(null);
   const isBackfill = isBackfillCandidate(occurredAt);
+  const caregiverCheckout = caregiverMode && selectedClientId !== undefined &&
+    availableEvents.length === 1 && availableEvents[0] === "check_out";
 
   function resetForOpen() {
     const firstClient = eligibleClients.find((client) => client.id === selectedClientId);
-    const firstEvent = firstClient ? allowedEvents(firstClient)[0] : undefined;
+    const firstEvent = firstClient ? allowedEvents(firstClient, caregiverMode)[0] : undefined;
     setClientId(firstClient?.id ?? "");
     setEventKind(firstEvent ?? "check_in");
     setOccurredAt(defaultTaipeiLocal(serviceDate));
@@ -272,7 +276,7 @@ export function AttendanceComposer({
         }
         type="button"
       >
-        <ClipboardCheck aria-hidden="true" />登錄出勤
+        <ClipboardCheck aria-hidden="true" />{caregiverCheckout ? "簽退" : "登錄出勤"}
       </button>
       {unavailableSelection ? <p role="status">指定個案目前無可用出勤動作；不會自動改為其他個案。</p> : null}
       {notice ? <div className="core-composer__result"><p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p>
@@ -292,8 +296,8 @@ export function AttendanceComposer({
           <header className="drawer__header">
             <div>
               <p className="eyebrow">第 1 步・出勤</p>
-              <h2 id="attendance-dialog-title">簽到、簽退或登記未到</h2>
-              <p>確認個案、簽到退動作與時間；服務日依臺北時間判定。</p>
+              <h2 id="attendance-dialog-title">{caregiverCheckout ? "個案簽退" : "簽到、簽退或登記未到"}</h2>
+              <p>{caregiverCheckout ? "請確認實際離開時間。" : "確認個案、簽到退動作與時間；服務日依臺北時間判定。"}</p>
             </div>
             <button
               aria-label="關閉"
@@ -319,7 +323,11 @@ export function AttendanceComposer({
                 超過伺服器時間 15 分鐘會自動視為補登，須具補登權限、最近 15 分鐘重新驗證並填寫理由。
               </span>
             </div>
-            <label className="field">
+            {selectedClientId && selectedClient ? <div className="field">
+              <span>本次出勤個案</span>
+              <strong className="core-selected-client">{selectedClient.name}（{selectedClient.code}）</strong>
+              <input name="client_id" type="hidden" value={selectedClient.id} readOnly />
+            </div> : <label className="field">
               <span>個案 *</span>
               <select
                 autoFocus
@@ -331,7 +339,7 @@ export function AttendanceComposer({
                   );
                   setClientId(event.target.value);
                   setEventKind(
-                    nextClient ? allowedEvents(nextClient)[0] ?? "check_in" : "check_in",
+                    nextClient ? allowedEvents(nextClient, caregiverMode)[0] ?? "check_in" : "check_in",
                   );
                 }}
                 required
@@ -344,10 +352,11 @@ export function AttendanceComposer({
                   </option>
                 ))}
               </select>
-            </label>
+            </label>}
             <label className="field">
               <span>出勤動作 *</span>
               <select
+                autoFocus={Boolean(selectedClientId && selectedClient)}
                 name="event_kind"
                 onChange={(event) => {
                   changed();

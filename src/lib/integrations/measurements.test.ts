@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { IntegrationError } from "./errors";
 import {
+  parseFirstVitalArrival,
   parseVitalSet,
   storedVitalSetMatches,
   vitalMeasurementRows,
@@ -29,6 +30,18 @@ function validInput() {
 }
 
 describe("dedicated vital-sign input", () => {
+  it("keeps immediate case arrival distinct from historical measurement and forbids client time", () => {
+    expect(parseFirstVitalArrival({ client_id: clientId, service_date: "2026-09-01", values: { pulse: 72 }, arrival_check_in: true }, "arrival-request-0001"))
+      .toMatchObject({ clientId, serviceDate: "2026-09-01", values: { pulse: 72 }, idempotencyKey: "arrival-request-0001" });
+    for (const extra of [{ measured_at: now.toISOString() }, { occurred_at: now.toISOString() }, { reason: "補登" }, { device_id: "abc" }]) {
+      expect(() => parseFirstVitalArrival({ client_id: clientId, service_date: "2026-09-01", values: { pulse: 72 }, arrival_check_in: true, ...extra }, "arrival-request-0001"))
+        .toThrowError(IntegrationError);
+    }
+    expect(() => parseFirstVitalArrival({ client_id: clientId, service_date: "2026-09-01", values: { systolic: 120 }, arrival_check_in: true }, "arrival-request-0001"))
+      .toThrowError(IntegrationError);
+    expect(() => parseFirstVitalArrival({ client_id: clientId, values: { pulse: 72 }, arrival_check_in: true }, "arrival-request-0001"))
+      .toThrowError(IntegrationError);
+  });
   it("normalizes one set into stable per-kind idempotency rows", () => {
     const input = parseVitalSet(validInput(), null, now);
     const rows = vitalMeasurementRows(organizationId, userId, input);

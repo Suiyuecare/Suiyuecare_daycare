@@ -7,6 +7,8 @@ export type TodayWorkRow = {
   id: string; code: string; name: string;
   serviceEligible: boolean; careExpected: boolean; unrosteredCheckedIn: boolean;
   attendance: string; measurements: string; diary: string;
+  /** Actual authorized same-day vital, independent of roster-task completion. */
+  hasEffectiveVital?: boolean;
   tasks: WorkTask[]; nextPage: 46 | 3 | 6 | null; nextLabel: string;
   plannedShifts?: CareRosterAssignment[];
 };
@@ -51,6 +53,7 @@ export function buildTodayWorkRows(snapshot: DailyCareSnapshot, roster?: CareRos
     return {
       id: client.clientId, code: client.clientCode, name: client.displayName,
       serviceEligible: client.applicability?.eligible !== false, careExpected: client.applicability?.care === "expected",
+      hasEffectiveVital: Boolean(vital),
       unrosteredCheckedIn: isUnrosteredCheckedIn(client), tasks, nextPage,
       ...(plannedShifts ? { plannedShifts } : {}),
       nextLabel: first === "attention" ? "查看需留意紀錄" : first === "attendance" ? "確認出勤"

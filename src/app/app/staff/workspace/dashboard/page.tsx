@@ -17,6 +17,7 @@ import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
 import { loadDailyExpectedClients } from "@/lib/client-weekly/daily-projection-loader";
 import { parseServiceDate } from "@/lib/core-care/date";
 import { CoreCareSnapshotError, loadDailyCareSnapshot } from "@/lib/core-care/snapshot";
+import { loadActualTransportCaseSnapshot } from "@/lib/transport-case-status/snapshot";
 
 const slug = "staff/workspace/dashboard";
 
@@ -36,7 +37,10 @@ export default async function DashboardPage({
 
   const context = await requireTenantContext("staff");
   if (!canAccessCatalogPage(context, page)) return <StaffAccessDenied />;
-  const caregiverMode = context.roles.length === 1 && context.roles[0] === "care_worker";
+  const hasCareWorkerRole = context.roles.includes("care_worker");
+  // A nurse/social worker who also serves a care-worker shift needs the same
+  // focused arrival-to-care flow, not a separate manual check-in shortcut.
+  const caregiverMode = hasCareWorkerRole;
   const medicationPage = staffPages.find((item) => item.number === 7);
   const caregiverWritesPromise = caregiverMode ? Promise.all([
     canUseRoutineCare(context, "health.write"),
@@ -55,6 +59,9 @@ export default async function DashboardPage({
   // The promise stays request-scoped and is rendered under its own Suspense boundary.
   const expectedClientsPromise = caregiverMode ? null : loadDailyExpectedClients(context, serviceDate);
   const rosterPromise = loadCareRosterSnapshot(context, serviceDate).catch(() => undefined);
+  const transportPromise = hasCareWorkerRole
+    ? rosterPromise.then((roster) => loadActualTransportCaseSnapshot(context, serviceDate, roster))
+    : Promise.resolve(undefined);
   let snapshot = null;
   let loadError = false;
   try {
@@ -74,12 +81,14 @@ export default async function DashboardPage({
         canOpenReadiness={canViewOpeningReadiness(context) && (context.demo || context.scopes.includes("organization_profile.read"))}
         canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
         caregiverMode={caregiverMode}
+        hasCareWorkerRole={hasCareWorkerRole}
         canViewMedication={Boolean(medicationPage && canAccessCatalogPage(context, medicationPage))}
         caregiverWrites={caregiverWrites}
         loadError={loadError}
         serviceDate={serviceDate}
         snapshot={snapshot}
         roster={await rosterPromise}
+        transport={await transportPromise}
         resumeScopeKey={resumeScopeKey}
       />
       {expectedClientsPromise && <Suspense fallback={<DailyExpectedClientsLoading />}>

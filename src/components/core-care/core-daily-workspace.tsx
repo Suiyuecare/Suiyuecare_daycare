@@ -10,8 +10,10 @@ import {
 } from "lucide-react";
 
 import { AttendanceComposer } from "@/components/core-care/attendance-composer";
+import { AttendanceExceptionPanel } from "@/components/core-care/attendance-exception-panel";
 import { CareDiaryComposer } from "@/components/core-care/care-diary-composer";
 import { VitalSignComposer } from "@/components/core-care/vital-sign-composer";
+import { taipeiToday } from "@/lib/core-care/date";
 import { ClientContinuation } from "@/components/core-care/client-continuation";
 import type { DailyNavigationScope } from "@/components/app/daily-navigation-context";
 import { NavigationLink } from "@/components/app/navigation-link";
@@ -172,11 +174,16 @@ export function CoreDailyWorkspace({
   selectedShift,
   validatedScope,
   canWrite,
+  canOfferArrival = false,
   canWriteNextStep = false,
   snapshot,
   loadError = false,
   canViewManagementDetails = false,
   caregiverMode = false,
+  careWorkerRole = false,
+  directorMode = false,
+  canApproveException = false,
+  hasRecentExceptionAal2 = false,
   clientAttention,
   diaryLifecycle,
 }: {
@@ -187,12 +194,18 @@ export function CoreDailyWorkspace({
   selectedShift?: DailyWorkflowShift;
   validatedScope?: DailyNavigationScope;
   canWrite: boolean;
+  /** Snapshot and live permission preflight only; atomic RPC is authoritative. */
+  canOfferArrival?: boolean;
   /** Page gate and live routine-care preflight for the following step. */
   canWriteNextStep?: boolean;
   snapshot: DailyCareSnapshot | null;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
   caregiverMode?: boolean;
+  careWorkerRole?: boolean;
+  directorMode?: boolean;
+  canApproveException?: boolean;
+  hasRecentExceptionAal2?: boolean;
   clientAttention?: ReactNode;
   diaryLifecycle?: ReactNode;
 }) {
@@ -227,11 +240,15 @@ export function CoreDailyWorkspace({
     snapshot?.sourceAccess[nextSource] && selectedClient.sourceAccess?.[nextSource] !== false);
   const composer = snapshot && selectedClient && selectedClient.applicability?.eligible !== false && pageSourceAllowed && selectedSourceAllowed ? (
     page.number === 3 ? <VitalSignComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
+      canOfferArrival={canOfferArrival && !selectedClient.attendance && !selectedClient.vitalSigns}
+      arrivalRequired={careWorkerRole && !snapshot.demo && snapshot.serviceDate === taipeiToday() && !selectedClient.attendance}
       serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext} />
       : page.number === 6 ? <CareDiaryComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
         serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} caregiverMode={caregiverMode} />
-        : page.number === 46 ? <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
-          serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext} /> : null
+        : page.number === 46 ? caregiverMode && !selectedClient.attendance ? null
+          : <AttendanceComposer key={`${snapshot.serviceDate}:${selectedClient.clientId}:${selectedShift ?? "none"}`} clients={composerClients} demo={snapshot.demo} enabled={canWrite}
+            serviceDate={snapshot.serviceDate} selectedClientId={selectedClient.clientId} selectedShift={selectedShift} canContinueToNext={canContinueToNext}
+            caregiverMode={caregiverMode} /> : null
   ) : null;
 
   return (
@@ -265,6 +282,13 @@ export function CoreDailyWorkspace({
           <ClientContinuation key={`${serviceDate}:${selectedClientId ?? "none"}:${selectedShift ?? "none"}`} page={workflowPage}
             clients={visibleClients} selectedClientId={selectedClientId} selectedShift={selectedShift} serviceDate={snapshot.serviceDate}
             validatedScope={validatedScope} sourceAccess={snapshot.sourceAccess} action={composer} />
+          {page.number === 46 && !snapshot.demo && pageSourceAllowed && !invalidSelection && (directorMode || careWorkerRole) ?
+            <AttendanceExceptionPanel serviceDate={snapshot.serviceDate}
+              selectedClientId={selectedClient?.clientId} selectedClientName={selectedClient?.displayName}
+              hasAttendance={Boolean(selectedClient?.attendance)} hasVital={Boolean(selectedClient?.vitalSigns)}
+              caregiverMode={careWorkerRole} directorMode={directorMode} canWrite={canWrite && selectedSourceAllowed}
+              canApproveException={canApproveException} hasRecentExceptionAal2={hasRecentExceptionAal2}
+              userId={validatedScope?.userId} /> : null}
           {selectedClient && pageSourceAllowed && clientAttention ? <div id="client-care-reminder">{clientAttention}</div> : null}
           {selectedClient && page.number === 6 && pageSourceAllowed && selectedSourceAllowed ? diaryLifecycle : null}
           <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>更新於 {generatedAt}；週表、單日調整與實到共同決定本日名單。請假、未到或未排服務不列照顧待填；既有紀錄仍保留。缺少安排時列待確認，當班項目請看「今日工作」。</span></div>
