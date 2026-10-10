@@ -111,7 +111,7 @@ insert into public.notifications (
   id, organization_id, branch_id, category, priority, title, body,
   audience, status, scheduled_for, source_type, source_id, created_by
 ) values
-  ('e6750000-0000-4000-8000-000000000001', 'e6720000-0000-4000-8000-000000000001', 'e6730000-0000-4000-8000-000000000001', 'critical', 3, '最高優先通知', '請登入系統查看並確認。', '{}'::jsonb, 'sent', clock_timestamp() - interval '10 minutes', 'attendance_event', 'e6790000-0000-4000-8000-000000000001', 'e6710000-0000-4000-8000-000000000001'),
+  ('e6750000-0000-4000-8000-000000000001', 'e6720000-0000-4000-8000-000000000001', 'e6730000-0000-4000-8000-000000000001', 'critical', 3, '最高優先通知', '請登入系統查看並確認。', '{}'::jsonb, 'sent', date_trunc('day', clock_timestamp() at time zone 'Asia/Taipei') at time zone 'Asia/Taipei', 'attendance_event', 'e6790000-0000-4000-8000-000000000001', 'e6710000-0000-4000-8000-000000000001'),
   ('e6750000-0000-4000-8000-000000000002', 'e6720000-0000-4000-8000-000000000001', 'e6730000-0000-4000-8000-000000000001', 'general', 1, '昨日已讀通知', '請登入系統查看。', '{}'::jsonb, 'sent', ((clock_timestamp() at time zone 'Asia/Taipei')::date - 1 + time '10:00') at time zone 'Asia/Taipei', null, null, 'e6710000-0000-4000-8000-000000000001'),
   ('e6750000-0000-4000-8000-000000000003', 'e6720000-0000-4000-8000-000000000001', 'e6730000-0000-4000-8000-000000000001', 'future', 2, '未到排程通知', '尚未應顯示。', '{}'::jsonb, 'scheduled', clock_timestamp() + interval '1 hour', null, null, 'e6710000-0000-4000-8000-000000000001'),
   ('e6750000-0000-4000-8000-000000000004', 'e6720000-0000-4000-8000-000000000001', 'e6730000-0000-4000-8000-000000000001', 'other', 2, '其他人通知', '不可顯示。', '{}'::jsonb, 'sent', clock_timestamp() - interval '5 minutes', null, null, 'e6710000-0000-4000-8000-000000000001'),
