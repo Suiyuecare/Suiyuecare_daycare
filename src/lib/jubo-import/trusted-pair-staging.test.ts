@@ -150,6 +150,16 @@ describe("JUBO exact-byte private staging handoff (synthetic only)", () => {
     expect(calls().some((call) => call.sql.includes("insert into"))).toBe(false);
   });
 
+  it("returns an explicit denial for PostgreSQL 42501 instead of an unknown result", async () => {
+    vi.mocked(prepareApprovedJuboPair).mockReturnValue(syntheticPair());
+    const permissionDenied = { code: "42501", message: "sensitive database details" };
+    const db: VerifiedJuboSqlDatabase = {
+      withVerifiedUserTransaction: async () => { throw permissionDenied; },
+    };
+    await expect(stageApprovedJuboPair({ database: db, hmacSecret: "synthetic" }, input()))
+      .rejects.toMatchObject({ code: "UNVERIFIED_ACTOR" });
+  });
+
   it("does not commit a partial pair if any staged row fails", async () => {
     vi.mocked(prepareApprovedJuboPair).mockReturnValue(syntheticPair());
     const { db, committed, calls } = syntheticDatabase({ failOnRow: 9 });

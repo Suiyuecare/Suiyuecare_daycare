@@ -324,6 +324,9 @@ export async function stageApprovedJuboPair(dependencies: StageDependencies, inp
     // An exception after an unknown COMMIT outcome must be retried with the
     // same idempotency key; never report that the DB definitely rolled back.
     const sqlstate = error && typeof error === "object" && "code" in error ? error.code : null;
+    // PostgreSQL explicitly rejected this transaction before a successful
+    // COMMIT. Do not present a known permission denial as an unknown result.
+    if (sqlstate === "42501") throw new JuboStageError("UNVERIFIED_ACTOR");
     if (sqlstate === "23505") throw new JuboStageError("ALREADY_STAGED");
     throw new JuboStageError("STAGING_RESULT_UNKNOWN");
   }
