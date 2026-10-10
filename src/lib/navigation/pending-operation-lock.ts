@@ -7,6 +7,11 @@ import { useSyncExternalStore } from "react";
 const operations = new Set<symbol>();
 let viewTransition: symbol | null = null;
 const listeners = new Set<() => void>();
+function warnBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasPendingOperations()) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
 const notify = () => { for (const listener of [...listeners]) listener(); };
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -30,9 +35,14 @@ export function useViewTransitionPending() {
 export function tryAcquirePendingOperation(): (() => void) | null {
   if (typeof window === "undefined" || viewTransition !== null) return null;
   const token = Symbol();
+  if (operations.size === 0) window.addEventListener("beforeunload", warnBeforeUnload);
   operations.add(token);
   notify();
-  return () => { if (operations.delete(token)) notify(); };
+  return () => {
+    if (!operations.delete(token)) return;
+    if (operations.size === 0) window.removeEventListener("beforeunload", warnBeforeUnload);
+    notify();
+  };
 }
 
 /** Refresh and branch changes acquire synchronously BEFORE any navigation or

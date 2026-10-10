@@ -4,6 +4,14 @@ import { CHECK_KEYS, FILTERS, filterRows, hasFreshReportTimestamp, intakeDrilldo
 export function row(index = 1, changes: Partial<Record<typeof CHECK_KEYS[number], CheckState>> = {}): CompletenessRow { return { clientId: `c1000000-0000-4000-8000-${String(index).padStart(12, "0")}`, displayName: `合成個案${index}`, clientCode: `SYN-${index}`, clientStatus: "active", profileVersion: 1, checks: CHECK_KEYS.map((key) => ({ key, state: changes[key] ?? "complete" })) }; }
 export function snapshot(rows = [row()]): IntakeCompletenessSnapshot { return { organizationId: "a1000000-0000-4000-8000-000000000001", branchId: "b1000000-0000-4000-8000-000000000001", asOf: "2026-09-14", generatedAt: "2026-09-14T05:00:00.000Z", rows }; }
 describe("intake completeness projection", () => {
+  it("accepts a pending-admission client without counting missing checks as resolved", () => {
+    const pending = row(1, { identity: "missing" });
+    pending.clientStatus = "pending";
+    const parsed = snapshotSchema.parse(snapshot([pending]));
+    expect(parsed.rows[0].clientStatus).toBe("pending");
+    expect(reportCounts(parsed).attention).toBe(1);
+    expect(reportCounts(parsed).resolved).toBe(0);
+  });
   it("keeps unavailable, denied, pending and missing distinct from resolved", () => {
     for (const state of ["denied", "unknown", "pending", "missing", "expired", "replacement", "declined"] as const) expect(isResolved(state)).toBe(false);
     expect(isResolved("not_applicable")).toBe(true);

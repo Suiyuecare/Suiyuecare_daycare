@@ -43,6 +43,23 @@ describe("tab-local operation/view coordinator", () => {
     render(<Observer />);
     expect(screen.getByText("true:false")).toBeTruthy();
   });
+  it("warns before a hard unload while any operation lease survives a route unmount", () => {
+    const { unmount } = render(<Observer />);
+    const first = remember(tryAcquirePendingOperation());
+    const second = remember(tryAcquirePendingOperation());
+    unmount();
+    const whileBothPending = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(whileBothPending);
+    expect(whileBothPending.defaultPrevented).toBe(true);
+    first?.();
+    const whileSecondPending = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(whileSecondPending);
+    expect(whileSecondPending.defaultPrevented).toBe(true);
+    second?.();
+    const afterSettlement = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(afterSettlement);
+    expect(afterSettlement.defaultPrevented).toBe(false);
+  });
   it("has a deterministic empty SSR snapshot and never writes browser storage", () => {
     const storage = vi.spyOn(Storage.prototype, "setItem");
     remember(tryAcquirePendingOperation());

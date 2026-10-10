@@ -24,6 +24,8 @@ describe("safe local demo launcher", () => {
       LINE_CHANNEL_ACCESS_TOKEN: "synthetic-line-token",
       SMS_PROVIDER: "real-provider",
       TWILIO_AUTH_TOKEN: "synthetic-sms-token",
+      JUBO_PRIVATE_STAGE_DATABASE_URL: "postgresql://synthetic.invalid/database",
+      JUBO_PRIVATE_STAGE_HMAC_SECRET: "synthetic-stage-secret",
       NEXT_PUBLIC_APP_ORIGIN: "https://external.invalid",
     };
 
@@ -76,6 +78,11 @@ describe("safe local demo launcher", () => {
       "FINANCE_STORE_BINDING_ID",
       "FINANCE_STORE_ENTITY_ID",
       "FINANCE_STORE_DEPARTMENT_CODE",
+      "JUBO_PRIVATE_STAGE_ENABLED",
+      "JUBO_PRIVATE_STAGE_DATABASE_URL",
+      "JUBO_PRIVATE_STAGE_HMAC_SECRET",
+      "JUBO_PRIVATE_STAGE_ORGANIZATION_ID",
+      "JUBO_PRIVATE_STAGE_BRANCH_ID",
     ]));
   });
 

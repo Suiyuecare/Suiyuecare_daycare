@@ -26,12 +26,27 @@ const clientB: QuestionnaireClient = {
   latest: null,
 };
 
+function savedReceipt(formKey: QuestionnaireFormKey) {
+  return { data: {
+    action: "create", clientId: clientA.clientId, formKey,
+    assessmentKey: "00000000-0000-4000-8000-000000000021",
+    versionId: "00000000-0000-4000-8000-000000000022",
+    version: 1, recordState: "draft",
+    assessedOn: new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date()),
+    contentHash: "a".repeat(64), committedAt: "2026-10-08T00:00:00Z", replayed: false,
+  } };
+}
+
 function workspace(formKey: QuestionnaireFormKey, {
   canManage = true,
+  canReadExternalResults = false,
   selectedClientId = clientA.clientId,
   clients = [clientA],
 }: {
   canManage?: boolean;
+  canReadExternalResults?: boolean;
   selectedClientId?: string | null;
   clients?: QuestionnaireClient[];
 } = {}) {
@@ -44,6 +59,7 @@ function workspace(formKey: QuestionnaireFormKey, {
     demo: true,
   };
   return <QuestionnaireAssessmentsWorkspace assessorName="合成測試評估員" canManage={canManage}
+    canReadExternalResults={canReadExternalResults}
     form={form} loadError={false} pageTitle={form.title} selectedClientId={selectedClientId} snapshot={snapshot} />;
 }
 
@@ -70,7 +86,8 @@ describe("shared questionnaire assessment editor", () => {
     expect(canPreviewApprovedScore({ activatedAt: "2026-10-01T00:00:00Z", reviewRequired: false }, now)).toBe(true);
   });
 
-  it.each(Object.keys(QUESTIONNAIRE_FORMS) as QuestionnaireFormKey[])(
+  it.each((Object.keys(QUESTIONNAIRE_FORMS) as QuestionnaireFormKey[])
+    .filter((formKey) => QUESTIONNAIRE_FORMS[formKey].scoreVersionId))(
     "withholds %s candidate score and risk band after all answers are entered",
     (formKey) => {
       const form = QUESTIONNAIRE_FORMS[formKey];
@@ -107,6 +124,34 @@ describe("shared questionnaire assessment editor", () => {
         .toBeVisible();
     },
   );
+
+  it("shows the AD8 candidate status, all three choices, and no score or signing action", () => {
+    const form = QUESTIONNAIRE_FORMS.ad8;
+    render(workspace("ad8"));
+    expect(screen.getByText(form.candidateNotice!)).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(clientA.clientId);
+    expect(screen.getByLabelText("評估日期")).toBeEnabled();
+    expect(screen.getByText("合成測試評估員")).toBeVisible();
+    for (const question of form.questions) {
+      const card = document.getElementById(`ad8-${question.id}`)!;
+      expect(within(card).getAllByRole("radio")).toHaveLength(3);
+    }
+    const first = document.getElementById("ad8-ad8_01")!;
+    fireEvent.click(within(first).getByRole("radio", { name: "不知道" }));
+    expect(within(first).getByText("已答")).toBeVisible();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
+    fireEvent.click(within(first).getByRole("button", { name: "改為待答" }));
+    expect(within(first).getByText("待答")).toBeVisible();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
+    expect(within(first).queryByRole("button", { name: "此題不適用" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("量表計分預覽")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /簽署/u })).not.toBeInTheDocument();
+  });
+
+  it("does not offer unsupported external paper-result entry for candidate-only AD8", () => {
+    render(workspace("ad8", { canReadExternalResults: true }));
+    expect(screen.queryByRole("link", { name: "有紙本結果？登錄" })).not.toBeInTheDocument();
+  });
 
   it("puts the first complete question before optional fields and keeps progress and source available", () => {
     const form = QUESTIONNAIRE_FORMS.spmsq;
@@ -307,13 +352,31 @@ describe("shared questionnaire assessment editor", () => {
     expect(body.action).toBe("create");
     expect(body.clientId).toBe(clientA.clientId);
     expect(body.answers[form.questions[0].id]).toEqual({ state: "not_applicable", reason: "本次情況無法適用該項" });
-    await act(async () => finishFetch(Response.json({ data: { recordState: "draft" } })));
+    await act(async () => finishFetch(Response.json(savedReceipt("barthel_adl"))));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/草稿已保存/u)).toBeVisible();
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(false);
+  });
+
+  it("does not mark a different or incomplete 2xx receipt as saved and retries the same operation", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft" } }))
+      .mockResolvedValueOnce(Response.json(savedReceipt("spmsq")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(workspace("spmsq"));
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(await screen.findByRole("button", { name: "重試同一次保存" })).toBeEnabled();
+    expect(screen.queryByText(/草稿已保存/u)).not.toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次保存" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers["idempotency-key"])
+      .toBe(fetchMock.mock.calls[1][1].headers["idempotency-key"]);
+    expect(fetchMock.mock.calls[0][1].body).toBe(fetchMock.mock.calls[1][1].body);
   });
 
   it("keeps BSRS safety guidance immediate and does not allow read-only edits", () => {
@@ -386,7 +449,7 @@ describe("shared questionnaire assessment editor", () => {
     const priorState = window.history.state;
     const fetchMock = vi.fn().mockRejectedValueOnce(new Error("synthetic network loss"))
       .mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }))
-      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft" } }));
+      .mockResolvedValueOnce(Response.json(savedReceipt("spmsq")));
     vi.stubGlobal("fetch", fetchMock);
     render(workspace("spmsq", { clients: [clientA, clientB] }));
     const dialog = document.querySelector("dialog") as HTMLDialogElement;

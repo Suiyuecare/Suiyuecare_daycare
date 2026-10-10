@@ -51,6 +51,7 @@ const legacyMultiRoleTests = new Set([
   "daily_service_summary_page54.test.sql",
   "data_inventory_page83.test.sql",
   "document_printing_page62.test.sql",
+  "evaluation_preparation_page79.test.sql",
   "external_health_devices_page65.test.sql",
   "fall_event_workflow_page24.test.sql",
   "fall_risk_assessment_page13.test.sql",

@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 import type { ClientVaccinationPersistedPayload } from "./payload";
 
 export const CLIENT_VACCINATION_STATUS_FILTERS = [
@@ -68,7 +70,7 @@ export type ClientVaccinationClientOption = {
   clientId: string;
   displayName: string;
   clientCode: string;
-  serviceStatus: "active" | "suspended" | "transferred" | "closed" | "deceased";
+  serviceStatus: ClientLifecycleStatus;
   canRecord: boolean;
 };
 
@@ -180,7 +182,6 @@ export type ClientVaccinationRecordReceipt = {
   persisted: true;
   demo: false;
 };
-
 export type ClientVaccinationBatchInput = {
   batchIdempotencyKey: string;
   items: readonly ClientVaccinationRecordInput[];

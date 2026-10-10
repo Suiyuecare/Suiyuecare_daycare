@@ -67,7 +67,7 @@ describe("assessment entry workspace", () => {
     unmount();
     render(<AssessmentEntryWorkspace
       clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={client.id}
-      canReadExternalResults canWriteExternalResults
+      readableExternalInstruments={["barthel_adl"]} writableExternalInstruments={["barthel_adl"]}
     />);
     expect(screen.getByText("合成測試個案")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
@@ -103,17 +103,36 @@ describe("assessment entry workspace", () => {
     expect(within(alert).getByRole("heading", { name: "個案清單載入失敗" })).toBeVisible();
     expect(within(alert).getByText("資料沒有變更。請重新載入。")).toBeVisible();
     expect(within(alert).getByRole("link", { name: "重新載入" })).toHaveAttribute(
-      "href", "/app/staff/assessments/swallowing",
+      "href", "/app/staff/assessments/external-results",
     );
   });
 
   it("requires a selection before opening a form", () => {
     render(<AssessmentEntryWorkspace clients={[client]} error={false} pages={pages} unavailablePages={unavailablePages} selectedClientId={null} />);
     const form = screen.getByRole("combobox", { name: "個案" }).closest("form");
-    expect(form).toHaveAttribute("action", "/app/staff/assessments/swallowing");
+    expect(form).toHaveAttribute("action", "/app/staff/assessments/external-results");
     expect(form).toHaveAttribute("method", "get");
+    expect(form).toHaveAttribute("novalidate");
     expect(screen.getByRole("button", { name: "開始" })).toBeEnabled();
+    fireEvent.submit(form!);
+    expect(screen.getByRole("alert")).toHaveTextContent("請先選擇個案");
+    expect(screen.getByRole("combobox", { name: "個案" })).toHaveAttribute("aria-invalid", "true");
     fireEvent.change(screen.getByRole("combobox", { name: "個案" }), { target: { value: client.id } });
     expect(screen.getByRole("combobox", { name: "個案" })).toHaveValue(client.id);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("links an unavailable paper instrument to the separate route with the same client", () => {
+    render(<AssessmentEntryWorkspace
+      clients={[client]} error={false} pages={[]} unavailablePages={[getPageBySlug("staff/assessments/swallowing")!]}
+      selectedClientId={client.id} initialExternalInstrument="swallowing"
+      readableExternalInstruments={["swallowing"]}
+    />);
+    expect(screen.getByRole("combobox", { name: "個案" }).closest("form"))
+      .toContainHTML('name="externalInstrument"');
+    expect(screen.getByRole("link", { name: /吞嚥評估.*登錄外部結果/u })).toHaveAttribute(
+      "href",
+      `/app/staff/assessments/external-results?client=${encodeURIComponent(client.id)}&externalInstrument=swallowing#external-result-entry`,
+    );
   });
 });

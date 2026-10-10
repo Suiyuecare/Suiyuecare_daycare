@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Bell,
+  BrainCircuit,
   Building2,
   ChevronDown,
   ClipboardList,
@@ -35,6 +36,7 @@ import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 import { DAILY_SERVICE_SUMMARY_PATH } from "@/lib/daily-service-summary/query";
 import { iconForPage } from "./page-icons";
 import { ASSESSMENT_MATRIX_PATH, ASSESSMENT_MATRIX_TITLE, canViewAssessmentMatrix } from "@/lib/assessment-matrix/config";
+import { AD8_CANDIDATE_PATH, AD8_CANDIDATE_TITLE, canViewAd8Candidate } from "@/lib/questionnaire-assessments/ad8-candidate";
 
 // Keep the shared entry points stable. The third slot is a familiar task for
 // the person's approved role, selected only from server-filtered navigation.
@@ -87,12 +89,14 @@ export function AppShell({
   navigation,
   showStoreOverview = false,
   showAssessmentMatrix = false,
+  showJuboReview = false,
   children,
 }: {
   context: TenantContext;
   navigation: readonly NavigationGroup[];
   showStoreOverview?: boolean;
   showAssessmentMatrix?: boolean;
+  showJuboReview?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -147,9 +151,11 @@ export function AppShell({
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
   const activeGroup = navigation.find((group) =>
     group.pages.some((page) => page.number === activePage?.number) ||
-    (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"));
+    ((pathname === ASSESSMENT_MATRIX_PATH || pathname === AD8_CANDIDATE_PATH) && group.id === "assessments"));
   const notificationPage = availablePages.find((page) => page.number === 67);
   const showClientIntake = context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope));
+  const showPendingDirectorReview = !context.demo && context.roles.includes("branch_director") &&
+    context.scopes.includes("clients.jubo_pending_source.read") && context.scopes.includes("clients.intake_draft.manage");
   const showAssessmentMatrixLink = showAssessmentMatrix && canViewAssessmentMatrix(context);
   const mobilePages = mobilePrimaryPages(navigation, context.roles);
   const mobileCurrentInMore = !mobilePages.some((page) => pathname === `/app/${page.slug}`);
@@ -157,7 +163,7 @@ export function AppShell({
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
       group.pages.some((page) => pathname === `/app/${page.slug}`) ||
-      (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"),
+      ((pathname === ASSESSMENT_MATRIX_PATH || pathname === AD8_CANDIDATE_PATH) && group.id === "assessments"),
     );
     return new Set(active ? [active.id] : ["workspace", "daily-care"]);
   });
@@ -166,7 +172,11 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
-    : activePage?.title ?? appBranding.applicationName;
+    : pathname === AD8_CANDIDATE_PATH ? AD8_CANDIDATE_TITLE
+    : pathname === "/app/pending-intake-review" ? "主任待收案核對"
+    : pathname === "/app/governance/jubo-profile-review" ? "JUBO 個案覆核"
+    : activePage?.title ?? (pathname === "/app/staff/assessments/external-results"
+      ? "外部評估結果登錄" : appBranding.applicationName);
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
     if (selection.scope.organizationId !== context.organizationId ||
         selection.scope.branchId !== context.branchId ||
@@ -508,9 +518,20 @@ export function AppShell({
               })}</div> : null}
             </section>;
           })}
-          {showClientIntake ? <section className="nav-group">
+          {(showClientIntake || showPendingDirectorReview) ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">個案管理</div>
-            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
+            <div className="nav-group__items">
+              {showClientIntake ? <NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink> : null}
+              {showPendingDirectorReview ? <NavigationLink aria-current={pathname === "/app/pending-intake-review" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/pending-intake-review" prefetch={false} loadingLabel="主任待收案核對" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>主任待收案核對</span></NavigationLink> : null}
+            </div>
+          </section> : null}
+          {showJuboReview ? <section className="nav-group">
+            <div className="nav-group__label nav-group__label--static">資料移轉</div>
+            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/governance/jubo-profile-review" ? "page" : undefined}
+              className="nav-link" fullDocument href="/app/governance/jubo-profile-review" prefetch={false}
+              loadingLabel="JUBO 個案主檔覆核" onClick={() => closeMenu({ returnFocus: false })}>
+              <span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>JUBO 個案覆核</span>
+            </NavigationLink></div>
           </section> : null}
           {showStoreOverview ? <section className="nav-group">
             <div className="nav-group__label nav-group__label--static">主管檢視</div>
@@ -527,6 +548,13 @@ export function AppShell({
                 <span>{group.title}</span><ChevronDown aria-hidden="true" />
               </button>
               {expanded ? <div className="nav-group__items">
+                {group.id === "assessments" && canViewAd8Candidate(context) ? <NavigationLink
+                  aria-current={pathname === AD8_CANDIDATE_PATH ? "page" : undefined}
+                  className="nav-link" fullDocument={sensitiveDocument}
+                  href={AD8_CANDIDATE_PATH} loadingLabel={AD8_CANDIDATE_TITLE}
+                  onClick={() => closeMenu({ returnFocus: false })} prefetch={false}>
+                  <span className="nav-link__icon"><BrainCircuit aria-hidden="true" /></span><span>{AD8_CANDIDATE_TITLE}</span>
+                </NavigationLink> : null}
                 {group.id === "assessments" && showAssessmentMatrixLink ? <NavigationLink
                   aria-current={pathname === ASSESSMENT_MATRIX_PATH ? "page" : undefined}
                   className="nav-link" fullDocument={sensitiveDocument}

@@ -58,6 +58,17 @@ describe("Page 41 occupational therapy service workspace", () => {
     }
   });
 
+  it("excludes pending admissions from formal service creation", () => {
+    const snapshot = { ...buildDemoOccupationalTherapyServiceSnapshot(), demo: false,
+      clientOptions: [{ ...buildDemoOccupationalTherapyServiceSnapshot().clientOptions[0]!,
+        serviceStatus: "pending" as const }] };
+    render(<OccupationalTherapyServiceCreateAction canManage canSign={false}
+      hasRecentAal2={false} snapshot={snapshot} />);
+    expect(screen.getByRole("button", { name: "新增服務草稿（尚無已收案個案）" }))
+      .toBeDisabled();
+    expect(screen.queryByLabelText("指派個案")).toBeNull();
+  });
+
   it("fails closed when the server snapshot is unavailable", () => {
     render(<OccupationalTherapyServicesWorkspace
       canManage={false} canSign={false} filters={filters} hasRecentAal2={false}

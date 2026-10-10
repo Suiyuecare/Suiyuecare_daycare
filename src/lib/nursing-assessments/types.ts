@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const NURSING_FORM_VERSION = "manual-nursing-v1" as const;
 export const NURSING_DOMAIN_LABELS = {
   observations: "護理觀察",
@@ -72,7 +74,7 @@ export type NursingAssessmentSnapshot = {
   clients: {
     clientId: string;
     displayName: string;
-    serviceStatus: "active" | "suspended" | "transferred" | "closed" | "deceased";
+    serviceStatus: ClientLifecycleStatus;
     versions: NursingVersion[];
     versionsTotal: number;
     versionsTruncated: boolean;

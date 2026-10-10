@@ -131,7 +131,7 @@ export function NursingAssessmentsWorkspace({ snapshot, canManage, canSign, hasR
     <div className={styles.toolbar}><label>個案<select value={client?.clientId ?? ""} disabled={busy || pending !== null || mode !== null}
       onChange={(event) => { setClientId(event.target.value); setVersionId(""); setMessage(""); setError(""); }}>
       {!client ? <option value="">目前個案無法查看</option> : null}
-      {snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName} · {item.versionsTotal ? `${item.versionsTotal} 個版本` : "尚未評估"}</option>)}</select></label>
+      {snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName}{item.serviceStatus === "pending" ? " · 待收案" : ""} · {item.versionsTotal ? `${item.versionsTotal} 個版本` : "尚未評估"}</option>)}</select></label>
       <button className="button button--secondary" disabled={busy || pending !== null} onClick={() => router.refresh()}>重新載入</button></div>
     {snapshot.clientsTruncated ? <p role="status">目前顯示前 {snapshot.clients.length} 位／共 {snapshot.clientTotal} 位可查看個案；尚未提供後續分頁。</p> : null}
     {client ? <section className={styles.card}><h2>{client.displayName}</h2>

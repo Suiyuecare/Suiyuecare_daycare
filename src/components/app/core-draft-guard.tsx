@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useSyncExternalStore } from "react";
 
 type DraftGuardState = { dirty: boolean; busy: boolean; held: boolean };
 type PendingDiscard = {
@@ -165,7 +165,7 @@ function registerDraftGuard(guard: DraftGuardState) {
 export function useCoreDraftGuard() {
   const guard = useRef<DraftGuardState>({ dirty: false, busy: false, held: false });
   useEffect(() => registerDraftGuard(guard.current), []);
-  return {
+  return useMemo(() => ({
     changed() { guard.current.dirty = true; publish(); },
     begin() { if (guard.current.busy) return false; guard.current.busy = true; guard.current.dirty = true; publish(); return true; },
     finish() { guard.current.busy = false; publish(); },
@@ -182,7 +182,7 @@ export function useCoreDraftGuard() {
         try { onApproved(); } catch (error) { guard.current.dirty = true; publish(); throw error; }
       }, trigger ?? triggerOf(null), guard.current);
     },
-  };
+  }), []);
 }
 
 /** For disabling explicit actions while a write is in flight or unresolved. */

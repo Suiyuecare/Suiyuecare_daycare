@@ -25,6 +25,7 @@ export type MedicationPlanLifecycleFilter =
   | MedicationPlanLifecycleState;
 
 export const MEDICATION_PLAN_CLIENT_STATUSES = [
+  "pending",
   "active",
   "suspended",
   "transferred",

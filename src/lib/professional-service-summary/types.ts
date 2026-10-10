@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const PROFESSIONAL_SUMMARY_SOURCE_KINDS = [
   "occupational_therapy_assessment",
   "physical_therapy_assessment",
@@ -44,7 +46,7 @@ export type ProfessionalServiceSummaryFilters = {
 export type ProfessionalSummaryClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: "active" | "suspended" | "transferred" | "closed" | "deceased";
+  serviceStatus: ClientLifecycleStatus;
 };
 
 export type ProfessionalSummarySourceConfiguration = {

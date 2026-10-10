@@ -5,6 +5,7 @@ import type { PageCatalogEntry } from "@/lib/catalog";
 import type { ClientMasterItem } from "@/lib/clients/master-types";
 import type { ExternalAssessmentInstrument } from "@/lib/external-assessment-results/contract";
 import { ExternalAssessmentResultsWorkspace } from "@/components/external-assessment-results/external-assessment-results-workspace";
+import { AssessmentClientPicker } from "@/components/assessments/assessment-client-picker";
 import { iconForPage } from "@/components/app/page-icons";
 
 import styles from "./assessment-entry-workspace.module.css";
@@ -16,8 +17,8 @@ export function AssessmentEntryWorkspace({
   unavailablePages,
   selectedClientId,
   initialExternalInstrument = null,
-  canReadExternalResults = false,
-  canWriteExternalResults = false,
+  readableExternalInstruments = [],
+  writableExternalInstruments = [],
 }: {
   clients: readonly ClientMasterItem[];
   error: boolean;
@@ -25,14 +26,14 @@ export function AssessmentEntryWorkspace({
   unavailablePages: readonly PageCatalogEntry[];
   selectedClientId: string | null;
   initialExternalInstrument?: ExternalAssessmentInstrument | null;
-  canReadExternalResults?: boolean;
-  canWriteExternalResults?: boolean;
+  readableExternalInstruments?: readonly ExternalAssessmentInstrument[];
+  writableExternalInstruments?: readonly ExternalAssessmentInstrument[];
 }) {
   if (error) return <section className="empty-card" role="alert">
     <span className="empty-card__icon empty-card__icon--warning"><FileWarning aria-hidden="true" /></span>
     <h1>個案清單載入失敗</h1>
     <p>資料沒有變更。請重新載入。</p>
-    <Link className="button button--secondary" href="/app/staff/assessments/swallowing">重新載入</Link>
+    <Link className="button button--secondary" href="/app/staff/assessments/external-results">重新載入</Link>
   </section>;
 
   const selectedClient = selectedClientId
@@ -68,16 +69,8 @@ export function AssessmentEntryWorkspace({
     <header className="page-heading">
       <div><p className="eyebrow">評估工作入口</p><h1>先選個案</h1></div>
     </header>
-    <form action="/app/staff/assessments/swallowing" className={styles.picker} method="get">
-      <label htmlFor="assessment-client">個案</label>
-      <select defaultValue={selectedClientId ?? ""} id="assessment-client" name="client" required>
-        <option disabled value="">選擇個案</option>
-        {clients.map((client) => <option key={client.id} value={client.id}>
-          {client.displayName} · {client.clientCode}
-        </option>)}
-      </select>
-      <button className="button button--primary" type="submit">開始<ArrowRight aria-hidden="true" /></button>
-    </form>
+    <AssessmentClientPicker clients={clients} selectedClientId={selectedClientId}
+      initialExternalInstrument={initialExternalInstrument} />
     {clients.length === 0 ? <div className={styles.empty} role="status">目前沒有可查看的個案。</div> : null}
     {selectedClient ? <section aria-labelledby="assessment-shortcuts-title" className={styles.results}>
       <div className={styles.selected}><span>目前個案</span><strong>{selectedClient.displayName}</strong>
@@ -116,10 +109,13 @@ export function AssessmentEntryWorkspace({
           </li>; })}</ul>
         </section> : null}
       </> : <p className={styles.empty} role="status">此帳號目前沒有可開啟的評估表單。</p>}
-      {unavailablePages.length ? <section aria-label="尚未開放的正式量表">
+      {unavailablePages.some((page) => readableExternalInstruments.includes(instrumentForPage(page.number)))
+        ? <section aria-label="尚未開放的正式量表">
         <h3 className={styles.groupTitle}>尚未開放正式填寫</h3>
-        <ul className={`${styles.cards} ${styles.unavailableCards}`}>{unavailablePages.map((page) => { const Icon = iconForPage(page); return <li key={page.slug}>
-          <Link className={styles.unavailable} href={`/app/staff/assessments/swallowing?client=${encodeURIComponent(selectedClient.id)}&externalInstrument=${instrumentForPage(page.number)}#external-result-entry`}>
+        <ul className={`${styles.cards} ${styles.unavailableCards}`}>{unavailablePages
+          .filter((page) => readableExternalInstruments.includes(instrumentForPage(page.number)))
+          .map((page) => { const Icon = iconForPage(page); return <li key={page.slug}>
+          <Link className={styles.unavailable} href={`/app/staff/assessments/external-results?client=${encodeURIComponent(selectedClient.id)}&externalInstrument=${instrumentForPage(page.number)}#external-result-entry`}>
             <Icon aria-hidden="true" className={styles.pictogram} />
             <span>{page.title}<small>{unavailableReason(page.number)}</small></span>
             <span className={styles.lockedLabel}>登錄外部結果</span>
@@ -127,10 +123,14 @@ export function AssessmentEntryWorkspace({
         </li>; })}</ul>
       </section> : null}
       <p className={styles.note}>答案會以草稿版本保存；請核對每題與結果，再由具權限人員作專業判讀及後續決定。</p>
-      {canReadExternalResults
-        ? <ExternalAssessmentResultsWorkspace clientId={selectedClient.id} initialInstrument={initialExternalInstrument}
-          canWrite={canWriteExternalResults} />
-        : <p className={styles.note}>外部結果登錄需具備日常照顧紀錄查閱權限。</p>}
+      {readableExternalInstruments.length
+        ? <ExternalAssessmentResultsWorkspace
+          key={`${selectedClient.id}:${initialExternalInstrument ?? "default"}`}
+          clientId={selectedClient.id}
+          initialInstrument={initialExternalInstrument}
+          readableInstruments={readableExternalInstruments}
+          writableInstruments={writableExternalInstruments} />
+        : <p className={styles.note}>此帳號沒有外部結果查閱權限。</p>}
     </section> : <p className={styles.prompt} role="status">選取個案後，這裡會列出可用表單。</p>}
   </div>;
 }

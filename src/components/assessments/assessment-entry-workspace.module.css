@@ -3,6 +3,7 @@
 .picker label { grid-column: 1 / -1; color: var(--ink-muted); font-size: 13px; font-weight: 700; }
 .picker select { min-height: 44px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: white; padding: 8px 12px; font-size: 16px; }
 .picker button { min-width: 108px; }
+.pickerError { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 13px; line-height: 1.5; }
 .results { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: white; }
 .selected { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .selected > span, .selected small { color: var(--ink-muted); font-size: 13px; }

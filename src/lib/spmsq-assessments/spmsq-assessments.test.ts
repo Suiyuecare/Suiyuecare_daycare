@@ -9,7 +9,10 @@ import {
   parseSpmsqAssessmentMutation,
   parseSpmsqOperationResult,
 } from "./parser";
-import { filterDemoSpmsqAssessmentSnapshot } from "./projection";
+import {
+  filterDemoSpmsqAssessmentSnapshot,
+  projectSpmsqAssessmentSnapshot,
+} from "./projection";
 import {
   SPMSQ_ITEM_IDS,
   SPMSQ_RULE_VERSION,
@@ -105,6 +108,83 @@ function successEnvelope(overrides: Record<string, unknown> = {}) {
 }
 
 describe("page 11 SPMSQ candidate contracts", () => {
+  it("shows an assigned pending-admission client without treating a draft as a signed result", () => {
+    const organizationId = "11111111-1111-4111-8111-111111111111";
+    const branchId = "22222222-2222-4222-8222-222222222222";
+    const item = {
+      client_id: clientId,
+      client_display_name: "待收案個案（合成）",
+      service_status: "pending",
+      admitted_on: null,
+      ended_on: null,
+      version_id: null,
+      assessment_key: null,
+      assessment_version: null,
+      record_state: null,
+      assessed_on: null,
+      author_user_id: null,
+      author_display_name: null,
+      service_status_at_assessment: null,
+      answers: null,
+      education_context: null,
+      cultural_context: null,
+      rule_version_id: null,
+      rule_snapshot: null,
+      rule_snapshot_hash: null,
+      governance_status: null,
+      preview_status: null,
+      preview_raw_errors: null,
+      preview_adjusted_errors: null,
+      preview_band_key: null,
+      created_at: null,
+      version_history: [],
+      version_history_total: 0,
+    };
+    const snapshot = projectSpmsqAssessmentSnapshot({
+      row: {
+        organization_id: organizationId,
+        branch_id: branchId,
+        generated_at: "2026-10-09T02:00:00Z",
+        items: [item],
+        item_total: 1,
+        matching_total: 1,
+        items_truncated: false,
+        not_assessed_total: 1,
+        candidate_complete_total: 0,
+        incomplete_total: 0,
+        draft_total: 0,
+        client_options: [{
+          client_id: clientId,
+          display_name: item.client_display_name,
+          service_status: "pending",
+          admitted_on: null,
+          ended_on: null,
+        }],
+        client_total: 1,
+        client_options_truncated: false,
+        rule_version_id: SPMSQ_RULE_VERSION,
+        rule_activation_status: "candidate_unactivated",
+        formal_sign_status: "blocked_rule_not_activated",
+        formal_score_status: "not_available",
+        care_decision_status: "blocked",
+        cultural_adjustment_status: "not_configured_context_only",
+        attachment_status: "not_configured",
+        export_status: "not_configured",
+        offline_sync_status: "not_configured",
+      },
+      expectedOrganizationId: organizationId,
+      expectedBranchId: branchId,
+      demo: false,
+    });
+    expect(snapshot.items[0]).toMatchObject({
+      serviceStatus: "pending",
+      admittedOn: null,
+      versionId: null,
+    });
+    expect(snapshot.clientOptions[0]?.serviceStatus).toBe("pending");
+    expect(snapshot.formalSignStatus).toBe("blocked_rule_not_activated");
+  });
+
   it.each([
     ["grade_school_or_less", 2],
     ["middle_or_high_school", 3],

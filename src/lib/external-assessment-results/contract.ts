@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IntegrationError } from "@/lib/integrations/errors";
+import type { QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 
 export const externalAssessmentInstruments = {
   spmsq: "SPMSQ",
@@ -16,6 +17,51 @@ export const externalAssessmentInstruments = {
 } as const;
 
 export type ExternalAssessmentInstrument = keyof typeof externalAssessmentInstruments;
+// Candidate-only forms have no approved paper-result mapping. Do not turn a
+// newly added draft form into an external clinical result by default.
+export const externalInstrumentByQuestionnaireForm: Partial<Record<QuestionnaireFormKey, ExternalAssessmentInstrument>> = {
+  spmsq: "spmsq",
+  gds_15: "gds",
+  fall_risk_taipei_115: "fall_risk",
+  nsi_determine: "nsi",
+  barthel_adl: "barthel_adl",
+  lawton_iadl: "iadl",
+  eat10_swallowing: "swallowing",
+  bsrs5: "bsrs",
+  mna_sf: "mna",
+};
+export const externalAssessmentInstrumentSchema = z.enum(
+  Object.keys(externalAssessmentInstruments) as [ExternalAssessmentInstrument, ...ExternalAssessmentInstrument[]],
+);
+
+const instrumentPermissionPrefixes: Record<ExternalAssessmentInstrument, string> = {
+  spmsq: "questionnaire_cognition",
+  gds: "questionnaire_emotion",
+  fall_risk: "questionnaire_fall",
+  nsi: "questionnaire_nutrition",
+  barthel_adl: "questionnaire_adl",
+  iadl: "questionnaire_adl",
+  swallowing: "questionnaire_swallowing",
+  bsrs: "questionnaire_emotion",
+  chewing: "chewing_assessments",
+  mna: "questionnaire_nutrition",
+};
+
+export function externalAssessmentPermission(
+  instrument: ExternalAssessmentInstrument,
+  access: "read" | "manage",
+) {
+  return `${instrumentPermissionPrefixes[instrument]}.${access}`;
+}
+
+export function permittedExternalAssessmentInstruments(
+  scopes: readonly string[],
+  access: "read" | "manage",
+): ExternalAssessmentInstrument[] {
+  return (Object.keys(externalAssessmentInstruments) as ExternalAssessmentInstrument[])
+    .filter((instrument) => scopes.includes(externalAssessmentPermission(instrument, "read"))
+      && (access === "read" || scopes.includes(externalAssessmentPermission(instrument, "manage"))));
+}
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).refine((value) => {
   const parsed = new Date(`${value}T00:00:00Z`);
@@ -26,7 +72,7 @@ const shortText = (max: number) => z.string().trim().min(1).max(max)
   .refine((value) => !/[<>\u0000-\u001f\u007f]/u.test(value));
 
 export const externalAssessmentResultInputSchema = z.object({
-  instrumentKey: z.enum(Object.keys(externalAssessmentInstruments) as [ExternalAssessmentInstrument, ...ExternalAssessmentInstrument[]]),
+  instrumentKey: externalAssessmentInstrumentSchema,
   externalVersion: shortText(80),
   assessedOn: date,
   score: z.number().finite().min(0).max(100000).multipleOf(0.01).nullable(),
@@ -51,7 +97,7 @@ export type ExternalAssessmentResultInput = z.infer<typeof externalAssessmentRes
 export const externalAssessmentResultRecordSchema = z.object({
   id: z.uuid(),
   clientId: z.uuid(),
-  instrumentKey: z.enum(Object.keys(externalAssessmentInstruments) as [ExternalAssessmentInstrument, ...ExternalAssessmentInstrument[]]),
+  instrumentKey: externalAssessmentInstrumentSchema,
   externalVersion: z.string().min(1).max(80),
   assessedOn: date,
   score: z.number().nullable(),
@@ -75,10 +121,15 @@ export const externalAssessmentResultsSnapshotSchema = z.object({
   generatedAt: z.iso.datetime({ offset: true }),
 }).strict();
 
-export function parseExternalAssessmentResultsSnapshot(value: unknown, clientId: string) {
+export function parseExternalAssessmentResultsSnapshot(
+  value: unknown,
+  clientId: string,
+  instrument: ExternalAssessmentInstrument,
+) {
   const parsed = externalAssessmentResultsSnapshotSchema.safeParse(value);
   if (!parsed.success || parsed.data.clientId !== clientId
       || parsed.data.records.some((record) => record.clientId !== clientId)
+      || parsed.data.records.some((record) => record.instrumentKey !== instrument)
       || new Set(parsed.data.records.map((record) => record.id)).size !== parsed.data.records.length
       || parsed.data.total < parsed.data.records.length) {
     throw new IntegrationError("EXTERNAL_ASSESSMENT_RESULT_INVALID", "結果清單未完整確認，請重新載入。", 503);

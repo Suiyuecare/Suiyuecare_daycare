@@ -11,11 +11,13 @@ import type {
   UpdateLocalClientInput,
 } from "./master-types";
 import type { ClientLifecycleStatus } from "./types";
+import { clientServiceState } from "./lifecycle-rules";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 const CLIENT_STATUSES = [
+  "pending",
   "active",
   "suspended",
   "transferred",
@@ -279,7 +281,8 @@ export function projectClientMasterSnapshot(input: {
     const terminal = ["transferred", "closed", "deceased"].includes(status);
     const admittedOn = optionalDate(row.admitted_on);
     const endedOn = optionalDate(row.ended_on);
-    if ((terminal && endedOn === null) || (endedOn && admittedOn && endedOn < admittedOn)) {
+    if ((status === "pending" && (admittedOn !== null || endedOn !== null)) ||
+        (terminal && endedOn === null) || (endedOn && admittedOn && endedOn < admittedOn)) {
       invalidProjection();
     }
     const dateOfBirth = optionalDate(row.date_of_birth);
@@ -292,10 +295,7 @@ export function projectClientMasterSnapshot(input: {
       displayName,
       dateOfBirth,
       status,
-      serviceState:
-        status === "active" && admittedOn === null
-          ? "pending_admission"
-          : status,
+      serviceState: clientServiceState({ status, admittedOn }),
       admittedOn,
       endedOn,
       sourceSystem,

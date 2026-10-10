@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const PHYSICAL_THERAPY_RECORD_STATES = [
   "draft", "signed", "corrected",
 ] as const;
@@ -25,7 +27,7 @@ export type PhysicalTherapyMeasurement = {
 export type PhysicalTherapyClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };
@@ -61,7 +63,7 @@ export type PhysicalTherapyVersionHistoryItem = {
 export type PhysicalTherapyAssessmentListItem = {
   clientId: string;
   clientDisplayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
   versionId: string | null;

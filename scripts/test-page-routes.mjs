@@ -7,6 +7,7 @@ const matrix = await readFile(matrixPath, "utf8");
 const routeHeadingOverrides = new Map([
   [1, "今日工作"],
   [17, "吞嚥評估"],
+  [79, "評鑑準備"],
   [84, "今天一切平安，下午會再更新返家時間。"],
 ]);
 
@@ -35,7 +36,9 @@ async function verifyPage(page) {
     const errors = [];
     if (response.status !== 200) errors.push(`HTTP ${response.status}`);
     const expectedHeading = routeHeadingOverrides.get(page.number) ?? page.title;
-    if (!body.includes(`<h1>${expectedHeading}</h1>`)) {
+    const visibleHeadings = [...body.matchAll(/<h1(?:\s[^>]*)?>([^<]+)<\/h1>/gu)]
+      .map((match) => match[1]);
+    if (!visibleHeadings.includes(expectedHeading)) {
       errors.push("route heading missing");
     }
     if (body.length < 1_000) errors.push("response unexpectedly small");

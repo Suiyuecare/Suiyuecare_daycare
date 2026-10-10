@@ -1,6 +1,6 @@
 # R0 頁面驗收矩陣
 
-更新日期：2026-09-08（Asia/Taipei）
+更新日期：2026-10-08（Asia/Taipei）
 文件狀態：**R0 待簽核基線；不是正式上線驗收，也不表示任何頁面完成。**
 
 ## 1. 來源、範圍與判讀原則
@@ -21,7 +21,7 @@
 | dedicated | 已有頁面專用 UI、API 與測試路徑；仍有正式 adapter、交易、外部或業務簽核門檻，因此尚非完成。 |
 | verified | 專用正反向 E2E、RLS／DB 斷言、同快照、安全、無障礙、效能及必要外部驗收均具名簽核。 |
 
-目前分布：route-only=0、shared workspace=10、partial=8、dedicated=71、verified=0，合計 **89** 頁。
+目前分布：route-only=0、shared workspace=9、partial=9、dedicated=71、verified=0，合計 **89** 頁。
 
 ## 3. 現有證據索引
 
@@ -79,6 +79,7 @@
 | E-DOCUMENT | document-printing workspace／strict create／access API／immutable render-model projection／57 項 focused Vitest、20260902091000 migration／36 項 pgTAP、兩頁繁中 PDF 逐頁目視與桌機／390px／axe browser 驗證 | #62 已有核准範本生效版本、不可變文件工作、同一 render model 的 HTML 核對與 PDF、範本／字型／模型雜湊、近期同 session AAL2、actor-scoped exact replay、使用者／工作／用途綁定的五分鐘網址，以及每次預覽／下載授權事件稽核。PDF 使用完整嵌入的治理中文字型並以串流回應避開 Vercel 4.5 MB 緩衝限制；檔名不含個資。未發布官方範本與私有字型時正式模式保持 `not_configured`，不以合成示範冒充正式文件；附件合併、正式範本發行、私有字型部署、正式 Supabase／Vercel E2E、列印裝置結果與匯出治理仍待完成。 |
 | E-STAFFVITAL | staff-vital-signs workspace／create-correct-void actions、strict POST API／projection／32 項 focused Vitest、20260902055500 migration／38 項 pgTAP、桌機／390px／axe browser 驗證 | #69 已使用獨立 `staff_health.read/manage` 敏感權限、近期同 session AAL2、分支與員工範圍，並以不可變建立／更正／作廢鏈保存量測種類、精確 decimal 原始文字、單位、值狀態、發生時間、來源與備註。已量／缺值／不適用嚴格分離，趨勢由同一快照直接推導；API 在讀取健康內容前完成權限與近期 AAL2 驗證。門檻、警示確認與排程缺測未發布時維持 `not_configured/null`，不自行診斷。附件、匯出與離線 fail closed；尚缺正式 Supabase 多連線競態、機構門檻規則及部署。 |
 | E-STAFFLAB | staff-lab-reports workspace／create-correct-void actions、strict POST API／projection／26 項 focused Vitest、20260902050515 migration／38 項 pgTAP、桌機／390px／axe browser 驗證 | #78 已使用獨立 `staff_health.read/manage` 敏感權限、AAL2 與分支／可見員工範圍，並以不可變建立／更正／作廢鏈保存類型、檢驗日、院所、結果、人工效期與依據、證明狀態。重複提示區分「內容完全相同」與「同員工＋類型＋檢驗日＋院所」並列出逐筆依據，絕不自動合併或推論醫療結論。未知結果重試同時沿用 report key 與冪等鍵；附件可信管線、掃毒與提醒排程未配置時 fail closed／`not_configured`。尚缺正式 Supabase 多連線競態、附件／掃毒、機構提醒規則、匯出及部署。 |
+| E-EVAL | evaluation-preparation workspace／strict POST API／snapshot parser、20261008095117 migration／26 項本機 pgTAP 與 18 項聚焦 Vitest | #79 只實作內部準備資料：主管＋`audit.view`＋AAL2、分支範圍、有效負責人、期限、證據 UUID 參照、收集／待內部覆核狀態、不可變版本、冪等重試與 metadata-only 稽核。官方適用性未核定，正式指標、評分、上傳與送件皆停用；未宣稱完成整頁驗收。 |
 | E-DB | supabase/migrations/、supabase/tests/ | 只是資料／RLS 基線；正式 Supabase pgTAP／lint 尚未驗收。 |
 | E-AUTH | auth context、reauth API、branch API／switcher | 完整角色×頁面×動作矩陣仍待驗。 |
 | E-SYNC | sync API、integrations/sync.ts、offline/draft-store.ts | 只有三類白名單與草稿基線；consumer／60 秒 SLO 未完成。 |
@@ -132,7 +133,7 @@
 | 6 | 專業服務 | 10 | 0 | 0 | 0 | 10 | 0 |
 | 7 | 安心照顧與溝通 | 3 | 0 | 0 | 0 | 3 | 0 |
 | 8 | 服務管理 | 12 | 0 | 0 | 3 | 9 | 0 |
-| 9 | 機構營運管理 | 22 | 0 | 1 | 1 | 20 | 0 |
+| 9 | 機構營運管理 | 22 | 0 | 0 | 2 | 20 | 0 |
 | 10 | 系統治理與中央匯入 | 4 | 0 | 0 | 2 | 2 | 0 |
 | 11 | 家屬服務 | 6 | 0 | 5 | 1 | 0 | 0 |
 
@@ -262,7 +263,7 @@
 | 76 | staff/operations/consultant-messages | 顧問訊息 | dedicated | E-CAT、E-ROUTE、E-CONSULTANT、E-AUTH、E-DB | 已建立獨立 `consultant` 類別、不可變訊息／顧問收件快照及 append-only 已讀／確認回條；管理者只可選目前具 `professional` 身分與收件權限者，非管理顧問只能讀取自己的訊息與回條。每次查閱／搜尋均留下不含敘事的稽核；一般通知與其他溝通不會混入。可信附件／掃毒未配置時拒絕建立含附件訊息，第一版只宣稱系統內發布，不冒充外部送達。 | 待補 EV-P076：保留 36 項 pgTAP、22 項 focused Vitest、類別／角色／收件隔離、查閱稽核、重送與桌機／390px／axe 證據；另補正式附件上傳／掃毒與下載稽核、完整歷史分頁／匯出同快照、正式 Supabase 多連線競態及外部通知，證明「入口只顯示顧問類別，附件與每次查閱均可稽核。」 | B5 |
 | 77 | staff/operations/inventory | 庫存管理 | dedicated | E-CAT、E-ROUTE、E-INVENTORY、E-AUTH、E-DB | 已建立分支限定品項、批次、狀態與不可變異動流水；入庫、出庫、退回、調整、盤點及個案領用均以 exact decimal、expected ledger version、current authority 與 actor-scoped exact replay 保護。負庫存、過期批次出庫、超額退回、跨品項批次與無權個案均 fail closed；個案領用明細與退回選項依當下個案範圍遮罩。近效期／低庫存／盤點政策未發布時明示 `not_configured`。仍缺正式 Supabase、多連線競態、政策發布及採購／醫囑／財務整合。 | 待補 EV-P077：保留 44 項 pgTAP、39 項 focused Vitest（含 catalog 與共同逾時）及桌機／390px／axe 證據；另補正式 Supabase 雙 session、50 人／七年量測、機構庫存政策發布及跨系統對帳，證明「任何異動不得造成負庫存，近效期明確警示且個案領用可追溯指示與人員。」 | B5 |
 | 78 | staff/operations/staff-lab-reports | 員工檢驗報告 | dedicated | E-CAT、E-ROUTE、E-STAFFLAB、E-AUTH、E-DB | 已建立獨立敏感權限與分支／可見員工限定的不可變檢驗報告快照；建立、有理由更正與作廢使用線性版本、近期 AAL2、actor-scoped exact replay 與 strict receipt。重複內容與重複關鍵欄位分開列示，人工效期警示不自動診斷；附件管線／掃毒與提醒排程未配置時 fail closed／`not_configured`。 | 待補 EV-P078：保留 38 項 pgTAP、26 項 focused Vitest、敏感權限／版本鏈／重複依據／未知結果重試及桌機／390px／axe 證據；另補正式附件上傳／掃毒、機構提醒規則、匯出同快照、正式 Supabase 雙 session 與部署，證明「重複內容警示、到期提醒正確，只有健康管理授權角色能看結果明細。」 | B5 |
-| 79 | staff/operations/evaluations | 評鑑管理 | shared workspace | E-CAT、E-ROUTE、E-SHARED | 評鑑管理仍是共用唯讀頁；缺「建立評鑑、上傳證據、指派負責人、送出快照」的專用模型、表單、狀態機、交易及匯出。 | 待補 EV-P079：正反向 E2E、DB／RLS 斷言、畫面—明細—匯出同快照及錯誤／無權限狀態，證明「指標不寫死中央版本，送出後形成不可變快照且可追溯每項證據。」 | B5 |
+| 79 | staff/operations/evaluations | 評鑑管理 | partial | E-CAT、E-ROUTE、E-EVAL | 已可由具 `audit.view` 的主管於 AAL2 工作階段建立／修訂分支內部準備項目、指派有效員工、設定期限、登記證據 UUID 參照，並以不可變版本、冪等操作回執與稽核保存；此功能不是正式評鑑指標或評分。臺北 115 適用性仍待核定，因此正式評分、證據附件上傳／驗證、雙人覆核、送出快照與匯出全部關閉。 | 已有本機 pgTAP 26 項與前後端聚焦測試；仍待官方適用性與指標版本核定、正式 Supabase 多連線與瀏覽器 E2E、附件掃毒／權限、送出簽署快照及畫面—明細—匯出一致性驗收。 | B5 |
 
 ### 模組 10：系統治理與中央匯入（4 頁）
 

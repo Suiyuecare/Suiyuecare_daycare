@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(30);
 set local time zone 'Asia/Taipei';
 select set_config('test.external_result_amr',floor(extract(epoch from clock_timestamp()-interval '2 minutes'))::text,true);
 
@@ -67,7 +67,11 @@ select ok(not has_table_privilege('authenticated','private.external_assessment_r
  'no direct database role can bypass scoped RPC');
 select ok(has_function_privilege('authenticated','public.write_external_assessment_result(uuid,uuid,uuid,uuid,jsonb)','execute')
  and has_function_privilege('authenticated','public.read_external_assessment_results(uuid,uuid,uuid)','execute')
+ and has_function_privilege('authenticated','public.read_external_assessment_results(uuid,uuid,uuid,text)','execute')
  and not has_function_privilege('anon','public.write_external_assessment_result(uuid,uuid,uuid,uuid,jsonb)','execute')
+ and not has_function_privilege('anon','public.read_external_assessment_results(uuid,uuid,uuid,text)','execute')
+ and not has_function_privilege('authenticated','private.external_assessment_instrument_authority(uuid,uuid,uuid,text,text)','execute')
+ and not has_function_privilege('anon','private.read_external_assessment_results_scoped(uuid,uuid,uuid,text)','execute')
  and not has_function_privilege('service_role','public.write_external_assessment_result(uuid,uuid,uuid,uuid,jsonb)','execute'),
  'only authenticated callers receive exact result RPCs');
 select ok(not (select prosecdef from pg_proc where oid='public.write_external_assessment_result(uuid,uuid,uuid,uuid,jsonb)'::regprocedure)
@@ -82,6 +86,20 @@ select is((select count(*)::integer from pg_trigger where not tgisinternal and t
 
 set local role authenticated;
 select is(pg_temp.external_login(),true,'routine Google worker admitted with AAL1');
+reset role;
+select is(private.external_assessment_instrument_authority(
+ 'e0500000-0000-4000-8000-000000000001','e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000001','barthel_adl','manage'),true,
+ 'care worker has assigned-client ADL instrument authority');
+select is(private.external_assessment_instrument_authority(
+ 'e0500000-0000-4000-8000-000000000001','e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000001','spmsq','read'),false,
+ 'care-record authority alone does not grant cognition instrument access');
+select is(private.external_assessment_instrument_authority(
+ 'e0500000-0000-4000-8000-000000000001','e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000001','chewing',null),false,
+ 'null access mode cannot fall back to chewing read authority');
+set local role authenticated;
 select lives_ok($$select pg_temp.external_save()$$,'assigned routine staff can append external result');
 select is(pg_temp.external_save()->>'replayed','true','same idempotency key replays receipt');
 select throws_ok($$select pg_temp.external_save(p_payload=>jsonb_set(pg_temp.external_payload(),'{externalResult}','"changed"'))$$,'23505',null,
@@ -89,6 +107,22 @@ select throws_ok($$select pg_temp.external_save(p_payload=>jsonb_set(pg_temp.ext
 select is((public.read_external_assessment_results('e0500000-0000-4000-8000-000000000001',
  'e0600000-0000-4000-8000-000000000001','e0800000-0000-4000-8000-000000000001')->>'total')::integer,1,
  'assigned staff read own client result');
+select is((public.read_external_assessment_results('e0500000-0000-4000-8000-000000000001',
+ 'e0600000-0000-4000-8000-000000000001','e0800000-0000-4000-8000-000000000001',
+ 'barthel_adl')->>'total')::integer,1,
+ 'assigned care worker can use exact ADL read RPC');
+select throws_ok($$select public.read_external_assessment_results(
+ 'e0500000-0000-4000-8000-000000000001','e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000001','spmsq')$$,'42501',null,
+ 'care worker cannot directly call cognition external-result read RPC');
+select throws_ok($$select pg_temp.external_save(
+ p_key=>'e0900000-0000-4000-8000-000000000003',
+ p_payload=>jsonb_set(pg_temp.external_payload(),'{instrumentKey}','"spmsq"'))$$,'42501',null,
+ 'care worker cannot directly write cognition result using care-record permission');
+select throws_ok($$select public.read_external_assessment_results(
+ 'e0500000-0000-4000-8000-000000000001','e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000001','unknown')$$,'42501',null,
+ 'unknown instrument is denied by the exact read RPC');
 select throws_ok($$select pg_temp.external_save(p_client=>'e0800000-0000-4000-8000-000000000002')$$,'42501',null,
  'cross-organization client access denied');
 select throws_ok($$select pg_temp.external_save(p_payload=>jsonb_set(pg_temp.external_payload(),'{score}','101'))$$,'22023',null,
@@ -111,5 +145,26 @@ select is((select count(*)::integer from private.external_assessment_results),1,
 select ok(exists(select 1 from public.audit_events where table_name='external_assessment_results'
  and metadata->>'external_result_only'='true' and not metadata ? 'external_result'),
  'audit metadata omits the result narrative');
+
+-- A historical cognition result must remain invisible to a care worker, even
+-- through the legacy all-instrument RPC and its aggregate total.
+insert into private.external_assessment_results(
+ id,organization_id,branch_id,client_id,instrument_key,external_version,assessed_on,
+ external_result,performed_by,source,content_hash,actor_id
+) values (
+ 'e0a00000-0000-4000-8000-000000000001',
+ 'e0500000-0000-4000-8000-000000000001','e0600000-0000-4000-8000-000000000001',
+ 'e0800000-0000-4000-8000-000000000001','spmsq','approved-paper-v1',
+ (now() at time zone 'Asia/Taipei')::date,'Synthetic restricted cognition result',
+ 'Synthetic assessor','Synthetic clinic',repeat('a',64),'e0100000-0000-4000-8000-000000000001');
+set local role authenticated;
+select is((public.read_external_assessment_results('e0500000-0000-4000-8000-000000000001',
+ 'e0600000-0000-4000-8000-000000000001','e0800000-0000-4000-8000-000000000001')->>'total')::integer,1,
+ 'legacy read RPC total excludes cognition records outside worker instrument scope');
+select is((public.read_external_assessment_results('e0500000-0000-4000-8000-000000000001',
+ 'e0600000-0000-4000-8000-000000000001','e0800000-0000-4000-8000-000000000001')
+ ->'records'->0->>'instrumentKey'),'barthel_adl',
+ 'legacy read RPC records include only the authorized instrument type');
+reset role;
 select * from finish();
 rollback;

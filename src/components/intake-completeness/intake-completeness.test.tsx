@@ -16,6 +16,14 @@ it("shows actionable case links without guessing denied medical document status"
   expect(within(card).queryByRole("link", { name: /體檢/ })).not.toBeInTheDocument();
   expect(within(card).getAllByText("此帳號無查閱權限").length).toBeGreaterThan(0);
 });
+it("labels pending admission separately from active service", () => {
+  const pending = { ...snapshot.rows[0], clientStatus: "pending" as const };
+  render(<IntakeCompletenessWorkspace {...props} initialSnapshot={{ ...snapshot, rows: [pending, snapshot.rows[1]] }} />);
+  const pendingCard = screen.getByRole("heading", { name: "合成個案1" }).closest("article")!;
+  const activeCard = screen.getByRole("heading", { name: "合成個案2" }).closest("article")!;
+  expect(within(pendingCard).getByText("SYN-1・待收案")).toBeVisible();
+  expect(within(activeCard).getByText("SYN-2・服務中")).toBeVisible();
+});
 it("filters genuine missing items and keeps card/list count and query consistent", () => {
   render(<IntakeCompletenessWorkspace {...props} />);
   fireEvent.change(screen.getByLabelText("尚待處理的項目"), { target: { value: "contact" } });
