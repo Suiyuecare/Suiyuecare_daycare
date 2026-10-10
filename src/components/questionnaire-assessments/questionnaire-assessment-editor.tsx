@@ -20,6 +20,17 @@ import { validateMnaAnthropometry, type MnaAnthropometryIssue } from "@/lib/ques
 import styles from "./questionnaire-assessments.module.css";
 
 const historyGuardKey = "__daycareAssessmentUnsavedGuard";
+const quickCues: Record<QuestionnaireFormDefinition["key"], string> = {
+  spmsq: "逐題口頭詢問，記錄答對或答錯。",
+  gds_15: "以最近一週的感受回答。",
+  barthel_adl: "依目前實際能力作答。",
+  lawton_iadl: "依目前實際能力逐項作答。",
+  eat10_swallowing: "依近期吞嚥經驗作答；0 無問題、4 最嚴重。",
+  bsrs5: "以最近一週（含今天）的困擾程度作答；自殺想法另行留意。",
+  fall_risk_taipei_115: "逐項核對；三項以上屬高風險提示。",
+  nsi_determine: "依十項營養警訊逐項作答。",
+  mna_sf: "無法取得 BMI 時，才改以小腿圍作答第 F 題。",
+};
 
 export function canPreviewApprovedScore(
   rule: Pick<AssessmentRuleSnapshot, "activatedAt" | "reviewRequired"> | null | undefined,
@@ -311,25 +322,14 @@ function QuestionnaireEditor({
         <p>題本版本：{form.version}{approvedScorePreview ? `・計分規則：${approvedScorePreview.versionId}` : ""}</p>
       </details>
     </div>
-    <p className={styles.quickInstruction}>{form.key === "spmsq"
-      ? "逐題詢問並核對；篩檢結果不是診斷。"
-      : form.instructions}</p>
 
-    <div className={styles.progress}>
-      <div className={styles.progressText}>
+    <p className={styles.quickCue}>{quickCues[form.key]}</p>
+
+    <div aria-label="本次評估資訊" className={styles.meta} role="group">
+      <div className={styles.contextClient}>
+        <span>目前個案</span>
         <strong>{client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
-        {canManage && nextUnfinishedLabel ? <button aria-label={`從進度前往${nextUnfinishedLabel}`}
-          className={styles.progressJump} disabled={pending || saveUnknown} onClick={focusNextUnfinished} type="button">
-          待補 {progressTotal - progressValue} <span aria-hidden="true">↓</span>
-        </button> : <span>填寫進度 {progressValue}／{progressTotal} 項</span>}
       </div>
-      <progress aria-label={`${form.title}題目與計分條件進度`} max={progressTotal} value={progressValue} />
-      <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
-    </div>
-    {!canManage ? <p className={styles.readOnly} role="status">只有檢視權限；無法編輯或保存草稿。</p> : null}
-    {saveUnknown ? <p className={styles.readOnly} role="status">上次保存結果尚未確認；欄位已暫時鎖定，請以同一次內容重試。</p> : null}
-
-    <div className={styles.meta}>
       <label>評估日期
         <input
           disabled={!canManage || pending || saveUnknown}
@@ -351,6 +351,20 @@ function QuestionnaireEditor({
       </label>
       <div className={styles.assessor}><span>評估人員</span><strong>{assessorName}</strong></div>
     </div>
+
+    <div className={styles.progress}>
+      <div className={styles.progressText}>
+        <strong>填寫進度 {progressValue}／{progressTotal} 項</strong>
+        {canManage && nextUnfinishedLabel ? <button aria-label={`從進度前往${nextUnfinishedLabel}`}
+          className={styles.progressJump} disabled={pending || saveUnknown} onClick={focusNextUnfinished} type="button">
+          待補 {progressTotal - progressValue} <span aria-hidden="true">↓</span>
+        </button> : null}
+      </div>
+      <progress aria-label={`${form.title}題目與計分條件進度`} max={progressTotal} value={progressValue} />
+      <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
+    </div>
+    {!canManage ? <p className={styles.readOnly} role="status">只有檢視權限；無法編輯或保存草稿。</p> : null}
+    {saveUnknown ? <p className={styles.readOnly} role="status">上次保存結果尚未確認；欄位已暫時鎖定，請以同一次內容重試。</p> : null}
 
     <fieldset className={styles.questions} disabled={!canManage || pending || saveUnknown}>
       <legend className="sr-only">{form.title}題目</legend>
@@ -394,7 +408,7 @@ function QuestionnaireEditor({
           <section className={styles.questionCard} id={`${form.key}-${question.id}`} tabIndex={-1}>
           <div className={styles.questionHeading}>
             <h3 className={styles.questionTitle} id={questionTitleId}>{index + 1}. {question.prompt}</h3>
-            <span className={styles.questionState}>{answer.state === "answered" ? "已答" : answer.state === "not_applicable" ? answer.reason.trim() ? "不適用" : "不適用・待補原因" : "待答"}</span>
+            <span className={styles.questionState} data-state={answer.state}>{answer.state === "answered" ? "已答" : answer.state === "not_applicable" ? answer.reason.trim() ? "不適用" : "不適用・待補原因" : "待答"}</span>
           </div>
           {question.helpText ? <p className={styles.questionHelp} id={questionHelpId}>{question.helpText}</p> : null}
           {question.id === "bsrs_suicide" && suicideConcern ? <div className={styles.urgent} ref={suicideAlert} role="alert">
@@ -490,7 +504,7 @@ function QuestionnaireEditor({
     </p> : null}
 
     <div className={styles.actions}>
-      <span>待答 {missingCount} 題{pendingReasonCount ? `・待補 ${pendingReasonCount} 題不適用原因` : ""}{pendingContextFields.length ? `・待補 ${pendingContextFields.length} 項計分條件` : ""}・僅保存草稿</span>
+      <span>僅保存草稿</span>
       <button className="button button--primary" disabled={!canManage || pending} type="submit">
         {pending ? "保存中…" : saveUnknown ? "重試同一次保存" : latest ? "保存為新版本" : "保存草稿"}
       </button>

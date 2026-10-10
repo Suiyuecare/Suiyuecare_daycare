@@ -20,15 +20,15 @@ const snapshot = buildDemoDailySnapshot(date);
 const rows = buildTodayWorkRows(snapshot);
 
 describe("TodayWorkList", () => {
-  it("keeps search ahead of collapsed mobile filters and preserves the selected scope", () => {
+  it("keeps search ahead of visible task shortcuts and preserves the selected scope", () => {
     const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     const search = screen.getByRole("searchbox", { name: "搜尋今日個案姓名或代碼" });
     const counters = screen.getByRole("group", { name: "篩選待處理工作" });
-    const toggle = screen.getByRole("button", { name: /篩選個案與工作/ });
     expect(search.compareDocumentPosition(counters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(counters).toHaveClass("today-filters--collapsed");
+    expect(screen.queryByRole("button", { name: /展開班別與指派條件/ })).not.toBeInTheDocument();
+    expect(counters).not.toHaveClass("today-filters--collapsed");
     expect(container.querySelector("#today-filter-controls")).toHaveClass("today-filters--collapsed");
+    expect(screen.getByRole("group", { name: "清單範圍" })).toBeInTheDocument();
 
     fireEvent.change(search, { target: { value: "HX-026" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
@@ -37,14 +37,21 @@ describe("TodayWorkList", () => {
     expect(search).toHaveValue("");
     expect(search).toHaveFocus();
 
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(counters).not.toHaveClass("today-filters--collapsed");
     fireEvent.click(screen.getByRole("button", { name: /尚無量測 2/ }));
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(counters).toHaveClass("today-filters--collapsed");
+    expect(counters).not.toHaveClass("today-filters--collapsed");
     expect(container.querySelector(".today-client")).toHaveFocus();
     expect(screen.getByText("尚無量測・2 位")).toBeInTheDocument();
+  });
+
+  it("only shows mobile advanced conditions when a confirmed roster can be filtered", () => {
+    const roster: CareRosterSnapshot = { status: "ready", manager: true, demo: true, staffOptions: [], assignments: [] };
+    const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} roster={roster} />);
+    const toggle = screen.getByRole("button", { name: "展開班別與指派條件" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "today-filter-controls");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "收合班別與指派條件" })).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector("#today-filter-controls")).not.toHaveClass("today-filters--collapsed");
   });
 
   it("waits until Chinese input composition finishes before filtering", () => {
@@ -183,12 +190,10 @@ describe("TodayWorkList", () => {
   it("keeps a searched client and result focus when applying a mobile task filter", () => {
     const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "HX-023" } });
-    const toggle = screen.getByRole("button", { name: /篩選個案與工作/ });
-    fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: /尚無量測 1 位（目前搜尋）/ }));
     expect(screen.getByRole("searchbox")).toHaveValue("HX-023");
     expect(screen.getByRole("status")).toHaveTextContent("尚無量測：1 位（搜尋結果）");
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /展開班別與指派條件/ })).not.toBeInTheDocument();
     expect(container.querySelector(".today-client")).toHaveFocus();
   });
 
@@ -358,7 +363,9 @@ describe("TodayWorkList", () => {
     render(<TodayWorkList rows={buildTodayWorkRows({ ...snapshot, sourceAccess: access })} serviceDate={date} access={access} />);
     const counter = screen.getByRole("button", { name: /尚無量測.*無查閱權限/ });
     expect(counter).toBeDisabled();
+    expect(counter).toHaveAttribute("data-restricted", "true");
     expect(within(counter).getByText("—")).toBeVisible();
+    expect(within(counter).getByText("無查閱權限")).toBeInTheDocument();
   });
 
   it("does not render any client when client access is missing", () => {

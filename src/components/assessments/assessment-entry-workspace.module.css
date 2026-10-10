@@ -1,5 +1,5 @@
 .workspace { display: grid; gap: 14px; max-width: 1040px; }
-.picker { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; align-items: end; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .picker label { grid-column: 1 / -1; color: var(--ink-muted); font-size: 13px; font-weight: 700; }
 .picker select { min-height: 44px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: white; padding: 8px 12px; font-size: 16px; }
 .picker button { min-width: 108px; }

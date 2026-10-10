@@ -6,6 +6,7 @@ const matrixPath = resolve(process.cwd(), "docs/R0_PAGE_ACCEPTANCE_MATRIX.md");
 const matrix = await readFile(matrixPath, "utf8");
 const routeHeadingOverrides = new Map([
   [1, "今日工作"],
+  [2, "找個案"],
   [17, "吞嚥評估"],
   [84, "今天一切平安，下午會再更新返家時間。"],
 ]);
