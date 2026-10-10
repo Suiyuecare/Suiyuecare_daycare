@@ -4,16 +4,19 @@ import { buildTodayWorkRows } from "@/lib/core-care/today-work";
 import { taipeiToday } from "@/lib/core-care/date";
 import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { DashboardAutoRefresh } from "./dashboard-auto-refresh";
-import { TodayWorkList } from "./today-work-list";
+import { TodayWorkList, type CaregiverWriteCapabilities } from "./today-work-list";
 import type { CareRosterSnapshot } from "@/lib/care-roster/types";
 import { RosterComposer } from "@/components/care-roster/roster-composer";
 
-export function DashboardWorkspace({ snapshot, serviceDate, roster, resumeScopeKey, loadError = false, canViewManagementDetails = false, canOpenReadiness = false }: {
+export function DashboardWorkspace({ snapshot, serviceDate, roster, resumeScopeKey, loadError = false, canViewManagementDetails = false, canOpenReadiness = false, caregiverMode = false, canViewMedication = false, caregiverWrites }: {
   snapshot: DailyCareSnapshot | null;
   serviceDate: string;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
   canOpenReadiness?: boolean;
+  caregiverMode?: boolean;
+  canViewMedication?: boolean;
+  caregiverWrites?: CaregiverWriteCapabilities;
   roster?: CareRosterSnapshot;
   resumeScopeKey?: string;
 }) {
@@ -34,14 +37,14 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, resumeScopeK
   return <>
     <header className="page-heading today-heading">
       <div><p className="eyebrow"><time dateTime={serviceDate}>{dayLabel}</time>・更新 {updated}{snapshot.demo ? "・合成示範" : ""}</p>
-        <h1>{serviceDate === taipeiToday() ? "今日工作" : "照顧工作"}</h1></div>
+        <h1>{caregiverMode ? serviceDate === taipeiToday() ? "今日照顧" : "照顧紀錄" : serviceDate === taipeiToday() ? "今日工作" : "照顧工作"}</h1></div>
       <DashboardAutoRefresh generatedAt={snapshot.generatedAt} />
     </header>
     {canOpenReadiness ? <p className="today-readiness-entry"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
       href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink></p> : null}
-    <TodayWorkList key={`${resumeScopeKey ?? "unscoped"}:${serviceDate}`} rows={buildTodayWorkRows(snapshot, roster)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} resumeScopeKey={resumeScopeKey} />
-    {roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
-    <footer className="today-footer">
+    <TodayWorkList key={`${resumeScopeKey ?? "unscoped"}:${serviceDate}`} rows={buildTodayWorkRows(snapshot, roster, caregiverMode)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} resumeScopeKey={resumeScopeKey} caregiverMode={caregiverMode} canViewMedication={canViewMedication} caregiverWrites={caregiverWrites} />
+    {!caregiverMode && roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
+    {!caregiverMode && <footer className="today-footer">
       <NavigationLink className="button button--secondary" loadingLabel="個案中心" href={`/app/staff/workspace/case-center?date=${serviceDate}`}>到個案中心調整篩選</NavigationLink>
       <p>本頁僅整理出勤、量測與最近一筆日誌。交通、餐食及其他照顧工作，請到各自頁面確認。</p>
       {canViewManagementDetails && <details className="today-management"><summary>管理檢查明細</summary>
@@ -49,6 +52,6 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, resumeScopeK
         <p>各來源依相同服務日取得，不代表跨資料表交易快照。無權限不計為零；量測有資料不等於全部項目完成，日誌僅顯示最近一筆。</p>
         <NavigationLink className="button button--quiet" loadingLabel="整合與稽核中心" href="/app/staff/governance/integrations-audit">開啟整合與稽核中心</NavigationLink>
       </details>}
-    </footer>
+    </footer>}
   </>;
 }

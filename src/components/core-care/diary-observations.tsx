@@ -10,10 +10,11 @@ const items = [
   { key: "activity", label: "本次活動參與", choices: [["participated", "參與"], ["partial", "部分參與"], ["declined", "婉拒"], ["resting", "休息"]] },
 ] as const;
 
-export function DiaryObservationsFields({ initial, restored }: { initial?: DiaryObservations; restored?: Record<string, string> }) {
+export function DiaryObservationsFields({ initial, restored, caregiverMode = false }: { initial?: DiaryObservations; restored?: Record<string, string>; caregiverMode?: boolean }) {
   const prefix = useId();
   const [states, setStates] = useState<Record<string, string>>(() => Object.fromEntries(items.map(({ key }) => [key, restored?.[`${key}_state`] ?? initial?.[key].state ?? "unknown"])));
-  return <fieldset className="core-dialog__fields"><legend>本次照顧快速紀錄（選填）</legend><p>只填這一次實際觀察；尚未觀察不等於正常，也不會自動沿用上次數值。</p>{items.map(({ key, label, choices }) => {
+  const displayedItems = caregiverMode ? [items[1], items[2], items[3], items[0]] : items;
+  return <fieldset className="core-dialog__fields"><legend>{caregiverMode ? "本次觀察（選填）" : "本次照顧快速紀錄（選填）"}</legend><p>{caregiverMode ? "未觀察不算正常，也不沿用上次。" : "只填這一次實際觀察；尚未觀察不等於正常，也不會自動沿用上次數值。"}</p>{displayedItems.map(({ key, label, choices }) => {
     const prior = initial?.[key];
     const value = restored?.[key] ?? (prior?.state === "observed" ? prior.value : "");
     return <div key={key} className="field"><label htmlFor={`${prefix}-${key}-state`}>{label}</label><select id={`${prefix}-${key}-state`} name={`${key}_state`} value={states[key]} onChange={(event) => setStates({ ...states, [key]: event.target.value })}><option value="unknown">尚未觀察／不清楚</option><option value="not_applicable">本次不適用</option><option value="observed">已有觀察，填寫結果</option></select>{states[key] === "observed" ? key === "water" ? <input aria-label={label} name={key} type="number" min={0} max={5000} step={1} required defaultValue={value} /> : <select aria-label={`${label}結果`} name={key} required defaultValue={String(value)}><option value="">請選擇實際結果</option>{choices.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select> : null}</div>;

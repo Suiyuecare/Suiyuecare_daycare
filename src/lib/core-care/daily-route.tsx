@@ -65,6 +65,7 @@ export async function renderCoreDailyRoute(
           canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")}
           demo={context.demo} /> : undefined}
     canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
+    caregiverMode={context.roles.length === 1 && context.roles[0] === "care_worker"}
     canWrite={canWriteRoutine}
     canWriteNextStep={Boolean(nextPage && canAccessCatalogPage(context, nextPage) && canWriteNextStep)}
     loadError={loadError}

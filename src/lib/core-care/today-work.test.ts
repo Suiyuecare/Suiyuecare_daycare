@@ -54,6 +54,18 @@ describe("today review queue", () => {
     expect(buildTodayWorkRows(snapshot)[0]?.measurements).toBe("已有量測");
     expect(buildTodayWorkRows({ ...snapshot, clients: [] })).toEqual([]);
   });
+
+  it("retains only an authorized, still-checked-in person missing from today's roster for caregiver reconciliation", () => {
+    const snapshot = buildDemoDailySnapshot("2026-09-10");
+    const emptyRoster = { status: "empty" as const, manager: false, assignments: [], staffOptions: [], demo: true };
+    const visible = { ...snapshot, clients: [snapshot.clients[1]!, snapshot.clients[4]!] };
+    expect(buildTodayWorkRows(visible, emptyRoster)).toEqual([]);
+    const rows = buildTodayWorkRows(visible, emptyRoster, true);
+    expect(rows.map((row) => row.id)).toEqual([snapshot.clients[1]!.clientId]);
+    expect(rows[0]?.unrosteredCheckedIn).toBe(true);
+    const restricted = { ...visible, clients: [{ ...snapshot.clients[1]!, sourceAccess: { attendance: false, measurements: true, careDiaries: true, serviceEvents: true } }] };
+    expect(buildTodayWorkRows(restricted, emptyRoster, true)).toEqual([]);
+  });
 });
 
 describe("daily work URL selection", () => {
