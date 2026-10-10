@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
 import { useCoreDraftGuard } from "./client-continuation";
-import { CoreCareReceiptError, parseVitalWriteReceipt } from "@/lib/core-care/write-receipts";
+import { CoreCareReceiptError, parseVitalArrivalReceipt, parseVitalWriteReceipt } from "@/lib/core-care/write-receipts";
 import { OfflineCareFormNotice, useOfflineCareForm } from "./offline-care-form";
 import { useCareWriteAttempt } from "./use-care-write-attempt";
 import { isDefiniteCareRejection } from "@/lib/core-care/write-attempt";
@@ -15,7 +15,9 @@ import { NavigationLink } from "@/components/app/navigation-link";
 import { taipeiServiceDateOf } from "@/lib/core-care/date";
 
 type ClientOption = { id: string; name: string; code: string };
-type VitalRequest = { client_id: string; measured_at: string; values: Record<string, number> };
+type VitalRequest =
+  | { client_id: string; measured_at: string; values: Record<string, number>; arrival_check_in?: never }
+  | { client_id: string; service_date: string; values: Record<string, number>; arrival_check_in: true; measured_at?: never };
 
 function defaultTaipeiLocal(serviceDate: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -57,6 +59,8 @@ export function VitalSignComposer({
   selectedClientId,
   selectedShift,
   canContinueToNext = false,
+  canOfferArrival = false,
+  arrivalRequired = false,
 }: {
   clients: readonly ClientOption[];
   serviceDate: string;
@@ -65,6 +69,9 @@ export function VitalSignComposer({
   selectedClientId?: string;
   selectedShift?: DailyWorkflowShift;
   canContinueToNext?: boolean;
+  canOfferArrival?: boolean;
+  /** Care workers cannot save the first current-day vital before case arrival. */
+  arrivalRequired?: boolean;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -76,17 +83,22 @@ export function VitalSignComposer({
   const offline = useOfflineCareForm({ kind: "vital-sign", serviceDate, enabled, demo,
     allowedClientIds: clients.map((client) => client.id), formRef, idempotencyKey, onRestoreId: (id) => { if (!attempt.current()) idempotencyKey.current = id; } });
   const unavailableSelection = selectedClientId !== undefined && !clients.some((client) => client.id === selectedClientId);
+  const selectedClient = selectedClientId === undefined ? undefined : clients.find((client) => client.id === selectedClientId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticePending, setNoticePending] = useState(false);
   const [nextClientId, setNextClientId] = useState<string | null>(null);
+  const [entryMode, setEntryMode] = useState<"arrival" | "measurement">(canOfferArrival ? "arrival" : "measurement");
+  const effectiveEntryMode = canOfferArrival && (arrivalRequired || entryMode === "arrival") ? "arrival" : "measurement";
+  const blockedFirstVital = arrivalRequired && !canOfferArrival;
 
   function open(event: MouseEvent<HTMLButtonElement>) {
-    if (!enabled || unavailableSelection) return;
+    if (!enabled || unavailableSelection || blockedFirstVital) return;
     trigger.current = event.currentTarget;
     if (attempt.current()) { dialog.current?.showModal(); return; }
     formRef.current?.reset();
+    setEntryMode(canOfferArrival ? "arrival" : "measurement");
     idempotencyKey.current = crypto.randomUUID();
     setError(null);
     setNotice(null);
@@ -107,8 +119,21 @@ export function VitalSignComposer({
     const prior = attempt.current();
     const data = new FormData(form);
     const clientId = prior?.body.client_id ?? String(data.get("client_id") ?? "");
-    if (!enabled || unavailableSelection || !clients.some((client) => client.id === clientId)) {
+    // Entry mode is explicit. The immediate primary path has no editable time;
+    // only measurement-only/backfill reveals that field.
+    const arrivalRequested = prior?.body.arrival_check_in === true ||
+      (!prior && effectiveEntryMode === "arrival");
+    if (!enabled || unavailableSelection || (selectedClientId !== undefined && clientId !== selectedClientId) ||
+      !clients.some((client) => client.id === clientId)) {
       setError("請重新選擇目前授權的個案；尚未送出量測。");
+      return;
+    }
+    if (arrivalRequested && !navigator.onLine) {
+      setError("量測並簽到需要連線；目前未送出。請待連線後重試。");
+      return;
+    }
+    if (arrivalRequested && !prior && taipeiServiceDateOf(new Date().toISOString()) !== serviceDate) {
+      setError("服務日已變更；請回今日工作重新確認個案，再量測簽到。");
       return;
     }
     if (!draft.begin()) return;
@@ -122,12 +147,12 @@ export function VitalSignComposer({
         temperature: optionalNumber(data, "temperature"),
         oxygen_saturation: optionalNumber(data, "oxygen_saturation"),
       };
-      const body = prior?.body ?? {
-        client_id: clientId,
-        measured_at: taipeiLocalToIso(String(data.get("measured_at") ?? "")),
-        values: Object.fromEntries(Object.entries(values).filter((entry): entry is [string, number] => typeof entry[1] === "number")),
-      };
-      if (!prior && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
+      const normalizedValues = Object.fromEntries(Object.entries(values)
+        .filter((entry): entry is [string, number] => typeof entry[1] === "number"));
+      const body: VitalRequest = prior?.body ?? (arrivalRequested
+        ? { client_id: clientId, service_date: serviceDate, values: normalizedValues, arrival_check_in: true }
+        : { client_id: clientId, measured_at: taipeiLocalToIso(String(data.get("measured_at") ?? "")), values: normalizedValues });
+      if (!prior && !arrivalRequested && !demo && !navigator.onLine && await offline.queueIfOffline(body)) {
         draft.saved(); dialog.current?.close();
         setNextClientId(null);
         setNoticePending(true);
@@ -146,16 +171,19 @@ export function VitalSignComposer({
       });
       if (!response.ok) { if (await isDefiniteCareRejection(response)) attempt.failed(response.status); throw new Error("SAVE_FAILED"); }
       const raw: unknown = await response.json().catch(() => null);
-      parseVitalWriteReceipt(raw, response.status, demo, values);
+      const arrivalReceipt = arrivalRequested ? parseVitalArrivalReceipt(raw, response.status, body.values) : null;
+      if (!arrivalRequested) parseVitalWriteReceipt(raw, response.status, demo, body.values);
       await offline.saved();
       attempt.confirmed();
-      const savedDate = taipeiServiceDateOf(frozen.body.measured_at);
+      const savedDate = taipeiServiceDateOf(arrivalReceipt?.measuredAt ?? ("measured_at" in frozen.body ? frozen.body.measured_at ?? "" : ""));
       form.reset();
       draft.saved();
       dialog.current?.close();
       setNotice(
         demo
           ? "展示量測已通過欄位與重送檢查；展示資料不會永久保存。"
+          : arrivalRequested
+            ? `量測已儲存，個案 ${savedDate} ${new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(arrivalReceipt!.measuredAt))} 已簽到。${savedDate !== serviceDate ? "請切換服務日再接續紀錄。" : ""}`
           : savedDate !== serviceDate
             ? `量測已儲存於 ${savedDate ?? "其他服務日"}，與畫面所選日期不同；請先切換服務日再接續。`
             : "生命徵象已儲存。量測資料不代表自動診斷。",
@@ -167,10 +195,12 @@ export function VitalSignComposer({
     } catch (caught) {
       const uncertain = attempt.failed();
       if (uncertain) draft.hold(); else draft.unhold();
-      if (uncertain) await offline.retainUnconfirmed(uncertain.body);
+      if (uncertain && uncertain.body.arrival_check_in !== true) await offline.retainUnconfirmed(uncertain.body);
       setError(isClientFetchTimeoutError(caught) || caught instanceof CoreCareReceiptError
         ? caught.message
-        : "量測尚未確認儲存。請檢查至少一項數值、成對血壓與最近 24 小時內的時間。保留內容直接重試，系統會辨識同一次送出。");
+        : arrivalRequested
+          ? "量測與簽到尚未確認。請保留畫面並以同一操作重試；若本日已有紀錄，請重新載入核對或請主管處理。"
+          : "量測尚未確認儲存。請檢查至少一項數值、成對血壓與最近 24 小時內的時間。保留內容直接重試，系統會辨識同一次送出。");
     } finally {
       draft.finish();
       setPending(false);
@@ -181,11 +211,12 @@ export function VitalSignComposer({
     <div className="core-composer">
       <button
         className="button button--primary"
-        disabled={!enabled || clients.length === 0 || unavailableSelection}
+        disabled={!enabled || clients.length === 0 || unavailableSelection || blockedFirstVital}
         onClick={open}
         title={
           !enabled
             ? "目前角色沒有新增生命徵象的權限"
+            : blockedFirstVital ? "當日首測需與個案簽到同時儲存；目前無法完成簽到，請主管核對"
             : unavailableSelection ? "指定個案不在目前授權名單，請重新選擇"
             : clients.length === 0
               ? "沒有可量測的個案"
@@ -196,6 +227,7 @@ export function VitalSignComposer({
         <HeartPulse aria-hidden="true" />新增量測
       </button>
       {unavailableSelection ? <p role="alert">指定個案不在目前授權名單；不會自動改為其他個案。</p> : null}
+      {blockedFirstVital ? <p role="status">當日首測需同時為個案簽到；目前無法完成，請主任核對出勤或權限。</p> : null}
       {notice ? <div className="core-composer__result"><p className={`core-composer__notice${noticePending ? " core-composer__notice--pending" : ""}`} role="status">{notice}</p>
         {canContinueToNext && nextClientId ? <NavigationLink className="button button--secondary" href={dailyWorkflowHref(6, serviceDate, nextClientId, selectedShift)} loadingLabel="照顧日誌" prefetch={false}>接著寫日誌</NavigationLink> : null}
       </div> : null}
@@ -229,7 +261,7 @@ export function VitalSignComposer({
             <div>
               <p className="eyebrow">第 2 步・量測</p>
               <h2 id="vital-sign-dialog-title">新增生命徵象</h2>
-              <p>沿用選定個案，確認實際量測時間與數值；時間以臺北時間解讀。</p>
+              <p>{effectiveEntryMode === "arrival" ? "現在量測、現在為個案簽到；時間由系統記錄，無法補填。" : "僅儲存量測；請確認實際量測時間，時間以臺北時間解讀。"}</p>
             </div>
             <button
               aria-label="關閉"
@@ -244,16 +276,20 @@ export function VitalSignComposer({
           {attempt.locked && !pending ? <p role="status">結果尚未確認，內容已鎖定。請重試原操作；不要另建一筆相同紀錄。</p> : null}
           <div className="drawer__body core-dialog__body">
           <fieldset className="core-dialog__fieldset" disabled={pending || attempt.locked}>
-            <OfflineCareFormNotice offline={offline} onRestore={() => draft.changed()} />
+            {!arrivalRequired ? <OfflineCareFormNotice offline={offline} onRestore={() => { setEntryMode("measurement"); draft.changed(); }} /> : null}
             <div className="callout core-care-callout">
               <ShieldCheck aria-hidden="true" />
               <span>
                 至少填一項；血壓須成對填寫。技術範圍只防止明顯輸入錯誤，不代表醫療判讀或診斷。
               </span>
             </div>
-            <label className="field">
+            {selectedClient ? <div className="field">
+              <span>本次量測個案</span>
+              <strong className="core-selected-client">{selectedClient.name}（{selectedClient.code}）</strong>
+              <input name="client_id" type="hidden" value={selectedClient.id} readOnly />
+            </div> : <label className="field">
               <span>個案 *</span>
-              <select defaultValue={unavailableSelection ? "" : selectedClientId ?? ""} name="client_id" required>
+              <select defaultValue="" name="client_id" required>
                 <option value="">請選擇個案</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
@@ -261,16 +297,19 @@ export function VitalSignComposer({
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="field">
-              <span>量測日期與時間 *</span>
-              <input
-                defaultValue={defaultTaipeiLocal(serviceDate)}
-                name="measured_at"
-                required
-                type="datetime-local"
-              />
-            </label>
+            </label>}
+            <div hidden={effectiveEntryMode !== "measurement"}>
+              <label className="field">
+                <span>量測日期與時間 *</span>
+                <input
+                  defaultValue={defaultTaipeiLocal(serviceDate)}
+                  disabled={effectiveEntryMode !== "measurement"}
+                  name="measured_at"
+                  required
+                  type="datetime-local"
+                />
+              </label>
+            </div>
             <fieldset className="vital-inputs">
               <legend>量測值（至少一項）</legend>
               <label className="field">
@@ -305,9 +344,14 @@ export function VitalSignComposer({
             <button className="button button--secondary" disabled={pending} onClick={close} type="button">
               {attempt.locked && !pending ? "稍後處理" : "取消"}
             </button>
-            <button className="button button--primary" disabled={pending} type="submit">
-              {pending ? "儲存中…" : attempt.locked ? "重試原量測" : "儲存量測"}
+            <button className="button button--primary" disabled={pending} name="submit_action" type="submit"
+              value={effectiveEntryMode === "arrival" || attempt.current()?.body.arrival_check_in === true ? "arrival" : "measure"}>
+              {pending ? "儲存中…" : attempt.locked ? "重試原操作" : effectiveEntryMode === "arrival" ? "儲存量測並簽到" : "儲存量測"}
             </button>
+            {canOfferArrival && !arrivalRequired && !attempt.locked ? <button className="button button--secondary" disabled={pending}
+              onClick={() => { setEntryMode(effectiveEntryMode === "arrival" ? "measurement" : "arrival"); setError(null); }} type="button">
+              {effectiveEntryMode === "arrival" ? "改為僅存量測／補登" : "返回即時量測簽到"}
+            </button> : null}
           </footer>
         </form>
       </dialog>

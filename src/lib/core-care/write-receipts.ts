@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { taipeiServiceDateOf } from "./date";
 
 export class CoreCareReceiptError extends Error {
   constructor() {
@@ -39,6 +40,26 @@ export function parseVitalWriteReceipt(raw: unknown, httpStatus: number, demo: b
   const actual = [...parsed.data.measurementKinds].sort();
   if (!expected.length || parsed.data.recordCount !== expected.length || actual.length !== expected.length ||
     actual.some((kind, index) => kind !== expected[index])) throw new CoreCareReceiptError();
+  return parsed.data;
+}
+
+const vitalArrivalReceiptSchema = vitalReceiptSchema.extend({
+  measuredAt: z.iso.datetime({ offset: true }),
+  attendance: z.object({
+    operationId: z.uuid(), attendanceId: z.uuid(),
+    checkedInAt: z.iso.datetime({ offset: true }), serviceDate: z.iso.date(),
+  }),
+});
+
+/** A first-vital arrival is not complete until the same instant is confirmed
+ * for both the case attendance and the measured values. */
+export function parseVitalArrivalReceipt(raw: unknown, httpStatus: number, values: VitalValues) {
+  parseVitalWriteReceipt(raw, httpStatus, false, values);
+  const parsed = vitalArrivalReceiptSchema.safeParse(receiptData(raw, httpStatus, false));
+  if (!parsed.success || parsed.data.attendance.checkedInAt !== parsed.data.measuredAt ||
+    parsed.data.attendance.serviceDate !== taipeiServiceDateOf(parsed.data.measuredAt)) {
+    throw new CoreCareReceiptError();
+  }
   return parsed.data;
 }
 

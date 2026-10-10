@@ -21,6 +21,35 @@ const rows = buildTodayWorkRows(snapshot);
 const caregiverWrites = { vitals: true, diary: true, attendance: true, medication: true };
 
 describe("TodayWorkList", () => {
+  it("shows actual assigned-client transport events without inferring a missed ride", () => {
+    const person = rows[1]!;
+    const { rerender } = render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "boarded", dropoffStatus: "scheduled_unreported" }] }} />);
+    expect(screen.getByText("去程 已上車・回程 未回報")).toBeInTheDocument();
+    expect(screen.queryByText(/未搭車/u)).not.toBeInTheDocument();
+    rerender(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "exception", dropoffStatus: "alighted" }] }} />);
+    expect(screen.getByText("去程 有異常待核對・回程 已下車")).toBeInTheDocument();
+    rerender(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "not_scheduled", dropoffStatus: "not_scheduled" }] }} />);
+    expect(screen.getByText("去程 未安排・回程 未安排")).toBeInTheDocument();
+    rerender(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "unavailable", serviceDate: date, generatedAt: null, rows: [] }} />);
+    expect(screen.getByText("暫時無法確認")).toBeInTheDocument();
+    expect(screen.queryByText("去程 未安排・回程 未安排")).not.toBeInTheDocument();
+  });
+
+  it("does not show transport status on non-care-worker cards", () => {
+    const person = rows[1]!;
+    render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "boarded", dropoffStatus: "alighted" }] }} />);
+    expect(screen.queryByText("接送回報")).not.toBeInTheDocument();
+  });
+
   it("gives a care worker one person-first entry with only the daily actions they can open", () => {
     const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} caregiverMode canViewMedication caregiverWrites={caregiverWrites} />);
     expect(screen.queryByRole("group", { name: "篩選待處理工作" })).not.toBeInTheDocument();
@@ -33,7 +62,7 @@ describe("TodayWorkList", () => {
     expect(within(card).getByRole("link", { name: /：用藥$/ })).toHaveAttribute("href", expect.stringContaining(`client=${rows[1]!.id}`));
     expect(within(card).getByRole("link", { name: /：喝水、如廁、活動$/ })).toHaveAttribute("href", expect.stringContaining(`client=${rows[1]!.id}`));
     expect(within(card).getByRole("link", { name: /：注意事項$/ })).toHaveAttribute("href", expect.stringContaining("#client-care-reminder"));
-    expect(within(card).getByRole("link", { name: /：出勤$|：簽退$/ })).toHaveAttribute("data-today-client-id", rows[1]!.id);
+    expect(within(card).getByRole("link", { name: /：無法量測？$|：簽到待核對$|：簽退$/ })).toHaveAttribute("data-today-client-id", rows[1]!.id);
     expect(within(card).queryByText("照顧安排")).not.toBeInTheDocument();
   });
 
@@ -49,6 +78,17 @@ describe("TodayWorkList", () => {
     expect(screen.getByRole("heading", { level: 3, name: done.name })).toBeInTheDocument();
     fireEvent.click(within(container.querySelector(".today-client") as HTMLElement).getByText("開始照顧"));
     expect(screen.getByRole("link", { name: /：簽退$/ })).toHaveAttribute("href", expect.stringContaining(`client=${done.id}`));
+  });
+
+  it("routes an existing vital without attendance to review, not an impossible no-vital path", () => {
+    const person = { ...rows[1]!, attendance: "尚無出勤", measurements: "已有量測", hasEffectiveVital: true };
+    const { container } = render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode caregiverWrites={caregiverWrites} />);
+    const card = container.querySelector(".today-client") as HTMLElement;
+    fireEvent.click(within(card).getByText("開始照顧"));
+    expect(within(card).getByRole("link", { name: /：簽到待核對$/ })).toHaveAttribute("href",
+      expect.stringContaining(`client=${person.id}`));
+    expect(within(card).queryByRole("link", { name: /：無法量測？$/ })).not.toBeInTheDocument();
   });
 
   it("shows only an attendance path when an authorized checked-in person is missing from the roster", () => {

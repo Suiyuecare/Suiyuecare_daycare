@@ -343,6 +343,9 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .today-work--caregiver .today-client__status > div { min-width: 0; padding: 10px; border-radius: var(--radius-sm); background: var(--surface-soft); }
 .today-work--caregiver .today-client__status dt { font-size: .75rem; }
 .today-work--caregiver .today-client__status dd { margin-top: 3px; font-size: .875rem; }
+.today-work--caregiver .today-client__status > .today-client__transport { grid-column: 1 / -1; }
+.today-client__transport dt { display: flex; align-items: center; gap: 6px; }
+.today-client__transport dt svg { width: 15px; height: 15px; }
 .today-caregiver-actions { border-top: 1px solid var(--line); }
 .today-caregiver-actions summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 10px 2px 0; color: var(--brand-strong); cursor: pointer; font-weight: 800; list-style: none; }
 .today-caregiver-actions summary::-webkit-details-marker { display: none; }
@@ -364,14 +367,54 @@ textarea:focus-visible, [tabindex]:focus-visible {
 .case-center-next-work > div { display: grid; gap: 8px; padding-top: 8px; }
 .case-center-action-note { margin: 0; color: var(--ink-muted); font-size: .875rem; line-height: 1.6; }
 .core-client-continuation { margin-bottom: 16px; }
+.attendance-exception { margin-bottom: 16px; scroll-margin-top: calc(var(--header-height) + 16px); }
+.attendance-exception .panel__title h2 { display: flex; align-items: center; gap: 9px; }
+.attendance-exception .panel__title h2 svg { width: 20px; height: 20px; color: var(--brand-strong); }
+.attendance-exception__body { display: grid; gap: 14px; }
+.attendance-exception__body > div > .button { margin-top: 12px; }
+.attendance-exception__error { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0; border-color: var(--line); color: var(--danger); }
+.attendance-exception__error svg { width: 18px; height: 18px; flex: none; }
+.attendance-exception__form { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); align-items: end; gap: 12px; }
+.attendance-exception__form > p { grid-column: 1 / -1; margin: 0; }
+.attendance-exception__form > button { justify-self: start; }
+.attendance-exception__form > fieldset, .attendance-exception__form > .attendance-exception__choice, .attendance-exception__form > .attendance-exception__actions { grid-column: 1 / -1; }
+.attendance-exception__form fieldset { display: grid; gap: 6px; min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.attendance-exception__form legend { padding: 0 5px; font-weight: 700; }
+.attendance-exception__choice { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.attendance-exception__choice input { flex: none; width: 20px; height: 20px; }
+.attendance-exception textarea { min-height: 92px; resize: vertical; }
+.attendance-exception__list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.attendance-exception__item { display: grid; gap: 10px; min-width: 0; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); padding: 14px; }
+.attendance-exception__item p { margin: 0; overflow-wrap: anywhere; }
+.attendance-exception__summary, .attendance-exception__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.attendance-exception__summary { justify-content: space-between; }
+.attendance-exception__actions .button { min-width: 120px; }
 .core-client-continuation--selected .core-composer { margin-top: 4px; }
 .core-client-picker { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
 .core-client-picker .field { flex: 1 1 260px; }
+.core-selected-client { display: flex; min-height: 44px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface-soft); color: var(--ink); font-size: 1rem; overflow-wrap: anywhere; }
 .core-workflow-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; list-style: none; margin: 16px 0 0; padding: 0; }
 .core-workflow-steps .button { width: 100%; height: 100%; min-height: 64px; display: flex; flex-direction: column; border-radius: 14px; text-align: center; }
 .core-workflow-steps small { font-size: .75rem; line-height: 1.5; }
 .core-workflow-steps [aria-current="step"] { background: var(--brand-soft); color: var(--admin-orange-action-hover); border-color: var(--brand-strong); box-shadow: none; }
 .core-dialog__fields { border: 0; margin: 0; min-width: 0; }
+.caregiver-observations { display: grid; gap: 14px; padding: 0; }
+.caregiver-observations > p { margin: 0; color: var(--ink-muted); font-size: .875rem; }
+.caregiver-observations__item { display: grid; min-width: 0; gap: 9px; padding: 14px; border: 1px solid var(--line); border-radius: var(--card-radius); background: var(--surface); }
+.caregiver-observations__item > label, .caregiver-observations__item > strong { color: var(--ink); font-size: 1rem; font-weight: 800; }
+.caregiver-observations__water { display: flex; align-items: center; gap: 10px; }
+.caregiver-observations__water input { width: 100%; min-width: 0; min-height: 48px; }
+.caregiver-observations__water > span { color: var(--ink-muted); font-weight: 800; }
+.caregiver-observations__choices { display: flex; min-width: 0; flex-wrap: wrap; gap: 8px; }
+.caregiver-observations__choice { min-height: 44px; min-width: 0; flex: 1 1 116px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface); padding: 8px 12px; color: var(--ink); cursor: pointer; font: inherit; font-size: .875rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.caregiver-observations__choice:hover { border-color: var(--brand-strong); background: var(--brand-soft); }
+.caregiver-observations__choice:focus-visible, .caregiver-observations__more summary:focus-visible { outline: 3px solid var(--brand-strong); outline-offset: 2px; }
+.caregiver-observations__choice[aria-pressed="true"] { border-color: var(--brand-strong); background: var(--brand-soft); color: var(--brand-strong); }
+.caregiver-observations__choice:active { transform: translateY(1px); }
+.caregiver-observations__choice:disabled { cursor: not-allowed; opacity: .65; }
+.caregiver-observations__more { min-width: 0; border-top: 1px solid var(--line); }
+.caregiver-observations__more summary { display: flex; min-height: 44px; align-items: center; color: var(--brand-strong); cursor: pointer; font-weight: 800; }
+.caregiver-observations__more .field { margin-top: 10px; }
 .core-client-continuation + .core-care-callout { font-size: .85rem; }
 details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer; }
 @media (min-width: 761px) and (max-width: 1180px) {
@@ -783,6 +826,9 @@ details.panel > summary { min-height: 44px; padding: 12px 20px; cursor: pointer;
   .core-client-continuation--selected .panel__title p { margin-top: 3px; font-size: .78rem; }
   .core-client-continuation--selected .panel__body { padding: 10px 14px 14px; }
   .core-client-continuation--selected .core-composer { justify-items: stretch; margin: 0 0 8px; }
+  .attendance-exception__form { grid-template-columns: minmax(0, 1fr); }
+  .attendance-exception__form > button, .attendance-exception__actions .button { width: 100%; }
+  .attendance-exception__actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .core-client-continuation--selected .core-composer > .button { width: 100%; }
   .core-client-continuation--selected .core-workflow-steps { gap: 6px; margin-top: 8px; }
   .core-client-continuation--selected .core-workflow-steps .button { min-height: 50px; padding: 7px 4px; font-size: .8rem; }

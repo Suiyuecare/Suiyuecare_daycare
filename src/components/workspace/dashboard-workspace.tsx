@@ -6,18 +6,21 @@ import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { DashboardAutoRefresh } from "./dashboard-auto-refresh";
 import { TodayWorkList, type CaregiverWriteCapabilities } from "./today-work-list";
 import type { CareRosterSnapshot } from "@/lib/care-roster/types";
+import type { ActualTransportCaseSnapshot } from "@/lib/transport-case-status/types";
 import { RosterComposer } from "@/components/care-roster/roster-composer";
 
-export function DashboardWorkspace({ snapshot, serviceDate, roster, resumeScopeKey, loadError = false, canViewManagementDetails = false, canOpenReadiness = false, caregiverMode = false, canViewMedication = false, caregiverWrites }: {
+export function DashboardWorkspace({ snapshot, serviceDate, roster, transport, resumeScopeKey, loadError = false, canViewManagementDetails = false, canOpenReadiness = false, caregiverMode = false, hasCareWorkerRole = false, canViewMedication = false, caregiverWrites }: {
   snapshot: DailyCareSnapshot | null;
   serviceDate: string;
   loadError?: boolean;
   canViewManagementDetails?: boolean;
   canOpenReadiness?: boolean;
   caregiverMode?: boolean;
+  hasCareWorkerRole?: boolean;
   canViewMedication?: boolean;
   caregiverWrites?: CaregiverWriteCapabilities;
   roster?: CareRosterSnapshot;
+  transport?: ActualTransportCaseSnapshot;
   resumeScopeKey?: string;
 }) {
   if (loadError || !snapshot) {
@@ -42,7 +45,7 @@ export function DashboardWorkspace({ snapshot, serviceDate, roster, resumeScopeK
     </header>
     {canOpenReadiness ? <p className="today-readiness-entry"><NavigationLink className="button button--secondary" loadingLabel="開站準備清單"
       href={`/app/staff/operations/organization?effectiveOn=${serviceDate}#opening-readiness`}>主管：檢查開站缺項</NavigationLink></p> : null}
-    <TodayWorkList key={`${resumeScopeKey ?? "unscoped"}:${serviceDate}`} rows={buildTodayWorkRows(snapshot, roster, caregiverMode)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} resumeScopeKey={resumeScopeKey} caregiverMode={caregiverMode} canViewMedication={canViewMedication} caregiverWrites={caregiverWrites} />
+    <TodayWorkList key={`${resumeScopeKey ?? "unscoped"}:${serviceDate}`} rows={buildTodayWorkRows(snapshot, roster, caregiverMode)} serviceDate={serviceDate} access={snapshot.sourceAccess} roster={roster} transport={transport} resumeScopeKey={resumeScopeKey} caregiverMode={caregiverMode} showTransportStatus={hasCareWorkerRole} canViewMedication={canViewMedication} caregiverWrites={caregiverWrites} />
     {!caregiverMode && roster && <RosterComposer roster={roster} clients={snapshot.clients} serviceDate={serviceDate} />}
     {!caregiverMode && <footer className="today-footer">
       <NavigationLink className="button button--secondary" loadingLabel="個案中心" href={`/app/staff/workspace/case-center?date=${serviceDate}`}>到個案中心調整篩選</NavigationLink>

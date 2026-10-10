@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowRight, Bell, ClipboardPenLine, HeartPulse, Pill, Search, UserRoundCheck, X } from "lucide-react";
+import { ArrowRight, Bell, BusFront, ClipboardPenLine, HeartPulse, Pill, Search, UserRoundCheck, X } from "lucide-react";
 import { NavigationLink } from "@/components/app/navigation-link";
 import { filterTodayWorkRows, scopeTodayWorkShift, todayWorkAction, type TodayWorkRow, type WorkFilter, type WorkTask } from "@/lib/core-care/today-work";
 import { dailyWorkflowHref } from "@/lib/core-care/workflow-links";
 import type { DailyCareSnapshot } from "@/lib/core-care/types";
 import { ROSTER_TASK_LABELS, type CareRosterSnapshot, type RosterShift } from "@/lib/care-roster/types";
+import type { ActualTransportCaseSnapshot, ActualTransportEventStatus } from "@/lib/transport-case-status/types";
 import styles from "@/components/care-roster/care-roster.module.css";
 
 const filters: { id: WorkTask; label: string; access: keyof DailyCareSnapshot["sourceAccess"] }[] = [
@@ -27,6 +28,13 @@ export type CaregiverWriteCapabilities = {
   medication: boolean;
 };
 const NO_CAREGIVER_WRITES: CaregiverWriteCapabilities = { vitals: false, diary: false, attendance: false, medication: false };
+
+function transportEventLabel(status: ActualTransportEventStatus): string {
+  if (status === "not_scheduled") return "未安排";
+  if (status === "scheduled_unreported") return "未回報";
+  if (status === "exception") return "有異常待核對";
+  return status === "alighted" ? "已下車" : "已上車";
+}
 
 type ResumeState = {
   scope: string;
@@ -113,10 +121,12 @@ function installHistoryNonce(nonce: string) {
   window.history.replaceState({ ...existing, [RESUME_STATE_KEY]: nonce }, "", window.location.href);
 }
 
-export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKey, caregiverMode = false, canViewMedication = false, caregiverWrites = NO_CAREGIVER_WRITES }: {
+export function TodayWorkList({ rows, serviceDate, access, roster, transport, resumeScopeKey, caregiverMode = false, showTransportStatus = caregiverMode, canViewMedication = false, caregiverWrites = NO_CAREGIVER_WRITES }: {
   rows: readonly TodayWorkRow[]; serviceDate: string; access: DailyCareSnapshot["sourceAccess"];
   roster?: CareRosterSnapshot;
+  transport?: ActualTransportCaseSnapshot;
   caregiverMode?: boolean;
+  showTransportStatus?: boolean;
   canViewMedication?: boolean;
   caregiverWrites?: CaregiverWriteCapabilities;
   /** Server-derived opaque actor + tenant + branch key; absent in isolated component tests. */
@@ -144,6 +154,8 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
   const resumeScope = resumeScopeKey ? `${resumeScopeKey}:${serviceDate}` : null;
   const rosterReady = roster?.status === "ready" || roster?.status === "empty";
   const rosterManager = rosterReady && roster?.manager === true;
+  const transportByClient = transport?.status === "ready"
+    ? new Map(transport.rows.map((item) => [item.clientId, item])) : null;
   const eligibleClientIds = rosterReady ? new Set(roster.assignments.filter((slot) => slot.state === "scheduled"
     && slot.isServiceEligible === true && slot.serviceEligibility === "eligible").map((slot) => slot.clientId)) : null;
   const authorizedRows = access.clients ? rows.filter((row) => (!caregiverMode || row.serviceEligible)
@@ -314,6 +326,7 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
           const actionShifts: (RosterShift | undefined)[] = pendingDiaryShifts.length
             ? pendingDiaryShifts : [shift === "all" ? undefined : shift];
           const subjectLabel = `${row.name}（${row.code}）`;
+          const transportCase = transportByClient?.get(row.id);
           const canOpenVitals = access.measurements && row.measurements !== "無查閱權限";
           const canOpenDiary = access.careDiaries && row.diary !== "無查閱權限";
           const canOpenAttendance = access.attendance && row.attendance !== "無查閱權限";
@@ -329,12 +342,19 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
           const caregiverActionLabel = row.unrosteredCheckedIn
             ? canWriteAttendance ? "確認簽退" : "查看出勤"
             : canStartCare ? "開始照顧" : "查看紀錄";
+          const attendanceActionLabel = !canWriteAttendance ? "查看出勤"
+            : row.attendance === "已簽到" ? "簽退"
+              : row.hasEffectiveVital ? "簽到待核對" : "無法量測？";
           return <li className="today-client" key={row.id} ref={index === 0 ? firstRow : undefined} tabIndex={-1}>
           <div className="today-client__identity"><span className="avatar" aria-hidden="true">{row.name.slice(0, 1)}</span><div><h3>{row.name}</h3><small>{row.code}</small></div>
             {row.tasks.includes("attention") && <span className="today-attention">需留意</span>}</div>
           {caregiverMode && row.unrosteredCheckedIn && <p className="today-caregiver-actions__unavailable">{canWriteAttendance
             ? "已簽到・分工待主管核對；可先確認簽退。" : "已簽到・分工待主管核對；簽退請主管處理。"}</p>}
-          <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{row.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{row.diary}</dd></div></dl>
+          <dl className="today-client__status"><div><dt>出勤</dt><dd>{row.attendance}</dd></div><div><dt>量測</dt><dd>{row.measurements}</dd></div><div><dt>照顧日誌</dt><dd>{row.diary}</dd></div>
+            {showTransportStatus && <div className="today-client__transport"><dt><BusFront aria-hidden="true" />接送回報</dt><dd>{row.unrosteredCheckedIn ? "待主管核對" : transportCase
+              ? `去程 ${transportEventLabel(transportCase.pickupStatus)}・回程 ${transportEventLabel(transportCase.dropoffStatus)}`
+              : "暫時無法確認"}</dd></div>}
+          </dl>
           {caregiverMode ? hasCaregiverAction ? <details className="today-caregiver-actions"><summary
             aria-label={`${subjectLabel}：${caregiverActionLabel === "開始照顧" ? "開啟照顧工作" : caregiverActionLabel}`}
             data-today-client-id={row.id} data-today-shift={shift}><span>{caregiverActionLabel}</span><ArrowRight aria-hidden="true" /></summary>
@@ -347,8 +367,8 @@ export function TodayWorkList({ rows, serviceDate, access, roster, resumeScopeKe
                 data-today-client-id={row.id} data-today-shift={shift} onClick={() => rememberBeforeNavigation(row.id, shift === "all" ? undefined : shift)}><ClipboardPenLine aria-hidden="true" />{canWriteDiary ? "喝水・如廁・活動" : "查看照顧紀錄"}</NavigationLink>
                 <NavigationLink className="button button--secondary" loadingLabel="個案提醒" aria-label={`${subjectLabel}：注意事項`} prefetch={false} href={`${dailyWorkflowHref(6, serviceDate, row.id, shift === "all" ? undefined : shift)}#client-care-reminder`}
                   data-today-client-id={row.id} data-today-shift={shift} onClick={() => rememberBeforeNavigation(row.id, shift === "all" ? undefined : shift)}><Bell aria-hidden="true" />注意事項</NavigationLink></>}
-              {canOpenAttendance && <NavigationLink className="button button--secondary" loadingLabel="出勤" aria-label={`${subjectLabel}：${canWriteAttendance ? row.attendance === "已簽到" ? "簽退" : "出勤" : "查看出勤"}`} prefetch={false} href={dailyWorkflowHref(46, serviceDate, row.id, row.unrosteredCheckedIn || shift === "all" ? undefined : shift)}
-                data-today-client-id={row.id} data-today-shift={shift} onClick={() => rememberBeforeNavigation(row.id, shift === "all" ? undefined : shift)}><UserRoundCheck aria-hidden="true" />{canWriteAttendance ? row.attendance === "已簽到" ? "簽退" : "出勤" : "查看出勤"}</NavigationLink>}
+              {canOpenAttendance && <NavigationLink className="button button--secondary" loadingLabel="出勤" aria-label={`${subjectLabel}：${attendanceActionLabel}`} prefetch={false} href={dailyWorkflowHref(46, serviceDate, row.id, row.unrosteredCheckedIn || shift === "all" ? undefined : shift)}
+                data-today-client-id={row.id} data-today-shift={shift} onClick={() => rememberBeforeNavigation(row.id, shift === "all" ? undefined : shift)}><UserRoundCheck aria-hidden="true" />{attendanceActionLabel}</NavigationLink>}
             </div>
             {!row.unrosteredCheckedIn && <p className="today-caregiver-actions__note">用藥仍依有效計畫與簽署流程執行。</p>}
           </details> : <p className="today-caregiver-actions__unavailable">{row.careExpected ? "目前沒有可執行工作，請聯絡主管確認權限。" : "今日照顧安排待確認，請先向主管核對。"}</p> : actionPage ? <div className="today-client__actions">{actionShifts.map((actionShift) => {

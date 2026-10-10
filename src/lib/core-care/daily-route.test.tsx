@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   context: vi.fn(),
   canAccess: vi.fn(),
   inputs: vi.fn(),
+  roster: vi.fn(),
+  routine: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -13,6 +15,8 @@ vi.mock("@/lib/catalog", async (importOriginal) => ({
   canAccessCatalogPage: mocks.canAccess,
 }));
 vi.mock("./daily-page-inputs", () => ({ loadCoreDailyPageInputs: mocks.inputs }));
+vi.mock("@/lib/care-roster/snapshot", () => ({ loadCareRosterSnapshot: mocks.roster }));
+vi.mock("@/lib/auth/routine-care", () => ({ canUseRoutineCare: mocks.routine }));
 vi.mock("@/components/app/staff-access-denied", () => ({ StaffAccessDenied: () => null }));
 vi.mock("@/components/core-care/core-daily-workspace", () => ({ CoreDailyWorkspace: () => null }));
 vi.mock("@/components/core-care/care-diary-lifecycle", () => ({ CareDiaryLifecycle: () => null }));
@@ -61,6 +65,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.context.mockResolvedValue(context);
   mocks.canAccess.mockReturnValue(true);
+  mocks.routine.mockResolvedValue(true);
+  mocks.roster.mockResolvedValue({ status: "unavailable", assignments: [] });
   mocks.inputs.mockResolvedValue({ snapshot, canWriteRoutine: true, canReadDiary: true, canWriteNextStep: true, loadError: false });
 });
 
@@ -110,11 +116,12 @@ describe.each(routes)("dedicated $slug route", ({ number, slug, page, metadata, 
   });
 });
 
-it("does not apply pure caregiver diary layout to a staff member with another role", async () => {
+it("keeps the caregiver workflow for a care worker with an additional clinical role", async () => {
   mocks.context.mockResolvedValue({ ...context, roles: ["care_worker", "nurse"] });
   const result = await CareDiaryPage(pageProps({ date: serviceDate, client: selectedClientId }));
   expect(result.type).toBe(CoreDailyWorkspace);
-  expect(result.props.caregiverMode).toBe(false);
+  expect(result.props.caregiverMode).toBe(true);
+  expect(result.props.careWorkerRole).toBe(true);
 });
 
 it.each([
@@ -132,4 +139,27 @@ it("does not expose diary lifecycle without diary read access", async () => {
   const result = await CareDiaryPage(pageProps({ date: serviceDate, client: selectedClientId }));
   expect(result.props.diaryLifecycle).toBeUndefined();
   expect(result.props.canWrite).toBe(false);
+});
+
+it("offers a first-vital check-in only for the current scheduled caregiver slot", async () => {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const shift = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" }).format(new Date())) < 12 ? "morning" : "afternoon";
+  const baseDaily = buildDemoDailySnapshot(today);
+  const daily = { ...baseDaily, clients: baseDaily.clients.map((row) => row.clientId === selectedClientId
+    ? { ...row, attendance: null, vitalSigns: null } : row) };
+  mocks.inputs.mockResolvedValue({ snapshot: daily, canWriteRoutine: true, canReadDiary: true, canWriteNextStep: true, loadError: false });
+  const slot = { clientId: selectedClientId, shift, state: "scheduled", staffUserId: context.userId, isServiceEligible: true };
+  mocks.roster.mockResolvedValue({ status: "ready", assignments: [slot] });
+  const allowed = await VitalSignsPage(pageProps({ date: today, client: selectedClientId }));
+  expect(allowed.props.canOfferArrival).toBe(true);
+
+  for (const badRoster of [
+    { status: "unavailable", assignments: [] },
+    { status: "ready", assignments: [{ ...slot, state: "cancelled" }] },
+    { status: "ready", assignments: [{ ...slot, staffUserId: "a9999999-9999-4999-8999-999999999999" }] },
+  ]) {
+    mocks.roster.mockResolvedValue(badRoster);
+    const denied = await VitalSignsPage(pageProps({ date: today, client: selectedClientId }));
+    expect(denied.props.canOfferArrival).toBe(false);
+  }
 });

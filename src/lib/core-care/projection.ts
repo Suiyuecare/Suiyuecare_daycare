@@ -118,7 +118,9 @@ export function projectDailyCareSnapshot(input: {
   const clients: DailyClientSummary[] = input.clients.map((client) => {
     const attendanceRow = attendanceByClient.get(client.id);
     const diaryRow = diaryByClient.get(client.id);
-    const measurementRows = [...(measurementsByClient.get(client.id) ?? [])].sort(
+    // A text-only note is not an effective vital sign or a case-arrival clock.
+    const measurementRows = [...(measurementsByClient.get(client.id) ?? [])]
+      .filter((row) => row.numeric_value !== null && vitalFieldByKind.has(row.measurement_kind)).sort(
       (a, b) => b.measured_at.localeCompare(a.measured_at),
     );
     const latestByKind = new Map<string, MeasurementSourceRow>();
