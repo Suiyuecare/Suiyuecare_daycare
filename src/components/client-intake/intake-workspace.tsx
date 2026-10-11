@@ -327,7 +327,7 @@ export function IntakeWorkspace({ context, clients: initialClients, initialSnaps
   }
   const saved = (id: string) => readClient(id, true);
   return <div className={styles.workspace}>
-    <header className={styles.heading}><div><p className={styles.eyebrow}>收案</p><div className={styles.titleRow}><h1>個案建檔</h1><Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link></div><p>先建立基本資料，再安排服務與文件。</p></div></header>
+    <header className={`page-heading ${styles.heading}`}><div><p className="eyebrow">收案</p><div className={styles.titleRow}><h1>個案建檔</h1><Link className="button button--secondary" href="/app/staff/workspace/case-center">個案中心</Link></div><p className="page-heading__description">先建立基本資料，再安排服務與文件。</p></div></header>
     <section className={styles.selector}><label>目前處理的個案<select ref={clientSelector} value={selectedId} disabled={loading || saving} onChange={(e) => choose(e.target.value)}><option value="">＋建立新個案</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName} · {client.clientCode}</option>)}</select></label><div><span className={styles.badge}>{snapshot ? snapshot.pending ? "待收案 · 尚未開始服務" : "已建檔 · 依服務狀態執行" : "尚未建檔"}</span><p>{snapshot ? `基本資料待核對 ${intakeMissingItems(snapshot.profile).length} 項` : error ? "個案資料尚未讀取成功，請先重試。" : !canCreateScope ? "此帳號沒有建立新個案的權限；請選擇已授權的既有個案。" : manual ? "先建立基本資料，其餘項目可後續核對。" : "先匯入 CMS，或選擇手動建檔。"}</p></div></section>
     {leaveError ? <p className={styles.error} role="alert">{leaveError}</p> : null}
     {unknown ? <p className={styles.notice} role="status">上次寫入結果尚未確認；請回到原步驟，以同一次內容重試。暫時不能切換其他步驟或個案。</p> : null}
