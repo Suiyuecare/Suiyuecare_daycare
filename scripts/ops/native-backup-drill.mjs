@@ -1,9 +1,9 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, X509Certificate } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import pg from "pg";
+import { cleanupNativeRestoreDirectory, createNativeRestoreDirectory } from "../lib/native-restore-cleanup.mjs";
 
 // Operator-only drill. Database credentials and restored rows never reach stdout.
 const PROJECT = "diompsnswchpfguvryan";
@@ -27,7 +27,7 @@ function decrypt(bytes) {
   cipher.setAuthTag(bytes.subarray(-16));
   return Buffer.concat([cipher.update(bytes.subarray(16, -16)), cipher.final()]);
 }
-async function run(name, args, environment, input) {
+async function run(name, args, environment, input, options = {}) {
   return new Promise((resolveRun, reject) => {
     const child = spawn(join(BIN, name), args, { env: environment, stdio: ["pipe", "pipe", "pipe"] });
     const output = [], errors = [];
@@ -35,7 +35,8 @@ async function run(name, args, environment, input) {
     child.stderr.on("data", (chunk) => errors.push(chunk));
     child.on("error", () => reject(new Error(`NATIVE_${name.toUpperCase()}_UNAVAILABLE`)));
     child.on("close", (code) => {
-      if (code === 0) resolveRun(Buffer.concat(output));
+      if (code === 0 || options.acceptExitCodes?.includes(code))
+        resolveRun(options.returnExitCode ? code : Buffer.concat(output));
       else {
         // Only classifications, not SQL statements or data, are exposed.
         const raw = Buffer.concat(errors).toString();
@@ -118,18 +119,19 @@ async function restore(filename) {
   const startedAt = Date.now();
   const envelope = JSON.parse(decrypt(readFileSync(join(DIR, filename))).toString());
   if (envelope.version !== 1 || envelope.project !== PROJECT) throw new Error("INVALID_BACKUP_PROJECT");
-  const local = mkdtempSync(join(tmpdir(), "daycare-native-restore-")); chmodSync(local, 0o700);
+  const restoreDirectory = createNativeRestoreDirectory();
+  const local = restoreDirectory.path;
   const data = join(local, "data"), socket = join(local, "socket"); mkdirSync(socket, { mode: 0o700 });
   const port = "55471", user = "daycare_restore_operator";
   const env = { ...process.env, PGHOST: socket, PGPORT: port, PGUSER: user,
     PGDATABASE: "postgres", PGSSLMODE: "disable", PGPASSWORD: "" };
-  let running = false, client, report;
+  let startAttempted = false, client, report, cleanup;
   try {
     await run("initdb", ["-D", data, "--username", user, "--auth-local=trust", "--auth-host=reject", "--encoding=UTF8"], env);
     // Real restored rows are reachable only through the operator-owned 0700
     // Unix socket directory. No TCP listener or host trust authentication.
+    startAttempted = true;
     await run("pg_ctl", ["-D", data, "-l", join(local, "server.log"), "-o", `-c listen_addresses='' -p ${port} -k ${socket}`, "-w", "start"], env);
-    running = true;
     client = new pg.Client({ host: socket, port: Number(port), user, database: "postgres" }); await client.connect();
     const isolation = (await client.query("show listen_addresses")).rows[0]?.listen_addresses;
     if (isolation !== "") throw new Error("RESTORE_TCP_LISTENER_NOT_DISABLED");
@@ -148,14 +150,15 @@ async function restore(filename) {
     report = { operation: "native_restore", project: PROJECT, filename, restoredTables: restored.length,
       restoredRows: restored.reduce((n, table) => n + table.count, 0), exactRowFingerprintMatch: true,
       durationSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(2)), scope: "isolated native PostgreSQL schema and row recovery; not managed platform/PITR or Storage object recovery",
-      localDataDirectory: data, tcpListenerDisabled: true, socketDirectoryMode: "0700", serverStopped: false };
+      tcpListenerDisabled: true, socketDirectoryMode: "0700", serverStopped: false, plaintextDirectoryRemoved: false };
   } finally {
     await client?.end().catch(() => {});
-    if (running) await run("pg_ctl", ["-D", data, "-m", "fast", "-w", "stop"], env);
+    cleanup = await cleanupNativeRestoreDirectory({ directory: restoreDirectory, startAttempted,
+      runPgCtl: (args, acceptExitCodes) => run("pg_ctl", args, env, undefined, { acceptExitCodes, returnExitCode: true }) });
   }
   // A success receipt is written only after pg_ctl has actually stopped the
   // restored cluster. A failed cleanup must not leave a false proof on disk.
-  report.serverStopped = true;
+  Object.assign(report, cleanup);
   writeFileSync(join(DIR, `${filename}.restore-report.json`), JSON.stringify(report, null, 2), { mode: 0o600, flag: "wx" });
   console.log(JSON.stringify(report));
 }

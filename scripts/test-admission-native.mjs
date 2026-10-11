@@ -88,6 +88,7 @@ try {
     "family_portal_read_hardening.test.sql",
     "family_message_offline_schedule.test.sql",
     "jubo_admission_preparation.test.sql",
+    "jubo_admission_lock_reauthorization.test.sql",
     "quality_monthly_evaluation_evidence.test.sql",
   ];
   let assertionTotal = 0;
@@ -312,6 +313,92 @@ try {
   // The executive policy is a singleton. Release only this disposable fixture's
   // policy before the independent roster fixture installs its own approval.
   sql(`delete from private.executive_access_policy where allowed_user_id='${operationsActor(1)}';`);
+
+  // Reuse the exact source-linked JUBO fixture and real native Auth checks. The
+  // independent reviewer also holds a manager role so removing ONLY director
+  // authority cannot be confused with removing generic preparation permission.
+  const juboSource = await readFile(join(root, "supabase/tests/jubo_admission_preparation.test.sql"), "utf8");
+  const juboStart = juboSource.indexOf("select set_config('test.director_amr'");
+  const juboEnd = juboSource.indexOf("select ok(not has_function_privilege");
+  if (juboStart < 0 || juboEnd <= juboStart) throw new Error("Strict source-bound JUBO fixture unavailable.");
+  const juboSetup = sql(`begin;${juboSource.slice(juboStart, juboEnd)}
+    insert into public.membership_roles(membership_id,role_id) values('bb160000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000003');
+    select pg_temp.login(1);select 'NATIVE_JUBO_JWT1='||current_setting('request.jwt.claims');
+    select pg_temp.login(2);select 'NATIVE_JUBO_JWT2='||current_setting('request.jwt.claims');commit;`);
+  const juboJwts = [1, 2].map((actor) => juboSetup.split("\n").find((line) => line.startsWith(`NATIVE_JUBO_JWT${actor}=`))?.slice(`NATIVE_JUBO_JWT${actor}=`.length));
+  if (juboJwts.some((value) => !value)) throw new Error("Native JUBO session metadata unavailable.");
+  const juboOrg = "bb140000-0000-4000-8000-000000000001";
+  const juboBranch = "bb150000-0000-4000-8000-000000000001";
+  const juboClient = "bb240000-0000-4000-8000-000000000001";
+  const juboActor = (actor) => `bb100000-0000-4000-8000-00000000000${actor}`;
+  const juboKey = (number) => `bf930000-0000-4000-8000-${String(number).padStart(12, "0")}`;
+  const juboCall = (actor, call, name = "native_admission_jubo_setup") => `begin;set local application_name='${name}';${staffClaims(juboJwts[actor - 1])}
+    select 'NATIVE_JUBO_RECEIPT='||(${call})::text;commit;`;
+  const juboReadReceipt = (output) => JSON.parse(output.split("\n").find((line) => line.startsWith("NATIVE_JUBO_RECEIPT="))?.slice("NATIVE_JUBO_RECEIPT=".length) ?? "null");
+  const juboPropose = (key) => `public.propose_jubo_pending_admission('${juboOrg}','${juboBranch}','${juboClient}',
+    (clock_timestamp() at time zone 'Asia/Taipei')::date,'SYNTHETIC-ELIGIBILITY',repeat('a',64),
+    (clock_timestamp() at time zone 'Asia/Taipei')::date-1,(clock_timestamp() at time zone 'Asia/Taipei')::date+1,
+    'SYNTHETIC-AGREEMENT',repeat('b',64),1,'Synthetic eligibility and agreement declared; source verification remains pending','${key}')`;
+  const juboOriginalProposal = juboReadReceipt(sql(juboCall(2, juboPropose(juboKey(1)))));
+  const juboReview = (key, proposal) => `public.review_jubo_pending_admission('${juboOrg}','${juboBranch}','${juboClient}',
+    '${proposal?.proposalId}','${proposal?.proposalSha256}','approved','Synthetic independent director review; source verification remains pending','${key}')`;
+  const juboOriginalReview = juboReadReceipt(sql(juboCall(1, juboReview(juboKey(2), juboOriginalProposal))));
+  const juboCurrentProposal = juboReadReceipt(sql(juboCall(2, juboPropose(juboKey(3)))));
+  if (juboOriginalProposal?.admissionEnabled !== false || !juboOriginalProposal?.proposalId
+    || !juboOriginalReview?.reviewId || juboOriginalReview.admissionEnabled !== false || !juboCurrentProposal?.proposalId) {
+    throw new Error("Native JUBO positive preparation/independent review baseline failed.");
+  }
+  const juboCounts = () => sql(`select jsonb_build_array(
+    (select count(*) from private.jubo_pending_admission_proposals where organization_id='${juboOrg}'),
+    (select count(*) from private.jubo_pending_admission_reviews where organization_id='${juboOrg}'),
+    (select count(*) from public.audit_events where organization_id='${juboOrg}'
+      and table_name in ('jubo_pending_admission_proposals','jubo_pending_admission_reviews','private.jubo_pending_admission_proposals','private.jubo_pending_admission_reviews')),
+    (select count(*) from public.clients where organization_id='${juboOrg}' and (status<>'pending' or admitted_on is not null)))::text;`).trim();
+  const juboBaseline = juboCounts();
+  if (JSON.parse(juboBaseline)[0] !== 2 || JSON.parse(juboBaseline)[1] !== 1 || JSON.parse(juboBaseline)[3] !== 0) {
+    throw new Error("JUBO fixture must remain pending without a formal admission.");
+  }
+  const juboBoundaries = {
+    session: (actor) => ({ disable: `update auth.sessions set not_after=clock_timestamp()-interval '1 second' where user_id='${juboActor(actor)}';`, restore: `update auth.sessions set not_after=null where user_id='${juboActor(actor)}';` }),
+    branch: () => ({ disable: `update public.branches set is_active=false where id='${juboBranch}';`, restore: `update public.branches set is_active=true where id='${juboBranch}';` }),
+    // Do not try to revoke the shared-locked reauth row from the advisory-lock
+    // holder: that would create an artificial deadlock. Downgrade the actual
+    // native Auth session's AAL while keeping the in-flight claims unchanged.
+    aal2: (actor) => ({ disable: `update auth.sessions set aal='aal1' where user_id='${juboActor(actor)}';`, restore: `update auth.sessions set aal='aal2' where user_id='${juboActor(actor)}';` }),
+    director: () => ({ disable: "delete from public.membership_roles where membership_id='bb160000-0000-4000-8000-000000000001' and role_id='10000000-0000-4000-8000-000000000011';", restore: "insert into public.membership_roles(membership_id,role_id) values('bb160000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011');" }),
+  };
+  let juboRaceCount = 0;
+  for (const operation of ["proposal", "review"]) {
+    const actor = operation === "proposal" ? 2 : 1;
+    for (const boundaryName of operation === "proposal" ? ["session", "branch", "aal2"] : ["session", "branch", "aal2", "director"]) {
+      for (const replay of [false, true]) {
+        const key = juboKey(replay ? (operation === "proposal" ? 1 : 2) : 100 + juboRaceCount);
+        const lock = `jubo-admission-${operation}:${juboActor(actor)}:${key}`;
+        const holder = await holdDatabaseLock(`select pg_advisory_xact_lock(hashtextextended('${lock}',0))`);
+        const name = `native_admission_jubo_${operation}_${boundaryName}_${replay ? "replay" : "write"}`;
+        const call = operation === "proposal" ? juboPropose(key) : juboReview(key, replay ? juboOriginalProposal : juboCurrentProposal);
+        const work = concurrent(juboCall(actor, call, name));
+        await waitForBlocked([name]);
+        const boundary = juboBoundaries[boundaryName](actor);
+        await holder.release(`${boundary.disable}commit;`);
+        const result = await work;
+        if (result.status === 0 || !result.stderr.includes("42501") || result.stdout.includes("NATIVE_JUBO_RECEIPT=") || juboCounts() !== juboBaseline) {
+          const state = result.stderr.match(/ERROR:\s+([A-Z0-9]{5}):/u)?.[1] ?? "unclassified";
+          throw new Error(`Native JUBO ${operation} ${replay ? "receipt replay" : "write"} retained revoked ${boundaryName} (exit=${result.status}, SQLSTATE=${state}, counts=${juboCounts()}, baseline=${juboBaseline}).`);
+        }
+        if (boundaryName === "director") {
+          const stillAuthorized = sql(`begin;${staffClaims(juboJwts[0])}
+            select public.jubo_admission_preparation_snapshot('${juboOrg}','${juboBranch}','${juboClient}')->>'canSubmit';
+            reset role;select not private.jubo_admission_independent_director('${juboOrg}','${juboBranch}');rollback;`).trim().split("\n").slice(-2).join(",");
+          if (stillAuthorized !== "true,t") throw new Error("Director-role race must retain exact manager preparation scope but not independent-review authority.");
+        }
+        sql(boundary.restore);
+        juboRaceCount += 1;
+        console.log(`Native JUBO ${operation} ${replay ? "receipt replay" : "write"}: observed advisory lock; ${boundaryName} revoked -> 42501; zero extra proposals/reviews/business audits/admissions, no stale receipt.`);
+      }
+    }
+  }
+  console.log(`Native JUBO post-lock races: ${juboRaceCount}/${juboRaceCount}; formal admission remains disabled.`);
 
   // Reuse only synthetic Auth fixture setup. Claims are kept in memory, never
   // printed, sent to a remote server, or used to impersonate a real employee.
