@@ -56,7 +56,7 @@ export function ExternalHealthDevicesWorkspace({
   page: PageCatalogEntry;
   snapshot: ExternalHealthDeviceSnapshot | null;
 }) {
-  if (loadError || !snapshot) return <main className={styles.workspace}>
+  if (loadError || !snapshot) return <section className={styles.workspace}>
     <header className={styles.hero}><div><p className="eyebrow">機構營運管理</p>
       <h1>{page.title}</h1><p>{page.description}</p></div></header>
     <section className={styles.error} role="alert"><h2>目前無法載入外部健康設備</h2>
@@ -64,10 +64,10 @@ export function ExternalHealthDevicesWorkspace({
       <Link className="button button--secondary"
         href="/app/staff/operations/external-health-devices">重新載入</Link>
     </section>
-  </main>;
+  </section>;
 
   const actionEnabled = canManage && !snapshot.clientsTruncated;
-  return <main className={styles.workspace}>
+  return <section className={styles.workspace}>
     <header className={styles.hero}>
       <div><p className="eyebrow">機構營運管理 · 第 65 頁</p>
         <h1>{page.title}</h1><p>{page.description}</p></div>
@@ -192,5 +192,5 @@ export function ExternalHealthDevicesWorkspace({
         </article>)}</div>
       </>}
     </section>
-  </main>;
+  </section>;
 }

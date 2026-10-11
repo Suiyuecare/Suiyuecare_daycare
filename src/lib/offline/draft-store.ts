@@ -2,7 +2,8 @@
 
 import { withOfflineOutboxLock } from "./outbox-lock";
 
-export type OfflineDraftKind = "vital-sign" | "care-note" | "attendance";
+export type OfflineCareDraftKind = "vital-sign" | "care-note" | "attendance";
+export type OfflineDraftKind = OfflineCareDraftKind | "family-message";
 
 export interface OfflineDraft<T = unknown> {
   id: string;

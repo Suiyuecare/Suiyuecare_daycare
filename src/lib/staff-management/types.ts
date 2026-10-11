@@ -47,9 +47,9 @@ export type StaffManagementEmployee = {
   nearestCertificateExpiry: string | null;
   qualificationEvaluationStatus: "not_evaluated";
   revocationJobId: string | null;
-  revocationProviderStatus: "not_configured" | null;
-  revocationDeliveryStatus: "queued" | null;
-  revocationVerificationStatus: "not_verified" | null;
+  revocationProviderStatus: "not_configured" | "supabase_native" | null;
+  revocationDeliveryStatus: "queued" | "completed" | null;
+  revocationVerificationStatus: "not_verified" | "verified" | null;
   revocationQueuedAt: string | null;
   revocationDeadlineAt: string | null;
 };
@@ -138,15 +138,15 @@ export type StaffRevocationJob = {
   membershipId: string;
   profileId: string;
   sourceProposalId: string;
-  providerStatus: "not_configured";
-  deliveryStatus: "queued";
-  verificationStatus: "not_verified";
+  providerStatus: "not_configured" | "supabase_native";
+  deliveryStatus: "queued" | "completed";
+  verificationStatus: "not_verified" | "verified";
   queuedAt: string;
   deadlineAt: string;
-  completedAt: null;
+  completedAt: string | null;
   failedAt: null;
   contentHash: string;
-  slaStatus: "pending_not_verified" | "overdue_not_verified";
+  slaStatus: "pending_not_verified" | "overdue_not_verified" | "completed";
 };
 
 export type StaffManagementSnapshot = {
@@ -195,9 +195,9 @@ export type StaffManagementSnapshot = {
   expiringQualificationTotal: null;
   restrictedServicePolicyStatus: "not_configured";
   qualificationEvaluationStatus: "not_evaluated";
-  sessionRevocationProviderStatus: "not_configured";
+  sessionRevocationProviderStatus: "not_configured" | "supabase_native";
   sessionRevocationSlaMinutes: 5;
-  sessionRevocationVerificationStatus: "not_verified";
+  sessionRevocationVerificationStatus: "not_verified" | "verified";
   fullHrPayrollScope: "excluded";
   attachmentPipelineStatus: "not_configured";
   exportStatus: "disabled";
@@ -300,8 +300,8 @@ export type StaffProposalDecisionReceipt = {
   resultEmploymentVersion: number | null;
   resultMembershipVersion: number | null;
   resultRevocationJobId: string | null;
-  revocationProviderStatus: "not_configured" | null;
-  revocationVerificationStatus: "not_verified" | null;
+  revocationProviderStatus: "not_configured" | "supabase_native" | null;
+  revocationVerificationStatus: "not_verified" | "verified" | null;
   revocationQueuedAt: string | null;
   revocationDeadlineAt: string | null;
   contentHash: string;

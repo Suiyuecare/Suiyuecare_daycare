@@ -16,7 +16,12 @@ describe("body observation workspace", () => {
   it("shows synthetic detail and prior observations while disabling mutations", () => {
     view(); expect(screen.getByRole("button", { name: "新增評估草稿" })).toBeDisabled();
     expect(screen.getByText(/唯讀展示模式/)).toBeInTheDocument();
-    expect(screen.getByText(/照片／附件服務尚未設定/)).toBeInTheDocument();
+    expect(screen.getByText(/先儲存草稿，再附上照片/)).toBeInTheDocument();
+    const attachmentDetails = screen.getAllByText("照片與附件")[0].closest("details")!;
+    attachmentDetails.open = true;
+    fireEvent(attachmentDetails, new Event("toggle", { bubbles: true }));
+    expect(screen.getByText("展示模式不讀取或保存附件。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "上傳" })).not.toBeInTheDocument();
     expect(screen.getByText(/未列出的部位不代表已評估或正常/)).toBeInTheDocument();
     expect(screen.getByText(/紀錄詳情與版本歷程/).closest("details")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "第 1 版 · 草稿待簽" })).toBeInTheDocument();
@@ -28,6 +33,10 @@ describe("body observation workspace", () => {
     expect(screen.queryByLabelText("觀察狀態")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "加入觀察部位" }));
     expect(screen.getByLabelText("觀察狀態")).toHaveValue(""); expect(screen.getByLabelText("部位")).toHaveValue("");
+  });
+  it("renders the update time with fixed ASCII separators for SSR hydration", () => {
+    view({ ...demo, generatedAt: "2026-10-11T16:11:00Z" });
+    expect(screen.getByText(`${demo.matchingTotal} 筆評估 · 更新於 2026/10/12 00:11`)).toBeInTheDocument();
   });
   it("fails closed for incomplete snapshot options", () => {
     view({ ...demo, demo: false, clientsTruncated: true });

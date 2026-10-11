@@ -7,8 +7,8 @@ const source = {
   FINANCE_STORE_ORGANIZATION_ID: "11111111-1111-4111-8111-111111111111",
   FINANCE_STORE_BRANCH_ID: "22222222-2222-4222-8222-222222222222",
   FINANCE_STORE_BINDING_ID: "33333333-3333-4333-8333-333333333333",
-  FINANCE_STORE_ENTITY_ID: "synthetic-entity",
-  FINANCE_STORE_DEPARTMENT_CODE: "T1101",
+  FINANCE_STORE_ENTITY_ID: "E6",
+  FINANCE_STORE_DEPARTMENT_CODE: "J1101",
 };
 const scope = { organizationId: source.FINANCE_STORE_ORGANIZATION_ID, branchId: source.FINANCE_STORE_BRANCH_ID };
 describe("Finance configuration preflight without secrets or network", () => {
@@ -18,7 +18,7 @@ describe("Finance configuration preflight without secrets or network", () => {
   });
   it("shared validation accepts a complete config but explicitly leaves live verification pending", () => {
     expect(inspectFinanceConfiguration(source, scope)).toEqual({ status: "configured_unverified", missing: [], invalid: [], connectionVerified: false });
-    expect(financeConnection(source)).toMatchObject({ entityId: "synthetic-entity", departmentCode: "T1101", branchId: scope.branchId });
+    expect(financeConnection(source)).toMatchObject({ entityId: "E6", departmentCode: "J1101", branchId: scope.branchId });
     const serialized = JSON.stringify(inspectFinanceConfiguration(source, scope));
     for (const value of Object.values(source)) expect(serialized).not.toContain(value);
   });
@@ -42,6 +42,8 @@ describe("Finance configuration preflight without secrets or network", () => {
     expect(inspectFinanceConfiguration({ ...source, FINANCE_STORE_SUMMARY_TOKEN: "  " }).missing).toEqual(["FINANCE_STORE_SUMMARY_TOKEN"]);
     expect(inspectFinanceConfiguration(source, { ...scope, branchId: scope.organizationId }).status).toBe("scope_mismatch");
     expect(inspectFinanceConfiguration(source, { ...scope, organizationId: scope.branchId }).status).toBe("scope_mismatch");
+    expect(inspectFinanceConfiguration({ ...source, FINANCE_STORE_ENTITY_ID: "E2" }, scope).status).toBe("scope_mismatch");
+    expect(inspectFinanceConfiguration({ ...source, FINANCE_STORE_DEPARTMENT_CODE: "C1100" }, scope).status).toBe("scope_mismatch");
     expect(inspectFinanceConfiguration({ ...source, FINANCE_STORE_SUMMARY_URL: "bad", FINANCE_STORE_SUMMARY_TOKEN: undefined })).toMatchObject({ status: "invalid", missing: ["FINANCE_STORE_SUMMARY_TOKEN"], invalid: ["FINANCE_STORE_SUMMARY_URL"] });
   });
 });

@@ -16,8 +16,10 @@ describe.skipIf(!financeRoot)("real daycare fetch -> Finance HTTP handler contra
     };
     const organizationId = "11111111-1111-4111-8111-111111111111";
     const branchId = "22222222-2222-4222-8222-222222222222";
-    const entityId = "SYNTHETIC";
-    const departmentCode = "T1101";
+    // Use the exact approved binding vocabulary with synthetic in-memory
+    // ledger rows. The production client intentionally rejects other stores.
+    const entityId = "E6";
+    const departmentCode = "J1101";
     const token = "a1".repeat(32);
     const settings: Record<string, string> = {
       FINANCE_DAYCARE_SUMMARY_TOKEN: token,

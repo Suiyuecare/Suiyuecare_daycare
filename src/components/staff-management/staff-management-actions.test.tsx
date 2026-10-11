@@ -96,22 +96,39 @@ describe("Page 59 staff management UI boundary", () => {
     expect(screen.queryByText("合成員工甲")).not.toBeInTheDocument();
   });
 
-  it("shows synthetic read-only data and every unconfigured boundary honestly", () => {
+  it("keeps synthetic staff data read-only without implying production invitations or revocation", () => {
     render(<StaffManagementWorkspace canApproveEmployment canApproveRoles
       canApproveTermination canManageEmployment canManageRoles canTerminate
       currentUserId={REVIEWER} filters={filters} hasRecentAal2
       loadError={false} page={page} snapshot={demoSnapshot} />);
     expect(screen.getByText(/展示模式：以下姓名、員編、職務、資格與撤銷回執均為合成資料/u))
       .toBeInTheDocument();
-    expect(screen.getByText(/新增員工候選／邀請來源與 Auth 帳號建立尚未設定/u))
-      .toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "送出邀請提案" }))
+      .not.toBeInTheDocument();
     expect(screen.getByText(/資格到期前 30 日提醒與受限制服務規則尚未發布/u))
       .toBeInTheDocument();
-    expect(screen.getByText(/Supabase Auth Admin 撤銷供應商目前未設定/u))
-      .toBeInTheDocument();
+    expect(screen.queryByText(/撤銷結果已驗證/u)).not.toBeInTheDocument();
     expect(screen.queryByText("建立聘僱／職務異動提案")).not.toBeInTheDocument();
     expect(screen.queryByText("新增員工")).not.toBeInTheDocument();
     expect(screen.queryByText(/即將到期 1/u)).not.toBeInTheDocument();
+  });
+
+  it("reports native revocation verification and preserves pending legacy jobs", () => {
+    const props = { canApproveEmployment: false, canApproveRoles: false,
+      canApproveTermination: false, canManageEmployment: false, canManageRoles: false,
+      canTerminate: false, currentUserId: REVIEWER, filters, hasRecentAal2: false,
+      loadError: false, page };
+    const { rerender } = render(<StaffManagementWorkspace {...props} snapshot={{
+      ...liveSnapshot, sessionRevocationProviderStatus: "supabase_native",
+      sessionRevocationVerificationStatus: "not_verified", pendingRevocationTotal: 1,
+    }} />);
+    expect(screen.getByText(/仍有 1 筆舊工作階段撤銷待確認/u)).toBeInTheDocument();
+    expect(screen.queryByText(/撤銷結果已驗證/u)).not.toBeInTheDocument();
+    rerender(<StaffManagementWorkspace {...props} snapshot={{ ...liveSnapshot,
+      sessionRevocationProviderStatus: "supabase_native",
+      sessionRevocationVerificationStatus: "verified", pendingRevocationTotal: 0,
+    }} />);
+    expect(screen.getByText(/撤銷結果已驗證/u)).toBeInTheDocument();
   });
 
   it("exposes equivalent desktop table and mobile-card identity details", () => {

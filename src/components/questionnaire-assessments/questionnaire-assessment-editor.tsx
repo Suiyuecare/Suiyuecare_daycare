@@ -16,6 +16,8 @@ import type {
   QuestionnaireSnapshot,
 } from "@/lib/questionnaire-assessments/types";
 import { validateMnaAnthropometry, type MnaAnthropometryIssue } from "@/lib/questionnaire-assessments/mna-anthropometry";
+import { questionnaireHistoryHref } from "@/lib/questionnaire-assessments/query";
+import { QuestionnaireLifecycleActions } from "./questionnaire-lifecycle-actions";
 
 import styles from "./questionnaire-assessments.module.css";
 
@@ -69,28 +71,34 @@ function mnaIssueText(issue: MnaAnthropometryIssue) {
 
 function QuestionnaireEditor({
   assessorName,
-  canManage,
+  canManage: permittedToManage,
+  canSign,
   client,
   form,
+  selectedMonth,
   onDirtyChange,
   onWriteGuardChange,
 }: {
   assessorName: string;
   canManage: boolean;
+  canSign: boolean;
   client: QuestionnaireClient;
   form: QuestionnaireFormDefinition;
+  selectedMonth: string | null;
   onDirtyChange: (dirty: boolean) => void;
   onWriteGuardChange: (busy: boolean, unknown: boolean) => void;
 }) {
   const router = useRouter();
   const latest = client.latest;
+  const canManage = permittedToManage && (!latest || ((latest.recordState ?? "draft") === "draft" && latest.isLatest !== false));
   const [answers, setAnswers] = useState(() => initialAnswers(form, latest));
   const [context, setContext] = useState(() => initialContext(form, latest));
-  const [assessedOn, setAssessedOn] = useState(latest?.assessedOn ?? taipeiToday());
+  const initialDate = latest?.assessedOn ?? (selectedMonth && selectedMonth !== taipeiToday().slice(0, 7) ? `${selectedMonth}-01` : taipeiToday());
+  const [assessedOn, setAssessedOn] = useState(initialDate);
   const [savedDraft, setSavedDraft] = useState(() => JSON.stringify({
     answers: initialAnswers(form, latest),
     context: initialContext(form, latest),
-    assessedOn: latest?.assessedOn ?? taipeiToday(),
+    assessedOn: initialDate,
   }));
   const [pending, setPending] = useState(false);
   const [saveUnknown, setSaveUnknown] = useState(false);
@@ -237,11 +245,15 @@ function QuestionnaireEditor({
       if (definiteRejection && !saveUnknown) { operationKey.current = null; operationBody.current = null; }
       throw new Error(errorText(payload));
     }
-    const data = (payload as { data?: unknown }).data as { recordState?: unknown } | null;
-    if (!data || data.recordState !== "draft") throw new Error("無法確認草稿保存狀態，請保留內容並重新載入確認。");
+    const data = (payload as { data?: unknown }).data as { recordState?: unknown; versionId?: unknown } | null;
+    if (!data || data.recordState !== "draft" || typeof data.versionId !== "string") throw new Error("無法確認草稿保存狀態，請保留內容並重新載入確認。");
     operationKey.current = null;
     operationBody.current = null;
     setSaveUnknown(false);
+    const url = new URL(window.location.href);
+    url.searchParams.set("version", data.versionId); url.searchParams.delete("new");
+    if (url.searchParams.get("month") && url.searchParams.get("month") !== assessedOn.slice(0, 7)) url.searchParams.delete("month");
+    router.replace(`${url.pathname}${url.search}`);
   }
 
   return <form
@@ -288,7 +300,7 @@ function QuestionnaireEditor({
       try {
         await save();
         setSavedDraft(currentDraft);
-        setMessage("草稿已保存；重新載入最新版本中。尚未簽署，也未產生正式分數或臨床判讀。");
+        setMessage("草稿已保存。");
         router.refresh();
       } catch (error) {
         setSaveUnknown(operationKey.current !== null);
@@ -301,7 +313,7 @@ function QuestionnaireEditor({
   >
     <div className={styles.formHeader}>
       <h2 className="sr-only">{form.title}填寫表單</h2>
-      <span className={styles.draftBadge}>{latest ? `草稿 v${latest.version}` : "新草稿"}</span>
+      <span className={styles.draftBadge}>{latest ? `${latest.recordState === "signed" ? "已簽署" : latest.recordState === "submitted" ? "待簽署" : "草稿"} v${latest.version}` : "新草稿"}</span>
       <details className={styles.sourceDetails}>
         <summary>填寫說明與來源</summary>
         <p>{form.instructions}</p>
@@ -317,7 +329,7 @@ function QuestionnaireEditor({
 
     <div className={styles.progress}>
       <div className={styles.progressText}>
-        <strong>{client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
+        <strong>{client.displayName}{client.serviceStatus === "pending" ? "・待收案・僅草稿" : client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
         {canManage && nextUnfinishedLabel ? <button aria-label={`從進度前往${nextUnfinishedLabel}`}
           className={styles.progressJump} disabled={pending || saveUnknown} onClick={focusNextUnfinished} type="button">
           待補 {progressTotal - progressValue} <span aria-hidden="true">↓</span>
@@ -326,7 +338,7 @@ function QuestionnaireEditor({
       <progress aria-label={`${form.title}題目與計分條件進度`} max={progressTotal} value={progressValue} />
       <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
     </div>
-    {!canManage ? <p className={styles.readOnly} role="status">只有檢視權限；無法編輯或保存草稿。</p> : null}
+    {!canManage ? <p className={styles.readOnly} role="status">{permittedToManage ? "此版本僅供查閱。" : "只有檢視權限；無法編輯或保存草稿。"}</p> : null}
     {saveUnknown ? <p className={styles.readOnly} role="status">上次保存結果尚未確認；欄位已暫時鎖定，請以同一次內容重試。</p> : null}
 
     <div className={styles.meta}>
@@ -495,11 +507,14 @@ function QuestionnaireEditor({
         {pending ? "保存中…" : saveUnknown ? "重試同一次保存" : latest ? "保存為新版本" : "保存草稿"}
       </button>
     </div>
+    {latest ? <QuestionnaireLifecycleActions record={latest} clientId={client.clientId} formKey={form.key}
+      canManage={permittedToManage} canSign={canSign} draftOnly={client.serviceStatus === "pending"} complete={missingCount === 0 && pendingReasonCount === 0 && pendingContextFields.length === 0}
+      dirty={dirty} safetyConcern={Boolean(suicideConcern)} onWriteGuardChange={onWriteGuardChange} /> : null}
     {message ? <p aria-live="polite" className={styles.message} role="status">{message}</p> : null}
     {latest ? <p className={styles.message}>
       最近保存：{latest.authorDisplayName}・{new Intl.DateTimeFormat("zh-TW", {
         timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short",
-      }).format(new Date(latest.createdAt))}・僅草稿
+      }).format(new Date(latest.createdAt))}
     </p> : null}
   </form>;
 }
@@ -720,11 +735,12 @@ export function QuestionnaireAssessmentsWorkspace({
     </div> : null}
 
     <form action={formRef} className={`${styles.selection} ${chosenClient ? styles.selectionChosen : ""}`} method="get" onSubmit={guardClientChange}>
+      {snapshot.selection?.month ? <input type="hidden" name="month" value={snapshot.selection.month} /> : null}
       <label htmlFor="questionnaire-client"><span className={chosenClient ? "sr-only" : undefined}>個案</span>
         <select defaultValue={chosenClient?.clientId ?? ""} id="questionnaire-client" key={chosenClient?.clientId ?? "none"} name="client" ref={clientSelect} required>
           <option disabled value="">請選擇個案</option>
           {snapshot.clients.map((client) => <option key={client.clientId} value={client.clientId}>
-            {client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}
+            {client.displayName}{client.serviceStatus === "pending" ? "・待收案・僅草稿" : client.serviceStatus === "suspended" ? "・暫停服務" : ""}
           </option>)}
         </select>
       </label>
@@ -755,15 +771,29 @@ export function QuestionnaireAssessmentsWorkspace({
       </div>
     </dialog>
 
-    {chosenClient ? <QuestionnaireEditor
+    {chosenClient ? <>
+    <div className={styles.actions}>
+      {canManage ? <a className="button button--secondary" href={questionnaireHistoryHref(formRef, chosenClient.clientId, { newAssessment: true, month: snapshot.selection?.month })}>＋ 新一次評估</a> : null}
+      <details><summary>評估歷史（{snapshot.historyTotal ?? snapshot.history?.length ?? 0}）</summary>
+        {(snapshot.history ?? []).map((record) => <div className={styles.questionCard} key={record.assessmentKey}>
+          <a href={questionnaireHistoryHref(formRef, chosenClient.clientId, { versionId: record.versionId })}>{record.assessedOn} · {record.recordState === "signed" ? "已簽署" : record.recordState === "submitted" ? "待簽署" : "草稿"} · v{record.version}</a>
+          <details><summary>歷次版本</summary>{record.versions.map((version) => <p key={version.versionId}><a href={questionnaireHistoryHref(formRef, chosenClient.clientId, { versionId: version.versionId })}>v{version.version} · {version.recordState === "signed" ? "已簽署" : version.recordState === "submitted" ? "待簽署" : "草稿"}</a></p>)}</details>
+        </div>)}
+        {(snapshot.historyPage ?? 1) > 1 ? <a className="button button--secondary" href={questionnaireHistoryHref(formRef, chosenClient.clientId, { ...snapshot.selection, historyPage: (snapshot.historyPage ?? 1) - 1 })}>較新紀錄</a> : null}
+        {(snapshot.historyPage ?? 1) * 10 < (snapshot.historyTotal ?? 0) ? <a className="button button--secondary" href={questionnaireHistoryHref(formRef, chosenClient.clientId, { ...snapshot.selection, historyPage: (snapshot.historyPage ?? 1) + 1 })}>較早紀錄</a> : null}
+      </details>
+    </div>
+    <QuestionnaireEditor
       assessorName={assessorName}
       canManage={canManage}
+      canSign={snapshot.canSign ?? false}
       client={chosenClient}
-      form={form}
-      key={`${chosenClient.clientId}-${chosenClient.latest?.versionId ?? "new"}-${discardRevision}`}
+      form={chosenClient.latest?.formSnapshot ?? form}
+      selectedMonth={snapshot.selection?.month ?? null}
+      key={`${chosenClient.clientId}-${chosenClient.latest?.versionId ?? "new"}-${snapshot.selection?.month ?? "all"}-${discardRevision}`}
       onDirtyChange={setHasUnsavedChanges}
       onWriteGuardChange={onWriteGuardChange}
-    /> : <div className={styles.empty}>
+    /></> : <div className={styles.empty}>
       {snapshot.clients.length ? "請先選一位個案，量表會直接在此展開。" : "目前沒有可指派給此帳號的有效個案。請確認個案指派與分支權限。"}
     </div>}
   </div>;

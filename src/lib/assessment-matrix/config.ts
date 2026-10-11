@@ -9,7 +9,7 @@ export function assessmentMatrixReady() {
 }
 
 // Keep this list in the same order as the guarded database snapshot. These are
-// questionnaire drafts only, not signed, scored, or officially due assessments.
+// Exact terminal version status; no inferred clinical completion or due dates.
 export const ASSESSMENT_MATRIX_FORMS: readonly {
   key: QuestionnaireFormKey;
   label: string;
@@ -32,7 +32,10 @@ export function canViewAssessmentMatrix(context: { demo: boolean; scopes: readon
     ASSESSMENT_MATRIX_FORMS.some((form) => context.scopes.includes(form.permission)));
 }
 
-export function assessmentFormHref(formKey: QuestionnaireFormKey, clientId: string): string | null {
+export function assessmentFormHref(formKey: QuestionnaireFormKey, clientId: string, month?: string, versionId?: string): string | null {
   const form = ASSESSMENT_MATRIX_FORMS.find((entry) => entry.key === formKey);
-  return form ? `${form.href}?${new URLSearchParams({ client: clientId })}` : null;
+  const query = new URLSearchParams({ client: clientId });
+  if (month) query.set("month", month);
+  if (versionId) query.set("version", versionId);
+  return form ? `${form.href}?${query}` : null;
 }

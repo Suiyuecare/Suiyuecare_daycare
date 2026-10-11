@@ -21,8 +21,19 @@ select results_eq(
 select results_eq(
   $$select p.permission_key from public.role_permissions rp join public.permissions p on p.id=rp.permission_id
     where rp.role_id='10000000-0000-4000-8000-000000000011' order by p.permission_key$$,
-  $$values ('attendance.exception_approve'),('attendance.read'),('care_records.read'),('clients.read'),('clients.view_all'),('notifications.read'),('services.read')$$,
-  'director retains six read permissions plus the dedicated attendance exception approval permission');
+  $$select permission_key from (values
+    ('attendance.exception_approve'),('attendance.read'),('care_records.read'),
+    ('clients.read'),('clients.view_all'),('notifications.read'),('services.read'),
+    ('audit.view'),('quality_events.read'),('quality_monthly.export'),('reports.read'),
+    ('clients.intake_draft.manage'),('clients.jubo_pending_source.read'),
+    ('questionnaire_cognition.read'),('questionnaire_cognition.manage'),('questionnaire_cognition.sign'),
+    ('questionnaire_adl.read'),('questionnaire_adl.manage'),('questionnaire_adl.sign'),
+    ('questionnaire_swallowing.read'),('questionnaire_swallowing.manage'),('questionnaire_swallowing.sign'),
+    ('questionnaire_emotion.read'),('questionnaire_emotion.manage'),('questionnaire_emotion.sign'),
+    ('questionnaire_fall.read'),('questionnaire_fall.manage'),('questionnaire_fall.sign'),
+    ('questionnaire_nutrition.read'),('questionnaire_nutrition.manage'),('questionnaire_nutrition.sign')
+  ) expected(permission_key) order by permission_key$$,
+  'director template has only reviewed branch-read, intake-draft, quality and questionnaire duties; no nursing, medication or global grants');
 select is((select count(*)::integer from public.membership_roles where role_id='10000000-0000-4000-8000-000000000011'),0,
   'migration assigns no person to the new director role');
 select is((select count(*)::integer from private.staff_google_access_grants),0,

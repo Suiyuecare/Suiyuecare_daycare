@@ -6,6 +6,7 @@ import { parseCaseCenterFilters } from "./query";
 const mocks = vi.hoisted(() => ({
   db: vi.fn(),
   directory: vi.fn(),
+  pendingAccess: vi.fn(),
   from: vi.fn(),
   select: vi.fn(),
   eq: vi.fn(),
@@ -19,6 +20,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: mocks.db }));
 vi.mock("@/lib/clients/directory", () => ({ loadAllClientDirectoryRows: mocks.directory }));
+vi.mock("@/lib/questionnaire-assessments/pending-access", () => ({
+  loadAuthorizedPendingQuestionnaireClientIds: mocks.pendingAccess,
+}));
 
 import { loadCaseCenterSnapshot } from "./registry";
 
@@ -40,6 +44,7 @@ const context: TenantContext = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.pendingAccess.mockResolvedValue(new Set());
   mocks.db.mockResolvedValue({ from: mocks.from });
   mocks.from.mockReturnValue({ select: mocks.select });
   const query = {
@@ -73,6 +78,46 @@ beforeEach(() => {
 });
 
 describe("case-center assignment paging", () => {
+  it("does not infer pending questionnaire authority from lifecycle or role", async () => {
+    mocks.directory.mockResolvedValue([{
+      id: clientId, client_code: "PENDING-001", display_name: "合成待收案個案",
+      status: "pending", admitted_on: null, ended_on: null,
+      updated_at: "2026-09-01T00:00:00Z",
+    }]);
+    const result = await loadCaseCenterSnapshot(context, parseCaseCenterFilters({ date: "2026-10-03" }));
+    expect(mocks.pendingAccess).not.toHaveBeenCalled();
+    expect(result.clients[0]?.canDraftPendingQuestionnaires).not.toBe(true);
+  });
+
+  it("grants the pending draft shortcut only for the exact visible ID returned by the server", async () => {
+    mocks.directory.mockResolvedValue([{
+      id: clientId, client_code: "PENDING-001", display_name: "合成待收案個案",
+      status: "pending", admitted_on: null, ended_on: null,
+      updated_at: "2026-09-01T00:00:00Z",
+    }]);
+    const allowedContext = { ...context, scopes: [...context.scopes, "questionnaire_spmsq.read"] };
+    mocks.pendingAccess.mockResolvedValue(new Set([clientId, "c0000000-0000-4000-8000-000000000099"]));
+    const result = await loadCaseCenterSnapshot(allowedContext, parseCaseCenterFilters({ date: "2026-10-03" }));
+    expect(mocks.pendingAccess).toHaveBeenCalledWith(allowedContext, [clientId]);
+    expect(result.clients).toHaveLength(1);
+    expect(result.clients[0]?.canDraftPendingQuestionnaires).toBe(true);
+  });
+
+  it("keeps the authorized directory usable while denying draft shortcuts if the action check fails", async () => {
+    mocks.directory.mockResolvedValue([{
+      id: clientId, client_code: "PENDING-001", display_name: "合成待收案個案",
+      status: "pending", admitted_on: null, ended_on: null,
+      updated_at: "2026-09-01T00:00:00Z",
+    }]);
+    mocks.pendingAccess.mockRejectedValue(new Error("denied"));
+    const result = await loadCaseCenterSnapshot(
+      { ...context, scopes: [...context.scopes, "questionnaire_spmsq.read"] },
+      parseCaseCenterFilters({ date: "2026-10-03" }),
+    );
+    expect(result.clients).toHaveLength(1);
+    expect(result.clients[0]?.canDraftPendingQuestionnaires).toBe(false);
+  });
+
   it("uses a stable unique tie-breaker without widening self-only visibility", async () => {
     const filters = parseCaseCenterFilters({ date: "2026-10-03" });
     const result = await loadCaseCenterSnapshot(context, filters);

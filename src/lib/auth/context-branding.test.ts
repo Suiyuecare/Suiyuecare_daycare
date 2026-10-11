@@ -319,6 +319,29 @@ describe("branding cannot replace authenticated tenant identity", () => {
     await expect(requireTenantContext("family")).rejects.toThrow("REDIRECT:/login?audience=family");
   });
 
+  it("admits a consent-bound family through its self-only context, without employee membership reads", async () => {
+    mocks.aal.mockResolvedValue({ data: { currentLevel: "aal1" } });
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === "is_family_login_allowed" ? true : [
+      { organization_id: ORG, organization_name: "合成授權機構", branch_id: BRANCH, branch_name: "合成分支",
+        display_name: "合成家屬", role_keys: ["family"], scopes: ["family:authorized_client"] },
+    ], error: null }));
+    expect(await getTenantContext("family")).toMatchObject({ userId: USER, organizationId: ORG, branchId: BRANCH,
+      roles: ["family"], assuranceLevel: "aal1", recentAal2At: null, demo: false });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledWith("family_tenant_context", { p_expected_organization_id: null, p_expected_branch_id: null });
+  });
+
+  it.each(["role", "branch", "malformed"])("rejects unsafe family context %s without another tenant fallback", async (kind) => {
+    mocks.cookieGet.mockImplementation((name: string) => name === "daycare_branch" ? { value: BRANCH } : undefined);
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === "is_family_login_allowed" ? true : [
+      { organization_id: ORG, organization_name: "合成授權機構", branch_id: kind === "branch" ? USER : BRANCH,
+        branch_name: "合成分支", display_name: "合成家屬", role_keys: kind === "role" ? ["family", "organization_manager"] : ["family"],
+        scopes: kind === "malformed" ? [42] : ["family:authorized_client"] },
+    ], error: null }));
+    expect(await getTenantContext("family")).toBeNull();
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
   it.each([true, false, null, "true"])("keeps the recent AAL2 evidence RPC authoritative (%s)", async (evidence) => {
     mocks.rpc.mockImplementation(async (name: string) => ({
       data: name === "is_staff_login_allowed" ? true : evidence, error: null,

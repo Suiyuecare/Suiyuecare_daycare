@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { ClinicalAttachments } from "@/components/clinical-attachments/clinical-attachments";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PageCatalogEntry } from "@/lib/catalog";
+import { formatCareTaipeiTime } from "@/lib/core-care/date";
 import { bodyObservationsReady, parseBodyAssessmentMutation, parseBodyAssessmentSuccess, type BodyAssessmentInput } from "@/lib/body-assessments/parser";
 import { BODY_AREAS, BODY_AREA_LABELS, BODY_OBSERVATION_STATES, BODY_STATE_LABELS,
   type BodyAssessmentRecord, type BodyAssessmentSnapshot, type BodyAssessmentVersion } from "@/lib/body-assessments/types";
 import styles from "./body-assessments.module.css";
 
 const stateLabel = { draft: "草稿待簽", signed: "已簽署", corrected: "已簽更正版" };
-function time(value: string) { return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)); }
+function time(value: string) { return formatCareTaipeiTime(value).slice(0, 16); }
 function localTime(value: string) { return new Date(Date.parse(value) + 8 * 3_600_000).toISOString().slice(0, 16); }
 function Observations({ version }: { version: BodyAssessmentVersion }) {
   return <dl className={styles.observations}>{version.observations.map((item) => <div key={item.area}>
@@ -100,7 +102,7 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
     <header className={styles.header}><div><p>個案照護 · 人工身體觀察</p><h1>{page.title}</h1>
       <p>逐一選取本次實際觀察的部位。未列出的部位不代表已評估或正常。</p></div>
       <button type="button" disabled={blocked || !canManage || snapshot.clients.length === 0} onClick={() => openEditor(null)}>新增評估草稿</button></header>
-    <p className={styles.notice}>本頁為非標準化人工觀察紀錄，不提供診斷或量表分數。照片／附件服務尚未設定，現階段僅能保存文字觀察。</p>
+    <p className={styles.notice}>人工觀察紀錄；先儲存草稿，再附上照片。</p>
     {snapshot.demo && <p className={styles.notice}>唯讀展示模式：以下個案、紀錄與簽署歷程皆為合成示例。</p>}
     {incomplete && <p role="alert">可用資料範圍不完整，已停用寫入。請縮小查詢範圍或聯絡管理人員。</p>}
     {expired && <p role="alert">資料已超過 5 分鐘，請重新載入後再操作。</p>}
@@ -141,6 +143,7 @@ export function BodyAssessmentsWorkspace({ page, snapshot, canManage, canSign, a
     {snapshot.records.map((record) => <article className={styles.record} key={record.version_id}>
       <header><h2>{record.client_display_name}</h2><span>{stateLabel[record.record_state]} · 第 {record.version} 版</span></header>
       <p>觀察於 {time(record.observed_at)} · 記錄人 {record.actor_display_name}</p><Observations version={record} />
+      <ClinicalAttachments source={{ clientId: record.client_id, sourceKind: "body_assessment", sourceId: record.version_id, sourceVersion: record.version }} canManage={canManage && record.record_state === "draft"} demo={snapshot.demo} />
       <p>本版理由：{record.reason}</p>
       {record.signed_at && <p>已由：{record.actor_display_name} · {time(record.signed_at)} · {record.signature_purpose}</p>}
       <div className={styles.actions}>

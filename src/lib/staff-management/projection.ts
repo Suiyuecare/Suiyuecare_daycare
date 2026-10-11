@@ -49,9 +49,9 @@ const employeeSchema = z.object({
   nearest_certificate_expiry: date.nullable(),
   qualification_evaluation_status: z.literal("not_evaluated"),
   revocation_job_id: uuid.nullable(),
-  revocation_provider_status: z.literal("not_configured").nullable(),
-  revocation_delivery_status: z.literal("queued").nullable(),
-  revocation_verification_status: z.literal("not_verified").nullable(),
+  revocation_provider_status: z.enum(["not_configured", "supabase_native"]).nullable(),
+  revocation_delivery_status: z.enum(["queued", "completed"]).nullable(),
+  revocation_verification_status: z.enum(["not_verified", "verified"]).nullable(),
   revocation_queued_at: timestamp.nullable(),
   revocation_deadline_at: timestamp.nullable(),
 }).strict();
@@ -107,11 +107,11 @@ const profileOptionSchema = z.object({
 }).strict();
 const revocationJobSchema = z.object({
   job_id: uuid, membership_id: uuid, profile_id: uuid, source_proposal_id: uuid,
-  provider_status: z.literal("not_configured"), delivery_status: z.literal("queued"),
-  verification_status: z.literal("not_verified"), queued_at: timestamp,
-  deadline_at: timestamp, completed_at: z.null(), failed_at: z.null(),
+  provider_status: z.enum(["not_configured", "supabase_native"]), delivery_status: z.enum(["queued", "completed"]),
+  verification_status: z.enum(["not_verified", "verified"]), queued_at: timestamp,
+  deadline_at: timestamp, completed_at: timestamp.nullable(), failed_at: z.null(),
   content_hash: hash,
-  sla_status: z.enum(["pending_not_verified", "overdue_not_verified"]),
+  sla_status: z.enum(["pending_not_verified", "overdue_not_verified", "completed"]),
 }).strict();
 
 const sourceSchema = z.object({
@@ -141,9 +141,9 @@ const sourceSchema = z.object({
   qualification_notice_days: z.null(), expiring_qualification_total: z.null(),
   restricted_service_policy_status: z.literal("not_configured"),
   qualification_evaluation_status: z.literal("not_evaluated"),
-  session_revocation_provider_status: z.literal("not_configured"),
+  session_revocation_provider_status: z.enum(["not_configured", "supabase_native"]),
   session_revocation_sla_minutes: z.literal(5),
-  session_revocation_verification_status: z.literal("not_verified"),
+  session_revocation_verification_status: z.enum(["not_verified", "verified"]),
   recent_aal2_max_age_minutes: z.literal(15),
   full_hr_payroll_scope: z.literal("excluded"),
   attachment_pipeline_status: z.literal("not_configured"),
@@ -444,9 +444,15 @@ export function projectStaffManagementSnapshot({
 
   const jobIds = new Set<string>();
   for (const job of row.revocation_jobs) {
-    const expectedSla = Date.parse(job.deadline_at) < Date.parse(row.generated_at)
+    const completed = job.provider_status === "supabase_native" && job.delivery_status === "completed" &&
+      job.verification_status === "verified" && job.completed_at !== null &&
+      Date.parse(job.completed_at) >= Date.parse(job.queued_at) &&
+      Date.parse(job.completed_at) <= Date.parse(job.deadline_at);
+    const queued = job.provider_status === "not_configured" && job.delivery_status === "queued" &&
+      job.verification_status === "not_verified" && job.completed_at === null;
+    const expectedSla = completed ? "completed" : Date.parse(job.deadline_at) < Date.parse(row.generated_at)
       ? "overdue_not_verified" : "pending_not_verified";
-    if (jobIds.has(job.job_id) ||
+    if (jobIds.has(job.job_id) || (!completed && !queued) ||
       Date.parse(job.deadline_at) - Date.parse(job.queued_at) !== 5 * 60_000 ||
       job.sla_status !== expectedSla ||
       !row.proposals.some((proposal) => proposal.proposal_id === job.source_proposal_id &&
@@ -459,7 +465,7 @@ export function projectStaffManagementSnapshot({
   if (row.revocation_job_total <= 200 && row.revocation_jobs.length !== row.revocation_job_total) {
     invalid();
   }
-  if (row.pending_revocation_total !== row.revocation_job_total ||
+  if (row.revocation_job_total <= 200 && row.pending_revocation_total !== row.revocation_jobs.filter((job) => job.delivery_status === "queued").length ||
     row.overdue_revocation_total !== row.revocation_jobs.filter((job) =>
       job.sla_status === "overdue_not_verified").length && row.revocation_job_total <= 200) {
     invalid();

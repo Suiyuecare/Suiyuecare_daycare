@@ -12,6 +12,7 @@ import {
 } from "./lifecycle";
 import {
   allowedClientTransitionKinds,
+  clientServiceState,
   taipeiDate,
 } from "./lifecycle-rules";
 
@@ -126,6 +127,11 @@ describe("client lifecycle typed input", () => {
 });
 
 describe("client lifecycle projection and rules", () => {
+  it("requires reviewed admission rather than a legacy status transition for imported pending clients", () => {
+    const pending = { status: "pending" as const, admittedOn: null, endedOn: null };
+    expect(clientServiceState(pending)).toBe("pending_admission");
+    expect(allowedClientTransitionKinds(pending)).toEqual([]);
+  });
   it("offers only legal UI candidates while leaving enforcement to the RPC", () => {
     expect(allowedClientTransitionKinds({
       status: clientRows[0]!.status,

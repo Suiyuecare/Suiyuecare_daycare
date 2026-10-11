@@ -56,7 +56,7 @@ export function HandHygieneWorkspace({
   page: PageCatalogEntry;
   snapshot: HandHygieneSnapshot | null;
 }) {
-  if (loadError || !snapshot) return <main className={styles.workspace}>
+  if (loadError || !snapshot) return <section className={styles.workspace}>
     <header className={styles.hero}><div><p className="eyebrow">機構營運管理</p>
       <h1>{page.title}</h1><p>{page.description}</p></div></header>
     <section className={styles.error} role="alert">
@@ -64,9 +64,9 @@ export function HandHygieneWorkspace({
       <p>可能是無權限、分支情境失效、資料逾時或服務未設定；系統不會用空數字取代失敗結果。</p>
       <Link className="button button--secondary" href="/app/staff/operations/hand-hygiene">重新載入</Link>
     </section>
-  </main>;
+  </section>;
 
-  return <main className={styles.workspace}>
+  return <section className={styles.workspace}>
     <header className={styles.hero}>
       <div><p className="eyebrow">機構營運管理 · 第 66 頁</p>
         <h1>{page.title}</h1><p>{page.description}</p></div>
@@ -163,5 +163,5 @@ export function HandHygieneWorkspace({
         </article>)}</div>
       </>}
     </section>
-  </main>;
+  </section>;
 }

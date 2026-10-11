@@ -67,6 +67,15 @@ describe("assessment matrix fail-closed snapshot", () => {
     await expect(loadAssessmentMatrixSnapshot(actor, filters)).rejects.toBeInstanceOf(AssessmentMatrixSnapshotError);
   });
 
+  it("supports pending draft preparation without claiming a submitted or signed assessment", async () => {
+    const data = response();
+    data.clients[0]!.serviceStatus = "pending";
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    expect((await loadAssessmentMatrixSnapshot(actor, filters)).clients[0].serviceStatus).toBe("pending");
+    data.clients[0]!.cells.spmsq.state = "signed";
+    await expect(loadAssessmentMatrixSnapshot(actor, filters)).rejects.toBeInstanceOf(AssessmentMatrixSnapshotError);
+  });
+
   it("uses only a labelled synthetic empty state in demo mode", async () => {
     const demo = await loadAssessmentMatrixSnapshot({ ...actor, demo: true }, filters);
     expect(demo).toMatchObject({ demo: true, clients: [], totalClients: 0 });

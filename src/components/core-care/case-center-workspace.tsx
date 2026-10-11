@@ -74,6 +74,15 @@ const continuationPages = [
   { number: 7, label: "用藥紀錄", slug: "staff/daily-care/medication-records", daily: true },
   { number: 28, label: "心理社會評估", slug: "staff/social-work/psychosocial-assessment", daily: false },
   { number: 8, label: "用藥計畫", slug: "staff/daily-care/medication-plans", daily: false },
+  { number: 11, label: "SPMSQ 評估", slug: "staff/assessments/spmsq", daily: false, questionnaire: true },
+  { number: 12, label: "GDS 評估", slug: "staff/assessments/gds", daily: false, questionnaire: true },
+  { number: 13, label: "跌倒風險", slug: "staff/assessments/fall-risk", daily: false, questionnaire: true },
+  { number: 14, label: "NSI 評估", slug: "staff/assessments/nsi", daily: false, questionnaire: true },
+  { number: 15, label: "Barthel ADL", slug: "staff/assessments/barthel-adl", daily: false, questionnaire: true },
+  { number: 16, label: "IADL 評估", slug: "staff/assessments/iadl", daily: false, questionnaire: true },
+  { number: 17, label: "吞嚥評估", slug: "staff/assessments/swallowing", daily: false, questionnaire: true },
+  { number: 18, label: "BSRS 評估", slug: "staff/assessments/bsrs", daily: false, questionnaire: true },
+  { number: 36, label: "MNA 評估", slug: "staff/professional-care/mna", daily: false, questionnaire: true },
 ] as const;
 
 function clientContinuationHref(slug: string, clientId: string, date?: string) {
@@ -136,6 +145,8 @@ function ClientWorkActions({
   const options = previewMode ? [] : continuationPages.filter((entry) =>
     (!caregiverMode || entry.number === 7) &&
     allowedContinuationPages.includes(entry.number) &&
+    (!("questionnaire" in entry) || ["active", "suspended"].includes(client.lifecycleState) ||
+      (client.lifecycleState === "pending_admission" && client.canDraftPendingQuestionnaires === true)) &&
     (!entry.daily || canStartClientWork(client, date)),
   );
   const primaryOption = !canStart ? options[0] : undefined;

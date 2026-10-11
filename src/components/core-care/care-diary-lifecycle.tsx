@@ -1,4 +1,7 @@
 "use client";
+import { ClinicalAttachments } from "@/components/clinical-attachments/clinical-attachments";
+import { CareHandoffPanel } from "@/components/care-handoff/care-handoff-panel";
+import { FamilyPublicationPanel } from "@/components/family/family-publication-panel";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -231,6 +234,9 @@ function CareDiaryClientLifecycle({ clientId, clientName, clientCode, serviceDat
       <p>{record.fields.note || "未填寫文字摘要，請確認本次快速紀錄。"}</p>
       {record.fields.abnormal ? <p>需留意：{record.fields.follow_up || "請補充後續行動"}</p> : null}
       {record.fields.observations ? <details><summary>查看本次快速紀錄</summary><DiaryObservationSummary observations={record.fields.observations} /></details> : null}
+      <ClinicalAttachments source={{ clientId: record.client_id, sourceKind: "care_diary", sourceId: record.id, sourceVersion: record.version }} canManage={enabled && record.status === "draft"} demo={demo} />
+      <CareHandoffPanel clientId={record.client_id} sourceRecordId={record.id} canWrite={enabled} demo={demo} />
+      <FamilyPublicationPanel clientId={record.client_id} sourceId={record.id} category="care" occurredAt={record.occurred_at} enabled={canSign && record.status === "signed" && !demo} />
       {record.signed_at ? <p>簽署時間：{new Date(record.signed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}。原內容不可覆寫。</p> : null}
       {editingId === record.id ? <DiaryEditor key={record.id} record={record} pending={pending} locked={attempt.locked} unresolved={() => Boolean(attempt.current())} onSave={(fields) => action(record, "edit", { data: fields })} onCancel={() => { if (!attempt.current()) setEditingId(null); }} /> : null}
       <div className="action-row">{record.status === "draft" ? <><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => setEditingId(record.id)} type="button">繼續編輯草稿</button><button className="button button--primary" disabled={pending || attempt.locked || !enabled || demo || editingId !== null} onClick={() => requestAction(record, "submit")} type="button">提交已儲存版本</button></> : record.status === "submitted" ? <><button className="button button--primary" disabled={pending || attempt.locked || !canSign || demo || editingId !== null} onClick={() => requestAction(record, "sign")} type="button">確認內容並簽署</button><form data-core-care-draft onSubmit={(event) => { event.preventDefault(); requestAction(record, "reopen", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>退回理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">退回草稿修訂</button></form></> : <form data-core-care-draft onSubmit={(event) => { event.preventDefault(); requestAction(record, "correct", { reason: String(new FormData(event.currentTarget).get("reason") ?? "") }); }}><label className="field"><span>更正理由</span><input name="reason" required maxLength={1000} disabled={pending || attempt.locked || !enabled || !canRevise || demo} /></label><button className="button button--secondary" disabled={pending || attempt.locked || !enabled || !canRevise || demo || editingId !== null} type="submit">建立更正草稿</button></form>}</div>

@@ -36,6 +36,10 @@ describe("nursing API", () => {
       p_expected_organization_id: id, p_expected_branch_id: id, p_request: input, p_idempotency_key: id });
     expect(stubs.reauth).not.toHaveBeenCalled();
   });
+  it("ordinary admitted nurse AAL1 may submit a draft but is not marked as reauthenticated", async () => {
+    stubs.actor.mockResolvedValue({ ...actor, assuranceLevel: "aal1" });
+    expect((await POST(request())).status).toBe(201); expect(stubs.reauth).not.toHaveBeenCalled();
+  });
   it.each([{ ...actor, demo: true }, { ...actor, roles: ["organization_manager"] },
     { ...actor, scopes: ["clients.read", "nursing_assessments.read"] }])("rejects demo, non-nurse or missing permission", async (value) => {
     stubs.actor.mockResolvedValue(value); expect((await POST(request())).status).toBe(403); expect(stubs.rpc).not.toHaveBeenCalled();

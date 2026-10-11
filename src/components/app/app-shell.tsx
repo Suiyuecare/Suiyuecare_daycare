@@ -130,6 +130,7 @@ export function AppShell({
   const refreshLease = useRef<(() => void) | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuOpener = useRef<HTMLButtonElement | null>(null);
+  const restoreMenuFocus = useRef(false);
   const menuClose = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
   const operationPending = usePendingOperations();
@@ -263,16 +264,24 @@ export function AppShell({
   }
 
   const closeMenu = useCallback(({ returnFocus = true }: { returnFocus?: boolean } = {}) => {
+    restoreMenuFocus.current = returnFocus;
     setMenuOpen(false);
-    if (returnFocus) {
-      requestAnimationFrame(() => (menuOpener.current ?? menuTrigger.current)?.focus());
-    }
   }, []);
 
   function openMenu(trigger: HTMLButtonElement) {
+    restoreMenuFocus.current = false;
     menuOpener.current = trigger;
     setMenuOpen(true);
   }
+
+  useEffect(() => {
+    // Restore only after React has removed inert from the actual opener's
+    // container. A frame scheduled inside the key handler can run too early.
+    if (menuOpen || !restoreMenuFocus.current) return;
+    restoreMenuFocus.current = false;
+    const trigger = menuOpener.current?.isConnected ? menuOpener.current : menuTrigger.current;
+    trigger?.focus();
+  }, [menuOpen]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 760px)");
@@ -287,6 +296,7 @@ export function AppShell({
     menuClose.current?.focus();
     function handleKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        event.preventDefault();
         closeMenu();
         return;
       }

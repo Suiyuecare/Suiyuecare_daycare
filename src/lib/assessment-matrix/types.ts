@@ -2,13 +2,13 @@ import type { QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types
 
 export type AssessmentMatrixCell =
   | { state: "none" }
-  | { state: "draft"; versionId: string; version: number; assessedOn: string };
+  | { state: "draft" | "submitted" | "signed"; versionId: string; version: number; assessedOn: string };
 
 export interface AssessmentMatrixClient {
   clientId: string;
   clientCode: string;
   displayName: string;
-  serviceStatus: "active" | "suspended";
+  serviceStatus: "pending" | "active" | "suspended";
   cells: Partial<Record<QuestionnaireFormKey, AssessmentMatrixCell>>;
 }
 

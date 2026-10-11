@@ -28,6 +28,9 @@ export async function loadSocialWorkRecordSnapshot(
       filters,
     );
   }
+  if (!context.scopes.includes("clients.read") || !context.scopes.includes("social_work_records.read")) {
+    throw new SocialWorkRecordSnapshotError();
+  }
   const supabase = await createServerSupabaseClient();
   if (!supabase) throw new SocialWorkRecordSnapshotError();
   const { data, error } = await supabase.rpc("social_work_service_snapshot", {

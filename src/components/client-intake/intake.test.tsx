@@ -6,7 +6,7 @@ const routerReplace = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", async (importOriginal) => ({ ...await importOriginal<typeof import("next/navigation")>(), useRouter: () => ({ replace: routerReplace }) }));
 import { IntakeProfileForm } from "./intake-profile-form";
 import { CmsIntakeStep } from "./cms-intake-step";
-import { emptyIntakeProfile } from "@/lib/client-intake/model";
+import { emptyIntakeProfile, type IntakeSnapshot } from "@/lib/client-intake/model";
 import { IntakeWorkspace } from "./intake-workspace";
 const id = "c1600000-0000-4000-8000-000000000001";
 const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
@@ -23,6 +23,25 @@ afterAll(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); routerReplace.mockReset(); });
 describe("intake usability and truthful writes", () => {
+  it("locks only confirmed source fields while keeping source-empty data and contact supplements editable", () => {
+    const initial: IntakeSnapshot = { clientId: id, profileVersion: 0, clientRowVersion: 1, pending: true,
+      profile: { ...emptyIntakeProfile, displayName: "合成來源個案", clientCode: "SOURCE-001", dateOfBirth: "1940-01-01", sex: "female" },
+      fieldAuthority: {}, sourceBatchId: null, protectedFieldKeys: ["displayName", "clientCode", "dateOfBirth", "sex"] };
+    render(<IntakeProfileForm initial={initial} canManage demo={false} today="2026-10-11" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    for (const label of ["姓名／顯示稱呼", "機構個案編號", "出生日期", "性別"]) expect(screen.getByLabelText(new RegExp(`^${label}`, "u"))).toBeDisabled();
+    for (const label of ["身分證／居留證識別", "CMS 等級", "身障資格／程度", "個案電話", "機構補充說明"]) expect(screen.getByLabelText(label)).toBeEnabled();
+    expect(screen.getByRole("button", { name: "＋新增聯絡人" })).toBeEnabled();
+    expect(screen.getByText("已確認欄位已鎖定，其餘資料可補填。")).toBeVisible();
+  });
+  it("preserves historical central and identity locks when no new metadata is provided", () => {
+    const initial: IntakeSnapshot = { clientId: id, profileVersion: 1, clientRowVersion: 2, pending: true,
+      profile: { ...emptyIntakeProfile, displayName: "合成來源個案", clientCode: "SOURCE-002", identityNumber: "SYNTHETIC-IDENTITY" },
+      fieldAuthority: { displayName: "central" }, sourceBatchId: null };
+    render(<IntakeProfileForm initial={initial} canManage demo={false} today="2026-10-11" onSaved={vi.fn()} onDirty={vi.fn()} />);
+    expect(screen.getByLabelText(/^姓名／顯示稱呼/u)).toBeDisabled();
+    expect(screen.getByLabelText("身分證／居留證識別")).toBeDisabled();
+    expect(screen.getByLabelText("個案電話")).toBeEnabled();
+  });
   const newCaseContext = { organizationId: id, organizationName: "合成機構", branchId: id, branchName: "合成分支", userId: id, displayName: "合成收案人員", roles: ["nurse" as const], scopes: ["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"], assuranceLevel: "aal1" as const, recentAal2At: null, demo: false };
   it.each([
     { reason: "封存未配置", archiveConfigured: false, scopes: [...newCaseContext.scopes, "imports.manage"] },

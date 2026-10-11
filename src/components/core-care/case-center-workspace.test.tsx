@@ -168,6 +168,27 @@ describe("case center front-line next step", () => {
     expect(screen.queryByText("當日工作尚未開放，請洽主管確認。")).toBeNull();
   });
 
+  it("lets an authorized source-bound pending client go straight to an assessment draft, without attendance or medication execution", () => {
+    const pending = client({ lifecycleStatus: "pending", lifecycleState: "pending_admission", serviceStatus: "pending",
+      admittedOn: null, canDraftPendingQuestionnaires: true });
+    const { container } = render(<CaseCenterWorkspace page={page} filters={filters()}
+      snapshot={snapshot({ clients: [pending] })} allowedDailyPages={[46]} allowedContinuationPages={[7, 11, 17]} />);
+    expect(workLinks(container)).toHaveLength(0);
+    expect(screen.queryByRole("link", { name: /用藥紀錄/ })).toBeNull();
+    const links = screen.getAllByRole("link", { name: "開啟 合成個案甲 的SPMSQ 評估" });
+    expect(links).toHaveLength(2);
+    expect(new URL((links[0] as HTMLAnchorElement).href).searchParams.get("client")).toBe(clientId);
+    expect(screen.getAllByRole("link", { name: "開啟 合成個案甲 的吞嚥評估" })).toHaveLength(2);
+  });
+
+  it.each([undefined, false])("does not advertise pending assessment drafts without a server-derived source authorization (%s)", (flag) => {
+    const pending = client({ lifecycleStatus: "pending", lifecycleState: "pending_admission", serviceStatus: "pending",
+      admittedOn: null, canDraftPendingQuestionnaires: flag });
+    render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot({ clients: [pending] })}
+      allowedContinuationPages={[11, 17]} />);
+    expect(screen.queryByRole("link", { name: /SPMSQ|吞嚥評估/ })).toBeNull();
+  });
+
   it("keeps nursing work for the same person and selected date without exposing unrelated pages", () => {
     const { container } = render(<CaseCenterWorkspace page={page} filters={filters()} snapshot={snapshot()}
       allowedContinuationPages={[7, 8]} />);

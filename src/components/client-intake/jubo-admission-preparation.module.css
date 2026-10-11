@@ -1,0 +1,9 @@
+.field{display:grid;align-content:start;gap:8px;min-width:0}
+.progress{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;list-style:none;margin:16px 0;padding:0}
+.progress li{min-width:0;padding:12px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-soft);font-size:14px}
+.progress span{display:flex;align-items:center;gap:8px;line-height:1.5}
+.progress svg{flex:0 0 auto}
+.choices{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.choices label{display:flex;flex-direction:row;align-items:center;gap:8px;min-height:44px}
+.choices input[type=radio][name=decision]{width:20px;min-width:20px;max-width:20px;height:20px;min-height:20px;padding:0;accent-color:var(--brand-strong)}
+@media(max-width:520px){.progress{grid-template-columns:1fr;gap:8px}.choices{display:grid;grid-template-columns:1fr}}

@@ -2,6 +2,7 @@ import { ArrowRight, Bus, CalendarDays, CheckCircle2, FileText, HeartHandshake, 
 import Link from "next/link";
 
 import type { FamilyPortalSnapshot } from "@/lib/family/snapshot";
+import { formatCareTaipeiTime } from "@/lib/core-care/date";
 
 const cards = [
   { title: "今天已到中心", description: "08:17 完成簽到・上午活動進行中", href: "/family/schedule", icon: CheckCircle2 },
@@ -23,6 +24,20 @@ export function FamilyHome({ branchName, demo, snapshot }: { branchName: string;
   }
   const ready = !demo && snapshot?.state === "ready" ? snapshot : null;
   const clientName = demo ? "陳O華" : ready!.clientName;
+  if (ready?.workspace) {
+    const workspace = ready.workspace;
+    const items = [
+      { title: "今日出勤", icon: CheckCircle2, category: "attendance", href: "/family/care-summary" },
+      { title: "照顧摘要", icon: HeartPulse, category: "care", href: "/family/care-summary" },
+      { title: "健康摘要", icon: HeartPulse, category: "health", href: "/family/care-summary" },
+      { title: "行程與接送", icon: Bus, category: "schedule", href: "/family/schedule" },
+      { title: "帳單與文件", icon: FileText, category: "billing", href: "/family/billing-documents" },
+      { title: "機構訊息", icon: MessageCircleMore, category: "notice", href: "/family/communication" },
+    ];
+    const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" });
+    const serviceToday = dateFormatter.format(new Date());
+    return <><section className="family-hero"><div><p className="eyebrow eyebrow--light">{clientName}</p><h1>今天的照顧與行程</h1><p>{branchName} · 更新 {formatCareTaipeiTime(workspace.updatedAt)}</p></div></section><section className="family-grid">{items.map(({ title, icon: Icon, category, href }) => { const row = workspace.publications.find(item => item.category === category && (category !== "attendance" || dateFormatter.format(new Date(item.occurredAt)) === serviceToday)); return <Link className="family-card" prefetch={false} key={title} href={`${href}?client=${encodeURIComponent(ready.clientId)}`}><span className="metric-card__icon"><Icon aria-hidden="true" /></span><h2>{title}</h2><p>{category === "notice" ? `${workspace.unreadCount} 則未讀` : row?.summary ?? "尚無已發布資料"}</p><span className="record-card__action">查看<ArrowRight aria-hidden="true" /></span></Link>; })}</section></>;
+  }
   const attendanceText = demo
     ? "08:17 完成簽到・上午活動進行中"
     : "今日尚無已公開出勤資料";

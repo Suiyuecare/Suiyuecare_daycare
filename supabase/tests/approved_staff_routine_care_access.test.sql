@@ -1,5 +1,5 @@
 begin;
-select plan(295);
+select plan(296);
 
 -- Real admission and all migrations; no legacy auth predicate override.
 select set_config('test.routine_amr',floor(extract(epoch from clock_timestamp()-interval '2 minutes'))::text,true);
@@ -385,7 +385,8 @@ create function pg_temp.exception_decide(p_request uuid,p_action text,p_key uuid
   'c0600000-0000-4000-8000-000000000001',p_request,p_action,p_note,p_arrival,p_key); $$;
 set local role authenticated;
 select pg_temp.staff_claims();
-select is(public.can_begin_staff_mfa(),false,'care worker cannot begin director exception AAL2 challenge');
+select is(public.can_begin_staff_mfa(),true,'approved native employee can verify their own second factor without gaining business permission');
+select is(private.can_begin_exception_director_mfa(),false,'care worker cannot acquire director-purpose MFA authority');
 reset role;
 insert into public.membership_roles(membership_id,role_id) values
  ('c0700000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000005');

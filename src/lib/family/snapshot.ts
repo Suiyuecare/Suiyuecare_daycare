@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isDemoMode } from "@/lib/env";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { familyWorkspaceSchema, type FamilyWorkspaceSnapshot } from "./workspace-schema";
 
 export interface FamilyAuthorizedClient {
   clientId: string;
@@ -26,7 +27,8 @@ export type FamilyPortalSnapshot =
       todayCompletedServices: null;
       latestCareSummary: null;
       updatedAt: null;
-      publicationStatus: "not_configured";
+      publicationStatus: "not_configured" | "configured";
+      workspace?: FamilyWorkspaceSnapshot;
     };
 
 const uuid = z.uuid().transform((value) => value.toLowerCase());
@@ -121,29 +123,25 @@ export async function loadFamilyPortalSnapshot(
       : null;
   if (!selected) return { state: "selection_required", authorizedClients };
 
-  const { data: careRows, error: careError } = await supabase.rpc(
-    "family_care_summaries",
-    { p_client_id: selected.client_id },
-  );
-  if (careError) throw new Error("FAMILY_CARE_SUMMARY_READ_FAILED");
-
-  const care = parseCareSummaryRows(careRows);
-  // A legacy or widened RPC is not an institution-approved publication model.
-  if (care.length > 0) throw new Error("FAMILY_PUBLICATION_NOT_CONFIGURED");
+  const { data: workspaceRow, error: workspaceError } = await supabase.rpc("family_workspace", { p_org: organizationId, p_branch: branchId, p_client: selected.client_id }).maybeSingle<{ payload: unknown }>();
+  if (workspaceError) throw new Error("FAMILY_WORKSPACE_READ_FAILED");
+  const workspace = familyWorkspaceSchema.parse(workspaceRow?.payload);
+  if (workspace.clientId !== selected.client_id) throw new Error("FAMILY_CLIENT_SCOPE_MISMATCH");
 
   return {
     state: "ready",
     authorizedClients,
     clientId: selected.client_id,
     clientName: selected.display_name,
-    // Attendance, measurements and service counts remain closed until their
-    // own consent-scoped projections are introduced.
+    // Legacy direct-data fields remain null. The workspace contains only
+    // separately consented, staff-approved disclosures, not inferred counts.
     attendance: null,
     latestMeasurement: null,
     todayCompletedServices: null,
     latestCareSummary: null,
     updatedAt: null,
-    publicationStatus: "not_configured",
+    publicationStatus: "configured",
+    workspace,
   };
 }
 

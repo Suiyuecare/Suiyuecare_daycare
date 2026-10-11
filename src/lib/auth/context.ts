@@ -78,7 +78,7 @@ export const getTenantContext = cache(
     // until the database-owned admission decision is confirmed true.
     const [admission, assurance] = await Promise.allSettled([
       Promise.resolve().then(() => supabase.rpc(
-        audience === "staff" ? "is_staff_login_allowed" : "is_executive_login_allowed",
+        audience === "staff" ? "is_staff_login_allowed" : "is_family_login_allowed",
       )),
       Promise.resolve().then(() => supabase.auth.mfa.getAuthenticatorAssuranceLevel()),
     ]);
@@ -93,6 +93,33 @@ export const getTenantContext = cache(
     const cookieStore = await cookies();
     const selectedOrganizationId = cookieStore.get("daycare_organization")?.value;
     const selectedBranchId = cookieStore.get("daycare_branch")?.value;
+    if (audience === "family") {
+      // Family context is self-only and consent-bound. Staff membership views
+      // require employee assurance and must not be used as a family fallback.
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+      if ((selectedOrganizationId && !uuid.test(selectedOrganizationId)) ||
+        (selectedBranchId && !uuid.test(selectedBranchId))) return null;
+      const { data, error } = await supabase.rpc("family_tenant_context", {
+        p_expected_organization_id: selectedOrganizationId ?? null,
+        p_expected_branch_id: selectedBranchId ?? null,
+      });
+      const record = Array.isArray(data) ? data[0] : null;
+      if (error || !record || !uuid.test(record.organization_id ?? "") ||
+        !uuid.test(record.branch_id ?? "") || !Array.isArray(record.role_keys) ||
+        (selectedOrganizationId && record.organization_id !== selectedOrganizationId) ||
+        (selectedBranchId && record.branch_id !== selectedBranchId) ||
+        record.role_keys.length !== 1 || record.role_keys[0] !== "family" ||
+        !Array.isArray(record.scopes) || record.scopes.some((scope: unknown) => typeof scope !== "string") ||
+        typeof record.organization_name !== "string" || typeof record.branch_name !== "string") return null;
+      return {
+        organizationId: record.organization_id, organizationName: record.organization_name,
+        branchId: record.branch_id, branchName: record.branch_name, userId: user.id,
+        displayName: typeof record.display_name === "string" ? record.display_name : "家屬",
+        roles: ["family"], scopes: record.scopes,
+        assuranceLevel: aalData?.currentLevel === "aal2" ? "aal2" : "aal1",
+        recentAal2At: null, demo: false,
+      };
+    }
     let membershipQuery = supabase
       .from("active_memberships")
       .select(
@@ -154,8 +181,7 @@ export const getTenantContext = cache(
     if (organizationError || !organization) return null;
 
     const roles = membership.role_keys ?? [];
-    if (audience === "family" && !roles.includes("family")) return null;
-    if (audience === "staff" && roles.includes("family") && roles.length === 1) {
+    if (roles.includes("family") && roles.length === 1) {
       return null;
     }
 

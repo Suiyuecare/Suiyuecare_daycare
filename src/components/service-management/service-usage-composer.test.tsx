@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import "@testing-library/jest-dom/vitest";
+
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -88,6 +90,11 @@ function successFor(init?: RequestInit, clientId = client.id) {
 }
 
 describe("service usage completion browser boundary", () => {
+  it("does not offer formal service completion for a pending intake client", () => {
+    render(<ServiceUsageComposer canComplete clients={[{ ...client, status: "pending", admittedOn: null }]}
+      demo={false} hasRecentAal2 serviceDate="2026-09-01" />);
+    expect(screen.getByRole("button", { name: "完成並簽署服務" })).toBeDisabled();
+  });
   it("does not claim success for a forged receipt and reuses the same key", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
       Promise.resolve(successFor(init, "52000000-0000-4000-8000-000000000099")));

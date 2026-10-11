@@ -27,6 +27,13 @@ const client: MedicationPlanClientOption = {
   canCreatePlan: true,
 };
 
+it("keeps pending intake clients viewable but unable to create medication plans", () => {
+  const pending: MedicationPlanClientOption = { ...client, status: "pending", admittedOn: null, canCreatePlan: false };
+  const input = { rows: [], clients: [pending], selectedClient: pending, generatedAt: "2026-10-11T12:00:00Z", demo: false };
+  expect(projectMedicationPlanSnapshot(input).selectedClient).toMatchObject({ status: "pending", canCreatePlan: false });
+  expect(() => projectMedicationPlanSnapshot({ ...input, clients: [{ ...pending, canCreatePlan: true }] })).toThrow();
+});
+
 function activeRow(
   override: Partial<MedicationPlanSourceRow> = {},
 ): MedicationPlanSourceRow {

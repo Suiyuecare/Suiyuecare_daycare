@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { load } from "cheerio";
 
 const baseUrl = new URL(process.env.ROUTE_SMOKE_BASE_URL ?? "http://127.0.0.1:3000");
 const matrixPath = resolve(process.cwd(), "docs/R0_PAGE_ACCEPTANCE_MATRIX.md");
@@ -7,7 +8,7 @@ const matrix = await readFile(matrixPath, "utf8");
 const routeHeadingOverrides = new Map([
   [1, "今日工作"],
   [17, "吞嚥評估"],
-  [84, "今天一切平安，下午會再更新返家時間。"],
+  [79, "評鑑準備"],
 ]);
 
 const pages = matrix.split("\n").flatMap((line) => {
@@ -32,14 +33,25 @@ async function verifyPage(page) {
       signal: AbortSignal.timeout(20_000),
     });
     const body = await response.text();
+    const document = load(body);
     const errors = [];
     if (response.status !== 200) errors.push(`HTTP ${response.status}`);
     const expectedHeading = routeHeadingOverrides.get(page.number) ?? page.title;
-    if (!body.includes(`<h1>${expectedHeading}</h1>`)) {
+    // React streams the eventual route subtree into a hidden sibling before
+    // moving it into the shell. Parse semantic tags, not raw exact markup;
+    // browser checks separately verify the hydrated landmark and focus flow.
+    const headings = document("h1").not(".initial-loading h1")
+      .map((_, element) => document(element).text().trim()).get();
+    // The family home uses a day/status-dependent greeting, not its route name.
+    // Its catalog title remains the independent route-identity check below.
+    if (page.number === 84 ? !headings.some(Boolean) : !headings.includes(expectedHeading)) {
       errors.push("route heading missing");
     }
+    if (document("main").not(".initial-loading").length !== 1) errors.push("route main landmark missing or duplicated");
+    const routeTitle = document("title").first().text().trim();
+    if (routeTitle.split("｜")[0].trim() !== page.title) errors.push("route title mismatch");
     if (body.length < 1_000) errors.push("response unexpectedly small");
-    return { ...page, pathname, errors };
+    return { ...page, pathname, headings, routeTitle, errors };
   } catch (error) {
     return {
       ...page,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ok } from "@/lib/api/response";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
 import { validateMnaAnthropometry } from "@/lib/questionnaire-assessments/mna-anthropometry";
+import { parseQuestionnaireSelection } from "@/lib/questionnaire-assessments/query";
 import type { QuestionnaireAnswer, QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import {
   authorizeStaffRequest,
@@ -17,7 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const uuid = z.string().uuid();
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
+const date = z.iso.date();
 
 function databaseError(errorCode?: string) {
   if (errorCode === "42501") return databaseFailure(
@@ -28,6 +29,9 @@ function databaseError(errorCode?: string) {
   );
   if (errorCode === "23505") return databaseFailure(
     "QUESTIONNAIRE_IDEMPOTENCY_CONFLICT", "操作識別碼已用於其他內容，請重新載入並重試。", 409,
+  );
+  if (errorCode === "55000") return databaseFailure(
+    "QUESTIONNAIRE_STATE_BLOCKED", "請確認目前版本與規則發布狀態，再執行此操作。", 409,
   );
   if (["22023", "22003", "23514", "23502"].includes(errorCode ?? "")) return databaseFailure(
     "QUESTIONNAIRE_INVALID", "表單版本、日期或答案不符合欄位規則。", 400,
@@ -99,6 +103,22 @@ function parseContext(formKey: QuestionnaireFormKey, value: unknown, answers: Re
 }
 
 function readMutation(value: Record<string, unknown>, idempotencyKey: string) {
+  if (["submit", "sign", "return", "correct"].includes(String(value.action))) {
+    const lifecycle = z.object({
+      action: z.enum(["submit", "sign", "return", "correct"]), clientId: uuid,
+      formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
+      assessmentKey: uuid, previousVersionId: uuid, expectedVersion: z.number().int().min(1).max(1_000_000),
+      reason: z.string().trim().min(1).max(500).optional(),
+      followUpDueOn: date.optional(), safetyAcknowledged: z.boolean().optional(),
+    }).strict().safeParse(value);
+    if (!lifecycle.success || (["return", "correct"].includes(lifecycle.data.action) && !lifecycle.data.reason)) return null;
+    return { action: lifecycle.data.action, client_id: lifecycle.data.clientId, form_key: lifecycle.data.formKey,
+      assessment_key: lifecycle.data.assessmentKey, previous_version_id: lifecycle.data.previousVersionId,
+      expected_version: lifecycle.data.expectedVersion,
+      ...(lifecycle.data.reason ? { reason: lifecycle.data.reason } : {}),
+      ...(lifecycle.data.followUpDueOn ? { follow_up_due_on: lifecycle.data.followUpDueOn } : {}),
+      ...(lifecycle.data.safetyAcknowledged !== undefined ? { safety_acknowledged: lifecycle.data.safetyAcknowledged } : {}), idempotencyKey };
+  }
   const base = z.object({
     action: z.enum(["create", "revise"]),
     clientId: uuid,
@@ -140,7 +160,7 @@ function readMutation(value: Record<string, unknown>, idempotencyKey: string) {
   };
 }
 
-function permissionScope(formKey: QuestionnaireFormKey, permission: "read" | "manage") {
+function permissionScope(formKey: QuestionnaireFormKey, permission: "read" | "manage" | "sign") {
   const prefix = formKey === "spmsq"
     ? "questionnaire_cognition"
     : formKey === "barthel_adl" || formKey === "lawton_iadl"
@@ -175,19 +195,23 @@ export async function GET(request: Request) {
     const parameters = new URL(request.url).searchParams;
     const formKey = parameters.get("form_key") as QuestionnaireFormKey | null;
     const clientId = parameters.get("client_id");
+    const selection = parseQuestionnaireSelection(Object.fromEntries(parameters));
     if (!formKey || !getQuestionnaireForm(formKey) ||
       (clientId !== null && !uuid.safeParse(clientId).success) ||
-      [...parameters.keys()].some((key) => !["form_key", "client_id"].includes(key))) {
+      !selection || (selection.versionId !== null && clientId === null) ||
+      [...parameters.keys()].some((key) => parameters.getAll(key).length !== 1 || !["form_key", "client_id", "version", "month", "new", "history_page"].includes(key))) {
       throw new IntegrationError("QUESTIONNAIRE_INVALID", "表單或個案篩選條件無效。", 400);
     }
     const actor = await authorize(formKey, "read");
     const supabase = await createServerSupabaseClient();
     if (!supabase) throw new IntegrationError("SERVICE_NOT_CONFIGURED", "正式資料服務尚未設定。", 503);
-    const { data, error } = await supabase.rpc("questionnaire_assessment_snapshot", {
+    const { data, error } = await supabase.rpc("questionnaire_assessment_workspace_snapshot", {
       p_expected_organization_id: actor.organizationId,
       p_expected_branch_id: actor.branchId,
       p_form_key: formKey,
       p_client_id: clientId,
+      p_version_id: selection.versionId, p_month: selection.month ? `${selection.month}-01` : null,
+      p_new_assessment: selection.newAssessment, p_history_page: selection.historyPage ?? 1,
     });
     if (error || !data) throw databaseError(error?.code);
     return ok(data, 200, requestId);
@@ -210,6 +234,14 @@ export async function POST(request: Request) {
     if (!input || input.form_key !== formKey) throw new IntegrationError(
       "QUESTIONNAIRE_INVALID", "表單答案或修訂版本資料無效。", 400,
     );
+    if (["sign", "return", "correct"].includes(input.action)) {
+      if (!actor.scopes.includes(permissionScope(formKey, "sign"))) throw new IntegrationError(
+        "QUESTIONNAIRE_NOT_AUTHORIZED", "目前帳號沒有此量表的簽署權限。", 403,
+      );
+      if (actor.assuranceLevel !== "aal2") throw new IntegrationError(
+        "REAUTH_REQUIRED", "請先完成近期驗證，再簽署或更正。", 403,
+      );
+    }
     const supabase = await createServerSupabaseClient();
     if (!supabase) throw new IntegrationError("SERVICE_NOT_CONFIGURED", "正式資料服務尚未設定。", 503);
     const { idempotencyKey, ...payload } = input;

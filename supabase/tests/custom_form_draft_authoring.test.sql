@@ -114,13 +114,13 @@ select throws_ok($$select pg_temp.custom_save(3)$$,'42501',null,'ordinary Google
 select pg_temp.custom_login();
 -- Disabling the organization must deny before either a draft read or a receipt
 -- replay. Keep the branch, principal, membership and AAL2 evidence active so
--- this exercises the new organization guard, not unrelated admission failures.
+-- the organization is the only disabled admission boundary.
 reset role;
 update public.organizations set is_active=false where id='d8500000-0000-4000-8000-000000000001';
 select is((select is_active from public.branches where id='d8600000-0000-4000-8000-000000000001'),true,'disabled-organization fixture retains active branch');
 select set_config('test.custom_disabled_fingerprint',pg_temp.custom_mutation_fingerprint(),true);
 set local role authenticated;
-select is(private.has_permission('d8500000-0000-4000-8000-000000000001',null,'forms.manage'),true,'legacy permission alone does not deny inactive organization');
+select is(private.has_permission('d8500000-0000-4000-8000-000000000001',null,'forms.manage'),false,'inactive organization denies inherited permission before draft or receipt replay');
 select throws_ok($$select pg_temp.custom_read()$$,'42501',null,'inactive organization blocks draft read');
 select throws_ok($$select pg_temp.custom_save(4,null,null,jsonb_set(current_setting('test.custom_payload')::jsonb,'{formKey}','"tenant.custom.disabled_attempt"'))$$,'42501',null,'inactive organization blocks new draft creation');
 select throws_ok($$select pg_temp.custom_save(4,pg_temp.custom_id(),2)$$,'42501',null,'inactive organization blocks current-revision edit');

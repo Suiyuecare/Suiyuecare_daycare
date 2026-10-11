@@ -55,6 +55,21 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("authorized role-aware mobile navigation", () => {
+  it.each(["header", "bottom"])("returns Escape focus to the exact %s menu opener after the background is no longer inert", (source) => {
+    const view = renderShell(["care_worker"], ["clients.read", "health.read"]);
+    const trigger = source === "header"
+      ? screen.getByRole("button", { name: "開啟功能選單" })
+      : bottomNavigation().getByRole("button", { name: "更多功能" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "主要功能" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "關閉功能選單" })).toHaveFocus();
+    expect(view.container.querySelector(".app-main")).toHaveAttribute("inert");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(view.container.querySelector(".app-main")).not.toHaveAttribute("inert");
+    expect(view.container.querySelector(".sidebar")).toHaveAttribute("inert");
+  });
   it("keeps the new matrix link off by default and requires both the server flag and assessment scope", () => {
     mocks.pathname = "/app/assessment-matrix";
     const first = renderShell(["nurse"], ["clients.read", "questionnaire_cognition.read"]);

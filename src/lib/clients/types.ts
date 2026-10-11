@@ -1,4 +1,5 @@
 export type ClientLifecycleStatus =
+  | "pending"
   | "active"
   | "suspended"
   | "transferred"
@@ -7,7 +8,7 @@ export type ClientLifecycleStatus =
 
 export type ClientServiceState =
   | "pending_admission"
-  | ClientLifecycleStatus;
+  | Exclude<ClientLifecycleStatus, "pending">;
 export type ClientLifecycleStatusFilter = "all" | ClientServiceState;
 
 export type ClientTransitionKind =
@@ -113,6 +114,7 @@ export type ClientTransitionResult = {
 };
 
 export const CLIENT_LIFECYCLE_STATUSES = Object.freeze([
+  "pending",
   "active",
   "suspended",
   "transferred",

@@ -53,6 +53,7 @@ next-env.d.ts
 
 # Private case imports, attachments, exports and credential containers.
 /private/
+/recovery/
 /uploads/
 /imports/
 /exports/
@@ -67,6 +68,7 @@ next-env.d.ts
 *.sqlite3
 *.db
 *.dump
+*.aes
 *.sql.gz
 *.key
 *.p12

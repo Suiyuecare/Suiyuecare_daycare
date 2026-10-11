@@ -32,6 +32,13 @@ export const bootstrapSql = String.raw`
     aal text,
     oauth_client_id uuid
   );
+  create table auth.refresh_tokens (
+    id bigserial primary key,
+    user_id varchar not null,
+    session_id uuid references auth.sessions(id) on delete cascade,
+    token varchar unique,
+    revoked boolean default false
+  );
   -- Minimal provider/session-AMR columns verified against hosted catalog.
   -- These are synthetic fixtures only, never a hosted Auth migration.
   create table auth.identities (
@@ -47,7 +54,7 @@ export const bootstrapSql = String.raw`
   );
   create table auth.mfa_amr_claims (
     id uuid primary key,
-    session_id uuid not null references auth.sessions(id),
+    session_id uuid not null references auth.sessions(id) on delete cascade,
     created_at timestamptz not null,
     updated_at timestamptz not null,
     authentication_method text not null,

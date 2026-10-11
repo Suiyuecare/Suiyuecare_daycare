@@ -25,6 +25,7 @@ import {
 } from "./staff-management-actions";
 import styles from "./staff-management.module.css";
 import { currentStaffRoleName, staffRoleOptionName } from "./role-labels";
+import { StaffInvitations } from "./staff-invitations";
 
 const statusLabels = {
   invited: "受邀中", active: "在職", suspended: "暫停", ended: "已離職",
@@ -51,7 +52,7 @@ function employeeDetails(
     <div><dt>到職／迄日</dt><dd>{employee.membershipStartsOn} ～ {employee.membershipEndsOn ?? "未設定"}</dd></div>
     <div><dt>角色</dt><dd>{employee.roles.length ? employee.roles.map((role) => currentStaffRoleName(role, roleOptions)).join("、") : "未指派"}</dd></div>
     <div><dt>帳號狀態</dt><dd>{employee.membershipStatus === "ended" ?
-      "本系統已離職；遠端工作階段未驗證" : statusLabels[employee.membershipStatus]}</dd></div>
+      (employee.revocationVerificationStatus === "verified" ? "已離職，工作階段已撤銷" : "已離職，撤銷待確認") : statusLabels[employee.membershipStatus]}</dd></div>
   </dl>;
 }
 
@@ -117,15 +118,18 @@ export function StaffManagementWorkspace({
     {snapshot.demo ? <div className={styles.notice} role="status">
       展示模式：以下姓名、員編、職務、資格與撤銷回執均為合成資料，只能檢視。
     </div> : null}
-    <div className={styles.warning} role="alert">
-      新增員工候選／邀請來源與 Auth 帳號建立尚未設定，因此不會掃描或顯示全域人員，也不提供到職建立。正式來源完成組織範圍治理前，API 與資料庫均拒絕 onboarding。
-    </div>
+    <StaffInvitations currentUserId={currentUserId} canManage={canManageEmployment && canManageRoles}
+      canApprove={canApproveEmployment && canApproveRoles} hasRecentAal2={hasRecentAal2} roles={snapshot.roleOptions} demo={snapshot.demo} />
     <div className={styles.notice} role="note">
       證照只引用第 72 頁終端版本的明確有效／過期事實。資格到期前 30 日提醒與受限制服務規則尚未發布，目前不計算「即將到期」，也不宣稱已阻擋任何服務。
     </div>
-    <div className={styles.warning} role="note">
-      本系統離職核准會立即把 membership 設為離職並建立 5 分鐘期限的撤銷工作；Supabase Auth Admin 撤銷供應商目前未設定，所有遠端工作階段狀態仍是「未驗證」，不得視為已撤銷。
-    </div>
+    {!snapshot.demo ? <div className={snapshot.sessionRevocationVerificationStatus === "verified" ? styles.notice : styles.warning} role="status">
+      {snapshot.sessionRevocationProviderStatus === "supabase_native"
+        ? snapshot.sessionRevocationVerificationStatus === "verified"
+          ? "離職核准會立即停權，並撤銷登入工作階段。撤銷結果已驗證。"
+          : `離職核准會立即停權。目前仍有 ${snapshot.pendingRevocationTotal} 筆舊工作階段撤銷待確認，請完成查核。`
+        : "登入工作階段撤銷尚未設定，停權後仍須確認撤銷結果。"}
+    </div> : null}
 
     <section className={styles.metrics} aria-label="員工管理統計">
       <article><UsersRound aria-hidden="true" /><span>目前在職</span>
@@ -201,7 +205,7 @@ export function StaffManagementWorkspace({
             <td>{employee.membershipStartsOn}</td>
             <td><span className={`${styles.pill} ${styles[`pill_${employee.membershipStatus}`]}`}>
               {statusLabels[employee.membershipStatus]}</span><br />
-              <small>{employee.revocationJobId ? "供應商未設定／撤銷未驗證" : "無撤銷工作"}</small></td>
+              <small>{employee.revocationJobId ? (employee.revocationVerificationStatus === "verified" ? "工作階段已撤銷" : "撤銷待確認") : "無撤銷工作"}</small></td>
           </tr>)}</tbody></table>
         </div>
         <div className={styles.mobileCards}>{snapshot.employees.map((employee) =>
@@ -260,10 +264,10 @@ export function StaffManagementWorkspace({
         <p>{snapshot.revocationJobs.length} / {snapshot.revocationJobTotal} 筆</p></div>
       {snapshot.revocationJobs.length === 0 ? <p>尚無離職撤銷工作。</p> :
         <ul className={styles.timeline}>{snapshot.revocationJobs.map((job) => <li key={job.jobId}>
-          <div><strong>{job.slaStatus === "overdue_not_verified" ? "已逾 5 分鐘，仍未驗證" : "5 分鐘期限內，仍未驗證"}</strong>
-            <span>供應商：未設定</span></div>
+          <div><strong>{job.slaStatus === "completed" ? "工作階段已撤銷" : job.slaStatus === "overdue_not_verified" ? "已逾 5 分鐘，仍未驗證" : "5 分鐘期限內，仍未驗證"}</strong>
+            <span>{job.providerStatus === "supabase_native" ? "Supabase 原生撤銷" : "供應商：未設定"}</span></div>
           <p>排入 {formatTaipei(job.queuedAt)} · 期限 {formatTaipei(job.deadlineAt)}</p>
-          <small>這是待處理回執，不是遠端工作階段已撤銷的證明。</small>
+          <small>{job.completedAt ? `完成 ${formatTaipei(job.completedAt)}` : "歷史待處理回執，尚無撤銷完成證明。"}</small>
         </li>)}</ul>}
     </section>
 

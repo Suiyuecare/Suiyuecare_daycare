@@ -307,7 +307,7 @@ describe("shared questionnaire assessment editor", () => {
     expect(body.action).toBe("create");
     expect(body.clientId).toBe(clientA.clientId);
     expect(body.answers[form.questions[0].id]).toEqual({ state: "not_applicable", reason: "本次情況無法適用該項" });
-    await act(async () => finishFetch(Response.json({ data: { recordState: "draft" } })));
+    await act(async () => finishFetch(Response.json({ data: { recordState: "draft", versionId: "00000000-0000-4000-8000-000000000099" } })));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/草稿已保存/u)).toBeVisible();
@@ -386,7 +386,7 @@ describe("shared questionnaire assessment editor", () => {
     const priorState = window.history.state;
     const fetchMock = vi.fn().mockRejectedValueOnce(new Error("synthetic network loss"))
       .mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }))
-      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft" } }));
+      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft", versionId: "00000000-0000-4000-8000-000000000099" } }));
     vi.stubGlobal("fetch", fetchMock);
     render(workspace("spmsq", { clients: [clientA, clientB] }));
     const dialog = document.querySelector("dialog") as HTMLDialogElement;

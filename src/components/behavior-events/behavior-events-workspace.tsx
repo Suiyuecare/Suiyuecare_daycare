@@ -41,11 +41,11 @@ export function BehaviorEventsWorkspace({ page, snapshot, filters, loadError, ca
   page: PageCatalogEntry; snapshot: BehaviorEventSnapshot | null; filters: BehaviorEventFilters;
   loadError: boolean; canManage: boolean; canSign: boolean; hasRecentAal2: boolean;
 }) {
-  if (loadError || !snapshot) return <main id="main-content" className="workspace-page"><section className="empty-card core-care-state">
+  if (loadError || !snapshot) return <section className="workspace-page"><section className="empty-card core-care-state">
     <FileWarning aria-hidden="true" /><h1>{page.title}</h1><p>篩選條件無效，或正式事件快照暫時無法取得。</p>
-    <Link className="button button--secondary" href="?">清除篩選並重試</Link></section></main>;
+    <Link className="button button--secondary" href="?">清除篩選並重試</Link></section></section>;
   const basePath = `/app/${page.slug}`;
-  return <main id="main-content" className="workspace-page"><header className="page-heading core-care-heading"><div>
+  return <section className="workspace-page"><header className="page-heading core-care-heading"><div>
     <p className="eyebrow">評估量表・Page 20</p><h1>{page.title}</h1>
     <p className="page-heading__description">{page.description} 每筆事件獨立版本化，清單永遠依實際發生時間而非輸入時間排序。</p></div>
     <div className={`page-heading__actions ${styles.headerMeta}`}><span><ShieldCheck aria-hidden="true" /> 指派個案隔離</span>
@@ -87,5 +87,5 @@ export function BehaviorEventsWorkspace({ page, snapshot, filters, loadError, ca
             <span className={`${styles.pill} ${styles[`pill_${event.eventState}`]}`}>{STATE[event.eventState]}</span></div>
           <EventDetails event={event} /><BehaviorEventActions canManage={canManage} canSign={canSign} event={event}
             hasRecentAal2={hasRecentAal2} /></article>)}</div></>}
-    </section></main>;
+    </section></section>;
 }

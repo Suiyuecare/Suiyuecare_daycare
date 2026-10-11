@@ -1,5 +1,6 @@
 import { AlertTriangle, CopyCheck, FileSearch, Paperclip, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { ClinicalAttachments } from "@/components/clinical-attachments/clinical-attachments";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type {
@@ -204,6 +205,7 @@ export function ClientInspectionReportsWorkspace({
           <p>處置：只警示，不自動合併。</p></article>)}</div>}
     </section>
 
+    <section className={styles.history} aria-label="檢查報告附件">{snapshot.records.map(record => <div key={record.recordVersionId}><h3>{record.clientDisplayName} · {record.reportType}</h3><ClinicalAttachments source={{ clientId: record.clientId, sourceKind: "inspection", sourceId: record.recordVersionId, sourceVersion: record.version }} canManage={canManage && record.recordStatus === "active"} demo={snapshot.demo} /></div>)}</section>
     <section className={styles.history} aria-labelledby="client-report-history-heading">
       <h2 id="client-report-history-heading">不可變版本歷程</h2>
       <p>顯示 {snapshot.history.length} / {snapshot.historyTotal} 個版本；更正與作廢都新增終端，不直接修改或刪除舊紀錄。</p>

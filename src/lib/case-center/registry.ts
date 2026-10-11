@@ -3,6 +3,7 @@ import "server-only";
 import { loadAllClientDirectoryRows } from "@/lib/clients/directory";
 import type { TenantContext } from "@/lib/domain/types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { loadAuthorizedPendingQuestionnaireClientIds } from "@/lib/questionnaire-assessments/pending-access";
 
 import { buildDemoCaseCenterSnapshot } from "./demo";
 import {
@@ -168,7 +169,7 @@ export async function loadCaseCenterSnapshot(
     }
   }
 
-  return projectCaseCenterSnapshot({
+  const snapshot = projectCaseCenterSnapshot({
     generatedAt,
     filters,
     clientRows,
@@ -180,4 +181,23 @@ export async function loadCaseCenterSnapshot(
     profileLabels,
     demo: false,
   });
+  const pendingIds = snapshot.clients
+    .filter((client) => client.lifecycleState === "pending_admission")
+    .map((client) => client.id);
+  if (!pendingIds.length || !context.scopes.some((scope) => /^questionnaire_[a-z_]+\.read$/.test(scope))) {
+    return snapshot;
+  }
+  // This supplemental action check cannot grant directory visibility. An
+  // unavailable or denied RPC hides only the pending draft shortcut, not the
+  // already authorized client list. The destination repeats its own checks.
+  const authorizedIds = await loadAuthorizedPendingQuestionnaireClientIds(context, pendingIds)
+    .catch(() => new Set<string>());
+  return {
+    ...snapshot,
+    clients: snapshot.clients.map((client) => ({
+      ...client,
+      canDraftPendingQuestionnaires:
+        client.lifecycleState === "pending_admission" && authorizedIds.has(client.id),
+    })),
+  };
 }
