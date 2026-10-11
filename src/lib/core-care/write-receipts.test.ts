@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CoreCareReceiptError, parseDiaryWriteReceipt, parseVitalWriteReceipt } from "./write-receipts";
+import { CoreCareReceiptError, parseDiaryWriteReceipt, parseVitalArrivalReceipt, parseVitalWriteReceipt } from "./write-receipts";
 
 const vitalData = { recordCount: 2, measurementKinds: ["pulse", "temperature"] };
 const diaryData = { record: { id: "synthetic-draft", version: 1, status: "draft" }, page: { slug: "staff/daily-care/care-diary" } };
@@ -49,5 +49,20 @@ describe("dedicated care write receipt boundaries", () => {
     { ...diaryData, page: { slug: "another-page" } },
   ])("rejects an invalid draft receipt instead of marking a draft or signature complete", (data) => {
     expect(() => parseDiaryWriteReceipt(envelope(data), 201, false)).toThrow(CoreCareReceiptError);
+  });
+  it("confirms first vital and case check-in share a Taipei instant and service day", () => {
+    const instant = "2026-09-13T01:30:00.000Z";
+    const arrival = { recordCount: 1, measurementKinds: ["pulse"], measuredAt: instant,
+      attendance: { operationId: "c0100000-0000-4000-8000-000000000001",
+        attendanceId: "c0100000-0000-4000-8000-000000000002", checkedInAt: instant,
+        serviceDate: "2026-09-13" } };
+    expect(parseVitalArrivalReceipt(envelope(arrival), 201, { pulse: 75 }).attendance.checkedInAt).toBe(instant);
+    expect(parseVitalArrivalReceipt(envelope(arrival, false, true), 200, { pulse: 75 }).measuredAt).toBe(instant);
+    for (const data of [
+      { ...arrival, attendance: { ...arrival.attendance, checkedInAt: "2026-09-13T01:31:00.000Z" } },
+      { ...arrival, attendance: { ...arrival.attendance, serviceDate: "2026-09-12" } },
+      { ...arrival, attendance: { ...arrival.attendance, attendanceId: "invalid" } },
+      { ...arrival, recordCount: 2 },
+    ]) expect(() => parseVitalArrivalReceipt(envelope(data), 201, { pulse: 75 })).toThrow(CoreCareReceiptError);
   });
 });

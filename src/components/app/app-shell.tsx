@@ -82,6 +82,14 @@ function mobilePrimaryPages(navigation: readonly NavigationGroup[], roles: Tenan
   }).slice(0, 3);
 }
 
+function isCareWorkerPrimaryPage(number: number) {
+  return number === 1 || number === 2;
+}
+
+function isCareWorkerDailyPage(number: number) {
+  return [3, 4, 6, 7, 46, 48].includes(number);
+}
+
 export function AppShell({
   context,
   navigation,
@@ -145,6 +153,9 @@ export function AppShell({
       : draftBlocked ? "資料儲存中或寫入結果未確認，請先完成核對再登出。" : scopeChangeBlockedReason;
   const availablePages = navigation.flatMap((group) => group.pages);
   const activePage = availablePages.find((page) => pathname === `/app/${page.slug}`);
+  const careWorkerOnly = context.roles.length === 1 && context.roles[0] === "care_worker";
+  const careWorkerPrimaryPages = careWorkerOnly ? availablePages.filter((page) => isCareWorkerPrimaryPage(page.number)) : [];
+  const careWorkerDailyPages = careWorkerOnly ? availablePages.filter((page) => isCareWorkerDailyPage(page.number)) : [];
   const activeGroup = navigation.find((group) =>
     group.pages.some((page) => page.number === activePage?.number) ||
     (pathname === ASSESSMENT_MATRIX_PATH && group.id === "assessments"));
@@ -154,6 +165,8 @@ export function AppShell({
   const mobilePages = mobilePrimaryPages(navigation, context.roles);
   const mobileCurrentInMore = !mobilePages.some((page) => pathname === `/app/${page.slug}`);
   const [groupRoute, setGroupRoute] = useState(pathname);
+  const [careWorkerMoreOpen, setCareWorkerMoreOpen] = useState(() => careWorkerOnly && !isCareWorkerPrimaryPage(activePage?.number ?? -1));
+  const careWorkerMoreId = useId();
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = navigation.find((group) =>
       group.pages.some((page) => pathname === `/app/${page.slug}`) ||
@@ -166,6 +179,7 @@ export function AppShell({
   const pageTitle = showStoreOverview && pathname === STORE_OVERVIEW_PATH
     ? STORE_OVERVIEW_TITLE
     : pathname === ASSESSMENT_MATRIX_PATH ? ASSESSMENT_MATRIX_TITLE
+    : careWorkerOnly && activePage?.number === 1 ? "今日照顧"
     : activePage?.title ?? appBranding.applicationName;
   const registerDailyNavigation = useCallback((selection: ValidatedDailySelection) => {
     if (selection.scope.organizationId !== context.organizationId ||
@@ -236,6 +250,7 @@ export function AppShell({
   if (groupRoute !== pathname) {
     setGroupRoute(pathname);
     if (activeGroup) setOpenGroups((current) => new Set([...current, activeGroup.id]));
+    if (careWorkerOnly && !isCareWorkerPrimaryPage(activePage?.number ?? -1)) setCareWorkerMoreOpen(true);
   }
 
   function toggleGroup(id: string) {
@@ -467,6 +482,56 @@ export function AppShell({
     </section>
   </main>;
 
+  const careWorkerNavigation = <section className="nav-group">
+    <div className="nav-group__label nav-group__label--static">日常操作</div>
+    <div className="nav-group__items">{careWorkerDailyPages.map((page) => {
+      const href = `/app/${page.slug}`;
+      const Icon = iconForPage(page);
+      return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument}
+        href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+        <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
+      </NavigationLink>;
+    })}</div>
+  </section>;
+
+  const secondaryNavigation = <>
+    {showClientIntake ? <section className="nav-group">
+      <div className="nav-group__label nav-group__label--static">個案管理</div>
+      <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
+    </section> : null}
+    {showStoreOverview ? <section className="nav-group">
+      <div className="nav-group__label nav-group__label--static">主管檢視</div>
+      <div className="nav-group__items"><NavigationLink aria-current={pathname === STORE_OVERVIEW_PATH ? "page" : undefined}
+        className="nav-link" fullDocument={sensitiveDocument} href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
+        onClick={() => closeMenu({ returnFocus: false })}>
+        <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
+      </NavigationLink></div>
+    </section> : null}
+    {navigation.filter((group) => group.id !== "workspace").map((group) => {
+      const expanded = openGroups.has(group.id);
+      return <section className="nav-group" key={group.id}>
+        <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
+          <span>{group.title}</span><ChevronDown aria-hidden="true" />
+        </button>
+        {expanded ? <div className="nav-group__items">
+          {group.id === "assessments" && showAssessmentMatrixLink ? <NavigationLink
+            aria-current={pathname === ASSESSMENT_MATRIX_PATH ? "page" : undefined}
+            className="nav-link" fullDocument={sensitiveDocument}
+            href={ASSESSMENT_MATRIX_PATH} loadingLabel={ASSESSMENT_MATRIX_TITLE}
+            onClick={() => closeMenu({ returnFocus: false })} prefetch={false}>
+            <span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>{ASSESSMENT_MATRIX_TITLE}</span>
+          </NavigationLink> : null}
+          {group.pages.map((page) => {
+            const href = `/app/${page.slug}`;
+            const Icon = iconForPage(page);
+            return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+              <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
+            </NavigationLink>;
+          })}</div> : null}
+      </section>;
+    })}
+  </>;
+
   return (
     <DailyNavigationRegistrationContext.Provider value={registerDailyNavigation}>
     <div className="app-shell">
@@ -493,7 +558,18 @@ export function AppShell({
             readOnly={process.env.NEXT_PUBLIC_SYNTHETIC_PREVIEW === "true"} />
         </div>
         <nav className="sidebar__nav">
-          {navigation.filter((group) => group.id === "workspace").map((group) => {
+          {careWorkerOnly ? <section className="nav-group">
+            <div className="nav-group__label nav-group__label--static">照服工作</div>
+            <div className="nav-group__items">{careWorkerPrimaryPages.map((page) => {
+              const href = `/app/${page.slug}`;
+              const Icon = iconForPage(page);
+              const label = page.number === 1 ? "今日照顧" : "個案";
+              return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument}
+                href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
+                <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{label}</span>
+              </NavigationLink>;
+            })}</div>
+          </section> : navigation.filter((group) => group.id === "workspace").map((group) => {
             const expanded = openGroups.has(group.id);
             return <section className="nav-group" key={group.id}>
               <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
@@ -508,41 +584,13 @@ export function AppShell({
               })}</div> : null}
             </section>;
           })}
-          {showClientIntake ? <section className="nav-group">
-            <div className="nav-group__label nav-group__label--static">個案管理</div>
-            <div className="nav-group__items"><NavigationLink aria-current={pathname === "/app/client-intake" ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href="/app/client-intake" prefetch={false} loadingLabel="個案匯入與收案" onClick={() => closeMenu({ returnFocus: false })}><span className="nav-link__icon"><UsersRound aria-hidden="true" /></span><span>個案匯入與收案</span></NavigationLink></div>
-          </section> : null}
-          {showStoreOverview ? <section className="nav-group">
-            <div className="nav-group__label nav-group__label--static">主管檢視</div>
-            <div className="nav-group__items"><NavigationLink aria-current={pathname === STORE_OVERVIEW_PATH ? "page" : undefined}
-              className="nav-link" fullDocument={sensitiveDocument} href={STORE_OVERVIEW_PATH} prefetch={false} loadingLabel={STORE_OVERVIEW_TITLE}
-              onClick={() => closeMenu({ returnFocus: false })}>
-              <span className="nav-link__icon"><Building2 aria-hidden="true" /></span><span>{STORE_OVERVIEW_TITLE}</span>
-            </NavigationLink></div>
-          </section> : null}
-          {navigation.filter((group) => group.id !== "workspace").map((group) => {
-            const expanded = openGroups.has(group.id);
-            return <section className="nav-group" key={group.id}>
-              <button className="nav-group__label" aria-expanded={expanded} onClick={() => toggleGroup(group.id)} type="button">
-                <span>{group.title}</span><ChevronDown aria-hidden="true" />
-              </button>
-              {expanded ? <div className="nav-group__items">
-                {group.id === "assessments" && showAssessmentMatrixLink ? <NavigationLink
-                  aria-current={pathname === ASSESSMENT_MATRIX_PATH ? "page" : undefined}
-                  className="nav-link" fullDocument={sensitiveDocument}
-                  href={ASSESSMENT_MATRIX_PATH} loadingLabel={ASSESSMENT_MATRIX_TITLE}
-                  onClick={() => closeMenu({ returnFocus: false })} prefetch={false}>
-                  <span className="nav-link__icon"><ClipboardList aria-hidden="true" /></span><span>{ASSESSMENT_MATRIX_TITLE}</span>
-                </NavigationLink> : null}
-                {group.pages.map((page) => {
-                const href = `/app/${page.slug}`;
-                const Icon = iconForPage(page);
-                return <NavigationLink aria-current={pathname === href ? "page" : undefined} className="nav-link" fullDocument={sensitiveDocument} href={href} key={page.slug} loadingLabel={page.title} onClick={() => closeMenu({ returnFocus: false })}>
-                  <span className="nav-link__icon"><Icon aria-hidden="true" /></span><span>{page.title}</span>
-                </NavigationLink>;
-              })}</div> : null}
-            </section>;
-          })}
+          {careWorkerOnly ? <section className="nav-group">
+            <button className="nav-group__label" aria-controls={careWorkerMoreId} aria-expanded={careWorkerMoreOpen}
+              onClick={() => setCareWorkerMoreOpen((current) => !current)} type="button">
+              <span>更多功能</span><ChevronDown aria-hidden="true" />
+            </button>
+            <div hidden={!careWorkerMoreOpen} id={careWorkerMoreId}>{careWorkerNavigation}</div>
+          </section> : secondaryNavigation}
         </nav>
         <div className="sidebar__footer">
           {portalLeaveBlocked ? <span aria-disabled="true" className="button button--secondary sidebar__module-return" title={scopeChangeBlockedReason}>回模組頁</span>
@@ -587,10 +635,11 @@ export function AppShell({
       <nav className="mobile-primary-nav" aria-label="常用功能" inert={compactNavigation && menuOpen ? true : undefined}>
         {mobilePages.map((page) => {
           const Icon = iconForPage(page);
-          const label = mobileShortLabels[page.number] ?? page.title;
+          const label = careWorkerOnly && page.number === 1 ? "今日照顧" : mobileShortLabels[page.number] ?? page.title;
           const contextual = page.number === 3 && currentDailyNavigation;
           return <NavigationLink fullDocument={sensitiveDocument} href={contextual ? dailyWorkflowHref(3, contextual.serviceDate, contextual.clientId, contextual.shift) : `/app/${page.slug}`}
-            aria-label={contextual ? "目前個案的生命徵象紀錄" : page.title} title={page.title}
+            aria-label={contextual ? "目前個案的生命徵象紀錄" : careWorkerOnly && page.number === 1 ? "今日照顧" : page.title}
+            title={careWorkerOnly && page.number === 1 ? "今日照顧" : page.title}
             aria-current={pathname === `/app/${page.slug}` ? "page" : undefined} loadingLabel={page.title}
             prefetch={contextual || page.number > 3 ? false : undefined} key={page.number}><Icon aria-hidden="true" /><span>{label}</span></NavigationLink>;
         })}

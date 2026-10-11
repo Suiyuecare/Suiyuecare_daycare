@@ -9,7 +9,11 @@ import { CareReminderCard } from "@/components/care-reminders/care-reminder-card
 import { CareDiaryLifecycle } from "@/components/core-care/care-diary-lifecycle";
 import { CoreDailyWorkspace } from "@/components/core-care/core-daily-workspace";
 import { requireTenantContext } from "@/lib/auth/context";
+import { canUseRoutineCare } from "@/lib/auth/routine-care";
 import { canAccessCatalogPage, getModule, getPageBySlug } from "@/lib/catalog";
+import { loadCareRosterSnapshot } from "@/lib/care-roster/snapshot";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { taipeiToday } from "./date";
 import { filterDailyCareSnapshotByClient } from "./projection";
 import { loadCoreDailyPageInputs } from "./daily-page-inputs";
 import { parseDailyWorkSelection } from "./selection-query";
@@ -53,6 +57,26 @@ export async function renderCoreDailyRoute(
   const selectedDailyClient = selectedClientId
     ? snapshot?.clients.find((client) => client.clientId === selectedClientId)
     : undefined;
+  const arrivalRoster = page.number === 3 && selectedDailyClient && context.roles.includes("care_worker") &&
+    !context.demo && serviceDate === taipeiToday()
+    ? await loadCareRosterSnapshot(context, serviceDate).catch(() => null) : null;
+  const currentTaipeiShift = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" })
+    .format(new Date())) < 12 ? "morning" : "afternoon";
+  const hasCurrentRosterSlot = Boolean(arrivalRoster?.status === "ready" && arrivalRoster.assignments.some((slot) =>
+    slot.clientId === selectedClientId && slot.shift === currentTaipeiShift && slot.state === "scheduled" &&
+    slot.staffUserId === context.userId && slot.isServiceEligible));
+  const canOfferArrival = Boolean(page.number === 3 && canWriteRoutine && context.roles.includes("care_worker") &&
+    hasCurrentRosterSlot && !context.demo &&
+    selectedDailyClient && selectedDailyClient.applicability?.eligible !== false &&
+    serviceDate === taipeiToday() && snapshot?.sourceAccess.attendance && snapshot.sourceAccess.measurements &&
+    selectedDailyClient.sourceAccess?.attendance !== false && selectedDailyClient.sourceAccess?.measurements !== false &&
+    !selectedDailyClient.attendance && !selectedDailyClient.vitalSigns &&
+    await canUseRoutineCare(context, "attendance.write"));
+  const canApproveException = page.number === 46 && context.roles.includes("branch_director") &&
+    context.scopes.includes("attendance.exception_approve");
+  const exceptionAuthClient = canApproveException && !context.demo ? await createServerSupabaseClient() : null;
+  const { data: recentExceptionAal2 } = exceptionAuthClient
+    ? await exceptionAuthClient.rpc("has_recent_exception_director_aal2") : { data: false };
 
   return <CoreDailyWorkspace
     clientAttention={snapshot?.sourceAccess.clients && selectedClientId && selectedDailyClient
@@ -65,7 +89,13 @@ export async function renderCoreDailyRoute(
           canSign={!context.demo && context.assuranceLevel === "aal2" && context.scopes.includes("care_records.sign")}
           demo={context.demo} /> : undefined}
     canViewManagementDetails={context.demo || context.scopes.includes("audit.view")}
+    caregiverMode={context.roles.includes("care_worker")}
+    careWorkerRole={context.roles.includes("care_worker")}
+    directorMode={context.roles.includes("branch_director")}
+    canApproveException={canApproveException}
+    hasRecentExceptionAal2={recentExceptionAal2 === true}
     canWrite={canWriteRoutine}
+    canOfferArrival={canOfferArrival}
     canWriteNextStep={Boolean(nextPage && canAccessCatalogPage(context, nextPage) && canWriteNextStep)}
     loadError={loadError}
     moduleTitle={getModule(page.moduleId).title}

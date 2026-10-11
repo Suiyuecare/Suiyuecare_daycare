@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
 const layout = readFileSync(resolve(process.cwd(), "src/app/layout.tsx"), "utf8");
+const intake = readFileSync(resolve(process.cwd(), "src/components/client-intake/intake-workspace.tsx"), "utf8");
+const intakeCss = readFileSync(resolve(process.cwd(), "src/components/client-intake/intake.module.css"), "utf8");
 
 describe("Suiyue APM / Finance CIS contract", () => {
   it.each([
@@ -24,6 +26,18 @@ describe("Suiyue APM / Finance CIS contract", () => {
     expect(layout).toContain('className={notoSansTc.variable}');
     expect(css).toContain('--font-sans: var(--font-noto-sans-tc), "Noto Sans TC"');
     expect(css).toContain("font-size: 16px; font-optical-sizing: auto;");
+  });
+
+  it("uses the case-center heading recipe for intake and a staff-page title baseline", () => {
+    expect(css).toContain("--page-title-size: clamp(28px, 2.5vw, 36px);");
+    expect(css).toContain("--page-title-weight: 700;");
+    expect(css).toContain("--page-title-tracking: -.025em;");
+    expect(css).toContain("--page-title-leading: 1.2;");
+    expect(css).toContain(":where(.app-shell .main-stage) h1 { font-family: var(--font-sans); font-weight: var(--page-title-weight); letter-spacing: var(--page-title-tracking); line-height: var(--page-title-leading); }");
+    expect(css).toContain(".page-heading h1 { margin: 0; font-size: var(--page-title-size); font-weight: var(--page-title-weight); letter-spacing: var(--page-title-tracking); line-height: var(--page-title-leading); }");
+    expect(intake).toContain('className={`page-heading ${styles.heading}`}');
+    expect(intake).toContain('className="page-heading__description"');
+    expect(intakeCss).not.toMatch(/\.heading h1\s*\{/u);
   });
 
   it("retains the branch-aware shell with APM desktop and mobile header sizes", () => {

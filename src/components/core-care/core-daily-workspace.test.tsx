@@ -68,9 +68,17 @@ describe("daily care selected-client handoff and source boundaries", () => {
     expect(screen.queryByRole("region", { name: "本頁摘要" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: trigger }).closest(".core-client-continuation")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: trigger }));
-    const clientInput = within(screen.getByRole("dialog", { name: title })).getByLabelText("個案 *");
-    expect(clientInput).toHaveValue(selected.clientId);
-    expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
+    const dialog = screen.getByRole("dialog", { name: title });
+    if (page === 46 || page === 3) {
+      expect(within(dialog).getByText(page === 46 ? "本次出勤個案" : "本次量測個案")).toBeVisible();
+      expect(within(dialog).getByText(`${selected.displayName}（${selected.clientCode}）`)).toBeVisible();
+      expect(dialog.querySelector<HTMLInputElement>('input[name="client_id"]')).toHaveValue(selected.clientId);
+      expect(within(dialog).queryByRole("combobox", { name: "個案 *" })).not.toBeInTheDocument();
+    } else {
+      const clientInput = within(dialog).getByLabelText("個案 *");
+      expect(clientInput).toHaveValue(selected.clientId);
+      expect(within(clientInput).getAllByRole("option")).toHaveLength(2);
+    }
   });
   it("marks the selected-client heading for compact mobile layout without changing the service date form", () => {
     const { container } = render(workspace(6, { selectedClientId: selected.clientId }));
