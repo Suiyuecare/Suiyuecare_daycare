@@ -2,12 +2,12 @@ import { z } from "zod";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { parseAttendanceSuccess } from "@/lib/core-care/attendance-client";
 import { parseDiaryWriteReceipt, parseVitalWriteReceipt } from "@/lib/core-care/write-receipts";
-import type { OfflineDraft, OfflineDraftKind, OfflineDraftNamespace } from "./draft-store";
+import type { OfflineDraft, OfflineCareDraftKind, OfflineDraftNamespace } from "./draft-store";
 
-export const OFFLINE_CARE_LABELS: Record<OfflineDraftKind, string> = {
+export const OFFLINE_CARE_LABELS: Record<OfflineCareDraftKind, string> = {
   "care-note": "照顧日誌", "vital-sign": "量測", attendance: "出勤",
 };
-export const OFFLINE_CARE_ENDPOINTS: Record<OfflineDraftKind, string> = {
+export const OFFLINE_CARE_ENDPOINTS: Record<OfflineCareDraftKind, string> = {
   "care-note": "/api/records", "vital-sign": "/api/measurements", attendance: "/api/attendance",
 };
 export type CareLocalPayload = {
@@ -18,7 +18,7 @@ export type CareLocalPayload = {
   request?: { body: Record<string, unknown>; hash: string };
   message?: string;
 };
-export type CareLocalDraft = OfflineDraft<CareLocalPayload>;
+export type CareLocalDraft = OfflineDraft<CareLocalPayload> & { kind: OfflineCareDraftKind };
 const payloadSchema = z.object({
   schema: z.literal(1), serviceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   formValues: z.record(z.string().max(80), z.string().max(4000)),

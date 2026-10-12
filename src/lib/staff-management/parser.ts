@@ -101,8 +101,8 @@ const decisionReceiptSchema = z.object({
   result_employment_version: safePositive.nullable(),
   result_membership_version: safePositive.nullable(),
   result_revocation_job_id: uuid.nullable(),
-  revocation_provider_status: z.literal("not_configured").nullable(),
-  revocation_verification_status: z.literal("not_verified").nullable(),
+  revocation_provider_status: z.enum(["not_configured", "supabase_native"]).nullable(),
+  revocation_verification_status: z.enum(["not_verified", "verified"]).nullable(),
   revocation_queued_at: timestamp.nullable(),
   revocation_deadline_at: timestamp.nullable(),
   content_hash: hash, decided_at: timestamp, replayed: z.boolean(),
@@ -341,8 +341,8 @@ export function parseStaffProposalDecisionReceipt(
       parsed.data.revocation_queued_at !== null ||
       parsed.data.revocation_deadline_at !== null)) ||
     (approved && termination && (parsed.data.result_revocation_job_id === null ||
-      parsed.data.revocation_provider_status !== "not_configured" ||
-      parsed.data.revocation_verification_status !== "not_verified" ||
+      !((parsed.data.revocation_provider_status === "not_configured" && parsed.data.revocation_verification_status === "not_verified") ||
+        (parsed.data.revocation_provider_status === "supabase_native" && parsed.data.revocation_verification_status === "verified")) ||
       parsed.data.revocation_queued_at === null || parsed.data.revocation_deadline_at === null ||
       Date.parse(parsed.data.revocation_deadline_at) -
         Date.parse(parsed.data.revocation_queued_at) !== 5 * 60_000)) ||

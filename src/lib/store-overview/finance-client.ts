@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { FinanceSummary, SummarySource } from "./types";
 import { financeConnectionSchema as configSchema, type FinanceConnection } from "./finance-configuration";
+import { isApprovedWanhuaFinanceBinding, WANHUA_FINANCE_POLICY } from "./finance-policy";
 export { financeConnection, type FinanceConnection } from "./finance-configuration";
 const money = z.string().regex(/^-?(?:0|[1-9]\d{0,17})\.\d{2}$/u);
 const responseSchema = z.object({
@@ -41,10 +42,12 @@ export async function fetchFinanceSummary({ connection, organizationId, branchId
   connection: FinanceConnection | null; organizationId: string; branchId: string; month: string;
 }, fetcher: typeof fetch = fetch): Promise<SummarySource<FinanceSummary>> {
   if (!connection || !configSchema.safeParse(connection).success ||
-      connection.organizationId !== organizationId || connection.branchId !== branchId) {
+      connection.organizationId !== organizationId || connection.branchId !== branchId ||
+      !isApprovedWanhuaFinanceBinding(connection)) {
     return { status: "not_connected" };
   }
   if (!/^(?:20\d{2}|21\d{2}|2200)-(?:0[1-9]|1[0-2])$/u.test(month)) return { status: "unavailable" };
+  if (month < WANHUA_FINANCE_POLICY.startsMonth) return { status: "outside_approved_period" };
   const requestId = crypto.randomUUID();
   const signal = AbortSignal.timeout(5_000);
   try {

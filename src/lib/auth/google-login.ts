@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 
 import { env, isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
+import { configuredAuthOrigin } from "./origin-policy.mjs";
 
 export const GOOGLE_FLOW_COOKIE = "__Host-daycare-google-flow";
 export const GOOGLE_FLOW_TTL_SECONDS = 600;
@@ -17,25 +18,12 @@ export type GoogleLoginConfiguration = {
   flowCookieName: string;
 };
 
-function configuredOrigin(value: string | undefined, allowLocal: boolean) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
-    if (url.protocol !== "https:" && !(allowLocal && local && url.protocol === "http:")) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
 /** Never infer the trusted host from Host / X-Forwarded-Host or a return URL. */
 export function googleLoginConfiguration(request: Request): GoogleLoginConfiguration | null {
   if (!env.GOOGLE_LOGIN_ENABLED || isDemoMode() || isSyntheticPreviewMode()) return null;
   const local = env.NODE_ENV !== "production";
-  const appOrigin = configuredOrigin(env.NEXT_PUBLIC_APP_ORIGIN, local);
-  const supabaseOrigin = configuredOrigin(env.NEXT_PUBLIC_SUPABASE_URL, local);
+  const appOrigin = configuredAuthOrigin(env.NEXT_PUBLIC_APP_ORIGIN, local);
+  const supabaseOrigin = configuredAuthOrigin(env.NEXT_PUBLIC_SUPABASE_URL, local);
   if (!appOrigin || !supabaseOrigin || new URL(request.url).origin !== appOrigin) return null;
   return {
     appOrigin,

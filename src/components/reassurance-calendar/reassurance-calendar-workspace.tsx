@@ -55,7 +55,7 @@ export function ReassuranceCalendarWorkspace({
     <p>系統沒有顯示未經完整機構、分支與資料範圍驗證的局部資料。</p>
     <Link className="button button--secondary" href="/app/staff/communication/calendar">重新載入</Link>
   </section>;
-  return <main className={styles.workspace}>
+  return <section className={styles.workspace}>
     <header className={styles.hero}><div><p className="eyebrow">第 {page.number} 頁 · 安心照顧與溝通</p>
       <h1>{page.title}</h1><p>{page.description} 已發布版本一律不可原地覆寫。</p></div>
       <div className={styles.snapshotMeta}><time dateTime={snapshot.generatedAt}>更新 {formatTaipei(snapshot.generatedAt)}</time>
@@ -122,5 +122,5 @@ export function ReassuranceCalendarWorkspace({
           </details>
         </article>)}</div>}
     </section>
-  </main>;
+  </section>;
 }

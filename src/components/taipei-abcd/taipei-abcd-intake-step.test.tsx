@@ -44,7 +44,10 @@ describe("Taipei intake draft UI", () => {
     expect(screen.getByLabelText("個案姓名內容")).toBeEnabled();
     expect(screen.getByRole("button", { name: "B 表 · 需求與照顧計畫" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled();
-  });
+  // A full official A form costs ~4.5s in the isolated jsdom run and exceeded
+  // the generic 5s budget under the complete suite. Match the sibling full-form
+  // test's bounded budget; retain every rejection/readback/locking assertion.
+  }, 15_000);
   it("does not reuse a previous client's private snapshot on client switch", async () => {
     const view = render(<TaipeiAbcdIntakeStep {...ids} />); await waitFor(() => expect(screen.getByRole("button", { name: "儲存 A 表草稿" })).toBeEnabled());
     fireEvent.change(screen.getByLabelText("個案姓名內容"), { target: { value: "先前個案私有草稿" } });

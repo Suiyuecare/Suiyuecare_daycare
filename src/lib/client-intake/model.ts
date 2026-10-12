@@ -43,6 +43,8 @@ export const intakeSnapshotSchema = z.object({
   clientId: z.uuid(), profileVersion: z.number().int().nonnegative(), clientRowVersion: z.number().int().positive(),
   pending: z.boolean(), profile: intakeProfileSchema,
   fieldAuthority: z.record(z.string(), z.string()), sourceBatchId: z.uuid().nullable(),
+  protectedFieldKeys: z.array(z.enum(["displayName", "clientCode", "identityNumber", "dateOfBirth", "sex", "cmsLevel", "disability"])).max(7)
+    .refine(keys => new Set(keys).size === keys.length).optional(),
 }).passthrough();
 export type IntakeSnapshot = z.infer<typeof intakeSnapshotSchema>;
 export const intakeReceiptSchema = z.object({ clientId: z.uuid(), profileVersion: z.number().int().positive(), clientRowVersion: z.number().int().positive(), pending: z.boolean(), replayed: z.boolean(), operationId: z.uuid() }).passthrough();

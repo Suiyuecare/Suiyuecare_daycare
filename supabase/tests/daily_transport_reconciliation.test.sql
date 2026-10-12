@@ -59,6 +59,11 @@ insert into public.clients(id,organization_id,branch_id,client_code,display_name
 select pg_temp.sid(60,n),pg_temp.sid(30),pg_temp.sid(40),'D-'||n,'合成個案'||n,
  case when n=5 then 'suspended'::public.client_status else 'active'::public.client_status end,
  case when n=3 then null when n=4 then date '2026-09-16' else date '2026-01-01' end from generate_series(1,8)n;
+-- A different branch has its own exact clients. Cross-branch isolation is
+-- tested using a valid foreign-branch trip, never an invalid passenger alias.
+insert into public.clients(id,organization_id,branch_id,client_code,display_name,status,admitted_on)
+select pg_temp.sid(60,2000+n),pg_temp.sid(30),pg_temp.sid(40,2),'D-B2-'||n,'另一分支合成個案'||n,'active','2026-01-01'
+ from generate_series(1,8)n;
 insert into public.client_assignments(organization_id,branch_id,client_id,assignee_user_id,assignment_kind,starts_at)
 values(pg_temp.sid(30),pg_temp.sid(40),pg_temp.sid(60),pg_temp.sid(10,2),'care',now()-interval '1 year');
 create function pg_temp.day(n integer,weekday integer) returns jsonb language sql as $$
@@ -95,7 +100,10 @@ create function pg_temp.trip(k integer,v integer,people integer[],direction text
 declare trip_id uuid:=gen_random_uuid(); previous_id uuid; passengers jsonb;
 begin
  select id into previous_id from public.transport_trip_plan_versions where trip_key=pg_temp.sid(90,k) and version=v-1;
- select jsonb_agg(jsonb_build_object('client_id',pg_temp.sid(60,n),'client_code','D-'||n,'display_name','合成個案'||n,'pickup_label','合成私密住址','dropoff_label','合成日照中心')) into passengers from unnest(people)n;
+ select jsonb_agg(jsonb_build_object('client_id',pg_temp.sid(60,case when branch_no=1 then n else 2000+n end),
+ 'client_code',case when branch_no=1 then 'D-'||n else 'D-B2-'||n end,
+ 'display_name',case when branch_no=1 then '合成個案'||n else '另一分支合成個案'||n end,
+ 'pickup_label','合成私密住址','dropoff_label','合成日照中心')) into passengers from unnest(people)n;
  insert into public.transport_trip_plan_versions(id,organization_id,branch_id,trip_key,version,previous_version_id,draft_status,direction,service_date,starts_at,ends_at,vehicle_code,vehicle_name_snapshot,vehicle_capacity_snapshot,driver_membership_id,driver_user_id,driver_display_name_snapshot,driver_authorization_label_snapshot,pickup_label,dropoff_label,passenger_snapshot,conflict_snapshot,rule_version_id,revision_reason,created_by,created_by_display_name,reauth_challenge_id,content_hash)
  values(trip_id,pg_temp.sid(30),pg_temp.sid(40,branch_no),pg_temp.sid(90,k),v,previous_id,'draft_ready',direction,service_date,(service_date::text||' 08:00+08')::timestamptz,(service_date::text||' 09:00+08')::timestamptz,'VAN','合成車輛',10,case when branch_no=1 then pg_temp.sid(50,3) else pg_temp.sid(50,4) end,pg_temp.sid(10,3),'合成駕駛','合成人工授權','合成私密住址','合成日照中心',passengers,'[]',pg_temp.sid(80,branch_no),'合成趟次版本',pg_temp.sid(10),'合成主管',pg_temp.sid(70),repeat('a',64));
  if decision is not null then

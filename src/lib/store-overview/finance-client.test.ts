@@ -6,7 +6,7 @@ import { formatTwd } from "./types";
 const connection: FinanceConnection = {
   url: "https://abcdefghijklmnopqrst.supabase.co/functions/v1/daycare-store-finance-summary",
   token: "a1".repeat(32), bindingId: "33333333-3333-4333-8333-333333333333",
-  entityId: "E6", departmentCode: "T1101",
+  entityId: "E6", departmentCode: "J1101",
   organizationId: "11111111-1111-4111-8111-111111111111", branchId: "22222222-2222-4222-8222-222222222222",
 };
 const input = { connection, organizationId: connection.organizationId, branchId: connection.branchId, month: "2026-09" };
@@ -60,6 +60,16 @@ describe("Finance single-store server bridge", () => {
   it("accepts genuine empty month zero totals", async () => {
     expect(await fetchFinanceSummary(input, fakeResponse({ income: "0.00", expenses: "0.00", entry_count: 0 })))
       .toMatchObject({ status: "ready", data: { income: "0.00", expenses: "0.00", entryCount: 0 } });
+  });
+  it("never contacts Finance for a period before the approved July boundary", async () => {
+    const fetcher = fakeResponse();
+    expect(await fetchFinanceSummary({ ...input, month: "2026-06" }, fetcher)).toEqual({ status: "outside_approved_period" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each([{ ...connection, entityId: "E2" }, { ...connection, departmentCode: "C1100" }])("does not contact an unapproved historic binding", async (config) => {
+    const fetcher = fakeResponse();
+    expect(await fetchFinanceSummary({ ...input, connection: config }, fetcher)).toEqual({ status: "not_connected" });
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it.each([null, { ...connection, branchId: connection.organizationId }, { ...connection, token: "short" },
     { ...connection, bindingId: "" }, { ...connection, departmentCode: "E6" },

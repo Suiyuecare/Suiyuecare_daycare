@@ -25,6 +25,7 @@ import {
 } from "@/lib/assessments/question-content";
 
 import type { QuestionnaireFormDefinition, QuestionnaireFormKey } from "./types";
+import { FULL_MNA_MEASUREMENTS, FULL_MNA_PROTEIN_FIELDS, FULL_MNA_QUESTIONS, FULL_MNA_SOURCE_SHA256, FULL_MNA_SOURCE_URL, FULL_MNA_VERSION } from "@/lib/assessments/full-mna";
 
 const numericChoices = (questions: readonly string[]) => questions.map((prompt, index) => ({
   id: `eat10_${String(index + 1).padStart(2, "0")}`,
@@ -85,7 +86,7 @@ export const QUESTIONNAIRE_FORMS: Readonly<Record<QuestionnaireFormKey, Question
     key: "barthel_adl",
     version: BARTHEL_FORM_VERSION,
     title: "Barthel ADL",
-    instructions: "依個案目前實際能力選擇一項。這裡先保存填答草稿，不產生正式總分、依賴等級或照顧決策。",
+    instructions: "依個案目前實際能力選擇一項；不適用須填原因。計分依核准版本執行，由人員判讀。",
     sourceLabel: "衛生福利部中央健康保險署：巴氏量表",
     sourceUrl: "https://www.nhi.gov.tw/ch/dl-26360-5ae6d22604154e2e9f276ed88e58f68d-1.pdf",
     scoreVersionId: "barthel-adl-0-100-v1",
@@ -96,7 +97,7 @@ export const QUESTIONNAIRE_FORMS: Readonly<Record<QuestionnaireFormKey, Question
     key: "lawton_iadl",
     version: IADL_FORM_VERSION,
     title: "IADL 工具性日常生活活動",
-    instructions: "逐項記錄目前能力；請依機構核准的評估期間與個案實況作答。本頁不自動計分或分級。",
+    instructions: "逐項記錄目前能力；請依機構核准的評估期間與個案實況作答。不適用須填原因。",
     sourceLabel: "衛生福利部《失智症診療手冊》附錄五",
     sourceUrl: "https://www.mohw.gov.tw/dl-27189-8993c3ad-0f47-45e0-a602-6a4362faae9a.html",
     scoreVersionId: "lawton-iadl-8-domain-expanded-v1",
@@ -161,6 +162,16 @@ export const QUESTIONNAIRE_FORMS: Readonly<Record<QuestionnaireFormKey, Question
     allowQualitativeNotes: true,
     measurementFields: MNA_SF_MEASUREMENTS,
     questions: MNA_SF_QUESTIONS,
+  },
+  full_mna: {
+    key: "full_mna", version: FULL_MNA_VERSION,
+    title: "完整 MNA 18 題（官方 Chinese amended 2023 候選版）",
+    instructions: "依官方 Chinese amended 2023 的 A–R 順序保存完整回答。F 題使用實測身高、體重計算 BMI；Q／R 分別保存臂圍及小腿圍。K 題保留三個子回答。候選草稿不等於正式評估結果；正式簽署與分類仍須雙人發布規則。",
+    sourceLabel: "MNA 官方 Long MNA Chinese amended 2023；非臺灣核定翻譯版",
+    sourceUrl: FULL_MNA_SOURCE_URL, sourceHash: FULL_MNA_SOURCE_SHA256,
+    scoreVersionId: FULL_MNA_VERSION, allowQualitativeNotes: true,
+    measurementFields: FULL_MNA_MEASUREMENTS, contextFields: FULL_MNA_PROTEIN_FIELDS,
+    questions: FULL_MNA_QUESTIONS,
   },
 };
 

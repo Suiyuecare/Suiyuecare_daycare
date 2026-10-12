@@ -34,7 +34,7 @@ export type ServiceUsageClientOption = {
   id: string;
   code: string;
   name: string;
-  status: "active" | "suspended" | "transferred" | "closed" | "deceased";
+  status: "pending" | "active" | "suspended" | "transferred" | "closed" | "deceased";
   admittedOn: string | null;
   endedOn: string | null;
 };

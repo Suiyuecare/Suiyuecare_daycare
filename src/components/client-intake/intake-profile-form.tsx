@@ -49,7 +49,7 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
     }
   }
   function locked(key: keyof IntakeProfile) {
-    return inputsDisabled || initial?.fieldAuthority[key] === "central" && ["displayName", "identityNumber", "dateOfBirth", "sex", "cmsLevel", "disability"].includes(key) || key === "identityNumber" && Boolean(initial?.profile.identityNumber);
+    return inputsDisabled || initial?.protectedFieldKeys?.some(protectedKey => protectedKey === key) || initial?.fieldAuthority[key] === "central" && ["displayName", "identityNumber", "dateOfBirth", "sex", "cmsLevel", "disability"].includes(key) || key === "identityNumber" && Boolean(initial?.profile.identityNumber);
   }
   function field(key: "displayName" | "clientCode" | "dateOfBirth" | "identityNumber" | "phone" | "registeredAddress" | "residentialAddress" | "disability", label: string, type = "text", required = false) {
     return <label>{label}{required ? "（必填）" : ""}
@@ -94,6 +94,7 @@ export function IntakeProfileForm({ initial, canManage, demo, today, onSaved, on
   return <form ref={formRef} onSubmit={save} noValidate className={styles.form}>
     <div><h2>{initial ? "核對個案基本資料" : "手動建立待收案個案"}</h2><p>先填姓名與機構編號；其他未提供的資料可後續核對，不要猜填。</p></div>
     {!demo && !canManage ? <p className={styles.notice}>目前僅可查看，請由有權限的收案人員修改。</p> : null}
+    {initial?.protectedFieldKeys?.length && canManage && !demo ? <p className={styles.notice}>已確認欄位已鎖定，其餘資料可補填。</p> : null}
     <fieldset disabled={inputsDisabled}><legend>身分與聯繫</legend><div className={styles.grid}>
       {field("displayName", "姓名／顯示稱呼", "text", true)}{field("clientCode", "機構個案編號", "text", true)}
       {field("identityNumber", "身分證／居留證識別")}{field("dateOfBirth", "出生日期", "date")}

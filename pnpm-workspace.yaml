@@ -3,3 +3,5 @@ allowBuilds:
   unrs-resolver: false
 overrides:
   cheerio>undici: 7.29.1
+  next>sharp: 0.35.5
+  source-map-js: 1.2.2

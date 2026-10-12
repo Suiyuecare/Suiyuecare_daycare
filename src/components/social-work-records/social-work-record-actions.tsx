@@ -271,12 +271,14 @@ export function NewSocialWorkRecordForm({
 export function SocialWorkRecordActions({
   canManage,
   canSign,
+  canFollowUp = false,
   hasRecentAal2,
   record,
   snapshot,
 }: {
   canManage: boolean;
   canSign: boolean;
+  canFollowUp?: boolean;
   hasRecentAal2: boolean;
   record: SocialWorkServiceRecord;
   snapshot: SocialWorkRecordSnapshot;
@@ -292,11 +294,11 @@ export function SocialWorkRecordActions({
       <SocialWorkActionForm action="correct" canManage={canManage} canSign={canSign}
         hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} />
       {record.followUpStatus === "pending" ? <>
-        <SocialWorkActionForm action="complete_follow_up" canManage={canManage} canSign={canSign}
+        <SocialWorkActionForm action="complete_follow_up" canManage={canFollowUp} canSign={canSign}
           hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} />
-        <SocialWorkActionForm action="cancel_follow_up" canManage={canManage} canSign={canSign}
+        <SocialWorkActionForm action="cancel_follow_up" canManage={canFollowUp} canSign={canSign}
           hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} />
-      </> : <SocialWorkActionForm action="track" canManage={canManage} canSign={canSign}
+      </> : <SocialWorkActionForm action="track" canManage={canFollowUp} canSign={canSign}
         hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} />}
     </>}
   </div>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isApprovedWanhuaFinanceBinding } from "./finance-policy";
 
 export const FINANCE_CONFIGURATION_FIELDS = [
   "FINANCE_STORE_SUMMARY_URL", "FINANCE_STORE_SUMMARY_TOKEN", "FINANCE_STORE_ORGANIZATION_ID",
@@ -53,7 +54,8 @@ export function inspectFinanceConfiguration(source: FinanceConfigurationInput,
   }
   const connection = financeConnection(source);
   const status = invalid.length ? "invalid" : missing.length ? "missing"
-    : scope && connection && (connection.organizationId !== scope.organizationId || connection.branchId !== scope.branchId)
+    : connection && (!isApprovedWanhuaFinanceBinding(connection) ||
+      (scope && (connection.organizationId !== scope.organizationId || connection.branchId !== scope.branchId)))
       ? "scope_mismatch" : "configured_unverified";
   return { status, missing, invalid, connectionVerified: false };
 }

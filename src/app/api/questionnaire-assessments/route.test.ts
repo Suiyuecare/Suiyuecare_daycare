@@ -62,7 +62,12 @@ describe("MNA-SF questionnaire API consistency", () => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
-    stubs.rpc.mockResolvedValue({ data: { recordState: "draft" }, error: null });
+    stubs.rpc.mockImplementation(async (_name, { p_payload: payload }) => ({ data: {
+      action: payload.action, clientId: payload.client_id, formKey: payload.form_key, assessmentKey: payload.assessment_key ?? idempotencyKey,
+      versionId: "12900000-0000-4000-8000-000000000092", version: (payload.expected_version ?? 0) + 1,
+      recordState: payload.action === "sign" ? "signed" : payload.action === "submit" ? "submitted" : "draft",
+      assessedOn: payload.assessed_on ?? "2026-10-08", contentHash: "a".repeat(64), committedAt: "2026-10-12T01:00:00Z", replayed: false,
+    }, error: null }));
   });
 
   it.each([
@@ -93,5 +98,38 @@ describe("MNA-SF questionnaire API consistency", () => {
       }),
     });
     expect((await response.json()).data).toMatchObject({ recordState: "draft" });
+  });
+
+  it("allows complete-draft submission without AAL2 or fake rule approval", async () => {
+    stubs.readJsonObject.mockResolvedValue({ action: "submit", clientId, formKey: "mna_sf",
+      assessmentKey: idempotencyKey, previousVersionId: clientId, expectedVersion: 1, followUpDueOn: "2026-11-08" });
+    const response = await POST(request());
+    expect(response.status).toBe(201);
+    expect(stubs.rpc).toHaveBeenCalledWith("mutate_questionnaire_assessment", expect.objectContaining({
+      p_payload: expect.objectContaining({ action: "submit", follow_up_due_on: "2026-11-08" }),
+    }));
+  });
+  it.each(["sign", "correct", "return"])("requires sign permission for %s", async (action) => {
+    stubs.readJsonObject.mockResolvedValue({ action, clientId, formKey: "mna_sf", assessmentKey: idempotencyKey,
+      previousVersionId: clientId, expectedVersion: 1, ...(action !== "sign" ? { reason: "合成更正原因" } : {}) });
+    const response = await POST(request());
+    expect(response.status).toBe(403); expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+  it("requires recent assurance for a signer, with final proof still checked by DB", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, scopes: [...actor.scopes, "questionnaire_nutrition.sign"], assuranceLevel: "aal1" });
+    stubs.readJsonObject.mockResolvedValue({ action: "sign", clientId, formKey: "mna_sf", assessmentKey: idempotencyKey, previousVersionId: clientId, expectedVersion: 1 });
+    expect((await POST(request())).status).toBe(403); expect(stubs.rpc).not.toHaveBeenCalled();
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, scopes: [...actor.scopes, "questionnaire_nutrition.sign"], assuranceLevel: "aal2" });
+    expect((await POST(request())).status).toBe(201);
+  });
+  it.each([{ action: "correct" }, { action: "sign", result: 100 }])("does not accept missing reason or caller-supplied result", async (extra) => {
+    stubs.readJsonObject.mockResolvedValue({ clientId, formKey: "mna_sf", assessmentKey: idempotencyKey, previousVersionId: clientId, expectedVersion: 1, ...extra });
+    expect((await POST(request())).status).toBe(400); expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+  it("does not report a malformed database receipt as a successful save", async () => {
+    stubs.readJsonObject.mockResolvedValue(body({ height_cm: "160", weight_kg: "60" }, "bmi_gte_23"));
+    stubs.rpc.mockResolvedValue({ data: { recordState: "draft" }, error: null });
+    const response = await POST(request()); expect(response.status).toBe(500);
+    expect((await response.json()).errors[0].code).toBe("QUESTIONNAIRE_SAVE_FAILED");
   });
 });

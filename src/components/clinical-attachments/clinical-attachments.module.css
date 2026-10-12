@@ -1,0 +1,17 @@
+.root { border: 1px solid var(--border); border-radius: var(--radius-panel, 12px); margin-block: 12px; }
+.root summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 12px; cursor: pointer; font-weight: 600; }
+.root summary svg { width: 20px; height: 20px; }
+.body { padding: 12px; display: grid; gap: 12px; }
+.body p { margin: 0; }
+.form { display: grid; gap: 12px; }
+.form label { display: grid; gap: 6px; font-weight: 600; }
+.form input, .form select, .form textarea { font: inherit; font-size: 16px; width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.form textarea { min-height: 120px; resize: none; }
+.form fieldset { display: grid; gap: 12px; min-inline-size: 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.list li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+.list small { display: block; color: var(--text-muted); }
+.list li span { overflow-wrap: anywhere; min-width: 0; }
+.preview { width: 100%; max-width: 600px; max-height: 400px; object-fit: contain; }
+.form progress { width: 100%; }

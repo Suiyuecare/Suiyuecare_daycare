@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { fetchWithTimeout, isClientFetchTimeoutError } from "@/lib/api/client-fetch";
+import { safeMfaReturnPath } from "@/lib/auth/mfa-return";
 import { parseReauthChallengeEnvelope, parseReauthCompletionEnvelope } from "@/lib/auth/reauth-client";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
@@ -187,7 +188,7 @@ export function MfaChallenge() {
       return;
     }
     const audience = searchParams.get("audience");
-    router.replace(audience === "family" ? "/family/home" : "/app/dashboard");
+    router.replace(safeMfaReturnPath(searchParams.get("next"), audience));
     router.refresh();
   }
 

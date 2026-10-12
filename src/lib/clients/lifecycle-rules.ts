@@ -40,7 +40,7 @@ export function clientServiceState(client: {
   status: ClientLifecycleStatus;
   admittedOn: string | null;
 }): ClientServiceState {
-  return client.status === "active" && client.admittedOn === null
+  return client.status === "pending" || (client.status === "active" && client.admittedOn === null)
     ? "pending_admission"
     : client.status;
 }
@@ -58,6 +58,7 @@ export function allowedClientTransitionKinds(
   if (client.endedOn || ["transferred", "closed", "deceased"].includes(client.status)) {
     return [];
   }
+  if (client.status === "pending") return [];
   if (client.status === "active" && !client.admittedOn) return ["admit"];
   if (client.status === "active") {
     return ["suspend", "transfer", "close", "death"];

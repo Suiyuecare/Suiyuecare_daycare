@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle2, CircleAlert, Download, MessageCircleMore, S
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { FamilyPortalSnapshot } from "@/lib/family/snapshot";
 import { StatusPill } from "@/components/ui/status-pill";
+import { FamilyLiveWorkspace } from "./family-live-workspace";
 
 const dataCategoryLabels: Partial<Record<PageCatalogEntry["number"], string>> = {
   85: "訊息",
@@ -22,6 +23,7 @@ export function FamilyWorkspace({ demo, page, snapshot }: { demo: boolean; page:
     return <section className="empty-card"><ShieldCheck aria-hidden="true" /><h1>請選擇要查看的個案</h1><p>每次只會載入一位已授權個案，避免跨個案資料混合。</p><div className="page-heading__actions">{snapshot.authorizedClients.map((client) => <a className="button button--secondary" href={`?client=${encodeURIComponent(client.clientId)}`} key={client.clientId}>{client.clientName}</a>)}</div></section>;
   }
   const ready = !demo && snapshot?.state === "ready" ? snapshot : null;
+  if (ready?.workspace) return <FamilyLiveWorkspace initial={ready.workspace} pageNumber={page.number} title={page.title} />;
   const clientName = demo ? "陳O華" : ready?.clientName ?? "已授權個案";
   return (
     <>

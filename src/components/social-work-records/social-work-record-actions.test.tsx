@@ -129,6 +129,21 @@ describe("social-work record client write boundary", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/最近 15 分鐘/u);
   });
 
+  it("keeps ordinary draft revision available while withholding committed follow-up actions", () => {
+    const draft = formal.records.find((record) => record.recordState === "draft")!;
+    const { rerender } = render(<SocialWorkRecordActions canManage canSign={false} canFollowUp={false}
+      hasRecentAal2={false} record={draft} snapshot={formal} />);
+    expect(screen.getByText("建立草稿新版", { selector: "summary" })).toBeDefined();
+    expect(screen.queryByText("簽署紀錄", { selector: "summary" })).toBeNull();
+    const signed = formal.records.find((record) => record.recordState !== "draft")!;
+    rerender(<SocialWorkRecordActions canManage canSign={false} canFollowUp={false}
+      hasRecentAal2={false} record={signed} snapshot={formal} />);
+    expect(screen.queryByText(/建立追蹤|完成追蹤|取消追蹤/u, { selector: "summary" })).toBeNull();
+    rerender(<SocialWorkRecordActions canManage canSign canFollowUp
+      hasRecentAal2 record={signed} snapshot={formal} />);
+    expect(screen.getAllByText(/建立追蹤|完成追蹤|取消追蹤/u, { selector: "summary" }).length).toBeGreaterThan(0);
+  });
+
   it("announces staleness and resets for a newer snapshot boundary", async () => {
     const { rerender } = render(<SocialWorkRecordFreshness demo={false}
       staleAfter={new Date(Date.now() - 1_000).toISOString()} />);

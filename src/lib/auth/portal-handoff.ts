@@ -5,6 +5,7 @@ import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { env, hasSupabaseAdminConfiguration, isDemoMode, isSyntheticPreviewMode } from "@/lib/env";
+import { configuredAuthOrigin } from "./origin-policy.mjs";
 
 export const PORTAL_ORIGIN = "https://login.suiyuecare.com";
 export const PORTAL_OAUTH_BRIDGE_ORIGIN = "https://suiyuecare-website.vercel.app";
@@ -31,27 +32,14 @@ export type PortalHandoffConfiguration = {
   secret: string;
 };
 
-function configuredOrigin(value: string | undefined, allowLocal: boolean) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
-    if (url.protocol !== "https:" && !(allowLocal && local && url.protocol === "http:")) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
 /** Configuration is server-owned; Host and X-Forwarded-Host cannot select a destination. */
 export function portalHandoffConfiguration(request: Request): PortalHandoffConfiguration | null {
   if (isDemoMode() || isSyntheticPreviewMode() || !hasSupabaseAdminConfiguration()) return null;
   const secret = env.PORTAL_DAYCARE_HANDOFF_SECRET;
   if (!secret || Buffer.byteLength(secret, "utf8") < 32) return null;
   const allowLocal = env.NODE_ENV !== "production";
-  const appOrigin = configuredOrigin(env.NEXT_PUBLIC_APP_ORIGIN, allowLocal);
-  const supabaseOrigin = configuredOrigin(env.NEXT_PUBLIC_SUPABASE_URL, allowLocal);
+  const appOrigin = configuredAuthOrigin(env.NEXT_PUBLIC_APP_ORIGIN, allowLocal);
+  const supabaseOrigin = configuredAuthOrigin(env.NEXT_PUBLIC_SUPABASE_URL, allowLocal);
   if (!appOrigin || !supabaseOrigin || new URL(request.url).origin !== appOrigin) return null;
   return {
     appOrigin,

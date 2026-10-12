@@ -16,7 +16,7 @@ export interface FinanceSummary {
 }
 export type SummarySource<T> =
   | { status: "ready"; data: T }
-  | { status: "not_connected" | "unavailable" | "timeout" };
+  | { status: "not_connected" | "unavailable" | "timeout" | "outside_approved_period" };
 
 /** Only aggregate values cross the server/client boundary. No client identities or ledger rows. */
 export interface StoreOverview {

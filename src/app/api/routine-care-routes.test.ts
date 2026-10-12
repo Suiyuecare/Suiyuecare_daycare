@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TenantContext } from "@/lib/domain/types";
 
-const stubs = vi.hoisted(() => ({ authorize: vi.fn(), rpc: vi.fn(), client: vi.fn(), single: vi.fn() }));
+const stubs = vi.hoisted(() => ({ authorize: vi.fn(), rpc: vi.fn(), client: vi.fn(), single: vi.fn(), routine: vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/auth/routine-care", () => ({ canUseRoutineCare: stubs.routine }));
 vi.mock("@/lib/integrations/http", () => ({
   authorizeStaffRequest: stubs.authorize,
   readJsonObject: (request: Request) => request.json(),
@@ -58,6 +59,83 @@ function success(name: typeof cases[number]["name"]) {
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(now));
   stubs.authorize.mockResolvedValue(actor); stubs.client.mockResolvedValue({ rpc: stubs.rpc });
+  stubs.routine.mockResolvedValue(true);
+});
+
+describe("first current vital and case check-in", () => {
+  const body = { client_id: clientId, service_date: "2026-09-13", values: { pulse: 75 }, arrival_check_in: true };
+  const receipt = {
+    attendance_operation_id: id, attendance_id: id, checked_in_at: now,
+    measured_at: now, service_date: "2026-09-13", measurement_kinds: ["pulse"],
+    record_count: 1, replayed: false,
+  };
+
+  it("uses one atomic RPC with a server timestamp, and returns one combined receipt", async () => {
+    stubs.rpc.mockResolvedValue({ data: receipt, error: null });
+    const response = await measurements(request("measurements", body));
+    expect(response.status).toBe(201);
+    expect(stubs.routine).toHaveBeenCalledExactlyOnceWith(actor, "attendance.write");
+    expect(stubs.rpc).toHaveBeenCalledExactlyOnceWith("record_first_vital_arrival", expect.objectContaining({
+      p_client_id: clientId, p_pulse: 75, p_expected_service_date: "2026-09-13",
+    }));
+    expect(stubs.rpc.mock.calls[0]?.[1]).not.toHaveProperty("p_measured_at");
+    expect((await response.json()).data).toMatchObject({ persisted: true,
+      attendance: { checkedInAt: now }, measuredAt: now,
+    });
+  });
+
+  it("rejects missing live attendance access before RPC", async () => {
+    stubs.routine.mockResolvedValue(false);
+    const response = await measurements(request("measurements", body));
+    expect(response.status).toBe(403);
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects any client timestamp or backfill field on the immediate action", async () => {
+    for (const extra of [{ measured_at: now }, { occurred_at: now }, { reason: "backfill" }]) {
+      const response = await measurements(request("measurements", { ...body, ...extra }));
+      expect(response.status).toBe(400);
+    }
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("reports a same-day conflict without calling the standalone vital RPC", async () => {
+    stubs.rpc.mockResolvedValue({ data: null, error: { code: "23514" } });
+    const response = await measurements(request("measurements", body));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "ARRIVAL_STATE_CONFLICT" });
+    expect(stubs.rpc).toHaveBeenCalledOnce();
+  });
+
+  it("shows an actionable day-change error without treating it as a saved attendance", async () => {
+    stubs.rpc.mockResolvedValue({ data: null, error: { code: "23514", message: "arrival service date changed; refresh today work" } });
+    const response = await measurements(request("measurements", body));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "ARRIVAL_DAY_CHANGED" });
+  });
+
+  it("accepts an exact replay without a second write", async () => {
+    stubs.rpc.mockResolvedValue({ data: { ...receipt, replayed: true }, error: null });
+    const response = await measurements(request("measurements", body));
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({ replayed: true });
+    expect(stubs.rpc).toHaveBeenCalledExactlyOnceWith("record_first_vital_arrival", expect.any(Object));
+  });
+
+  it("rejects an incomplete combined receipt rather than claiming success", async () => {
+    stubs.rpc.mockResolvedValue({ data: { ...receipt, measured_at: "2026-09-13T01:31:00.000Z" }, error: null });
+    const response = await measurements(request("measurements", body));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "ARRIVAL_RECEIPT_INCOMPLETE" });
+  });
+});
+describe("standalone vital arrival boundary", () => {
+  it("surfaces the database's first-vital refusal as an actionable case arrival conflict", async () => {
+    stubs.rpc.mockResolvedValue({ data: null, error: { code: "23514" } });
+    const response = await measurements(request("measurements", { client_id: clientId, measured_at: now, values: { pulse: 75 } }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "FIRST_VITAL_REQUIRES_ARRIVAL" });
+  });
 });
 afterEach(() => vi.useRealTimers());
 

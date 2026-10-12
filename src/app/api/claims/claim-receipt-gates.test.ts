@@ -143,6 +143,8 @@ describe("claim receipts remain internal until a governed official source exists
     { claim_batch_id: ITEM_A },
     { item_count: "3" },
     { accepted_count: "2" },
+    { accepted_count: "2", rejected_count: "0" },
+    { accepted_count: "0", rejected_count: "2", replayed: true },
     { total_amount: "120.31" },
     { status: "accepted" },
     { extra: "SYNTH_SECRET_CONTENT" },

@@ -24,7 +24,7 @@ export function ActivityManagementWorkspace({ canCancel, canManage, filters, has
     <p>系統沒有顯示未經完整授權與驗證的局部資料。請確認網路後重新載入。</p>
     <Link className="button button--secondary" href="/app/staff/social-work/activities">重新載入</Link>
   </section>;
-  return <main className={styles.workspace}>
+  return <section className={styles.workspace}>
     <header className={styles.hero}><div><p className="eyebrow">第 {page.number} 頁 · 社工服務</p><h1>{page.title}</h1>
       <p>{page.description} 每次排程修改與狀態轉換都保留原版本，不以姓名模糊合併。</p></div>
       <div className={styles.snapshotMeta}><time dateTime={snapshot.generatedAt}>更新 {formatTaipei(snapshot.generatedAt)}</time><span>60 秒後視為可能過期，操作後重新取快照。</span></div></header>
@@ -68,5 +68,5 @@ export function ActivityManagementWorkspace({ canCancel, canManage, filters, has
           {activity.scheduleHistoryTotal > activity.scheduleHistory.length || activity.statusHistoryTotal > activity.statusHistory.length ? <p>單一歷程顯示最近 50 筆；總數仍完整。</p> : null}
         </details>
       </article>)}</section>}
-  </main>;
+  </section>;
 }

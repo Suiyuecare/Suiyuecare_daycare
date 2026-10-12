@@ -7,14 +7,18 @@ import { STORE_ATTENDANCE_MONTH_PATH } from "@/lib/store-overview/attendance-mon
 import { Building2, CalendarDays, RefreshCw, UsersRound, Wallet } from "lucide-react";
 import { ModuleLoading } from "@/components/app/module-loading";
 import { formatTwd, STORE_OVERVIEW_PATH, STORE_OVERVIEW_TITLE, type StoreOverview } from "@/lib/store-overview/types";
+import { WANHUA_FINANCE_POLICY } from "@/lib/store-overview/finance-policy";
+import { formatCareTaipeiTime } from "@/lib/core-care/date";
 import styles from "./store-overview.module.css";
 
 function timeLabel(value: string) {
-  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(value));
+  return formatCareTaipeiTime(value);
 }
 
 function Unavailable({ source, status }: { source: "出勤" | "Finance"; status: string }) {
+  if (status === "outside_approved_period") return <div className={styles.notice} role="status">
+    <strong>此月份尚未納入萬華收支</strong><p>目前核准範圍自 2026 年 7 月起，請選擇 7 月或之後的月份。</p>
+  </div>;
   return <div className={styles.notice} role="status">
     <strong>{status === "not_connected" ? "Finance 尚未連線" : `${source}${status === "timeout" ? "讀取逾時" : "暫時無法讀取"}`}</strong>
     <p>{status === "not_connected" ? "請管理員完成這間店的 Finance 對應與連線設定；完成後會顯示實際收入、支出。" : "請按「更新資料」重試；若仍無法讀取，請聯絡系統管理員。"}</p>
@@ -80,7 +84,7 @@ export function StoreOverviewWorkspace({ overview }: { overview: StoreOverview }
     {overview.demo && <aside className={styles.notice} aria-label="合成展示資料"><strong>合成展示資料</strong><p>以下人數與金額僅供試用畫面，不是這間店的實際營運資料；不會連線正式 Finance。</p></aside>}
     <form className={styles.filters} action={STORE_OVERVIEW_PATH} method="get" onSubmit={apply} aria-label="選擇出勤日期與收支月份">
       <label>出勤日期<input key={`date-${overview.periods.date}`} type="date" name="date" min="2000-01-01" max="2200-12-31" required defaultValue={overview.periods.date} /></label>
-      <label>收支月份<input key={`month-${overview.periods.month}`} type="month" name="month" min="2000-01" max="2200-12" required defaultValue={overview.periods.month} /></label>
+      <label>收支月份<input key={`month-${overview.periods.month}`} type="month" name="month" min={WANHUA_FINANCE_POLICY.startsMonth} max="2200-12" required defaultValue={overview.periods.month} /></label>
       <button className="button button--secondary" disabled={pending || !online} type="submit"><RefreshCw aria-hidden="true" />{pending ? "更新中…" : "更新資料"}</button>
     </form>
     <p className={styles.helper}>日期與月份可分開選擇，皆以臺北時間顯示。</p>
@@ -113,7 +117,8 @@ export function StoreOverviewWorkspace({ overview }: { overview: StoreOverview }
             {overview.finance.data.entryCount === 0 && <p className={styles.notice}>Finance 這個月尚無分類帳紀錄。</p>}
             <p className={styles.updated}>Finance 讀取時間：<time dateTime={financeAt!}>{timeLabel(financeAt!)}</time></p>
           </> : <Unavailable source="Finance" status={overview.finance.status} />}
-          <p className={styles.helper}>與 Finance 同店、同月份的分類帳口徑一致；不是銀行實際收付款。修改帳務請回 Finance 處理。</p>
+          <p className={styles.helper}><strong>{WANHUA_FINANCE_POLICY.label}</strong> · 萬華 J1101／E6 · 2026 年 7 月起</p>
+          <details><summary>查看收支口徑</summary><p className={styles.helper}>收入科目 4、7；支出科目 5、6、9。沖銷及作廢依 Finance 原帳本淨額，其他單位與 C1100 不納入。修改帳務請回 Finance 處理。</p></details>
         </section>
       </div>
     </>}

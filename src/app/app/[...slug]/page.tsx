@@ -27,6 +27,10 @@ import { defaultIntegrationsAuditFilters, parseIntegrationsAuditQuery } from "@/
 import { IntegrationsAuditSnapshotError, loadIntegrationsAuditSnapshot } from "@/lib/integrations-audit/snapshot";
 import { ClientMasterWorkspace } from "@/components/clients/client-master-workspace";
 import { ClientLifecycleWorkspace } from "@/components/clients/client-lifecycle-workspace";
+import { JuboAdmissionPreparation } from "@/components/client-intake/jubo-admission-preparation";
+import { loadJuboAdmissionPreparation } from "@/lib/jubo-admission-preparation/server";
+import { admissionPreparationWorkspaceKey } from "@/lib/jubo-admission-preparation/workspace-key";
+import { IntegrationError } from "@/lib/integrations/errors";
 import { ClientServicePlanWorkspace } from "@/components/client-service-plan-workflow/client-service-plan-workspace";
 import { CaseServiceRecordsWorkspace } from "@/components/case-service-records/case-service-records-workspace";
 import { emptyCaseServiceRecordFilters, parseCaseServiceRecordFilters } from "@/lib/case-service-records/query";
@@ -77,6 +81,12 @@ import { ClientVaccinationsWorkspace } from "@/components/client-vaccinations/cl
 import { ChewingAssessmentsWorkspace } from "@/components/chewing-assessments/chewing-assessments-workspace";
 import { MnaAssessmentsWorkspace } from "@/components/mna-assessments/mna-assessments-workspace";
 import { QuestionnaireAssessmentsWorkspace } from "@/components/questionnaire-assessments/questionnaire-assessment-editor";
+import { QuestionnaireRuleGovernance } from "@/components/questionnaire-assessments/questionnaire-rule-governance";
+import { StaffFamilyWorkspace } from "@/components/family/staff-family-workspace";
+import { loadQuestionnaireGovernance } from "@/lib/questionnaire-assessments/governance-snapshot";
+import { parseMnaVariant, parseQuestionnaireSelection } from "@/lib/questionnaire-assessments/query";
+import { EvaluationPreparationWorkspace } from "@/components/evaluation-preparation/evaluation-preparation-workspace";
+import { loadEvaluationPreparationSnapshot, EvaluationPreparationSnapshotError } from "@/lib/evaluation-preparation/snapshot";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
 import { loadQuestionnaireSnapshot, QuestionnaireSnapshotError } from "@/lib/questionnaire-assessments/snapshot";
 import type { QuestionnaireFormKey, QuestionnaireSnapshot } from "@/lib/questionnaire-assessments/types";
@@ -1086,13 +1096,17 @@ export default async function StaffCatalogPage({
       18: "bsrs5",
       36: "mna_sf",
     };
-    const formKey = formKeyByPage[page.number]!;
+    const mnaVariant = page.number === 36 ? parseMnaVariant(query.variant) : null;
+    const formKey = page.number === 36 ? mnaVariant ?? "mna_sf" : formKeyByPage[page.number]!;
     const form = getQuestionnaireForm(formKey)!;
     const requestedClient = typeof query.client === "string" ? query.client : "";
     const validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
       ? requestedClient.toLowerCase() : null;
+    const selection = parseQuestionnaireSelection(query);
     const invalidFilters = Boolean(requestedClient && !validClientId) ||
-      Object.keys(query).some((key) => key !== "client");
+      Array.isArray(query.client) || !selection || Boolean(selection.versionId && !validClientId) ||
+      (page.number === 36 && !mnaVariant) ||
+      Object.keys(query).some((key) => !["client", "version", "month", "new", "history_page", ...(page.number === 36 ? ["variant"] : [])].includes(key));
     const prefix = formKey === "spmsq"
       ? "questionnaire_cognition"
       : formKey === "barthel_adl" || formKey === "lawton_iadl"
@@ -1123,13 +1137,14 @@ export default async function StaffCatalogPage({
       };
     } else if (!invalidFilters) {
       try {
-        snapshot = await loadQuestionnaireSnapshot(context, formKey, validClientId);
+        snapshot = await loadQuestionnaireSnapshot(context, formKey, validClientId, selection!);
       } catch (error) {
         if (!(error instanceof QuestionnaireSnapshotError)) throw error;
         loadError = true;
       }
     }
     return <QuestionnaireAssessmentsWorkspace
+      key={`${formKey}-${context.organizationId}-${context.branchId}-${context.userId}`}
       assessorName={context.displayName}
       canManage={canManage}
       form={form}
@@ -1964,7 +1979,8 @@ export default async function StaffCatalogPage({
     };
     const canManage = !context.demo && context.scopes.includes("clients.read") &&
       context.scopes.includes("social_work_records.read") &&
-      context.scopes.includes("social_work_records.manage");
+      context.scopes.includes("social_work_records.manage") &&
+      (context.assuranceLevel === "aal2" || context.roles.includes("case_manager_social_worker"));
     const canSign = !context.demo && context.scopes.includes("clients.read") &&
       context.scopes.includes("social_work_records.read") &&
       context.scopes.includes("social_work_records.sign");
@@ -2033,6 +2049,7 @@ export default async function StaffCatalogPage({
       }
     }
     return <SocialWorkRecordsWorkspace canManage={canManage} canSign={canSign}
+      canFollowUp={context.assuranceLevel === "aal2" && canManage}
       filters={filters} hasRecentAal2={recentAal2} loadError={loadError}
       page={page} snapshot={snapshot} />;
   }
@@ -2512,7 +2529,21 @@ export default async function StaffCatalogPage({
       if (!(error instanceof ClientLifecycleSnapshotError)) throw error;
       loadError = true;
     }
+    const selectedClient = !loadError && snapshot && clientId
+      ? snapshot.clients.find((client) => client.id === clientId)
+      : null;
+    let admissionPreparation = null;
+    let preparationUnavailable = false;
+    if (selectedClient?.serviceState === "pending_admission") {
+      try {
+        admissionPreparation = await loadJuboAdmissionPreparation(context, selectedClient.id);
+      } catch (error) {
+        if (!(error instanceof IntegrationError)) throw error;
+        preparationUnavailable = true;
+      }
+    }
     return (
+      <>
       <ClientLifecycleWorkspace
         key={JSON.stringify([context.organizationId, context.branchId, context.userId, [...context.scopes].sort(), clientId])}
         selectedClientId={clientId}
@@ -2528,6 +2559,16 @@ export default async function StaffCatalogPage({
         snapshot={snapshot}
         status={status}
       />
+      {admissionPreparation && <JuboAdmissionPreparation
+        key={admissionPreparationWorkspaceKey(context, admissionPreparation)}
+        snapshot={admissionPreparation}
+      />}
+      {preparationUnavailable && <section className="panel" aria-label="收案核對">
+        <div className="panel__body"><p role="alert">收案核對暫時無法載入，個案仍為待收案。</p>
+          <Link className="button button--secondary" href={`?client=${encodeURIComponent(selectedClient!.id)}`}>重新載入此個案</Link>
+        </div>
+      </section>}
+      </>
     );
   }
 
@@ -3420,13 +3461,13 @@ export default async function StaffCatalogPage({
         loadError = true;
       }
     }
-    return <CareCommunicationsWorkspace
+    return <><CareCommunicationsWorkspace
       filters={filters}
       hasRecentAal2={recentAal2}
       loadError={loadError}
       page={page}
       snapshot={snapshot}
-    />;
+    /><StaffFamilyWorkspace context={context} selectedClientId={clientId ?? undefined} /></>;
   }
 
   if (page.number === 44) {
@@ -3893,7 +3934,9 @@ export default async function StaffCatalogPage({
     const canManage = context.demo || context.scopes.includes("forms.manage");
     const recentAal2 =
       context.demo || (canManage ? await hasCustomFormGovernanceAccess(context, true) : false);
+    const questionnaireRules = context.demo ? null : await loadQuestionnaireGovernance(context);
     return (
+      <>
       <FormRuleVersionsWorkspace
         key={[context.organizationId, context.branchId, context.userId,
           [...context.roles].sort().join(","), [...context.scopes].sort().join(","),
@@ -3905,7 +3948,24 @@ export default async function StaffCatalogPage({
         page={page}
         snapshot={snapshot}
       />
+      {!context.demo ? <QuestionnaireRuleGovernance snapshot={questionnaireRules} /> : null}
+      </>
     );
+  }
+
+  if (page.number === 79) {
+    const requestedPage = typeof query.page === "string" ? query.page : "1";
+    if (!/^[1-9]\d?$/u.test(requestedPage) || Object.keys(query).some((key) => key !== "page")) {
+      return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="invalid_filter" />;
+    }
+    let evaluation = null;
+    try {
+      evaluation = await loadEvaluationPreparationSnapshot(context, Number(requestedPage));
+    } catch (error) {
+      if (!(error instanceof EvaluationPreparationSnapshotError)) throw error;
+    }
+    if (!evaluation) return <WorkLoadFailureState title={page.title} path={`/app/${page.slug}`} kind="unavailable" />;
+    return <EvaluationPreparationWorkspace snapshot={evaluation} actorUserId={context.userId} />;
   }
 
   if (page.number === 19) {

@@ -104,4 +104,15 @@ describe("daily care projection", () => {
       selected.clients[0]!.completedServiceCount,
     );
   });
+
+  it("does not treat a text-only measurement note as an effective vital", () => {
+    const snapshot = projectDailyCareSnapshot({
+      serviceDate: "2026-09-01", generatedAt: "2026-09-01T02:00:00.000Z",
+      clients: [{ id: "11111111-1111-4111-8111-111111111111", client_code: "SYN-1", display_name: "測試個案" }],
+      attendance: [], careDiaries: [], serviceEvents: [],
+      measurements: [{ client_id: "11111111-1111-4111-8111-111111111111", measurement_kind: "pulse",
+        measured_at: "2026-09-01T09:00:00+08:00", numeric_value: null }],
+    });
+    expect(snapshot.clients[0]?.vitalSigns).toBeNull();
+  });
 });

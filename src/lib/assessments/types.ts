@@ -4,6 +4,7 @@ export type AssessmentInstrument =
   | "barthel_adl"
   | "lawton_iadl"
   | "mna_sf"
+  | "full_mna"
   | "fall_risk_taipei_115"
   | "nsi_determine"
   | "eat10"
@@ -15,6 +16,7 @@ export type AssessmentVersionId =
   | "barthel-adl-0-100-v1"
   | "lawton-iadl-8-domain-expanded-v1"
   | "mna-sf-revised-2009-v1"
+  | "full-mna-chinese-amended-2023-v1"
   | "fall-risk-taipei-115-b12-v1"
   | "nsi-determine-10-weighted-v1"
   | "eat10-tw-v1"
@@ -58,6 +60,7 @@ export interface AssessmentContextDefinition {
 export interface AssessmentRuleSource {
   readonly label: string;
   readonly url: string;
+  readonly sha256?: string;
 }
 
 export interface AssessmentClassification {

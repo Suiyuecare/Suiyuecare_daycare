@@ -1,5 +1,5 @@
 begin;
-select plan(66);
+select plan(67);
 -- Entirely synthetic Auth metadata; real admission/permission/reauth functions.
 select set_config('test.custom_amr',floor(extract(epoch from now()-interval '2 minutes'))::text,true);
 insert into auth.users(id,aud,role,email,email_confirmed_at,created_at,updated_at) values
@@ -78,7 +78,14 @@ insert into auth.mfa_amr_claims(id,session_id,created_at,updated_at,authenticati
 
 insert into public.profiles(id,display_name,kind) values('d8100000-0000-4000-8000-000000000011','合成第二人','staff');
 insert into public.memberships(id,organization_id,profile_id,status,starts_at) values('d8700000-0000-4000-8000-000000000011','d8500000-0000-4000-8000-000000000001','d8100000-0000-4000-8000-000000000011','active',now()-interval '1 day');
-insert into public.membership_roles(membership_id,role_id) values('d8700000-0000-4000-8000-000000000011','10000000-0000-4000-8000-000000000002');
+-- A forms-only reviewer must actually have a forms-only role. The system
+-- organization_manager template intentionally grants broader business powers;
+-- calling that fixture "forms-only" used to rely on the obsolete CEO gate.
+insert into public.roles(id,organization_id,role_key,name,is_system) values
+ ('db710000-0000-4000-8000-000000000011','d8500000-0000-4000-8000-000000000001','forms_reviewer','Synthetic forms-only reviewer',false);
+insert into public.role_permissions(role_id,permission_id)
+ select 'db710000-0000-4000-8000-000000000011',id from public.permissions where permission_key='forms.manage';
+insert into public.membership_roles(membership_id,role_id) values('d8700000-0000-4000-8000-000000000011','db710000-0000-4000-8000-000000000011');
 insert into private.staff_google_access_grants(allowed_user_id,organization_id,company_email_domain,allowed_email,google_subject,enabled,approval_reference)
  values('d8100000-0000-4000-8000-000000000011','d8500000-0000-4000-8000-000000000001','example.invalid','second@example.invalid','synthetic-second-google',true,'synthetic second approver');
 insert into private.reauth_challenges(id,user_id,session_id,nonce_sha256,idempotency_key,issued_jwt_iat,issued_jwt_jti,
@@ -129,7 +136,7 @@ select throws_ok($$select pg_temp.lifecycle()$$,'42501',null,'AAL1 replay is den
 select pg_temp.second_login();
 select is(public.can_begin_staff_mfa(),true,'approved forms-only second manager may begin actual MFA');
 select is(public.has_custom_form_governance_access('d8500000-0000-4000-8000-000000000001','d8600000-0000-4000-8000-000000000001',true),true,'second Google person has real recent forms-only evidence');
-select is(public.has_recent_aal2(15),false,'global evidence root remains executive only');
+select is(public.has_recent_aal2(15),true,'verified native employee AAL2 is recognized independently of business permissions');
 select is(private.has_permission('d8500000-0000-4000-8000-000000000001','d8600000-0000-4000-8000-000000000001','care_records.sign'),false,'no clinical signing authority acquired');
 select is(public.has_custom_form_governance_access('d8500000-0000-4000-8000-000000000002','d8600000-0000-4000-8000-000000000002',true),false,'forms-only grant cannot cross organization');
 select lives_ok($$select * from public.form_governance_snapshot('d8500000-0000-4000-8000-000000000001','d8600000-0000-4000-8000-000000000001')$$,'actual second person can load page82 governance snapshot');
@@ -202,11 +209,21 @@ select set_config('test.fresh_factor',floor(extract(epoch from clock_timestamp()
 update auth.mfa_amr_claims set created_at=to_timestamp(current_setting('test.fresh_factor')::bigint),updated_at=to_timestamp(current_setting('test.fresh_factor')::bigint)
  where session_id='d8300000-0000-4000-8000-000000000011' and authentication_method='totp';
 select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{amr}',jsonb_build_array(jsonb_build_object('method','oauth','timestamp',current_setting('test.custom_amr')::bigint),jsonb_build_object('method','totp','timestamp',current_setting('test.fresh_factor')::bigint)))::text,true);
+-- JWT NumericDate must advance after the newly issued challenge. The old
+-- fixture kept transaction-start now() as iat while issuing at clock_timestamp;
+-- once the preceding assertions took over two seconds, real guards correctly
+-- refused that stale token and the later fixture restoration read a NULL factor.
+select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{iat}',
+ to_jsonb(floor(extract(epoch from (select created_at from private.reauth_challenges
+  where id='db500000-0000-4000-8000-000000000001')-interval '3 seconds'))::bigint))::text,true);
 set local role authenticated;
+select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),false,'stale JWT issued before challenge is denied, without weakening the two-second guard');
+select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{iat}',
+ to_jsonb(current_setting('test.fresh_factor')::bigint))::text,true);
 select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),true,'actual staff Google challenge records fresh AAL2 proof');
 select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),false,'consumed MFA challenge cannot be reused');
 select is(public.has_custom_form_governance_access('d8500000-0000-4000-8000-000000000001','d8600000-0000-4000-8000-000000000001',true),true,'actual newly consumed evidence authorizes forms only');
-select is(public.has_recent_aal2(15),false,'recording fresh staff proof still does not expand global evidence authority');
+select is(public.has_recent_aal2(15),true,'fresh native employee proof is recognized while the forms-only role still grants no clinical powers');
 reset role;
 insert into private.reauth_challenges(id,user_id,session_id,nonce_sha256,idempotency_key,issued_jwt_iat,issued_jwt_jti,created_at,expires_at,consumed_at,consumed_jwt_iat,consumed_jwt_jti,factor_method,factor_verified_at)
  values('db500000-0000-4000-8000-000000000002','d8100000-0000-4000-8000-000000000011','d8300000-0000-4000-8000-000000000011',repeat('d',64),'db600000-0000-4000-8000-000000000002',clock_timestamp()-interval '18 minutes','old',clock_timestamp()-interval '17 minutes',clock_timestamp()-interval '12 minutes',clock_timestamp()-interval '16 minutes',clock_timestamp()-interval '16 minutes','old-consumed','totp',clock_timestamp()-interval '16 minutes');

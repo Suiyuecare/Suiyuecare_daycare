@@ -7,7 +7,9 @@ import type { NursingAssessmentSnapshot } from "./types";
 
 export async function loadNursingAssessmentSnapshot(context: TenantContext): Promise<NursingAssessmentSnapshot> {
   if (context.demo) return buildDemoNursingAssessmentSnapshot(context.organizationId, context.branchId);
-  if (context.assuranceLevel !== "aal2" || !context.scopes.includes("clients.read") ||
+  // Tenant context verifies the approved native session. The RPC revalidates
+  // exact live grants and assigned clients; ordinary reads do not sign a record.
+  if (!["aal1", "aal2"].includes(context.assuranceLevel) || !context.scopes.includes("clients.read") ||
     !context.scopes.includes("nursing_assessments.read")) throw new Error("NURSING_SNAPSHOT_NOT_AUTHORIZED");
   const supabase = await createServerSupabaseClient();
   if (!supabase) throw new Error("NURSING_SNAPSHOT_NOT_CONFIGURED");

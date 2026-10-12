@@ -496,6 +496,78 @@ begin
     jsonb_build_object('method','totp','timestamp',current_setting('test.aal1_amr')::bigint)))::text,true);
  return public.is_staff_login_allowed();
 end; $$;
+-- Local synthetic fixture diagnostics only. This temporary helper can read
+-- only the pinned .invalid nurse/session/challenge and returns booleans/age,
+-- never tokens, claims, identities or timestamps. It performs no mutation and
+-- disappears with this test's rollback. The sign RPC below remains invoker.
+create function pg_temp.synthetic_body_aal2_diagnostics() returns jsonb
+language plpgsql volatile security definer set search_path='' as $$
+declare v_now timestamptz:=clock_timestamp(); v_result jsonb;
+begin
+ if auth.uid() is distinct from 'd0100000-0000-4000-8000-000000000001'::uuid
+   or auth.jwt()->>'session_id' is distinct from 'd0300000-0000-4000-8000-000000000004'
+   or not exists(select 1 from auth.users fixture_user
+     join auth.identities identity on identity.user_id=fixture_user.id
+     where fixture_user.id='d0100000-0000-4000-8000-000000000001'
+       and fixture_user.email='nurse@care.example.invalid'
+       and identity.provider='google' and identity.provider_id='synthetic-clinical-staff')
+   or not exists(select 1 from public.organizations organization
+     where organization.id='d0500000-0000-4000-8000-000000000001'
+       and organization.code='synthetic-aal1-org') then
+  return null;
+ end if;
+ select jsonb_build_object(
+   'jwt_aal2',coalesce(auth.jwt()->>'aal'='aal2',false),
+   'approved_google_session',private.is_staff_google_session_allowed(),
+   'auth_session_exists',session.id is not null,
+   'auth_session_aal2',coalesce(session.aal='aal2',false),
+   'challenge_exists',challenge.id is not null,
+   'event_exists',event.id is not null,
+   'challenge_actor_matches',coalesce(challenge.user_id=auth.uid(),false),
+   'challenge_session_matches',coalesce(challenge.session_id=session.id,false),
+   'event_challenge_matches',coalesce(event.challenge_id=challenge.id,false),
+   'event_aal2',coalesce(event.aal='aal2',false),
+   'challenge_consumed',challenge.consumed_at is not null,
+   'challenge_not_invalidated',challenge.id is not null and challenge.invalidated_at is null,
+   'event_not_revoked',event.id is not null and event.revoked_at is null,
+   'event_factor_method_allowed',coalesce(event.verification_method in ('totp','webauthn','phone'),false),
+   'factor_method_matches',coalesce(challenge.factor_method=event.verification_method,false),
+   'factor_timestamp_matches',coalesce(challenge.factor_verified_at=event.verified_at,false),
+   'factor_not_stale',coalesce(challenge.factor_verified_at>=v_now-interval '15 minutes',false),
+   'factor_not_future',coalesce(challenge.factor_verified_at<=v_now+interval '1 minute',false),
+   'factor_age_seconds',extract(epoch from v_now-challenge.factor_verified_at))
+ into v_result from (select 1) fixture
+ left join auth.sessions session on session.id='d0300000-0000-4000-8000-000000000004'
+   and session.user_id='d0100000-0000-4000-8000-000000000001'
+ left join private.reauth_challenges challenge on challenge.id='d0e00000-0000-4000-8000-000000000001'
+ left join private.reauth_events event on event.user_id='d0100000-0000-4000-8000-000000000001'
+   and event.session_id='d0300000-0000-4000-8000-000000000004';
+ return v_result;
+end; $$;
+revoke all on function pg_temp.synthetic_body_aal2_diagnostics() from public,anon,service_role;
+grant execute on function pg_temp.synthetic_body_aal2_diagnostics() to authenticated;
+
+-- An unexpected denial still aborts the suite with the original SQLSTATE and
+-- message. Diagnostic-only owner reads never execute or authorize the sign.
+create function pg_temp.sign_synthetic_body_with_diagnostics(p_payload jsonb) returns text
+language plpgsql volatile security invoker set search_path='' as $$
+declare v_state text; v_message text; v_context text; v_conditions jsonb;
+begin
+ select record_state into v_state from public.mutate_body_assessment(
+   'd0500000-0000-4000-8000-000000000001','d0600000-0000-4000-8000-000000000001',
+   p_payload,'d0900000-0000-4000-8000-000000000011');
+ return v_state;
+exception when insufficient_privilege then
+ get stacked diagnostics v_message=message_text,v_context=pg_exception_context;
+ v_conditions:=pg_temp.synthetic_body_aal2_diagnostics();
+ if v_conditions is null then raise; end if;
+ raise exception using errcode='42501',message=v_message,
+   detail=jsonb_build_object('proof_level','local-synthetic-fixture-diagnostics-only',
+     'executed_as_authenticated',current_user='authenticated',
+     'conditions',v_conditions,'original_error_context',v_context)::text;
+end; $$;
+revoke all on function pg_temp.sign_synthetic_body_with_diagnostics(jsonb) from public,anon,service_role;
+grant execute on function pg_temp.sign_synthetic_body_with_diagnostics(jsonb) to authenticated;
 set local role authenticated;
 select is(pg_temp.staff_aal2_claims(),true,'approved non-executive Google staff may upgrade to AAL2');
 select is(public.has_recent_body_assessment_aal2(
@@ -511,8 +583,7 @@ select 'body-aal2',to_jsonb(result) from public.mutate_body_assessment(
  'd0900000-0000-4000-8000-000000000010') result;
 select is((select receipt->>'record_state' from approved_drafts where kind='body-aal2'),'draft',
  'approved staff AAL2 may save an assigned body draft');
-select is((select record_state from public.mutate_body_assessment(
- 'd0500000-0000-4000-8000-000000000001','d0600000-0000-4000-8000-000000000001',
+select is(pg_temp.sign_synthetic_body_with_diagnostics(
  (select jsonb_build_object('action','sign',
    'client_id','d0800000-0000-4000-8000-000000000001',
    'assessment_key',receipt->'assessment_key',
@@ -520,8 +591,7 @@ select is((select record_state from public.mutate_body_assessment(
    'expected_version',(receipt->>'version')::integer,
    'expected_content_hash',receipt->'content_hash',
    'reason','本人確認已核對所選部位的人工觀察與處置')
-   from approved_drafts where kind='body-aal2'),
- 'd0900000-0000-4000-8000-000000000011')),'signed',
+   from approved_drafts where kind='body-aal2')),'signed',
  'approved staff with recent same-session AAL2 can sign own completed body draft');
 insert into approved_drafts(kind,receipt)
 select 'body-aal2-future',to_jsonb(result) from public.mutate_body_assessment(

@@ -30,23 +30,25 @@ function MatrixStatus({
   clientId,
   clientName,
   formName,
+  month,
 }: {
   cell: AssessmentMatrixCell | undefined;
   formKey: (typeof ASSESSMENT_MATRIX_FORMS)[number]["key"];
   clientId: string;
   clientName: string;
   formName: string;
+  month: string;
 }) {
-  const href = assessmentFormHref(formKey, clientId);
+  const href = assessmentFormHref(formKey, clientId, month, cell?.state !== "none" ? cell?.versionId : undefined);
   if (!cell || !href) return <span className={styles.statusNone}>—</span>;
   return <Link
-    aria-label={`開啟 ${clientName} 的${formName}；${cell.state === "draft" ? `本月有草稿，評估日 ${cell.assessedOn}` : "本月未記錄"}`}
-    className={`${styles.statusLink} ${cell.state === "draft" ? styles.statusDraft : styles.statusNone}`}
+    aria-label={`開啟 ${clientName} 的${formName}；${cell.state !== "none" ? `${cell.state === "signed" ? "已簽署" : cell.state === "submitted" ? "待簽署" : "有草稿"}，評估日 ${cell.assessedOn}` : "本月未記錄"}`}
+    className={`${styles.statusLink} ${cell.state !== "none" ? styles.statusDraft : styles.statusNone}`}
     href={href}
     prefetch={false}
   >
-    <span>{cell.state === "draft" ? "有草稿" : "未記錄"}</span>
-    {cell.state === "draft" ? <small>{cell.assessedOn.slice(5).replace("-", "/")}</small> : null}
+    <span>{cell.state === "signed" ? "已簽署" : cell.state === "submitted" ? "待簽署" : cell.state === "draft" ? "有草稿" : "未記錄"}</span>
+    {cell.state !== "none" ? <small>{cell.assessedOn.slice(5).replace("-", "/")}</small> : null}
     <ArrowUpRight aria-hidden="true" size={14} />
   </Link>;
 }
@@ -78,7 +80,7 @@ export function AssessmentMatrixWorkspace({
       <div>
         <p className="eyebrow">評估量表</p>
         <h1><ClipboardList aria-hidden="true" />{ASSESSMENT_MATRIX_TITLE}</h1>
-        <p>按月份查看個案草稿，點選狀態開啟量表。</p>
+        <p>選月份，點選狀態直接開啟該次評估。</p>
       </div>
       {snapshot ? <span className={styles.refreshTime}>更新於 {formatSnapshotTime(snapshot.generatedAt)}</span> : null}
     </header>
@@ -127,8 +129,8 @@ export function AssessmentMatrixWorkspace({
             <caption className="sr-only">{formatMonth(filters.month)}個案量表草稿狀態；僅顯示目前有權限查看的個案及量表。</caption>
             <thead><tr><th scope="col">個案</th>{forms.map((form) => <th key={form.key} scope="col">{form.label}</th>)}</tr></thead>
             <tbody>{snapshot.clients.map((client) => <tr key={client.clientId}>
-              <th scope="row"><span className={styles.clientName}>{client.displayName}</span><small>{client.clientCode}{client.serviceStatus === "suspended" ? " · 暫停" : ""}</small></th>
-              {forms.map((form) => <td key={form.key}><MatrixStatus cell={client.cells[form.key]} clientId={client.clientId} clientName={client.displayName} formKey={form.key} formName={form.label} /></td>)}
+              <th scope="row"><span className={styles.clientName}>{client.displayName}</span><small>{client.clientCode}{client.serviceStatus === "pending" ? " · 待收案・僅草稿" : client.serviceStatus === "suspended" ? " · 暫停" : ""}</small></th>
+              {forms.map((form) => <td key={form.key}><MatrixStatus cell={client.cells[form.key]} clientId={client.clientId} clientName={client.displayName} formKey={form.key} formName={form.label} month={filters.month} /></td>)}
             </tr>)}</tbody>
           </table>
         </div>
@@ -140,7 +142,7 @@ export function AssessmentMatrixWorkspace({
           </div>
         </div>
       </section>}
-      <p className={styles.disclaimer}>此頁只統計本月量表草稿；不代表已簽署、完成正式評估或已到複評期限。</p>
+      <p className={styles.disclaimer}>僅呈現實際保存狀態；未記錄不代表已完成。</p>
     </> : null}
   </div>;
 }

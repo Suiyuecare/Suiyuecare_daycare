@@ -14,6 +14,7 @@ describe("fillable assessment scoring contracts", () => {
     ]));
     const context: Record<string, string> = form.key === "spmsq"
       ? { education_adjustment: "middle_or_high_school" }
+      : form.key === "full_mna" ? { protein_dairy: "no", protein_legumes_eggs: "no", protein_meat_fish_poultry: "no" }
       : {};
     const result = scoreAssessment({
       versionId: form.scoreVersionId,

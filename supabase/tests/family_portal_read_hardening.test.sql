@@ -1,6 +1,6 @@
 begin;
 
-select plan(21);
+select plan(35);
 
 select ok(
   to_regprocedure('private.has_current_governed_family_consent(uuid,text)') is not null
@@ -122,7 +122,7 @@ insert into family_read_consent_fixture values
   ('c8500000-0000-4000-8000-000000000005', 'c8600000-0000-4000-8000-000000000005', 'c8510000-0000-4000-8000-000000000005', 'c8610000-0000-4000-8000-000000000005', 'c8300000-0000-4000-8000-000000000005', 'c8000000-0000-4000-8000-000000000002', '女兒', '女兒', array['client.read'], clock_timestamp() - interval '1 minute', null, clock_timestamp() - interval '10 seconds', repeat('5', 64), true),
   ('c8500000-0000-4000-8000-000000000006', 'c8600000-0000-4000-8000-000000000006', 'c8510000-0000-4000-8000-000000000006', 'c8610000-0000-4000-8000-000000000006', 'c8300000-0000-4000-8000-000000000006', 'c8000000-0000-4000-8000-000000000002', '女兒', '其他', array['client.read'], clock_timestamp() - interval '1 minute', null, null, repeat('6', 64), true),
   ('c8500000-0000-4000-8000-000000000007', 'c8600000-0000-4000-8000-000000000007', 'c8510000-0000-4000-8000-000000000007', 'c8610000-0000-4000-8000-000000000007', 'c8300000-0000-4000-8000-000000000007', 'c8000000-0000-4000-8000-000000000002', '女兒', '女兒', array['care.read'], clock_timestamp() - interval '1 minute', null, null, repeat('7', 64), true),
-  ('c8500000-0000-4000-8000-000000000008', 'c8600000-0000-4000-8000-000000000008', 'c8510000-0000-4000-8000-000000000008', 'c8610000-0000-4000-8000-000000000008', 'c8300000-0000-4000-8000-000000000008', 'c8000000-0000-4000-8000-000000000003', '兒子', '兒子', array['client.read'], clock_timestamp() - interval '1 minute', null, null, repeat('8', 64), true);
+  ('c8500000-0000-4000-8000-000000000008', 'c8600000-0000-4000-8000-000000000008', 'c8510000-0000-4000-8000-000000000008', 'c8610000-0000-4000-8000-000000000008', 'c8300000-0000-4000-8000-000000000008', 'c8000000-0000-4000-8000-000000000003', '兒子', '兒子', array['client.read','messages.read'], clock_timestamp() - interval '1 minute', null, null, repeat('8', 64), true);
 
 insert into private.family_consent_verification_evidence (
   id, organization_id, branch_id, client_id, recipient_user_id,
@@ -256,6 +256,26 @@ select results_eq(
 select is(private.can_read_client('c8300000-0000-4000-8000-000000000001', 'clients.read', 'client.read'), false, 'family B cannot probe family A client authorization');
 
 reset role;
+insert into private.family_publications(organization_id,branch_id,client_id,category,source_id,source_hash,title,summary,occurred_at,published_by,idempotency_key,input_hash)
+values('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001','c8300000-0000-4000-8000-000000000001','care','c8700000-0000-4000-8000-000000000003',repeat('f',64),'已核准摘要','只顯示人工核准摘要',now(),'c8000000-0000-4000-8000-000000000001',gen_random_uuid(),repeat('b',64));
+select set_config('request.jwt.claims','{"sub":"c8000000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1","session_id":"c8800000-0000-4000-8000-000000000002"}',true);
+set local role authenticated;
+select is(public.is_family_login_allowed(),true,'family admission uses governed consent without employee gate');
+select is((select count(*)::integer from public.family_tenant_context(null,null)),1,'only one consent-bound tenant branch is available');
+select is((select payload->'publications'->0->>'summary' from public.family_workspace('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001','c8300000-0000-4000-8000-000000000001')),'只顯示人工核准摘要','explicit approved copy is shown, never raw care payload');
+select is((select payload->'messages' from public.family_workspace('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001','c8300000-0000-4000-8000-000000000001')),'[]'::jsonb,'ungranted messages category has no data');
+select throws_ok($$select public.family_workspace('c8100000-0000-4000-8000-000000000002','c8200000-0000-4000-8000-000000000002','c8300000-0000-4000-8000-000000000008')$$,'42501',null,'family workspace denies another branch and recipient');
+select throws_ok($$select public.family_message_write('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001',jsonb_build_object('clientId','c8300000-0000-4000-8000-000000000001','body','ungranted','idempotency_key',gen_random_uuid()))$$,'42501',null,'message write requires separate messages consent');
+select set_config('request.jwt.claims','{"sub":"c8000000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1","session_id":"c8800000-0000-4000-8000-000000000003"}',true);
+select set_config('test.family_message',jsonb_build_object('clientId','c8300000-0000-4000-8000-000000000008','body','合成家屬訊息','expectedVersion',0,'idempotency_key','c8920000-0000-4000-8000-000000000003')::text,true);
+select is((select receipt->>'replayed' from public.family_message_write('c8100000-0000-4000-8000-000000000002','c8200000-0000-4000-8000-000000000002',current_setting('test.family_message')::jsonb)),'false','governed message consent enables own family send');
+select is((select receipt->>'replayed' from public.family_message_write('c8100000-0000-4000-8000-000000000002','c8200000-0000-4000-8000-000000000002',current_setting('test.family_message')::jsonb)),'true','family resend keeps same immutable message');
+select is((select payload->'messages'->0->>'body' from public.family_workspace('c8100000-0000-4000-8000-000000000002','c8200000-0000-4000-8000-000000000002','c8300000-0000-4000-8000-000000000008')),'合成家屬訊息','family reads only its consent-bound messages');
+select throws_ok($$select public.family_message_write('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001',jsonb_build_object('clientId','c8300000-0000-4000-8000-000000000001','body','跨個案測試','idempotency_key',gen_random_uuid()))$$,'42501',null,'family sender cannot switch to another consent recipient');
+select set_config('request.jwt.claims','{"sub":"c8000000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1","session_id":"c8800000-0000-4000-8000-000000000002"}',true);
+select is((select receipt->>'version' from public.family_preference_write('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001','{"clientId":"c8300000-0000-4000-8000-000000000001","idempotency_key":"c8920000-0000-4000-8000-000000000001","expectedVersion":0,"pushEnabled":false,"categories":[],"quietStart":"21:00","quietEnd":"08:00","contactPhone":null}')),'1','family can save settings without granting additional categories');
+select is((select receipt->>'replayed' from public.family_preference_write('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001','{"clientId":"c8300000-0000-4000-8000-000000000001","idempotency_key":"c8920000-0000-4000-8000-000000000001","expectedVersion":0,"pushEnabled":false,"categories":[],"quietStart":"21:00","quietEnd":"08:00","contactPhone":null}')),'true','settings retry does not produce new versions');
+reset role;
 update public.consents
 set revoked_at = clock_timestamp()
 where id = 'c8600000-0000-4000-8000-000000000001';
@@ -269,6 +289,8 @@ select set_config(
 
 select is((select count(*)::integer from public.family_client_summaries()), 0, 'revocation removes the final visible client on the next statement');
 select is(private.can_read_client('c8300000-0000-4000-8000-000000000001', 'clients.read', 'client.read'), false, 'revocation immediately closes the exact client predicate');
+select is(public.is_family_login_allowed(),false,'revocation immediately disables consent-only family admission');
+select throws_ok($$select public.family_workspace('c8100000-0000-4000-8000-000000000001','c8200000-0000-4000-8000-000000000001','c8300000-0000-4000-8000-000000000001')$$,'42501',null,'revoked authorization cannot read previously published material');
 
 reset role;
 set local role anon;

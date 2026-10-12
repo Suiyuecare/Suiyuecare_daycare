@@ -1,6 +1,7 @@
 import { CalendarDays, FileCheck2, FileWarning, ShieldCheck, Siren,
   Syringe } from "lucide-react";
 import Link from "next/link";
+import { ClinicalAttachments } from "@/components/clinical-attachments/clinical-attachments";
 
 import type { PageCatalogEntry } from "@/lib/catalog";
 import type { ClientVaccinationFilters, ClientVaccinationRecord,
@@ -154,6 +155,7 @@ export function ClientVaccinationsWorkspace({
             record.duplicateCount}。</p> : null}</article>)}</div>}
     </section>
 
+    <section className={styles.history} aria-label="疫苗證明附件">{snapshot.records.map(record => <div key={record.recordVersionId}><h3>{record.clientDisplayName} · {record.vaccineName}</h3><ClinicalAttachments source={{ clientId: record.clientId, sourceKind: "vaccination", sourceId: record.recordVersionId, sourceVersion: record.version }} canManage={canManage && record.recordStatus === "active"} demo={snapshot.demo} /></div>)}</section>
     <section className={styles.history} aria-labelledby="client-vaccination-history">
       <h2 id="client-vaccination-history">不可變版本歷程</h2>
       <p>顯示 {snapshot.history.length} / {snapshot.historyTotal} 個版本；既有版本不能直接修改或刪除。</p>

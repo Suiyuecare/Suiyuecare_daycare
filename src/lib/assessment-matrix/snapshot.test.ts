@@ -67,9 +67,31 @@ describe("assessment matrix fail-closed snapshot", () => {
     await expect(loadAssessmentMatrixSnapshot(actor, filters)).rejects.toBeInstanceOf(AssessmentMatrixSnapshotError);
   });
 
+  it("supports pending draft preparation without claiming a submitted or signed assessment", async () => {
+    const data = response();
+    data.clients[0]!.serviceStatus = "pending";
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    expect((await loadAssessmentMatrixSnapshot(actor, filters)).clients[0].serviceStatus).toBe("pending");
+    data.clients[0]!.cells.spmsq.state = "signed";
+    await expect(loadAssessmentMatrixSnapshot(actor, filters)).rejects.toBeInstanceOf(AssessmentMatrixSnapshotError);
+  });
+
   it("uses only a labelled synthetic empty state in demo mode", async () => {
     const demo = await loadAssessmentMatrixSnapshot({ ...actor, demo: true }, filters);
     expect(demo).toMatchObject({ demo: true, clients: [], totalClients: 0 });
     expect(mocks.serverClient).not.toHaveBeenCalled();
+  });
+
+  it("keeps SF and full MNA as separate cells under the same exact nutrition permission", async () => {
+    const data = { ...response(), forms: ["mna_sf", "full_mna"], clients: [{
+      ...response().clients[0]!, cells: { mna_sf: { state: "none" }, full_mna: {
+        state: "draft", versionId, version: 1, assessedOn: "2026-10-03",
+      } },
+    }] };
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    const nutrition = { ...actor, scopes: ["clients.read", "questionnaire_nutrition.read"] };
+    expect((await loadAssessmentMatrixSnapshot(nutrition, filters)).clients[0].cells)
+      .toMatchObject({ mna_sf: { state: "none" }, full_mna: { state: "draft", versionId } });
+    await expect(loadAssessmentMatrixSnapshot(actor, filters)).rejects.toBeInstanceOf(AssessmentMatrixSnapshotError);
   });
 });

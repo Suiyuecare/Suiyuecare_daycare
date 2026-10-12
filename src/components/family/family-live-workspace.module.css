@@ -1,0 +1,18 @@
+.root { display: grid; gap: 16px; }
+.root summary { min-height: 44px; padding-block: 10px; cursor: pointer; }
+.root h1 { display: flex; gap: 10px; align-items: center; }
+.root h1 svg { width: 28px; height: 28px; }
+.updated { color: var(--text-muted); margin: 0; }
+.cards { display: grid; gap: 16px; }
+.messages { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.messages li { padding: 16px; border: 1px solid var(--border); border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mine { background: var(--surface-soft); margin-inline-start: 20px; }
+.theirs { background: var(--surface); margin-inline-end: 20px; }
+.form { display: grid; gap: 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.form fieldset { display: grid; gap: 12px; border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.form label { display: grid; gap: 6px; }
+.form input:not([type=checkbox]),.form select,.form textarea { font: inherit; font-size: 16px; border: 1px solid var(--border); border-radius: 10px; min-height: 44px; padding: 10px; width: 100%; }
+.form label:has(input[type=checkbox]) { min-height: 44px; display: flex; align-items: center; gap: 10px; }
+.form textarea { resize: none; min-height: 120px; }
+.form input[type=checkbox] { width: 20px; height: 20px; }

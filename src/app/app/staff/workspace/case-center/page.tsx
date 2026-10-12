@@ -42,10 +42,11 @@ export default async function CaseCenterPage({
 
   return (
     <CaseCenterWorkspace
+      caregiverMode={context.roles.length === 1 && context.roles[0] === "care_worker"}
       canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
       canCreateIntake={!context.demo && ["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"].every((scope) => context.scopes.includes(scope))}
       allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
-      allowedContinuationPages={staffPages.filter((entry) => [7, 8, 28].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
+      allowedContinuationPages={staffPages.filter((entry) => [7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 28, 36].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}
       canViewSummary={staffPages.some((entry) => entry.number === 54 && canAccessCatalogPage(context, entry))}
       filters={filters}
       loadError={loadError}

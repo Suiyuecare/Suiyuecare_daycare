@@ -9,10 +9,10 @@ import { ASSESSMENT_MATRIX_FORMS, ASSESSMENT_MATRIX_PAGE_SIZE, canViewAssessment
 import type { AssessmentMatrixFilters } from "./query";
 import type { AssessmentMatrixSnapshot } from "./types";
 
-const formKeys = ["spmsq", "gds_15", "fall_risk_taipei_115", "nsi_determine", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "mna_sf"] as const;
-const cellSchema = z.discriminatedUnion("state", [
+const formKeys = ["spmsq", "gds_15", "fall_risk_taipei_115", "nsi_determine", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "mna_sf", "full_mna"] as const;
+const cellSchema = z.union([
   z.object({ state: z.literal("none") }).strict(),
-  z.object({ state: z.literal("draft"), versionId: z.string().uuid(), version: z.number().int().positive(), assessedOn: z.iso.date() }).strict(),
+  z.object({ state: z.enum(["draft", "submitted", "signed"]), versionId: z.string().uuid(), version: z.number().int().positive(), assessedOn: z.iso.date() }).strict(),
 ]);
 const snapshotSchema = z.object({
   month: z.string().regex(/^20\d{2}-(?:0[1-9]|1[0-2])$/u),
@@ -20,10 +20,10 @@ const snapshotSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.number().int().min(1).max(25),
   totalClients: z.number().int().nonnegative(),
-  forms: z.array(z.enum(formKeys)).min(1).max(9),
+  forms: z.array(z.enum(formKeys)).min(1).max(10),
   clients: z.array(z.object({
     clientId: z.string().uuid(), clientCode: z.string().min(1),
-    displayName: z.string().min(1), serviceStatus: z.enum(["active", "suspended"]),
+    displayName: z.string().min(1), serviceStatus: z.enum(["pending", "active", "suspended"]),
     cells: z.record(z.string(), cellSchema),
   }).strict()).max(25),
 }).strict();
@@ -71,7 +71,8 @@ export async function loadAssessmentMatrixSnapshot(
       clientIds.add(client.clientId);
       return Object.keys(client.cells).length !== snapshot.forms.length ||
         Object.entries(client.cells).some(([key, cell]) => !visibleForms.has(key as typeof formKeys[number]) ||
-          (cell.state === "draft" && !cell.assessedOn.startsWith(`${filters.month}-`)));
+          (cell.state !== "none" && !cell.assessedOn.startsWith(`${filters.month}-`)) ||
+          (client.serviceStatus === "pending" && !["none", "draft"].includes(cell.state)));
     })) throw new AssessmentMatrixSnapshotError();
   return snapshot as AssessmentMatrixSnapshot;
 }

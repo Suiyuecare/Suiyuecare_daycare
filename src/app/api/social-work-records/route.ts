@@ -111,6 +111,10 @@ async function authorize(
       403,
     );
   }
+  if (permission === "social_work_records.manage" && actor.assuranceLevel === "aal1" &&
+    !actor.roles.includes("case_manager_social_worker")) {
+    throw new IntegrationError("SOCIAL_WORK_NOT_AUTHORIZED", "社工草稿需要已核准的社工職務。", 403);
+  }
   if (permission === "social_work_records.sign") await requireRecentAal2(actor);
   return actor;
 }
@@ -311,10 +315,15 @@ export async function PATCH(request: Request) {
       );
     }
     if (signing) await requireRecentAal2(actor);
-
-    const result = ["track", "complete_follow_up", "cancel_follow_up"].includes(
-      String(body.action),
-    )
+    const followingUp = ["track", "complete_follow_up", "cancel_follow_up"].includes(String(body.action));
+    if (followingUp && actor.assuranceLevel !== "aal2") {
+      throw new IntegrationError("AAL2_REQUIRED", "正式追蹤異動需要完成雙重驗證。", 403);
+    }
+    if (!signing && !followingUp && actor.assuranceLevel === "aal1" &&
+      !actor.roles.includes("case_manager_social_worker")) {
+      throw new IntegrationError("SOCIAL_WORK_NOT_AUTHORIZED", "社工草稿需要已核准的社工職務。", 403);
+    }
+    const result = followingUp
       ? await executeFollowUp(
         parseSocialWorkFollowUpMutation(body, request.headers.get("idempotency-key")),
         actor,

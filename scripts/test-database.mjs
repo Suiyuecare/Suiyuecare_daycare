@@ -15,7 +15,7 @@ const requestedTests = process.argv
   .filter((argument) => !argument.startsWith("--"));
 
 // Frozen pre-executive multi-role regression suites. Only these known local
-// suites replace the new admission predicate, never its tenant/role/AAL guards.
+// suites replace the admission predicates, never their tenant/role/AAL guards.
 // Every new suite (including executive_google_access.test.sql) runs all real
 // migrations with default-deny admission. No environment bypass or hosted
 // configuration switch exists. Shared Vitest bootstrap remains unmodified.
@@ -103,7 +103,6 @@ const legacyMultiRoleTests = new Set([
   "staff_announcement_workflow.test.sql",
   "staff_certificates_page72.test.sql",
   "staff_lab_reports_page78.test.sql",
-  "staff_management_page59.test.sql",
   "staff_scheduling_page63.test.sql",
   "staff_tocc_page74.test.sql",
   "staff_training_page71.test.sql",
@@ -126,6 +125,11 @@ async function applyLegacyAdmissionFixture(database, testFile) {
   }
   await database.exec(
     "create or replace function private.is_executive_login_allowed() returns boolean language sql volatile security definer set search_path = '' as $$ select true $$;",
+  );
+  // Legacy fixtures predate native Google sessions. They still test the inner
+  // role/AAL/assignment boundaries. Strict native suites are never in this set.
+  await database.exec(
+    "create or replace function public.is_staff_login_allowed() returns boolean language sql volatile security invoker set search_path = '' as $$ select private.is_executive_login_allowed() $$;",
   );
   return true;
 }
@@ -245,18 +249,28 @@ if (!compileOnly) {
   }
 
   let assertionCount = 0;
+  const failedTests = [];
   for (const testFile of testFiles) {
-    const passed = await runTest(migrationFiles, testFile);
-    assertionCount += passed;
-    console.log(`${testFile}: ${passed}/${passed} passed.`);
+    try {
+      const passed = await runTest(migrationFiles, testFile);
+      assertionCount += passed;
+      console.log(`${testFile}: ${passed}/${passed} passed.`);
+    } catch (error) {
+      failedTests.push(testFile);
+      console.error(error instanceof Error ? error.message : String(error));
+    }
   }
   console.log(
-    `Database tests: ${testFiles.length} files, ${assertionCount} assertions passed.`,
+    `Database tests: ${testFiles.length - failedTests.length}/${testFiles.length} files passed, ${assertionCount} passing assertions in successful suites.`,
   );
   console.log(
-    `Admission modes: ${testFiles.filter((file) => legacyMultiRoleTests.has(file)).length} legacy PGlite-only fixture suites; ${testFiles.filter((file) => !legacyMultiRoleTests.has(file)).length} enforced executive suites.`,
+    `Admission modes: ${testFiles.filter((file) => legacyMultiRoleTests.has(file)).length} legacy PGlite-only fixture suites; ${testFiles.filter((file) => !legacyMultiRoleTests.has(file)).length} native admission suites without overrides.`,
   );
   console.log(
     "PGlite is a local compatibility check; formal Supabase PostgreSQL, lint, and concurrent-session gates remain separate.",
   );
+  if (failedTests.length) {
+    console.error(`Failed database suites: ${failedTests.join(", ")}`);
+    process.exitCode = 1;
+  }
 }

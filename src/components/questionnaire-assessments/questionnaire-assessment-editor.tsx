@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
+import { NavigationLink } from "@/components/app/navigation-link";
 
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { useScopeChangeDraftRegistration } from "@/lib/navigation/scope-change-pending";
@@ -16,6 +17,11 @@ import type {
   QuestionnaireSnapshot,
 } from "@/lib/questionnaire-assessments/types";
 import { validateMnaAnthropometry, type MnaAnthropometryIssue } from "@/lib/questionnaire-assessments/mna-anthropometry";
+import { fullMnaProteinChoice } from "@/lib/assessments/full-mna";
+import { fullMnaIssueText, fullMnaScoringContext, validateFullMnaInput, type FullMnaInputIssue } from "@/lib/questionnaire-assessments/full-mna-validation";
+import { mnaVariantHref, questionnaireHistoryHref } from "@/lib/questionnaire-assessments/query";
+import { readQuestionnaireMutationReceipt } from "@/lib/questionnaire-assessments/receipt";
+import { QuestionnaireLifecycleActions } from "./questionnaire-lifecycle-actions";
 
 import styles from "./questionnaire-assessments.module.css";
 
@@ -69,32 +75,44 @@ function mnaIssueText(issue: MnaAnthropometryIssue) {
 
 function QuestionnaireEditor({
   assessorName,
-  canManage,
+  canManage: permittedToManage,
+  canSign,
   client,
   form,
+  selectedMonth,
   onDirtyChange,
   onWriteGuardChange,
 }: {
   assessorName: string;
   canManage: boolean;
+  canSign: boolean;
   client: QuestionnaireClient;
   form: QuestionnaireFormDefinition;
+  selectedMonth: string | null;
   onDirtyChange: (dirty: boolean) => void;
   onWriteGuardChange: (busy: boolean, unknown: boolean) => void;
 }) {
   const router = useRouter();
   const latest = client.latest;
+  const canManage = permittedToManage && (!latest || ((latest.recordState ?? "draft") === "draft" && latest.isLatest !== false));
   const [answers, setAnswers] = useState(() => initialAnswers(form, latest));
   const [context, setContext] = useState(() => initialContext(form, latest));
-  const [assessedOn, setAssessedOn] = useState(latest?.assessedOn ?? taipeiToday());
+  const initialDate = latest?.assessedOn ?? (selectedMonth && selectedMonth !== taipeiToday().slice(0, 7) ? `${selectedMonth}-01` : taipeiToday());
+  const [assessedOn, setAssessedOn] = useState(initialDate);
   const [savedDraft, setSavedDraft] = useState(() => JSON.stringify({
     answers: initialAnswers(form, latest),
     context: initialContext(form, latest),
-    assessedOn: latest?.assessedOn ?? taipeiToday(),
+    assessedOn: initialDate,
   }));
   const [pending, setPending] = useState(false);
   const [saveUnknown, setSaveUnknown] = useState(false);
+  const [fullMnaIssue, setFullMnaIssue] = useState<FullMnaInputIssue | null>(null);
   const [message, setMessage] = useState("");
+  const [lifecycleDirty, setLifecycleDirty] = useState(false);
+  const [lifecycleGuard, setLifecycleGuard] = useState({ busy: false, unknown: false });
+  const lifecycleWriteGuardChanged = useCallback((busy: boolean, unknown: boolean) => setLifecycleGuard(current =>
+    current.busy === busy && current.unknown === unknown ? current : { busy, unknown }), []);
+  const editorLocked = pending || saveUnknown || lifecycleGuard.busy || lifecycleGuard.unknown;
   const [dateError, setDateError] = useState("");
   const [reasonErrorQuestionId, setReasonErrorQuestionId] = useState<string | null>(null);
   const [mnaIssue, setMnaIssue] = useState<MnaAnthropometryIssue | null>(null);
@@ -105,10 +123,10 @@ function QuestionnaireEditor({
   const currentDraft = JSON.stringify({ answers, context, assessedOn });
   const dirty = currentDraft !== savedDraft;
   const registerScopeChange = useScopeChangeDraftRegistration();
-  useLayoutEffect(() => { registerScopeChange({ dirty, busy: pending, unknown: saveUnknown }); }, [dirty, pending, saveUnknown, registerScopeChange]);
-  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
+  useLayoutEffect(() => { registerScopeChange({ dirty: dirty || lifecycleDirty, busy: pending || lifecycleGuard.busy, unknown: saveUnknown || lifecycleGuard.unknown }); }, [dirty, lifecycleDirty, pending, saveUnknown, lifecycleGuard, registerScopeChange]);
+  useEffect(() => { onDirtyChange(dirty || lifecycleDirty); }, [dirty, lifecycleDirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  useLayoutEffect(() => { onWriteGuardChange(pending, saveUnknown); }, [pending, saveUnknown, onWriteGuardChange]);
+  useLayoutEffect(() => { onWriteGuardChange(pending || lifecycleGuard.busy, saveUnknown || lifecycleGuard.unknown); }, [pending, saveUnknown, lifecycleGuard, onWriteGuardChange]);
   useEffect(() => () => onWriteGuardChange(false, false), [onWriteGuardChange]);
   const answeredCount = Object.values(answers).filter((answer) => answer.state === "answered").length;
   const notApplicableCount = Object.values(answers).filter((answer) => answer.state === "not_applicable").length;
@@ -141,6 +159,7 @@ function QuestionnaireEditor({
   }, [suicideConcern]);
   const scoringContext: Record<string, string> = form.key === "spmsq" && context.education_adjustment
     ? { education_adjustment: context.education_adjustment }
+    : form.key === "full_mna" ? fullMnaScoringContext(context)
     : {};
   const scorePreview = form.scoreVersionId ? scoreAssessment({
     versionId: form.scoreVersionId,
@@ -153,10 +172,15 @@ function QuestionnaireEditor({
   const bmi = height > 0 && weight > 0 ? weight / ((height / 100) ** 2) : null;
 
   function setAnswer(questionId: string, answer: QuestionnaireAnswer) {
-    if (saveUnknown || pending) return;
+    if (editorLocked) return;
     setAnswers((current) => ({ ...current, [questionId]: answer }));
+    if (form.key === "full_mna" && questionId === "protein_intake" && answer.state === "missing") {
+      setContext((current) => ({ ...current, ...Object.fromEntries((form.contextFields ?? [])
+        .filter((field) => field.questionId === questionId).map((field) => [field.key, ""])) }));
+    }
     if (reasonErrorQuestionId === questionId) setReasonErrorQuestionId(null);
     if (questionId === "anthropometry") setMnaIssue(null);
+    setFullMnaIssue(null);
     setMessage("");
   }
 
@@ -237,11 +261,17 @@ function QuestionnaireEditor({
       if (definiteRejection && !saveUnknown) { operationKey.current = null; operationBody.current = null; }
       throw new Error(errorText(payload));
     }
-    const data = (payload as { data?: unknown }).data as { recordState?: unknown } | null;
-    if (!data || data.recordState !== "draft") throw new Error("無法確認草稿保存狀態，請保留內容並重新載入確認。");
+    const envelope = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+    const data = readQuestionnaireMutationReceipt(envelope?.data, { action, clientId: client.clientId, formKey: form.key,
+      assessedOn, ...(latest ? { assessmentKey: latest.assessmentKey, expectedVersion: latest.version, previousVersionId: latest.versionId } : {}) });
+    if (envelope?.status !== "ok" || !data) throw new Error("無法確認草稿保存狀態，請保留內容並重試同一次保存。");
     operationKey.current = null;
     operationBody.current = null;
     setSaveUnknown(false);
+    const url = new URL(window.location.href);
+    url.searchParams.set("version", data.versionId); url.searchParams.delete("new");
+    if (url.searchParams.get("month") && url.searchParams.get("month") !== assessedOn.slice(0, 7)) url.searchParams.delete("month");
+    router.replace(`${url.pathname}${url.search}`);
   }
 
   return <form
@@ -249,7 +279,7 @@ function QuestionnaireEditor({
     noValidate
     onSubmit={async (event) => {
       event.preventDefault();
-      if (!canManage || pending) return;
+      if (!canManage || pending || lifecycleGuard.busy || lifecycleGuard.unknown || lifecycleDirty) return;
       if (!/^\d{4}-\d{2}-\d{2}$/u.test(assessedOn) ||
         assessedOn < "2000-01-01" || assessedOn > taipeiToday()) {
         setDateError("請選擇 2000 年以後、且不晚於今天的評估日期。");
@@ -281,6 +311,14 @@ function QuestionnaireEditor({
         return;
       }
       setMnaIssue(null);
+      const fullMnaValidation = form.key === "full_mna" ? validateFullMnaInput(context, answers) : null;
+      if (fullMnaValidation) {
+        setFullMnaIssue(fullMnaValidation); setMessage("");
+        if (["interval_mismatch", "protein_mismatch"].includes(fullMnaValidation.kind)) focusQuestion(fullMnaValidation.questionId);
+        else focusContextField(fullMnaValidation.field);
+        return;
+      }
+      setFullMnaIssue(null);
       setPending(true);
       registerScopeChange({ dirty, busy: true, unknown: saveUnknown });
       onWriteGuardChange(true, saveUnknown);
@@ -288,7 +326,7 @@ function QuestionnaireEditor({
       try {
         await save();
         setSavedDraft(currentDraft);
-        setMessage("草稿已保存；重新載入最新版本中。尚未簽署，也未產生正式分數或臨床判讀。");
+        setMessage("草稿已保存。");
         router.refresh();
       } catch (error) {
         setSaveUnknown(operationKey.current !== null);
@@ -301,7 +339,7 @@ function QuestionnaireEditor({
   >
     <div className={styles.formHeader}>
       <h2 className="sr-only">{form.title}填寫表單</h2>
-      <span className={styles.draftBadge}>{latest ? `草稿 v${latest.version}` : "新草稿"}</span>
+      <span className={styles.draftBadge}>{latest ? `${latest.recordState === "signed" ? "已簽署" : latest.recordState === "submitted" ? "待簽署" : "草稿"} v${latest.version}` : "新草稿"}</span>
       <details className={styles.sourceDetails}>
         <summary>填寫說明與來源</summary>
         <p>{form.instructions}</p>
@@ -313,26 +351,27 @@ function QuestionnaireEditor({
     </div>
     <p className={styles.quickInstruction}>{form.key === "spmsq"
       ? "逐題詢問並核對；篩檢結果不是診斷。"
+      : form.key === "full_mna" ? "逐題填寫；量測值與 K 子題在對應題目完成。"
       : form.instructions}</p>
 
     <div className={styles.progress}>
       <div className={styles.progressText}>
-        <strong>{client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
+        <strong>{client.displayName}{client.serviceStatus === "pending" ? "・待收案・僅草稿" : client.serviceStatus === "suspended" ? "・暫停服務" : ""}</strong>
         {canManage && nextUnfinishedLabel ? <button aria-label={`從進度前往${nextUnfinishedLabel}`}
-          className={styles.progressJump} disabled={pending || saveUnknown} onClick={focusNextUnfinished} type="button">
+          className={styles.progressJump} disabled={editorLocked} onClick={focusNextUnfinished} type="button">
           待補 {progressTotal - progressValue} <span aria-hidden="true">↓</span>
         </button> : <span>填寫進度 {progressValue}／{progressTotal} 項</span>}
       </div>
       <progress aria-label={`${form.title}題目與計分條件進度`} max={progressTotal} value={progressValue} />
-      <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
+      <small>{notApplicableCount ? `不適用 ${notApplicableCount} 題・` : ""}待答 {missingCount} 題{pendingReasonCount ? `・待補不適用原因 ${pendingReasonCount} 題` : ""}{pendingContextFields.length ? form.key === "full_mna" ? `・待補 K 子題 ${pendingContextFields.length} 項` : `・待補計分條件：${pendingContextLabel}` : ""}{suicideConcern ? "・需立即關懷" : ""}</small>
     </div>
-    {!canManage ? <p className={styles.readOnly} role="status">只有檢視權限；無法編輯或保存草稿。</p> : null}
+    {!canManage ? <p className={styles.readOnly} role="status">{permittedToManage ? "此版本僅供查閱。" : "只有檢視權限；無法編輯或保存草稿。"}</p> : null}
     {saveUnknown ? <p className={styles.readOnly} role="status">上次保存結果尚未確認；欄位已暫時鎖定，請以同一次內容重試。</p> : null}
 
     <div className={styles.meta}>
       <label>評估日期
         <input
-          disabled={!canManage || pending || saveUnknown}
+          disabled={!canManage || editorLocked}
           max={taipeiToday()}
           min="2000-01-01"
           onChange={(event) => {
@@ -352,7 +391,7 @@ function QuestionnaireEditor({
       <div className={styles.assessor}><span>評估人員</span><strong>{assessorName}</strong></div>
     </div>
 
-    <fieldset className={styles.questions} disabled={!canManage || pending || saveUnknown}>
+    <fieldset className={styles.questions} disabled={!canManage || editorLocked}>
       <legend className="sr-only">{form.title}題目</legend>
       {form.questions.map((question, index) => {
         const answer = answers[question.id] ?? { state: "missing" as const };
@@ -360,15 +399,19 @@ function QuestionnaireEditor({
         const questionTitleId = `${form.key}-${question.id}-title`;
         const questionHelpId = `${form.key}-${question.id}-help`;
         const reasonId = `na-reason-${form.key}-${question.id}`;
+        const measurements = form.measurementFields?.filter((field) => form.key === "full_mna"
+          ? field.questionId === question.id : question.id === "anthropometry") ?? [];
+        const embeddedContextFields = form.contextFields?.filter((field) => field.questionId === question.id) ?? [];
         return <div className={styles.questionBlock} key={question.id}>
-          {form.measurementFields?.length && question.id === "anthropometry" ? <fieldset className={styles.measurements}>
-            <legend>身體測量（請先填，再回答下一題）</legend>
-            {form.measurementFields.map(({ key, label }) => <label key={key}>
+          {measurements.length ? <fieldset className={styles.measurements}>
+            <legend>{form.key === "full_mna" ? "本題實測值（請先填，再核對區間）" : "身體測量（請先填，再回答下一題）"}</legend>
+            {measurements.map(({ key, label }) => <label key={key}>
               {label}
               <input
-                aria-describedby={mnaIssue?.field === key ? `mna-${key}-error` : undefined}
-                aria-invalid={mnaIssue?.field === key ? true : undefined}
-                disabled={!canManage || pending || saveUnknown}
+                aria-label={label}
+                aria-describedby={fullMnaIssue?.field === key ? `full-mna-${key}-error` : mnaIssue?.field === key ? `mna-${key}-error` : undefined}
+                aria-invalid={fullMnaIssue?.field === key || mnaIssue?.field === key ? true : undefined}
+                disabled={!canManage || editorLocked}
                 id={`context-${form.key}-${key}`}
                 inputMode="decimal"
                 max={key === "height_cm" ? 240 : key === "weight_kg" ? 300 : 80}
@@ -377,6 +420,7 @@ function QuestionnaireEditor({
                   const value = event.currentTarget.value;
                   setContext((current) => ({ ...current, [key]: value }));
                   setMnaIssue(null);
+                  setFullMnaIssue(null);
                   setMessage("");
                 }}
                 step="0.1"
@@ -386,10 +430,15 @@ function QuestionnaireEditor({
               {mnaIssue?.field === key ? <span className={styles.fieldError} id={`mna-${key}-error`} role="alert">
                 {mnaIssueText(mnaIssue)}
               </span> : null}
+              {fullMnaIssue?.field === key ? <span className={styles.fieldError} id={`full-mna-${key}-error`} role="alert">
+                {fullMnaIssueText(fullMnaIssue)}
+              </span> : null}
             </label>)}
-            <p>{bmi !== null
+            {form.key === "full_mna" ? <p>{question.id === "anthropometry"
+              ? bmi !== null ? `依身高體重計算 BMI ${bmi.toFixed(1)}；請核對 F 題區間。` : "完整版本 F 題需要身高與體重；小腿圍另於 R 題記錄。"
+              : "請保留本次實測值，並核對本題區間。"}</p> : <p>{bmi !== null
               ? `依身高體重計算 BMI ${bmi.toFixed(1)}；請核對下一題的區間。若改用小腿圍，需先清除身高與體重。`
-              : "無法取得 BMI 時，改填小腿圍並依下一題作答。"}</p>
+              : "無法取得 BMI 時，改填小腿圍並依下一題作答。"}</p>}
           </fieldset> : null}
           <section className={styles.questionCard} id={`${form.key}-${question.id}`} tabIndex={-1}>
           <div className={styles.questionHeading}>
@@ -397,17 +446,40 @@ function QuestionnaireEditor({
             <span className={styles.questionState}>{answer.state === "answered" ? "已答" : answer.state === "not_applicable" ? answer.reason.trim() ? "不適用" : "不適用・待補原因" : "待答"}</span>
           </div>
           {question.helpText ? <p className={styles.questionHelp} id={questionHelpId}>{question.helpText}</p> : null}
+          {embeddedContextFields.length ? <fieldset className={styles.measurements}>
+            <legend>K 題三個子回答</legend>
+            {embeddedContextFields.map(({ key, label, choices }) => <label key={key}>
+              {label}
+              <select id={`context-${form.key}-${key}`} value={context[key] ?? ""}
+                aria-label={label}
+                aria-invalid={fullMnaIssue?.field === key ? true : undefined}
+                aria-describedby={fullMnaIssue?.field === key ? `full-mna-${key}-error` : undefined}
+                onChange={(event) => {
+                  const updated = { ...context, [key]: event.currentTarget.value };
+                  setContext(updated);
+                  const derived = fullMnaProteinChoice(updated);
+                  setAnswers((current) => ({ ...current, protein_intake: derived ? { state: "answered", value: derived } : { state: "missing" } }));
+                  setFullMnaIssue(null); setMessage("");
+                }}>
+                <option value="">待答</option>
+                {choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+              </select>
+              {fullMnaIssue?.field === key ? <span className={styles.fieldError} id={`full-mna-${key}-error`} role="alert">{fullMnaIssueText(fullMnaIssue)}</span> : null}
+            </label>)}
+          </fieldset> : null}
           {question.id === "bsrs_suicide" && suicideConcern ? <div className={styles.urgent} ref={suicideAlert} role="alert">
             安全提醒：此題有記錄到困擾。請依機構危機處理流程立即轉知護理／主管並陪同關懷；本系統不會自動通知或代替專業處置。
           </div> : null}
           <div className={`${styles.choiceGrid} ${question.choices.length === 2 ? styles.binaryChoices : ""}`} role="radiogroup"
             aria-labelledby={questionTitleId} aria-describedby={[
               question.helpText ? questionHelpId : null,
+              fullMnaIssue?.questionId === question.id && ["interval_mismatch", "protein_mismatch"].includes(fullMnaIssue.kind) ? `full-mna-${question.id}-error` : null,
               question.id === "anthropometry" && mnaIssue?.field === "anthropometry" ? "mna-anthropometry-error" : null,
             ].filter(Boolean).join(" ") || undefined}>
             {question.choices.map((choice) => <label className={styles.choice} key={choice.value}>
               <input
                 checked={value === choice.value}
+                disabled={form.key === "full_mna" && question.id === "protein_intake"}
                 name={question.id}
                 onChange={() => setAnswer(question.id, { state: "answered", value: choice.value })}
                 type="radio"
@@ -419,10 +491,12 @@ function QuestionnaireEditor({
           {question.id === "anthropometry" && mnaIssue?.field === "anthropometry"
             ? <p className={styles.fieldError} id="mna-anthropometry-error" role="alert">{mnaIssueText(mnaIssue)}</p>
             : null}
+          {fullMnaIssue?.questionId === question.id && ["interval_mismatch", "protein_mismatch"].includes(fullMnaIssue.kind)
+            ? <p className={styles.fieldError} id={`full-mna-${question.id}-error`} role="alert">{fullMnaIssueText(fullMnaIssue)}</p> : null}
           <div className={styles.questionActions}>
-            {answer.state !== "missing" ? <button disabled={pending || saveUnknown} onClick={() => setAnswer(question.id, { state: "missing" })} type="button">改為待答</button> : null}
+            {answer.state !== "missing" ? <button disabled={editorLocked} onClick={() => setAnswer(question.id, { state: "missing" })} type="button">改為待答</button> : null}
             {allowsNotApplicable && answer.state !== "not_applicable"
-              ? <button disabled={pending || saveUnknown} onClick={() => setAnswer(question.id, { state: "not_applicable", reason: "" })} type="button">此題不適用</button>
+              ? <button disabled={editorLocked} onClick={() => setAnswer(question.id, { state: "not_applicable", reason: "" })} type="button">此題不適用</button>
               : null}
           </div>
           {answer.state === "not_applicable" ? <div className={styles.reason}>
@@ -452,11 +526,11 @@ function QuestionnaireEditor({
       </button> : null}
     </div>
 
-    {form.contextFields?.length ? <fieldset className={styles.measurements}>
+    {form.contextFields?.some((field) => !field.questionId) ? <fieldset className={styles.measurements}>
       <legend>計分條件</legend>
-      {form.contextFields.map(({ key, label, required, choices }) => <label key={key}>
+      {form.contextFields.filter((field) => !field.questionId).map(({ key, label, required, choices }) => <label key={key}>
         {label}{required ? "（計分必要）" : ""}
-        <select disabled={!canManage || pending || saveUnknown} id={`context-${form.key}-${key}`}
+        <select disabled={!canManage || editorLocked} id={`context-${form.key}-${key}`}
           onChange={(event) => {
             const value = event.currentTarget.value;
             setContext((current) => ({ ...current, [key]: value }));
@@ -470,7 +544,7 @@ function QuestionnaireEditor({
 
     {form.allowQualitativeNotes ? <label className={styles.notes}>
       補充觀察與後續事項
-      <textarea disabled={!canManage || pending || saveUnknown} maxLength={3000} onChange={(event) => {
+      <textarea disabled={!canManage || editorLocked} maxLength={3000} onChange={(event) => {
         const value = event.currentTarget.value;
         setContext((current) => ({ ...current, qualitative_note: value }));
       }}
@@ -485,21 +559,28 @@ function QuestionnaireEditor({
       {approvedScorePreview.status === "complete" && approvedScorePreview.classification
         ? <span>{approvedScorePreview.classification.label}</span> : null}
       <small>草稿試算，不等於診斷、醫囑或自動處置。</small>
-    </section> : scorePreview ? <p className={styles.readOnly} role="status">
-      計分規則尚待核准；此頁只保存填答草稿，不顯示分數或風險分級。
+    </section> : scorePreview && latest?.recordState !== "signed" ? <p className={styles.readOnly} role="status">
+      {latest?.ruleAvailable
+        ? "此版本的計分規則已核定；分數以簽署後保存的結果為準。"
+        : "計分規則尚待核准；此頁只保存填答草稿，不顯示分數或風險分級。"}
     </p> : null}
 
     <div className={styles.actions}>
       <span>待答 {missingCount} 題{pendingReasonCount ? `・待補 ${pendingReasonCount} 題不適用原因` : ""}{pendingContextFields.length ? `・待補 ${pendingContextFields.length} 項計分條件` : ""}・僅保存草稿</span>
-      <button className="button button--primary" disabled={!canManage || pending} type="submit">
+      <button className="button button--primary" disabled={!canManage || pending || lifecycleGuard.busy || lifecycleGuard.unknown || lifecycleDirty} type="submit">
         {pending ? "保存中…" : saveUnknown ? "重試同一次保存" : latest ? "保存為新版本" : "保存草稿"}
       </button>
     </div>
+    {lifecycleDirty ? <p className={styles.message}>送審／補正欄位有未送出內容；請完成該操作或清除這些欄位，再保存答案的新版本。</p> : null}
+    {latest ? <QuestionnaireLifecycleActions record={latest} clientId={client.clientId} formKey={form.key}
+      canManage={permittedToManage} canSign={canSign} draftOnly={client.serviceStatus === "pending"} complete={missingCount === 0 && pendingReasonCount === 0 && pendingContextFields.length === 0}
+      dirty={dirty} safetyConcern={Boolean(suicideConcern)} siblingBlocked={pending || saveUnknown}
+      onDirtyChange={setLifecycleDirty} onWriteGuardChange={lifecycleWriteGuardChanged} /> : null}
     {message ? <p aria-live="polite" className={styles.message} role="status">{message}</p> : null}
     {latest ? <p className={styles.message}>
       最近保存：{latest.authorDisplayName}・{new Intl.DateTimeFormat("zh-TW", {
         timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short",
-      }).format(new Date(latest.createdAt))}・僅草稿
+      }).format(new Date(latest.createdAt))}
     </p> : null}
   </form>;
 }
@@ -573,7 +654,7 @@ export function QuestionnaireAssessmentsWorkspace({
       pendingNavigation.current = null;
       setLeaveError("此瀏覽器無法安全確認離頁，請先保存草稿再更換個案或離開。");
     }
-  }, [armHistoryGuard]);
+  }, [armHistoryGuard, setLeaveError]);
   useEffect(() => {
     if (leaveProtected && !historyGuardArmed.current && !intentionalLeave.current && pendingNavigation.current?.kind !== "history") armHistoryGuard();
     const warn = (event: BeforeUnloadEvent) => {
@@ -650,8 +731,8 @@ export function QuestionnaireAssessmentsWorkspace({
   const chosenClient = selectedClientId
     ? snapshot.clients.find((client) => client.clientId === selectedClientId) ?? null
     : null;
-  const formRef = form.key === "mna_sf"
-    ? "/app/staff/professional-care/mna"
+  const formRef = form.key === "mna_sf" || form.key === "full_mna"
+    ? mnaVariantHref(form.key, null)
     : `/app/staff/assessments/${{
     spmsq: "spmsq",
     gds_15: "gds",
@@ -688,10 +769,17 @@ export function QuestionnaireAssessmentsWorkspace({
       return;
     }
     router.replace(target.kind === "client"
-      ? `${formRef}?client=${encodeURIComponent(target.destination)}`
+      ? questionnaireHistoryHref(formRef, target.destination, { month: snapshot?.selection?.month })
       : target.destination);
   }
   function guardClientChange(event: FormEvent<HTMLFormElement>) {
+    const selected = new FormData(event.currentTarget).get("client");
+    if (typeof selected !== "string" || !snapshot?.clients.some((client) => client.clientId === selected)) {
+      event.preventDefault();
+      setLeaveError("請先選擇一位可見個案。");
+      clientSelect.current?.focus();
+      return;
+    }
     if (!hasUnsavedChanges && !writeGuardRef.current.busy && !writeGuardRef.current.unknown) return;
     event.preventDefault();
     if (writeGuardRef.current.busy || writeGuardRef.current.unknown) {
@@ -701,8 +789,6 @@ export function QuestionnaireAssessmentsWorkspace({
         : "資料保存中，請稍候再離開。");
       return;
     }
-    const selected = new FormData(event.currentTarget).get("client");
-    if (typeof selected !== "string" || !snapshot?.clients.some((client) => client.clientId === selected)) return;
     leaveTrigger.current = selectionButton.current;
     pendingNavigation.current = { kind: "client", destination: selected };
     showLeaveDialog();
@@ -715,22 +801,37 @@ export function QuestionnaireAssessmentsWorkspace({
       </div>
     </header>
 
+    {form.key === "mna_sf" || form.key === "full_mna" ? <nav aria-label="MNA 版本" className={styles.actions}>
+      {(["mna_sf", "full_mna"] as const).map((variant) => <NavigationLink
+        aria-current={form.key === variant ? "page" : undefined}
+        className={`button ${form.key === variant ? "button--primary" : "button--secondary"}`}
+        href={mnaVariantHref(variant, chosenClient?.clientId ?? null, snapshot.selection?.month)}
+        key={variant} loadingLabel={variant === "mna_sf" ? "MNA 篩檢" : "MNA 完整評估"} prefetch={false}>
+        {variant === "mna_sf" ? "篩檢 · 6 題" : "完整評估 · 18 題"}
+      </NavigationLink>)}
+    </nav> : null}
+
     {snapshot.demo ? <div className="callout" role="status">
       展示用合成個案；不能寫入真實評估資料。
     </div> : null}
 
-    <form action={formRef} className={`${styles.selection} ${chosenClient ? styles.selectionChosen : ""}`} method="get" onSubmit={guardClientChange}>
+    <form action={formRef.split("?", 1)[0]} className={`${styles.selection} ${chosenClient ? styles.selectionChosen : ""}`} method="get" noValidate onSubmit={guardClientChange}>
+      {form.key === "full_mna" ? <input type="hidden" name="variant" value="full" /> : null}
+      {snapshot.selection?.month ? <input type="hidden" name="month" value={snapshot.selection.month} /> : null}
       <label htmlFor="questionnaire-client"><span className={chosenClient ? "sr-only" : undefined}>個案</span>
-        <select defaultValue={chosenClient?.clientId ?? ""} id="questionnaire-client" key={chosenClient?.clientId ?? "none"} name="client" ref={clientSelect} required>
+        <select aria-describedby={leaveError === "請先選擇一位可見個案。" ? `${dialogId}-client-error` : undefined}
+          aria-invalid={leaveError === "請先選擇一位可見個案。" ? true : undefined}
+          defaultValue={chosenClient?.clientId ?? ""} id="questionnaire-client" key={chosenClient?.clientId ?? "none"} name="client"
+          onChange={() => setLeaveError((current) => current === "請先選擇一位可見個案。" ? "" : current)} ref={clientSelect} required>
           <option disabled value="">請選擇個案</option>
           {snapshot.clients.map((client) => <option key={client.clientId} value={client.clientId}>
-            {client.displayName}{client.serviceStatus === "suspended" ? "・暫停服務" : ""}
+            {client.displayName}{client.serviceStatus === "pending" ? "・待收案・僅草稿" : client.serviceStatus === "suspended" ? "・暫停服務" : ""}
           </option>)}
         </select>
       </label>
       <button className="button button--secondary" ref={selectionButton} type="submit">{chosenClient ? "更換個案" : "開始填寫"}</button>
     </form>
-    {leaveError ? <p className={styles.fieldError} role="alert">{leaveError}</p> : null}
+    {leaveError ? <p className={styles.fieldError} id={`${dialogId}-client-error`} role="alert">{leaveError}</p> : null}
     {writeGuard.unknown ? <p className={styles.fieldError} role="status">{holdMessage}</p> : null}
 
     <dialog aria-describedby={`${dialogId}-description`} aria-labelledby={`${dialogId}-title`}
@@ -755,15 +856,29 @@ export function QuestionnaireAssessmentsWorkspace({
       </div>
     </dialog>
 
-    {chosenClient ? <QuestionnaireEditor
+    {chosenClient ? <>
+    <div className={styles.actions}>
+      {canManage ? <a className="button button--secondary" href={questionnaireHistoryHref(formRef, chosenClient.clientId, { newAssessment: true, month: snapshot.selection?.month })}>＋ 新一次評估</a> : null}
+      <details><summary>評估歷史（{snapshot.historyTotal ?? snapshot.history?.length ?? 0}）</summary>
+        {(snapshot.history ?? []).map((record) => <div className={styles.questionCard} key={record.assessmentKey}>
+          <a href={questionnaireHistoryHref(formRef, chosenClient.clientId, { versionId: record.versionId })}>{record.assessedOn} · {record.recordState === "signed" ? "已簽署" : record.recordState === "submitted" ? "待簽署" : "草稿"} · v{record.version}</a>
+          <details><summary>歷次版本</summary>{record.versions.map((version) => <p key={version.versionId}><a href={questionnaireHistoryHref(formRef, chosenClient.clientId, { versionId: version.versionId })}>v{version.version} · {version.recordState === "signed" ? "已簽署" : version.recordState === "submitted" ? "待簽署" : "草稿"}</a></p>)}</details>
+        </div>)}
+        {(snapshot.historyPage ?? 1) > 1 ? <a className="button button--secondary" href={questionnaireHistoryHref(formRef, chosenClient.clientId, { ...snapshot.selection, historyPage: (snapshot.historyPage ?? 1) - 1 })}>較新紀錄</a> : null}
+        {(snapshot.historyPage ?? 1) * 10 < (snapshot.historyTotal ?? 0) ? <a className="button button--secondary" href={questionnaireHistoryHref(formRef, chosenClient.clientId, { ...snapshot.selection, historyPage: (snapshot.historyPage ?? 1) + 1 })}>較早紀錄</a> : null}
+      </details>
+    </div>
+    <QuestionnaireEditor
       assessorName={assessorName}
       canManage={canManage}
+      canSign={snapshot.canSign ?? false}
       client={chosenClient}
-      form={form}
-      key={`${chosenClient.clientId}-${chosenClient.latest?.versionId ?? "new"}-${discardRevision}`}
+      form={chosenClient.latest?.formSnapshot ?? form}
+      selectedMonth={snapshot.selection?.month ?? null}
+      key={`${form.key}-${chosenClient.clientId}-${chosenClient.latest?.versionId ?? "new"}-${snapshot.selection?.month ?? "all"}-${discardRevision}`}
       onDirtyChange={setHasUnsavedChanges}
       onWriteGuardChange={onWriteGuardChange}
-    /> : <div className={styles.empty}>
+    /></> : <div className={styles.empty}>
       {snapshot.clients.length ? "請先選一位個案，量表會直接在此展開。" : "目前沒有可指派給此帳號的有效個案。請確認個案指派與分支權限。"}
     </div>}
   </div>;

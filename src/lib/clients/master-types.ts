@@ -1,10 +1,8 @@
-import type { ClientLifecycleStatus } from "./types";
+import type { ClientLifecycleStatus, ClientServiceState } from "./types";
 
 export type ClientMasterAuthority = "central" | "local";
 export type ClientMasterSourceFilter = "all" | ClientMasterAuthority;
-export type ClientMasterServiceState =
-  | "pending_admission"
-  | ClientLifecycleStatus;
+export type ClientMasterServiceState = ClientServiceState;
 export type ClientMasterStatusFilter = "all" | ClientMasterServiceState;
 
 export type ClientMasterItem = {

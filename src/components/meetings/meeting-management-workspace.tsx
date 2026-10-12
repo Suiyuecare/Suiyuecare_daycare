@@ -59,7 +59,7 @@ export function MeetingManagementWorkspace({
   const meetingTypes = [...new Set(snapshot.meetings.map((meeting) => meeting.meetingType))]
     .sort((a, b) => a.localeCompare(b, "zh-TW"));
   return (
-    <main className={styles.workspace}>
+    <section className={styles.workspace}>
       <header className={styles.hero}>
         <div>
           <p className="eyebrow">第 {page.number} 頁 · 機構營運管理</p>
@@ -148,6 +148,6 @@ export function MeetingManagementWorkspace({
           </article>;
         })}
       </section>}
-    </main>
+    </section>
   );
 }

@@ -80,6 +80,7 @@ function RecordHistory({ record }: { record: SocialWorkServiceRecord }) {
 export function SocialWorkRecordsWorkspace({
   canManage,
   canSign,
+  canFollowUp = false,
   filters,
   hasRecentAal2,
   loadError = false,
@@ -88,6 +89,7 @@ export function SocialWorkRecordsWorkspace({
 }: {
   canManage: boolean;
   canSign: boolean;
+  canFollowUp?: boolean;
   filters: SocialWorkRecordFilters;
   hasRecentAal2: boolean;
   loadError?: boolean;
@@ -177,14 +179,14 @@ export function SocialWorkRecordsWorkspace({
               <td className={styles.narrative}>{record.serviceResult}</td>
               <td>{record.authorDisplayName}</td>
               <td><div className={styles.statuses}><StatusPill status={stateText(record)} /><StatusPill status={followUpText(record)} />{record.followUpDueOn ? <small>期限 {formatDate(record.followUpDueOn)}</small> : null}</div></td>
-              <td><SocialWorkRecordActions canManage={canManage} canSign={canSign} hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} /></td>
+              <td><SocialWorkRecordActions canManage={canManage} canSign={canSign} canFollowUp={canFollowUp} hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} /></td>
             </tr>)}</tbody></table>
         </div>
         <div className="mobile-records core-care-mobile">{snapshot.records.map((record) => <article className={`record-card ${styles.card}`} key={record.recordKey}>
           <div className="record-card__top"><div><h3>{record.clientDisplayName}</h3><span className="data-table__secondary">{formatTimestamp(record.occurredAt)}・{record.serviceType}・v{record.recordVersion}</span></div><StatusPill status={stateText(record)} /></div>
           <dl><div><dt>服務內容</dt><dd>{record.serviceContent}</dd></div><div><dt>服務結果</dt><dd>{record.serviceResult}</dd></div><div><dt>作者</dt><dd>{record.authorDisplayName}</dd></div><div><dt>追蹤</dt><dd>{followUpText(record)}{record.followUpDueOn ? `・${formatDate(record.followUpDueOn)}` : ""}</dd></div></dl>
           <RecordHistory record={record} />
-          <SocialWorkRecordActions canManage={canManage} canSign={canSign} hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} />
+          <SocialWorkRecordActions canManage={canManage} canSign={canSign} canFollowUp={canFollowUp} hasRecentAal2={hasRecentAal2} record={record} snapshot={snapshot} />
         </article>)}</div>
       </> : <div className="panel__body"><section className="empty-card core-care-state">
         <Search aria-hidden="true" /><h2>沒有符合條件的服務紀錄</h2><p>請調整日期、個案、服務類型或作者；系統不會擴大到其他分支或未指派個案。</p><Link className="button button--secondary" href="?">清除篩選</Link>

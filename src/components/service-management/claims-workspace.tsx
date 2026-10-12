@@ -22,11 +22,11 @@ import type {
 const statusLabels: Record<ClaimStatus, string> = {
   draft: "草稿",
   validated: "已驗證",
-  exported: "已匯出",
-  submitted: "已送出",
-  accepted: "已接受",
-  rejected: "有退件",
-  reconciled: "已對帳",
+  exported: "已建立內部快照",
+  submitted: "人工登記送出",
+  accepted: "人工登記接受",
+  rejected: "人工登記退件",
+  reconciled: "已人工核對",
   voided: "已作廢",
 };
 
@@ -49,7 +49,7 @@ function formatMoney(value: string | null) {
 function responseSummary(batch: ClaimBatchSummary) {
   if (batch.legacyResponseUnknown) return "舊版回覆未逐筆分類";
   return batch.respondedItemCount
-    ? `${batch.respondedItemCount} 筆（退件 ${batch.rejectedItemCount ?? 0}）`
+    ? `${batch.respondedItemCount} 筆人工登記（退件 ${batch.rejectedItemCount ?? 0}）`
     : "尚無回覆";
 }
 
@@ -117,8 +117,8 @@ export function ClaimsWorkspace({
 
   return <>
     <nav aria-label="所在位置" className="context-bar"><span>工作台</span><ChevronRight aria-hidden="true" /><span>服務管理</span><ChevronRight aria-hidden="true" /><span aria-current="page" className="context-bar__crumb">{page.title}</span></nav>
-<header className="page-heading"><div><p className="eyebrow">申報快照與對帳・頁面 49</p><h1>{page.title}</h1><p className="page-heading__description">申報批次、不可變匯出快照與主管機關回覆分開保存；筆數與金額由資料庫以同一權威快照精確彙整。</p></div><div className="page-heading__actions"><ClaimValidationComposer batches={draftBatches} demo={snapshot.demo} enabled={canValidate} hasRecentAal2={hasRecentAal2} /></div></header>
-    <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>匯出與逐筆對帳已採單一交易、最近 15 分鐘 AAL2 與冪等保護；清單直接讀取資料庫彙整，不會以受分頁限制的明細在瀏覽器加總。</span></div>
+<header className="page-heading"><div><p className="eyebrow">申報與核對</p><h1>{page.title}</h1><p className="page-heading__description">先核對服務與金額，再建立內部快照。</p></div><div className="page-heading__actions"><ClaimValidationComposer batches={draftBatches} demo={snapshot.demo} enabled={canValidate} hasRecentAal2={hasRecentAal2} /></div></header>
+    <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>官方上傳格式尚未核定；目前回覆為人工登記，不能視為主管機關已接受申報。</span></div>
     <section aria-label="申報摘要" className="metric-grid">{[
       ["申報批次", snapshot.batches.length, "批", "目前分支最近 200 批"],
       ["申報明細", totalItems ?? "—", totalItems == null ? "" : "筆", totalItems == null ? "彙整暫時無法取得" : "資料庫同批次摘要"],

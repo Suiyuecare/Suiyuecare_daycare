@@ -59,6 +59,8 @@ export type CaseCenterClient = {
   admittedOn: string | null;
   endedOn: string | null;
   updatedAt: string;
+  /** Server-derived provenance and action permission; absent means deny. */
+  canDraftPendingQuestionnaires?: boolean;
   responsibility: {
     state: "known" | "restricted";
     people: readonly CaseCenterResponsiblePerson[];

@@ -24,6 +24,8 @@ const routes = [
   ["transport", "/app/staff/service-management/transport-plans"],
   ["custom-forms", "/app/client-forms"],
   ["form-governance", "/app/staff/governance/form-rule-versions"],
+  ["mna-sf", "/app/staff/professional-care/mna?client=00000000-0000-4000-8000-000000000015"],
+  ["mna-full", "/app/staff/professional-care/mna?variant=full&client=00000000-0000-4000-8000-000000000015"],
 ];
 const results = [];
 try {
@@ -31,10 +33,18 @@ try {
     browser("set", "viewport", String(width), "1000");
     for (const [name, path] of routes) {
       browser("open", new URL(path, base).href); browser("wait", "--load", "networkidle");
-      const result = decode(browser("eval", `JSON.stringify({heading:document.querySelector('h1')?.textContent,content:document.body.innerText.length,synthetic:document.querySelector('.user-summary__text small')?.textContent.includes('展示模式')===true,width:innerWidth,scrollWidth:document.documentElement.scrollWidth,main:document.querySelectorAll('main').length,closedDialogVisible:[...document.querySelectorAll('dialog:not([open])')].some(e=>getComputedStyle(e).display!=='none'),overlay:!!document.querySelector('[data-nextjs-dialog],.vite-error-overlay')})`));
+      const result = decode(browser("eval", `JSON.stringify({heading:document.querySelector('h1')?.textContent,content:document.body.innerText.length,synthetic:document.querySelector('.user-summary__text small')?.textContent.trim()==='合成展示',width:innerWidth,scrollWidth:document.documentElement.scrollWidth,main:document.querySelectorAll('main').length,closedDialogVisible:[...document.querySelectorAll('dialog:not([open])')].some(e=>getComputedStyle(e).display!=='none'),overlay:!!document.querySelector('[data-nextjs-dialog],.vite-error-overlay')})`));
       if (!result.synthetic || !result.heading || result.content < 100 || result.scrollWidth > width || result.main !== 1 || result.closedDialogVisible || result.overlay) throw new Error(`Browser acceptance failed: ${name} ${width} ${JSON.stringify(result)}`);
       browser("screenshot", join(output, `${name}-${width}.png`));
       results.push({ name, path, ...result });
+      if (name === "mna-sf" || name === "mna-full") {
+        const instrument = name === "mna-full" ? "full_mna" : "mna_sf";
+        const expected = name === "mna-full" ? 18 : 6;
+        const form = decode(browser("eval", `JSON.stringify({questions:document.querySelectorAll('section[id^="${instrument}-"]').length,variant:document.querySelector('nav[aria-label="MNA 版本"] a[aria-current="page"]')?.textContent.trim(),disabled:[...document.querySelectorAll('main fieldset')].every(e=>e.disabled||!!e.closest('fieldset[disabled]')),inputs:[...document.querySelectorAll('main input,main select')].filter(e=>e.type!=='hidden').every(e=>parseFloat(getComputedStyle(e).fontSize)>=16),targets:[...document.querySelectorAll('main button,main select,nav[aria-label="MNA 版本"] a')].filter(e=>!e.closest('dialog:not([open])')).every(e=>e.getBoundingClientRect().height>=44),hiddenVariant:document.querySelector('input[name="variant"]')?.value??null})`));
+        if (form.questions !== expected || !form.disabled || !form.inputs || !form.targets ||
+          (instrument === "full_mna" && form.hiddenVariant !== "full") || !form.variant?.includes(`${expected} 題`)) throw new Error(`MNA form acceptance failed: ${name} ${JSON.stringify(form)}`);
+        results.push({ name: `${name}-question-controls`, width, ...form });
+      }
       if (name === "custom-forms") {
         browser("find", "role", "button", "click", "--name", "載入個案表單"); browser("snapshot", "-i");
         browser("find", "role", "button", "click", "--name", "查看／接續處理"); browser("snapshot", "-i");
@@ -49,5 +59,5 @@ try {
   const errors = browser("errors");
   if (errors) throw new Error(`Browser runtime errors: ${errors}`);
   await writeFile(join(output, "report.json"), JSON.stringify({ scope: "synthetic local route/layout checks, not authenticated production E2E", results }, null, 2));
-  console.log(`Browser acceptance: ${routes.length * 2}/${routes.length * 2} synthetic route/viewport checks and 2 saved-form interaction checks passed. Evidence: ${output}`);
+  console.log(`Browser acceptance: ${routes.length * 2}/${routes.length * 2} synthetic route/viewport checks, 4 MNA form checks and 2 saved-form interaction checks passed. Evidence: ${output}`);
 } finally { browser("close"); }

@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, type RefObject } from "react";
-import type { OfflineDraftKind } from "@/lib/offline/draft-store";
+import type { OfflineCareDraftKind } from "@/lib/offline/draft-store";
 import { careRequestHash, type CareLocalDraft } from "@/lib/offline/care-outbox";
 import { useOfflineCare } from "./offline-care-provider";
 
 type Options = {
-  kind: OfflineDraftKind; serviceDate: string; enabled: boolean; demo: boolean;
+  kind: OfflineCareDraftKind; serviceDate: string; enabled: boolean; demo: boolean;
   allowedClientIds: readonly string[]; formRef: RefObject<HTMLFormElement | null>;
   idempotencyKey: RefObject<string>;
   onRestoreId: (id: string) => void;

@@ -124,6 +124,32 @@ describe("social-work service API boundary", () => {
     stubs.rpc.mockReturnValue({ maybeSingle: stubs.maybeSingle });
   });
 
+  it("allows an admitted Google AAL1 social worker to save only an unsigned draft", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, assuranceLevel: "aal1", recentAal2At: null });
+    stubs.maybeSingle.mockResolvedValue({ data: recordReceipt(), error: null });
+    expect((await POST(request("POST"))).status).toBe(201);
+    expect(stubs.requireRecentAal2).not.toHaveBeenCalled();
+    expect(stubs.rpc).toHaveBeenCalledWith("create_social_work_service_draft", expect.objectContaining({
+      p_expected_organization_id: organizationId, p_expected_branch_id: branchId,
+    }));
+  });
+
+  it("never admits AAL1 follow-up commits through the ordinary draft permission", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, assuranceLevel: "aal1", recentAal2At: null });
+    stubs.readJsonObject.mockResolvedValue({ action: "track" });
+    const response = await PATCH(request("PATCH"));
+    expect(response.status).toBe(403);
+    expect((await response.json()).errors[0].code).toBe("AAL2_REQUIRED");
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("requires a separate social-worker role for director AAL1 drafts", async () => {
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor, roles: ["branch_director"], assuranceLevel: "aal1" });
+    expect((await POST(request("POST"))).status).toBe(403);
+    expect(stubs.readJsonObject).not.toHaveBeenCalled();
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
   it.each([
     [{ ...actor, demo: true }, "DEMO_READ_ONLY"],
     [{ ...actor, scopes: ["clients.read", "social_work_records.read"] },

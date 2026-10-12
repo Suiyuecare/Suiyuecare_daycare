@@ -27,6 +27,20 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe("client directory result contract", () => {
+  it("keeps imported formal-pending clients visible without manufacturing an admission date", () => {
+    const input = {
+      expectedOrganizationId: organizationId,
+      expectedBranchId: branchId,
+      purpose: "case_center" as const,
+      pageSize: 1,
+    };
+    expect(parseClientDirectoryPage({ ...input, value: [row({ status: "pending" })] }).rows[0])
+      .toMatchObject({ status: "pending", admitted_on: null, ended_on: null });
+    expect(() => parseClientDirectoryPage({ ...input, value: [row({ status: "pending", admitted_on: "2026-09-01" })] }))
+      .toThrow(ClientDirectoryContractError);
+    expect(() => parseClientDirectoryPage({ ...input, value: [row({ status: "pending", ended_on: "2026-09-01" })] }))
+      .toThrow(ClientDirectoryContractError);
+  });
   it("accepts only the bounded minimum row and projects pending lifecycle inputs", () => {
     expect(
       parseClientDirectoryPage({
