@@ -44,3 +44,11 @@ export const admissionPreparationReceiptSchema = z.union([
   z.object({ reviewId: z.uuid(), decision: z.enum(["approved", "held", "rejected"]),
     status: z.literal("source_verification_required"), admissionEnabled: z.literal(false), replayed: z.boolean() }).strict(),
 ]);
+
+/** Confirm only the intent fields present in the canonical RPC receipt. */
+export function readAdmissionPreparationReceipt(value: unknown, input: AdmissionPreparationInput) {
+  const parsed = admissionPreparationReceiptSchema.safeParse(value);
+  if (!parsed.success || (input.action === "propose" ? !("proposalId" in parsed.data)
+    : !("reviewId" in parsed.data) || parsed.data.decision !== input.decision)) return null;
+  return parsed.data;
+}

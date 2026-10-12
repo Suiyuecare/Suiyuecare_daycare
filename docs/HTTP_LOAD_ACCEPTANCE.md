@@ -14,7 +14,7 @@
 2. 由負責人核对 app 的實際環境設定、部署 commit、專案 ref 與僅合成資料，建立一小時內有效的 `stagingAttestation`。這是人工配置審查，不是工具替負責人簽認；工具另外實測資料量與隔離。
 3. 建立 5 個分支，每分支 100 位有效且已收案的合成個案、40 位獨立的分支照服測試員工，共 500 個案、200 員工。員工需經原本的核准 Google 入場、有效職務／指派及 `clients.read`、`care_records.read/write`；不得使用跨分支主管或 `service_role` 冒充 200 員工。
 4. 準備當年度往前共 7 個曆年的合成照顧日誌。每位個案每完整年度至少 240 筆；當年度至少按已過日數比例的 240 筆。這是代表量**下限**，实际機構的七年筆數較大時，manifest 應採实际較大基線。每個案／年度的 `historyCounts` 必須與 API 可見終端紀錄**完全一致**，不是只宣告總數。這個讀取 snapshot 目前包含所有歷史，過大或太慢會真實失敗，不得減少 fixture 偽造通過。
-5. 所有 baseline 日誌的 `care_item` 必須為 `LOADTEST_FIXTURE:<fixtureId>`、`note` 為 `LOADTEST_ONLY`、`abnormal=false`。不使用姓名、地址、電話、身分證、真人醫囑或影像。建立另一個機構的合成個案作跨機構否定探針；不可用不存在的 ID 代替。
+5. 所有 baseline 日誌限未簽署草稿；`signed_at`、`signed_by`、`content_hash`、`correction_reason` 及更正來源皆空。`care_item` 必須為 `LOADTEST_FIXTURE:<fixtureId>`、`note` 為 `LOADTEST_ONLY`、`abnormal=false`；僅允許 shift、care_item、note、abnormal 及選填同為 `LOADTEST_ONLY` 的 follow_up，不可夾帶 observations 或其他欄位。不使用姓名、地址、電話、身分證、真人醫囑或影像。建立另一個機構的合成個案作跨機構否定探針；不可用不存在的 ID 代替。
 6. 透過正常 Google 流程取得 200 位測試員工各自的有效 GoTrue session 與 Next SSR cookie。fixture manifest 只記 UUID 與**私有環境變數名稱**，不含 email、cookie、JWT 或 refresh token。登入憑證透過私有程序環境載入，不能貼聊天、加入 repo、用 `set -x`、輸出 env 或存入報告。
 7. 使用專案的 publishable key（`DAYCARE_LOAD_PUBLISHABLE_KEY`）。工具不接受 service-role key、管理 PAT 或自行簽出的 token。token 必須來自 manifest 指定的**獨立 GoTrue**，具 OAuth AMR，並至少還有「測試期間＋5 分鐘」效期。工具會對每個真 session 呼叫 GoTrue `/auth/v1/user`，不是信任解碼 JWT；[Supabase session 說明](https://supabase.com/docs/guides/auth/sessions)。
 
@@ -73,7 +73,7 @@ HTTPS app host 名稱必須明示 `staging`／`preview`／`loadtest`；本機 ap
 
 工具執行順序：200 GoTrue 真身份核對 → 500 個案逐年度 API 數量核對 → 200 員工跨分支及跨機構讀取必須 403 → 50 個 worker 混合讀寫。全球 semaphore 保證含兩筆競爭寫入在內，最多 50 個 HTTP in-flight；worker 輪流使用全部 200 session 與 assigned clients。
 
-每個流程：讀 snapshot → 建立 unsigned draft → 同 key／同內容 replay → 同 key／異內容必須 409 → 兩個不同 key／相同 base version 的 draft edit 同時競爭（一筆 201、一筆 `VERSION_CONFLICT` 409）→ snapshot 核對唯一終端、恰好兩個歷史版本、原作者、內容及無丟失 → 多次 snapshot 讀取與跨分支 403 探針。不提供簽署／更正／給藥／服務／申報操作。
+每個流程：讀 snapshot → 建立 unsigned draft → 編輯前立即讀回首次保存的唯一版本、個案、原作者、時間與完整內容 → 同 key／同內容 replay → 同 key／異內容必須 409 → 兩個不同 key／相同 base version 的 draft edit 同時競爭（一筆 201、一筆 `VERSION_CONFLICT` 409）→ snapshot 核對唯一終端、恰好兩個歷史版本、原作者、內容及無丟失 → 多次 snapshot 讀取與跨分支 403 探針。不提供簽署／更正／給藥／服務／申報操作；不能只核對後續編輯而漏掉原始保存錯誤。
 
 ## 放行標準
 

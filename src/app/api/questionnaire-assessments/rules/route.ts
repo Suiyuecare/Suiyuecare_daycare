@@ -3,7 +3,8 @@ import { ok } from "@/lib/api/response";
 import { authorizeStaffRequest, databaseFailure, handleIntegrationRoute, readJsonObject } from "@/lib/integrations/http";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
-import { questionnaireGovernanceSchema } from "@/lib/questionnaire-assessments/governance";
+import { questionnaireGovernanceSchema, questionnairePublicationInputSchema } from "@/lib/questionnaire-assessments/governance";
+import { readQuestionnairePublicationReceipt } from "@/lib/questionnaire-assessments/receipt";
 import type { QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -34,11 +35,7 @@ export async function POST(request: Request) {
     const actor = await authorize(true);
     const raw = await readJsonObject(request, 4096);
     const key = z.string().uuid().safeParse(request.headers.get("idempotency-key"));
-    const parsed = z.discriminatedUnion("action", [
-      z.object({ action: z.literal("request"), formKey: z.string(), formVersion: z.string().max(80),
-        effectiveFrom: z.iso.date(), effectiveTo: z.iso.date().optional(), evidenceReference: z.string().trim().min(1).max(300) }).strict(),
-      z.object({ action: z.literal("approve"), publicationId: z.string().uuid() }).strict(),
-    ]).safeParse(raw);
+    const parsed = questionnairePublicationInputSchema.safeParse(raw);
     if (!key.success || !parsed.success) throw new IntegrationError("RULE_INVALID", "請核對發布資料。", 400);
     const input = parsed.data;
     if (input.action === "request") {
@@ -56,12 +53,13 @@ export async function POST(request: Request) {
       p_expected_organization_id: actor.organizationId, p_expected_branch_id: actor.branchId,
       p_payload: payload, p_idempotency_key: key.data,
     });
-    if (error || !data) {
+    const receipt = readQuestionnairePublicationReceipt(data, input);
+    if (error || !receipt) {
       if (error?.code === "42501") throw databaseFailure("RULE_NOT_AUTHORIZED", "需要另一位有權限的覆核者與近期驗證。", 403);
       if (["23505", "23P01", "55000"].includes(error?.code ?? "")) throw databaseFailure("RULE_CONFLICT", "版本已發布、期間重疊或操作識別碼衝突，請重新載入。", 409);
       if (["22023", "23514"].includes(error?.code ?? "")) throw databaseFailure("RULE_INVALID", "發布資料不符合規則。", 400);
       throw databaseFailure("RULE_WRITE_UNKNOWN", "發布結果尚未確認；請保留畫面並重試同一次操作。");
     }
-    return ok(data, 201, requestId);
+    return ok(receipt, 201, requestId);
   });
 }

@@ -6,6 +6,7 @@ import type { TenantContext } from "@/lib/domain/types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 import { getQuestionnaireForm } from "./forms";
+import { FULL_MNA_SOURCE_SHA256, FULL_MNA_SOURCE_URL, FULL_MNA_VERSION } from "@/lib/assessments/full-mna";
 import type { QuestionnaireFormKey, QuestionnaireSelection, QuestionnaireSnapshot } from "./types";
 
 const answerSchema = z.discriminatedUnion("state", [
@@ -15,7 +16,7 @@ const answerSchema = z.discriminatedUnion("state", [
 ]);
 
 const snapshotSchema = z.object({
-  formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
+  formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf", "full_mna"]),
   generatedAt: z.string().datetime({ offset: true }),
   matchingTotal: z.number().int().nonnegative(),
   clients: z.array(z.object({
@@ -39,12 +40,12 @@ const snapshotSchema = z.object({
       changeReason: z.string().nullable(), followUpDueOn: z.iso.date().nullable(),
       signedAt: z.iso.datetime({ offset: true }).nullable(), signerDisplayName: z.string().nullable(),
       ruleAvailable: z.boolean(),
-      formSnapshot: z.object({ key: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
-        version: z.string(), title: z.string(), instructions: z.string(), sourceLabel: z.string(), sourceUrl: z.string().optional(),
+      formSnapshot: z.object({ key: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf", "full_mna"]),
+        version: z.string(), title: z.string(), instructions: z.string(), sourceLabel: z.string(), sourceUrl: z.string().optional(), sourceHash: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
         scoreVersionId: z.string().optional(), allowQualitativeNotes: z.boolean().optional(),
-        contextFields: z.array(z.object({ key: z.string(), label: z.string(), required: z.boolean().optional(),
+        contextFields: z.array(z.object({ key: z.string(), label: z.string(), required: z.boolean().optional(), questionId: z.string().optional(),
           choices: z.array(z.object({ value: z.string(), label: z.string() }).strict()) }).strict()).optional(),
-        measurementFields: z.array(z.object({ key: z.string(), label: z.string() }).strict()).optional(),
+        measurementFields: z.array(z.object({ key: z.string(), label: z.string(), questionId: z.string().optional() }).strict()).optional(),
         questions: z.array(z.object({ id: z.string(), prompt: z.string(), helpText: z.string().optional(),
           choices: z.array(z.object({ value: z.string(), label: z.string(), score: z.number().optional() }).passthrough()) }).passthrough()),
       }).strict(),
@@ -95,6 +96,8 @@ export async function loadQuestionnaireSnapshot(
   }
   const selectedClient = parsed.data.clients.find((client) => client.clientId === clientId);
   const selected = selectedClient?.latest;
+  if (selected?.formSnapshot.key === "full_mna" && selected.formVersion === FULL_MNA_VERSION &&
+    (selected.formSnapshot.sourceHash !== FULL_MNA_SOURCE_SHA256 || selected.formSnapshot.sourceUrl !== FULL_MNA_SOURCE_URL)) throw new QuestionnaireSnapshotError();
   if (parsed.data.clients.some((client) => client.serviceStatus === "pending" &&
     client.latest && client.latest.recordState !== "draft") ||
     (selectedClient?.serviceStatus === "pending" && (parsed.data.canSign ||

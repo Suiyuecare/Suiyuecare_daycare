@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QuestionnaireLifecycleActions } from "./questionnaire-lifecycle-actions";
 import type { QuestionnaireDraft } from "@/lib/questionnaire-assessments/types";
+import { getScopeChangePendingReason } from "@/lib/navigation/scope-change-pending";
 
 const mocks = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => mocks }));
@@ -13,6 +14,11 @@ const record: QuestionnaireDraft = { assessmentKey: "11111111-1111-4111-8111-111
 function component(extra: Partial<Parameters<typeof QuestionnaireLifecycleActions>[0]> = {}) {
   return <QuestionnaireLifecycleActions record={record} clientId="33333333-3333-4333-8333-333333333333" formKey="spmsq"
     canManage canSign complete dirty={false} safetyConcern={false} onWriteGuardChange={vi.fn()} {...extra} />;
+}
+function receipt(action: "submit" | "correct" = "submit", extra: Record<string, unknown> = {}) {
+  return { action, clientId: "33333333-3333-4333-8333-333333333333", formKey: "spmsq", assessmentKey: record.assessmentKey,
+    versionId: "44444444-4444-4444-8444-444444444444", version: 2, recordState: action === "submit" ? "submitted" : "draft",
+    assessedOn: record.assessedOn, contentHash: record.contentHash, committedAt: "2026-10-12T01:00:00Z", replayed: false, ...extra };
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 describe("questionnaire operational lifecycle", () => {
@@ -46,7 +52,7 @@ describe("questionnaire operational lifecycle", () => {
     expect(screen.queryByText("建立更正版")).not.toBeInTheDocument();
   });
   it("requires correction reason and appends a bound request rather than editing original", async () => {
-    const fetch = vi.fn().mockResolvedValue(Response.json({ data: { versionId: "44444444-4444-4444-8444-444444444444", recordState: "draft" } }));
+    const fetch = vi.fn().mockResolvedValue(Response.json({ status: "ok", data: receipt("correct") }));
     vi.stubGlobal("fetch", fetch); render(component({ record: { ...record, recordState: "signed" } }));
     fireEvent.click(screen.getByText("建立更正版"));
     expect(screen.getByRole("button", { name: "建立更正草稿" })).toBeDisabled();
@@ -57,7 +63,7 @@ describe("questionnaire operational lifecycle", () => {
   });
   it("retains same idempotency key and content after an unknown response", async () => {
     const fetch = vi.fn().mockRejectedValueOnce(new Error("network"))
-      .mockResolvedValueOnce(Response.json({ data: { versionId: "44444444-4444-4444-8444-444444444444", recordState: "submitted" } }));
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: receipt() }));
     vi.stubGlobal("fetch", fetch); render(component());
     fireEvent.click(screen.getByRole("button", { name: "送審" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "重試同一次操作" })).toBeVisible());
@@ -66,5 +72,40 @@ describe("questionnaire operational lifecycle", () => {
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
     expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
     expect(fetch.mock.calls[0][1].headers["idempotency-key"]).toBe(fetch.mock.calls[1][1].headers["idempotency-key"]);
+  });
+  it.each(["followUp", "safety", "reason"])("protects unsaved %s and clears only by an explicit discard", (field) => {
+    const onDirtyChange = vi.fn();
+    render(component({ onDirtyChange, safetyConcern: field === "safety", ...(field === "reason" ? { record: { ...record, recordState: "signed" as const } } : {}) }));
+    if (field === "followUp") fireEvent.change(screen.getByLabelText("複評日期（選填）"), { target: { value: "2026-11-10" } });
+    if (field === "safety") fireEvent.click(screen.getByRole("checkbox"));
+    if (field === "reason") fireEvent.change(screen.getByLabelText("原因"), { target: { value: "待送出的合成更正原因" } });
+    expect(getScopeChangePendingReason()).toBe("dirty");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "清除未送出的送審／補正內容" }));
+    expect(getScopeChangePendingReason()).toBeNull();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+  it("preserves follow-up input and its exact retry until a matching receipt confirms success", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: receipt("submit", { clientId: record.assessmentKey }) }))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: receipt() }));
+    vi.stubGlobal("fetch", fetch); render(component());
+    fireEvent.change(screen.getByLabelText("複評日期（選填）"), { target: { value: "2026-11-10" } });
+    fireEvent.click(screen.getByRole("button", { name: "送審" }));
+    await screen.findByRole("button", { name: "重試同一次操作" });
+    expect(screen.getByLabelText("複評日期（選填）")).toHaveValue("2026-11-10");
+    expect(getScopeChangePendingReason()).toBe("unknown"); expect(mocks.refresh).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次操作" }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(fetch.mock.calls[0][1].headers["idempotency-key"]).toBe(fetch.mock.calls[1][1].headers["idempotency-key"]);
+    expect(getScopeChangePendingReason()).toBeNull();
+  });
+  it("requires explicit clearing of an unsent return reason before signing", () => {
+    render(component({ record: { ...record, recordState: "submitted", ruleAvailable: true } }));
+    fireEvent.change(screen.getByLabelText("原因"), { target: { value: "尚未送出的退回原因" } });
+    expect(screen.getByRole("button", { name: "確認內容並簽署" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "退回補正" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "清除未送出的送審／補正內容" }));
+    expect(screen.getByRole("button", { name: "確認內容並簽署" })).toBeEnabled();
   });
 });

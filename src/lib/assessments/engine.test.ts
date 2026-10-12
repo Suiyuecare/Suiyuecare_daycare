@@ -39,6 +39,7 @@ describe("versioned assessment registry", () => {
       "nsi_determine",
       "eat10",
       "bsrs5",
+      "full_mna",
     ]);
     for (const definition of ASSESSMENT_DEFINITIONS) {
       expect(definition.ruleRevision).toBe(1);

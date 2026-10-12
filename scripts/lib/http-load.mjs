@@ -123,15 +123,27 @@ export function assertSnapshot(data, clientId, fixtureId, runId) {
   check(data && data.persisted === true && data.demo === false && Array.isArray(data.records) && Array.isArray(data.history), "SNAPSHOT_INVALID");
   check(unique(data.records.map((record) => record.id)) && unique(data.history.map((record) => record.id)), "DUPLICATE_RECORD_DETECTED");
   check(unique(data.records.map((record) => record.record_key)), "DUPLICATE_TERMINAL_DETECTED");
+  // Seven-year fixtures contain thousands of rows per snapshot. Indexed
+  // identity checks preserve exact matching without quadratic client work.
+  const historyById = new Map(data.history.map((record) => [record.id, record]));
+  const terminalKeys = new Set(data.records.map((record) => record.record_key));
   const fixtureMarker = `LOADTEST_FIXTURE:${fixtureId}`; const runMarker = `LOADTEST_RUN:${runId}`;
   for (const record of data.records) {
     check(record.client_id === clientId, "CROSS_SCOPE_LEAK_DETECTED");
     check(record.fields && [fixtureMarker, runMarker].includes(record.fields.care_item), "NON_SYNTHETIC_DATA_DETECTED");
+    check(record.status === "draft" && record.correction_reason === null && record.signed_at === null
+      && record.signed_by === null && record.content_hash === null
+      && (record.correction_source_id === undefined || record.correction_source_id === null), "NON_SYNTHETIC_DATA_DETECTED");
+    check(Object.keys(record.fields).every((field) => ["shift", "care_item", "note", "abnormal", "follow_up"].includes(field))
+      && ["morning", "afternoon", "full_day"].includes(record.fields.shift), "NON_SYNTHETIC_DATA_DETECTED");
     check(record.fields.note === "LOADTEST_ONLY" && record.fields.abnormal === false
       && (!Object.hasOwn(record.fields, "follow_up") || record.fields.follow_up === "LOADTEST_ONLY"), "NON_SYNTHETIC_DATA_DETECTED");
-    check(data.history.some((history) => history.id === record.id && history.record_key === record.record_key && history.version === record.version), "MISSING_HISTORY_DETECTED");
+    const history = historyById.get(record.id);
+    check(history && history.record_key === record.record_key && history.version === record.version, "MISSING_HISTORY_DETECTED");
   }
-  check(data.history.every((history) => data.records.some((record) => record.record_key === history.record_key)), "CROSS_SCOPE_LEAK_DETECTED");
+  check(data.history.every((history) => terminalKeys.has(history.record_key)), "CROSS_SCOPE_LEAK_DETECTED");
+  check(data.history.every((history) => history.status === "draft" && history.correction_reason === null
+    && history.signed_at === null && history.signed_by === null && history.content_hash === null), "NON_SYNTHETIC_DATA_DETECTED");
   return data;
 }
 
@@ -274,6 +286,20 @@ export async function runHttpLoad({ manifest, options, environment = process.env
           const body = { client_id: clientId, page_slug: "staff/daily-care/care-diary", occurred_at: new Date(wallNow()).toISOString(), data: fields };
           const initial = successful(await request(index, "/api/records", "POST", body, key), false);
           check(id(initial.id) && initial.version === 1, "WRITE_RECEIPT_INVALID");
+          // The create API returns only id/version/status. Read the original
+          // persisted fields before an edit can hide a wrong first write.
+          const createdSnapshot = await read(index, clientId);
+          const created = createdSnapshot.records.filter((record) => record.id === initial.id);
+          check(created.length === 1, "MISSING_OR_CHANGED_WRITE_DETECTED");
+          const original = created[0];
+          check(original.client_id === clientId && original.created_by === session.actorId, "CROSS_SCOPE_LEAK_DETECTED");
+          check(original.version === 1 && original.previous_version_id === null
+            && typeof original.occurred_at === "string" && Number.isFinite(Date.parse(original.occurred_at))
+            && new Date(original.occurred_at).toISOString() === body.occurred_at
+            && canonical(original.fields) === canonical(fields), "MISSING_OR_CHANGED_WRITE_DETECTED");
+          check(createdSnapshot.records.filter((record) => record.record_key === original.record_key).length === 1
+            && createdSnapshot.history.filter((record) => record.record_key === original.record_key).length === 1,
+          "DUPLICATE_RECORD_DETECTED");
           const replay = successful(await request(index, "/api/records", "POST", body, key), true);
           check(replay.id === initial.id && replay.version === 1, "DUPLICATE_RECORD_DETECTED"); stats.replays += 1;
           const mismatch = await request(index, "/api/records", "POST", { ...body, data: { ...fields, shift: "afternoon" } }, key);
@@ -289,6 +315,7 @@ export async function runHttpLoad({ manifest, options, environment = process.env
           check(denied.envelope.errors?.[0]?.code === "VERSION_CONFLICT", "CAS_CONFLICT_CODE_INVALID"); assertEnvelope(denied.envelope, "error");
           check(winner.client_id === clientId && winner.created_by === session.actorId, "CROSS_SCOPE_LEAK_DETECTED");
           check(winner.previous_version_id === initial.id && winner.version === 2
+            && winner.record_key === original.record_key
             && canonical(winner.fields) === canonical(alternatives[winnerIndex].data), "WRITE_RECEIPT_INVALID"); stats.casConflicts += 1;
           const current = await read(index, clientId);
           const terminal = current.records.filter((record) => record.record_key === winner.record_key);

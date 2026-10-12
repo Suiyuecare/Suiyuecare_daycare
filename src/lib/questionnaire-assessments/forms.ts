@@ -25,6 +25,7 @@ import {
 } from "@/lib/assessments/question-content";
 
 import type { QuestionnaireFormDefinition, QuestionnaireFormKey } from "./types";
+import { FULL_MNA_MEASUREMENTS, FULL_MNA_PROTEIN_FIELDS, FULL_MNA_QUESTIONS, FULL_MNA_SOURCE_SHA256, FULL_MNA_SOURCE_URL, FULL_MNA_VERSION } from "@/lib/assessments/full-mna";
 
 const numericChoices = (questions: readonly string[]) => questions.map((prompt, index) => ({
   id: `eat10_${String(index + 1).padStart(2, "0")}`,
@@ -161,6 +162,16 @@ export const QUESTIONNAIRE_FORMS: Readonly<Record<QuestionnaireFormKey, Question
     allowQualitativeNotes: true,
     measurementFields: MNA_SF_MEASUREMENTS,
     questions: MNA_SF_QUESTIONS,
+  },
+  full_mna: {
+    key: "full_mna", version: FULL_MNA_VERSION,
+    title: "完整 MNA 18 題（官方 Chinese amended 2023 候選版）",
+    instructions: "依官方 Chinese amended 2023 的 A–R 順序保存完整回答。F 題使用實測身高、體重計算 BMI；Q／R 分別保存臂圍及小腿圍。K 題保留三個子回答。候選草稿不等於正式評估結果；正式簽署與分類仍須雙人發布規則。",
+    sourceLabel: "MNA 官方 Long MNA Chinese amended 2023；非臺灣核定翻譯版",
+    sourceUrl: FULL_MNA_SOURCE_URL, sourceHash: FULL_MNA_SOURCE_SHA256,
+    scoreVersionId: FULL_MNA_VERSION, allowQualitativeNotes: true,
+    measurementFields: FULL_MNA_MEASUREMENTS, contextFields: FULL_MNA_PROTEIN_FIELDS,
+    questions: FULL_MNA_QUESTIONS,
   },
 };
 

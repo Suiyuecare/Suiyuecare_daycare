@@ -67,6 +67,15 @@ describe("JUBO preparation HTTP/loader boundary", () => {
     mocks.rpc.mockResolvedValue({ data: { ...receipt, admissionEnabled: true }, error: null });
     expect((await POST(request())).status).toBe(503);
   });
+  it("rejects a review receipt for a propose operation", async () => {
+    mocks.rpc.mockResolvedValue({ data: { reviewId: id, decision: "approved", status: "source_verification_required", admissionEnabled: false, replayed: false }, error: null });
+    expect((await POST(request())).status).toBe(503);
+  });
+  it.each([receipt, { reviewId: id, decision: "held", status: "source_verification_required", admissionEnabled: false, replayed: false }])("rejects a proposal or mismatched-decision receipt for a review operation", async data => {
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    expect((await POST(request({ action: "review", clientId: id, proposalId: id, expectedSha256: "c".repeat(64),
+      decision: "approved", reason: "合成獨立主任核對資格及契約" }))).status).toBe(503);
+  });
   it("returns only this selected pending client, not another otherwise valid snapshot", async () => {
     mocks.rpc.mockResolvedValue({ data: { ...snapshot, clientId: actor.userId }, error: null });
     await expect(loadJuboAdmissionPreparation(actor, id)).rejects.toMatchObject({ code: "ADMISSION_PREPARATION_UNKNOWN" });

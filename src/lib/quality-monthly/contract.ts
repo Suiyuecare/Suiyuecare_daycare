@@ -2,8 +2,11 @@ import { z } from "zod";
 
 export const qualityMonthSchema = z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/u);
 export const QUALITY_MONTHLY_RULE = "organization.quality-monthly-v1" as const;
+const qualityNumeratorSources = {
+  falls: "fall", infections: "infection", abnormal: "abnormal", weight_coverage: "weight",
+} as const;
 export const qualitySourceSchema = z.object({
-  id: z.uuid(), clientId: z.uuid().nullable(), date: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/u),
+  id: z.uuid(), clientId: z.uuid().nullable(), date: z.iso.date().regex(/^20\d{2}-\d{2}-\d{2}$/u),
   source: z.enum(["attendance", "fall", "infection", "abnormal", "weight"]),
 }).strict();
 const metricSchema = z.object({
@@ -16,6 +19,8 @@ const metricSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (value.numerator !== value.numeratorItems.length || value.denominator !== value.denominatorItems.length ||
     (value.denominator === 0) !== (value.rate === null) ||
+    value.numeratorItems.some((item) => item.source !== qualityNumeratorSources[value.key]) ||
+    value.denominatorItems.some((item) => item.source !== "attendance") ||
     new Set(value.numeratorItems.map((item) => item.id)).size !== value.numeratorItems.length ||
     new Set(value.denominatorItems.map((item) => item.id)).size !== value.denominatorItems.length ||
     (value.rate !== null && Math.abs(Number(value.rate) - value.numerator * 100 / value.denominator) > 0.00000051)) {

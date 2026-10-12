@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(22);
 
 select ok(
   has_function_privilege('authenticated','public.assessment_matrix_snapshot(uuid,uuid,date,integer,integer)','execute')
@@ -96,7 +96,9 @@ reset role;
 set local role authenticated;
 select ok(public.is_staff_login_allowed(),'synthetic Google staff admission passes');
 select is((pg_temp.matrix_snapshot()->>'totalClients')::integer,2,'only the two current-branch clients are counted');
-select is(jsonb_array_length(pg_temp.matrix_snapshot()->'forms'),9,'all nine authorized questionnaire types are returned');
+select is(jsonb_array_length(pg_temp.matrix_snapshot()->'forms'),10,'all ten authorized questionnaire types are returned');
+select is(pg_temp.matrix_snapshot()->'clients'->0->'cells'->'mna_sf'->>'state','none','SF has an independent unrecorded cell');
+select is(pg_temp.matrix_snapshot()->'clients'->0->'cells'->'full_mna'->>'state','none','Full has an independent unrecorded cell');
 select is(jsonb_array_length(pg_temp.matrix_snapshot()->'clients'),2,'visible roster has one row per client');
 select is(pg_temp.matrix_snapshot()->'clients'->0->'cells'->'spmsq'->>'state','draft','current-month draft is shown as draft only');
 select is(pg_temp.matrix_snapshot()->'clients'->1->'cells'->'spmsq'->>'state','none','missing draft is shown as unrecorded only');
@@ -128,6 +130,12 @@ delete from public.role_permissions where role_id='10000000-0000-4000-8000-00000
 set local role authenticated;
 select ok(not (pg_temp.matrix_snapshot()->'forms' ? 'spmsq'),
  'removed form read permission excludes the corresponding column');
+reset role;
+delete from public.role_permissions where role_id='10000000-0000-4000-8000-000000000002'
+ and permission_id=(select id from public.permissions where permission_key='questionnaire_nutrition.read');
+set local role authenticated;
+select ok(not (pg_temp.matrix_snapshot()->'forms' ? 'mna_sf') and not (pg_temp.matrix_snapshot()->'forms' ? 'full_mna'),
+ 'removed nutrition read permission excludes both independent MNA columns');
 reset role;
 delete from public.role_permissions where role_id='10000000-0000-4000-8000-000000000002'
  and permission_id in (select id from public.permissions where permission_key like 'questionnaire_%.read');

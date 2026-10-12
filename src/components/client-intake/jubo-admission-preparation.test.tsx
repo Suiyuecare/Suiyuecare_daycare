@@ -65,6 +65,28 @@ describe("clear two-person preparation UI", () => {
     expect(screen.getByLabelText("已核對的收案日期")).toBeDisabled();
     expect(screen.getByRole("button", { name: "重試同一次操作" })).toBeVisible();
   });
+  it("keeps a proposal and its original retry when a valid review receipt is returned instead", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: "ok", data: { reviewId: id, decision: "approved", status: "source_verification_required", admissionEnabled: false, replayed: false } }))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: receipt }));
+    vi.stubGlobal("fetch", fetch); render(<JuboAdmissionPreparation snapshot={snapshot} />); fill();
+    fireEvent.click(screen.getByRole("button", { name: "提交給主任核對" }));
+    await screen.findByRole("button", { name: "重試同一次操作" });
+    expect(screen.getByLabelText("已核對的收案日期")).toHaveValue("2026-10-11");
+    expect(screen.getByLabelText("已核對的收案日期")).toBeDisabled(); expect(mocks.refresh).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "重試同一次操作" }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(fetch.mock.calls[0][1].headers["idempotency-key"]).toBe(fetch.mock.calls[1][1].headers["idempotency-key"]);
+  });
+  it.each([receipt, { reviewId: id, decision: "held", status: "source_verification_required", admissionEnabled: false, replayed: false }])("does not confirm a review from another intent receipt", async data => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ status: "ok", data }));
+    vi.stubGlobal("fetch", fetch); render(<JuboAdmissionPreparation snapshot={{ ...snapshot, proposals: [record] }} />);
+    fireEvent.click(screen.getByLabelText("核對通過"));
+    fireEvent.change(screen.getByLabelText("核對意見（至少 10 字）"), { target: { value: "合成獨立主任核對資格及契約" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存主任核對" }));
+    await screen.findByRole("button", { name: "重試同一次操作" }); expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(screen.queryByText("已保存主任核對結果；尚未正式收案。")).not.toBeInTheDocument();
+  });
   it("shows independent review only for server-authorized current proposals", () => {
     const view = render(<JuboAdmissionPreparation snapshot={{ ...snapshot, proposals: [record] }} />);
     expect(screen.getByRole("button", { name: "保存主任核對" })).toBeEnabled();

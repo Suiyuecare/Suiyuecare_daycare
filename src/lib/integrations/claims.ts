@@ -187,10 +187,14 @@ export function parseClaimReconciliationDatabaseReceipt(
   const itemCount = Number(parsed.data.item_count);
   const acceptedCount = Number(parsed.data.accepted_count);
   const rejectedCount = Number(parsed.data.rejected_count);
+  const expectedAcceptedCount = expected.results.filter((result) => result.outcome === "accepted").length;
+  const expectedRejectedCount = expected.results.length - expectedAcceptedCount;
   if (
     parsed.data.claim_batch_id !== expected.claimBatchId ||
     itemCount !== expected.results.length ||
     acceptedCount + rejectedCount !== itemCount ||
+    acceptedCount !== expectedAcceptedCount ||
+    rejectedCount !== expectedRejectedCount ||
     normalizeMoney(parsed.data.total_amount) !== expected.expectedTotalAmount
   ) {
     throw new IntegrationError(

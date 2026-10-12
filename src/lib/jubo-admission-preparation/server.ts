@@ -4,7 +4,7 @@ import { getTenantContext } from "@/lib/auth/context";
 import type { TenantContext } from "@/lib/domain/types";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { admissionPreparationReceiptSchema, admissionPreparationSnapshotSchema, type AdmissionPreparationInput } from "./contract";
+import { readAdmissionPreparationReceipt, admissionPreparationSnapshotSchema, type AdmissionPreparationInput } from "./contract";
 
 function canPrepare(actor: TenantContext) {
   return !actor.demo && !!actor.branchId && actor.roles.some(role =>
@@ -48,8 +48,7 @@ export async function mutateAdmissionPreparation(actor: TenantContext, input: Ad
       p_expected_client_row_version: input.clientRowVersion })
     : await db.rpc("review_jubo_pending_admission", { ...base, p_proposal: input.proposalId,
       p_expected_sha256: input.expectedSha256, p_decision: input.decision });
-  const parsed = admissionPreparationReceiptSchema.safeParse(data);
-  if (error || !parsed.success || (input.action === "propose" ? !("proposalId" in parsed.data)
-    : !("reviewId" in parsed.data) || parsed.data.decision !== input.decision)) admissionPreparationDatabaseError(error?.code);
-  return parsed.data;
+  const receipt = readAdmissionPreparationReceipt(data, input);
+  if (error || !receipt) admissionPreparationDatabaseError(error?.code);
+  return receipt;
 }

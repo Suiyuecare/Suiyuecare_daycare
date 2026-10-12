@@ -3,7 +3,9 @@ import { z } from "zod";
 import { ok } from "@/lib/api/response";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
 import { validateMnaAnthropometry } from "@/lib/questionnaire-assessments/mna-anthropometry";
+import { validateFullMnaInput } from "@/lib/questionnaire-assessments/full-mna-validation";
 import { parseQuestionnaireSelection } from "@/lib/questionnaire-assessments/query";
+import { readQuestionnaireMutationReceipt } from "@/lib/questionnaire-assessments/receipt";
 import type { QuestionnaireAnswer, QuestionnaireFormKey } from "@/lib/questionnaire-assessments/types";
 import {
   authorizeStaffRequest,
@@ -98,6 +100,7 @@ function parseContext(formKey: QuestionnaireFormKey, value: unknown, answers: Re
     }
     context[key] = entry;
   }
+  if (formKey === "full_mna") return validateFullMnaInput(context, answers) ? null : context;
   if (formKey !== "mna_sf") return context;
   return validateMnaAnthropometry(context, answers.anthropometry) ? null : context;
 }
@@ -106,7 +109,7 @@ function readMutation(value: Record<string, unknown>, idempotencyKey: string) {
   if (["submit", "sign", "return", "correct"].includes(String(value.action))) {
     const lifecycle = z.object({
       action: z.enum(["submit", "sign", "return", "correct"]), clientId: uuid,
-      formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
+      formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf", "full_mna"]),
       assessmentKey: uuid, previousVersionId: uuid, expectedVersion: z.number().int().min(1).max(1_000_000),
       reason: z.string().trim().min(1).max(500).optional(),
       followUpDueOn: date.optional(), safetyAcknowledged: z.boolean().optional(),
@@ -122,7 +125,7 @@ function readMutation(value: Record<string, unknown>, idempotencyKey: string) {
   const base = z.object({
     action: z.enum(["create", "revise"]),
     clientId: uuid,
-    formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
+    formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf", "full_mna"]),
     formVersion: z.string().min(1).max(80),
     assessedOn: date,
     answers: z.unknown(),
@@ -251,7 +254,10 @@ export async function POST(request: Request) {
       p_payload: payload,
       p_idempotency_key: idempotencyKey,
     });
-    if (error || !data) throw databaseError(error?.code);
-    return ok(data, 201, requestId);
+    const receipt = readQuestionnaireMutationReceipt(data, { action: input.action, clientId: input.client_id, formKey: input.form_key,
+      ...("assessed_on" in input ? { assessedOn: input.assessed_on } : {}),
+      ...("assessment_key" in input ? { assessmentKey: input.assessment_key, expectedVersion: input.expected_version, previousVersionId: input.previous_version_id } : {}) });
+    if (error || !receipt) throw databaseError(error?.code);
+    return ok(receipt, 201, requestId);
   });
 }

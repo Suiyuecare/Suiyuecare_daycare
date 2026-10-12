@@ -1,13 +1,16 @@
 import type {
+  AssessmentAnswers,
   AssessmentAlert,
   AssessmentClassification,
   AssessmentContextDefinition,
   AssessmentInstrument,
   AssessmentItemDefinition,
+  AssessmentIssue,
   AssessmentRuleSnapshot,
   AssessmentVersionId,
 } from "./types";
 import { GDS_QUESTIONS } from "@/lib/gds-assessments/types";
+import { FULL_MNA_DEFINITION } from "./full-mna";
 
 export interface AssessmentDefinition extends AssessmentRuleSnapshot {
   readonly items: readonly AssessmentItemDefinition[];
@@ -15,6 +18,7 @@ export interface AssessmentDefinition extends AssessmentRuleSnapshot {
   readonly scoreMin: number;
   readonly scoreMax: number;
   readonly scoreUnit: "points" | "errors";
+  readonly validateAnswers?: (answers: AssessmentAnswers, context: Readonly<Record<string, string>>) => readonly AssessmentIssue[];
   readonly classify: (score: number) => AssessmentClassification;
   readonly adjustScore: (
     rawScore: number,
@@ -610,6 +614,7 @@ const definitions = [
     adjustScore: noAdjustment,
     buildAlerts: noAlerts,
   },
+  FULL_MNA_DEFINITION,
 ] as const satisfies readonly AssessmentDefinition[];
 
 export const ASSESSMENT_DEFINITIONS: readonly AssessmentDefinition[] =
@@ -628,6 +633,7 @@ export const ASSESSMENT_VERSIONS: Readonly<
     "nsi-determine-10-weighted-v1": definitions[6],
     "eat10-tw-v1": definitions[7],
     "bsrs5-zh-tw-v1": definitions[8],
+    "full-mna-chinese-amended-2023-v1": definitions[9],
   } satisfies Record<AssessmentVersionId, AssessmentDefinition>,
 );
 
@@ -643,6 +649,7 @@ export const ASSESSMENT_INSTRUMENTS: readonly AssessmentInstrument[] = [
   "barthel_adl",
   "lawton_iadl",
   "mna_sf",
+  "full_mna",
   "fall_risk_taipei_115",
   "nsi_determine",
   "eat10",

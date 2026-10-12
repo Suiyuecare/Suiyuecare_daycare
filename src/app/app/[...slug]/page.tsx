@@ -29,6 +29,7 @@ import { ClientMasterWorkspace } from "@/components/clients/client-master-worksp
 import { ClientLifecycleWorkspace } from "@/components/clients/client-lifecycle-workspace";
 import { JuboAdmissionPreparation } from "@/components/client-intake/jubo-admission-preparation";
 import { loadJuboAdmissionPreparation } from "@/lib/jubo-admission-preparation/server";
+import { admissionPreparationWorkspaceKey } from "@/lib/jubo-admission-preparation/workspace-key";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { ClientServicePlanWorkspace } from "@/components/client-service-plan-workflow/client-service-plan-workspace";
 import { CaseServiceRecordsWorkspace } from "@/components/case-service-records/case-service-records-workspace";
@@ -83,7 +84,7 @@ import { QuestionnaireAssessmentsWorkspace } from "@/components/questionnaire-as
 import { QuestionnaireRuleGovernance } from "@/components/questionnaire-assessments/questionnaire-rule-governance";
 import { StaffFamilyWorkspace } from "@/components/family/staff-family-workspace";
 import { loadQuestionnaireGovernance } from "@/lib/questionnaire-assessments/governance-snapshot";
-import { parseQuestionnaireSelection } from "@/lib/questionnaire-assessments/query";
+import { parseMnaVariant, parseQuestionnaireSelection } from "@/lib/questionnaire-assessments/query";
 import { EvaluationPreparationWorkspace } from "@/components/evaluation-preparation/evaluation-preparation-workspace";
 import { loadEvaluationPreparationSnapshot, EvaluationPreparationSnapshotError } from "@/lib/evaluation-preparation/snapshot";
 import { getQuestionnaireForm } from "@/lib/questionnaire-assessments/forms";
@@ -1095,7 +1096,8 @@ export default async function StaffCatalogPage({
       18: "bsrs5",
       36: "mna_sf",
     };
-    const formKey = formKeyByPage[page.number]!;
+    const mnaVariant = page.number === 36 ? parseMnaVariant(query.variant) : null;
+    const formKey = page.number === 36 ? mnaVariant ?? "mna_sf" : formKeyByPage[page.number]!;
     const form = getQuestionnaireForm(formKey)!;
     const requestedClient = typeof query.client === "string" ? query.client : "";
     const validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestedClient)
@@ -1103,7 +1105,8 @@ export default async function StaffCatalogPage({
     const selection = parseQuestionnaireSelection(query);
     const invalidFilters = Boolean(requestedClient && !validClientId) ||
       Array.isArray(query.client) || !selection || Boolean(selection.versionId && !validClientId) ||
-      Object.keys(query).some((key) => !["client", "version", "month", "new", "history_page"].includes(key));
+      (page.number === 36 && !mnaVariant) ||
+      Object.keys(query).some((key) => !["client", "version", "month", "new", "history_page", ...(page.number === 36 ? ["variant"] : [])].includes(key));
     const prefix = formKey === "spmsq"
       ? "questionnaire_cognition"
       : formKey === "barthel_adl" || formKey === "lawton_iadl"
@@ -1141,6 +1144,7 @@ export default async function StaffCatalogPage({
       }
     }
     return <QuestionnaireAssessmentsWorkspace
+      key={`${formKey}-${context.organizationId}-${context.branchId}-${context.userId}`}
       assessorName={context.displayName}
       canManage={canManage}
       form={form}
@@ -2556,7 +2560,7 @@ export default async function StaffCatalogPage({
         status={status}
       />
       {admissionPreparation && <JuboAdmissionPreparation
-        key={`${admissionPreparation.clientId}:${admissionPreparation.clientRowVersion}:${admissionPreparation.proposals.length}:${admissionPreparation.proposals.map((proposal) => proposal.reviewDecision).join(",")}`}
+        key={admissionPreparationWorkspaceKey(context, admissionPreparation)}
         snapshot={admissionPreparation}
       />}
       {preparationUnavailable && <section className="panel" aria-label="收案核對">

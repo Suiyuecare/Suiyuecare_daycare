@@ -10,7 +10,8 @@ export type QuestionnaireFormKey =
   | "bsrs5"
   | "fall_risk_taipei_115"
   | "nsi_determine"
-  | "mna_sf";
+  | "mna_sf"
+  | "full_mna";
 
 export interface QuestionnaireFormDefinition {
   readonly key: QuestionnaireFormKey;
@@ -19,15 +20,17 @@ export interface QuestionnaireFormDefinition {
   readonly instructions: string;
   readonly sourceLabel: string;
   readonly sourceUrl?: string;
+  readonly sourceHash?: string;
   readonly scoreVersionId?: AssessmentVersionId;
   readonly allowQualitativeNotes?: boolean;
   readonly contextFields?: readonly {
     readonly key: string;
     readonly label: string;
     readonly required?: boolean;
+    readonly questionId?: string;
     readonly choices: readonly { readonly value: string; readonly label: string }[];
   }[];
-  readonly measurementFields?: readonly { readonly key: string; readonly label: string }[];
+  readonly measurementFields?: readonly { readonly key: string; readonly label: string; readonly questionId?: string }[];
   readonly questions: readonly QuestionnairePrompt[];
 }
 

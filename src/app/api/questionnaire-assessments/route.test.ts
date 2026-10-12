@@ -62,7 +62,12 @@ describe("MNA-SF questionnaire API consistency", () => {
     vi.clearAllMocks();
     stubs.authorizeStaffRequest.mockResolvedValue(actor);
     stubs.createServerSupabaseClient.mockResolvedValue({ rpc: stubs.rpc });
-    stubs.rpc.mockResolvedValue({ data: { recordState: "draft" }, error: null });
+    stubs.rpc.mockImplementation(async (_name, { p_payload: payload }) => ({ data: {
+      action: payload.action, clientId: payload.client_id, formKey: payload.form_key, assessmentKey: payload.assessment_key ?? idempotencyKey,
+      versionId: "12900000-0000-4000-8000-000000000092", version: (payload.expected_version ?? 0) + 1,
+      recordState: payload.action === "sign" ? "signed" : payload.action === "submit" ? "submitted" : "draft",
+      assessedOn: payload.assessed_on ?? "2026-10-08", contentHash: "a".repeat(64), committedAt: "2026-10-12T01:00:00Z", replayed: false,
+    }, error: null }));
   });
 
   it.each([
@@ -120,5 +125,11 @@ describe("MNA-SF questionnaire API consistency", () => {
   it.each([{ action: "correct" }, { action: "sign", result: 100 }])("does not accept missing reason or caller-supplied result", async (extra) => {
     stubs.readJsonObject.mockResolvedValue({ clientId, formKey: "mna_sf", assessmentKey: idempotencyKey, previousVersionId: clientId, expectedVersion: 1, ...extra });
     expect((await POST(request())).status).toBe(400); expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+  it("does not report a malformed database receipt as a successful save", async () => {
+    stubs.readJsonObject.mockResolvedValue(body({ height_cm: "160", weight_kg: "60" }, "bmi_gte_23"));
+    stubs.rpc.mockResolvedValue({ data: { recordState: "draft" }, error: null });
+    const response = await POST(request()); expect(response.status).toBe(500);
+    expect((await response.json()).errors[0].code).toBe("QUESTIONNAIRE_SAVE_FAILED");
   });
 });

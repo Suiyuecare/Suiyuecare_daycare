@@ -52,6 +52,7 @@ export const GDS15_QUESTIONS = [
 export interface QuestionnaireChoice {
   readonly value: string;
   readonly label: string;
+  readonly score?: number;
 }
 
 export interface QuestionnairePrompt {

@@ -81,4 +81,17 @@ describe("assessment matrix fail-closed snapshot", () => {
     expect(demo).toMatchObject({ demo: true, clients: [], totalClients: 0 });
     expect(mocks.serverClient).not.toHaveBeenCalled();
   });
+
+  it("keeps SF and full MNA as separate cells under the same exact nutrition permission", async () => {
+    const data = { ...response(), forms: ["mna_sf", "full_mna"], clients: [{
+      ...response().clients[0]!, cells: { mna_sf: { state: "none" }, full_mna: {
+        state: "draft", versionId, version: 1, assessedOn: "2026-10-03",
+      } },
+    }] };
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    const nutrition = { ...actor, scopes: ["clients.read", "questionnaire_nutrition.read"] };
+    expect((await loadAssessmentMatrixSnapshot(nutrition, filters)).clients[0].cells)
+      .toMatchObject({ mna_sf: { state: "none" }, full_mna: { state: "draft", versionId } });
+    await expect(loadAssessmentMatrixSnapshot(actor, filters)).rejects.toBeInstanceOf(AssessmentMatrixSnapshotError);
+  });
 });

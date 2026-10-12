@@ -113,8 +113,10 @@ test("p95 is nearest-rank and empty samples cannot pass", () => {
 });
 test("snapshots deny leak, fake demo, duplicate, missing history and unmarked private text", () => {
   const m = fixture(); const record = { id: uid(11), record_key: uid(12), version: 1, client_id: m.clients[0].clientId,
-    fields: { care_item: `LOADTEST_FIXTURE:${m.fixtureId}`, note: "LOADTEST_ONLY", abnormal: false } };
-  const valid = { demo: false, persisted: true, records: [record], history: [{ id: record.id, record_key: record.record_key, version: 1 }] };
+    status: "draft", correction_reason: null, signed_at: null, signed_by: null, content_hash: null,
+    fields: { shift: "morning", care_item: `LOADTEST_FIXTURE:${m.fixtureId}`, note: "LOADTEST_ONLY", abnormal: false } };
+  const valid = { demo: false, persisted: true, records: [record], history: [{ id: record.id, record_key: record.record_key, version: 1,
+    status: "draft", correction_reason: null, signed_at: null, signed_by: null, content_hash: null }] };
   assertSnapshot(valid, record.client_id, m.fixtureId, uid(13));
   expectCode(() => assertSnapshot({ ...valid, demo: true }, record.client_id, m.fixtureId, uid(13)), "SNAPSHOT_INVALID");
   expectCode(() => assertSnapshot(valid, m.clients[1].clientId, m.fixtureId, uid(13)), "CROSS_SCOPE_LEAK_DETECTED");
@@ -122,6 +124,9 @@ test("snapshots deny leak, fake demo, duplicate, missing history and unmarked pr
   expectCode(() => assertSnapshot({ ...valid, history: [] }, record.client_id, m.fixtureId, uid(13)), "MISSING_HISTORY_DETECTED");
   expectCode(() => assertSnapshot({ ...valid, records: [{ ...record, fields: { ...record.fields, note: "private health content" } }] }, record.client_id, m.fixtureId, uid(13)), "NON_SYNTHETIC_DATA_DETECTED");
   expectCode(() => assertEnvelope({ requestId: uid(11), status: "ok", data: null, errors: [] }), "API_ENVELOPE_INVALID");
+  expectCode(() => assertSnapshot({ ...valid, records: [{ ...record, fields: { ...record.fields, unexpected: "private health content" } }] }, record.client_id, m.fixtureId, uid(13)), "NON_SYNTHETIC_DATA_DETECTED");
+  expectCode(() => assertSnapshot({ ...valid, history: [{ ...valid.history[0], correction_reason: "private health content" }] }, record.client_id, m.fixtureId, uid(13)), "NON_SYNTHETIC_DATA_DETECTED");
+  expectCode(() => assertSnapshot({ ...valid, records: [{ ...record, status: "signed" }] }, record.client_id, m.fixtureId, uid(13)), "NON_SYNTHETIC_DATA_DETECTED");
 });
 
 function mockHttp(m, behavior = {}) {
@@ -149,11 +154,16 @@ function mockHttp(m, behavior = {}) {
         const clientIndex = m.clients.indexOf(c);
         const records = seedIds.slice(0, behavior.missingHistory ? 1 : seedIds.length).map(({ year, offset }) => ({
           id: uid(20, clientIndex * 10000 + offset + 1), record_key: uid(21, clientIndex * 10000 + offset + 1), version: 1,
-          client_id: clientId, occurred_at: `${year}-01-01T08:00:00Z`, fields: { care_item: `LOADTEST_FIXTURE:${m.fixtureId}`, note: "LOADTEST_ONLY", abnormal: false },
+          client_id: clientId, occurred_at: `${year}-01-01T08:00:00Z`, status: "draft", correction_reason: null,
+          signed_at: null, signed_by: null, content_hash: null,
+          fields: { shift: "morning", care_item: `LOADTEST_FIXTURE:${m.fixtureId}`, note: "LOADTEST_ONLY", abnormal: false },
         }));
-        const history = records.map((record) => ({ id: record.id, record_key: record.record_key, version: 1 }));
+        const historyFor = (record) => ({ id: record.id, record_key: record.record_key, version: record.version,
+          status: record.status, correction_reason: record.correction_reason, signed_at: record.signed_at,
+          signed_by: record.signed_by, content_hash: record.content_hash });
+        const history = records.map(historyFor);
         for (const chain of saved.values()) if (chain[0].client_id === clientId) {
-          records.push(chain.at(-1)); history.push(...chain.map((record) => ({ id: record.id, record_key: record.record_key, version: record.version })));
+          records.push(chain.at(-1)); history.push(...chain.map(historyFor));
         }
         return success({ demo: false, persisted: true, records, history });
       }
@@ -166,7 +176,9 @@ function mockHttp(m, behavior = {}) {
           return success({ persisted: true, demo: false, replayed: true, record }, 200);
         }
         const record = { id: randomUUID(), record_key: randomUUID(), version: 1, status: "draft", client_id: body.client_id,
-          created_by: actor.actorId, fields: body.data, occurred_at: body.occurred_at, previous_version_id: null };
+          created_by: actor.actorId, fields: behavior.wrongInitialWrite ? { ...body.data, shift: "full_day" } : body.data,
+          occurred_at: body.occurred_at, previous_version_id: null, correction_reason: null, signed_at: null,
+          signed_by: null, content_hash: null };
         saved.set(record.record_key, [record]); byKey.set(key, { record, input: input.body });
         return success({ persisted: true, demo: false, replayed: false, record }, 201);
       }
@@ -189,6 +201,16 @@ test("declared history is checked by HTTP and mismatch stops all writes", async 
   const result = await runHttpLoad({ manifest: m, options: optionsFor(m), environment: secretEnvironment(m), fetchImpl: mock.fetch, wallNow: () => now, monotonic: mock.monotonic, durationMs: 1 });
   assert.equal(result.accepted, false); assert.equal(result.violations.errorCodes.LIVE_HISTORY_COUNT_MISMATCH, 1);
   assert.equal(mock.calls.writes, 0); assert.equal(mock.calls.auth, 200);
+});
+test("wrong original persisted create fields fail before replay or editing can hide the error", async () => {
+  const m = fixture(); const mock = mockHttp(m, { wrongInitialWrite: true });
+  const result = await runHttpLoad({ manifest: m, options: optionsFor(m), environment: secretEnvironment(m),
+    fetchImpl: mock.fetch, wallNow: () => now, monotonic: mock.monotonic, durationMs: 1 });
+  assert.equal(result.accepted, false);
+  assert.ok(result.violations.errorCodes.MISSING_OR_CHANGED_WRITE_DETECTED >= 1);
+  assert.equal(result.workload.completedFlows, 0); assert.equal(result.workload.exactReplays, 0);
+  assert.equal(result.workload.expectedCasConflicts, 0);
+  assert.ok(mock.calls.writes <= 50, "Only the first create of each concurrent actor may have happened.");
 });
 test("50 HTTP requests mixed with drafts replay conflicts and exact readback; report contains no secrets or IDs", async () => {
   const m = fixture(); const env = secretEnvironment(m); const mock = mockHttp(m);

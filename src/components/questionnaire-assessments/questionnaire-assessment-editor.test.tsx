@@ -25,6 +25,20 @@ const clientB: QuestionnaireClient = {
   serviceStatus: "suspended",
   latest: null,
 };
+function draftReceipt(formKey: QuestionnaireFormKey, assessedOn = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date())) {
+  return { status: "ok", data: { action: "create", clientId: clientA.clientId, formKey, assessmentKey: clientA.clientId,
+    versionId: "00000000-0000-4000-8000-000000000099", version: 1, recordState: "draft", assessedOn,
+    contentHash: "a".repeat(64), committedAt: "2026-10-12T01:00:00Z", replayed: false } };
+}
+function savedClientA(): QuestionnaireClient {
+  const form = QUESTIONNAIRE_FORMS.spmsq;
+  return { ...clientA, latest: { assessmentKey: clientA.clientId, versionId: "00000000-0000-4000-8000-000000000097", version: 1,
+    formVersion: form.version, assessedOn: "2026-10-10", answers: Object.fromEntries(form.questions.map(question => [question.id, { state: "answered", value: question.choices[0].value }])),
+    context: { education_adjustment: "grade_school_or_less" }, authorDisplayName: "合成評估員", createdAt: "2026-10-10T01:00:00Z",
+    contentHash: "a".repeat(64), recordState: "draft", isLatest: true } };
+}
 
 function workspace(formKey: QuestionnaireFormKey, {
   canManage = true,
@@ -79,7 +93,7 @@ describe("shared questionnaire assessment editor", () => {
       ]));
       const context = Object.fromEntries((form.contextFields ?? [])
         .filter((field) => field.required)
-        .map((field) => [field.key, field.choices[0].value]));
+        .map((field) => [field.key, form.key === "full_mna" ? "no" : field.choices[0].value]));
       const candidate = scoreAssessment({ versionId: form.scoreVersionId!, answers, context });
       expect(candidate.status).toBe("complete");
       expect(candidate.score?.adjusted ?? candidate.score?.raw).toEqual(expect.any(Number));
@@ -94,8 +108,8 @@ describe("shared questionnaire assessment editor", () => {
       }
       for (const field of form.contextFields ?? []) {
         if (!field.required) continue;
-        fireEvent.change(screen.getByRole("combobox", { name: `${field.label}（計分必要）` }), {
-          target: { value: field.choices[0].value },
+        fireEvent.change(screen.getByRole("combobox", { name: field.questionId ? field.label : `${field.label}（計分必要）` }), {
+          target: { value: form.key === "full_mna" ? "no" : field.choices[0].value },
         });
       }
 
@@ -307,7 +321,7 @@ describe("shared questionnaire assessment editor", () => {
     expect(body.action).toBe("create");
     expect(body.clientId).toBe(clientA.clientId);
     expect(body.answers[form.questions[0].id]).toEqual({ state: "not_applicable", reason: "本次情況無法適用該項" });
-    await act(async () => finishFetch(Response.json({ data: { recordState: "draft", versionId: "00000000-0000-4000-8000-000000000099" } })));
+    await act(async () => finishFetch(Response.json(draftReceipt("barthel_adl", body.assessedOn))));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/草稿已保存/u)).toBeVisible();
@@ -386,7 +400,7 @@ describe("shared questionnaire assessment editor", () => {
     const priorState = window.history.state;
     const fetchMock = vi.fn().mockRejectedValueOnce(new Error("synthetic network loss"))
       .mockResolvedValueOnce(Response.json({ status: "error", data: null, requestId: "synthetic-rejection", errors: [{ code: "INVALID_REQUEST", message: "暫時拒絕" }] }, { status: 400 }))
-      .mockResolvedValueOnce(Response.json({ data: { recordState: "draft", versionId: "00000000-0000-4000-8000-000000000099" } }));
+      .mockResolvedValueOnce(Response.json(draftReceipt("spmsq")));
     vi.stubGlobal("fetch", fetchMock);
     render(workspace("spmsq", { clients: [clientA, clientB] }));
     const dialog = document.querySelector("dialog") as HTMLDialogElement;
@@ -516,5 +530,94 @@ describe("shared questionnaire assessment editor", () => {
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(false);
+  });
+  it("guards a lifecycle-only follow-up edit with the existing leave dialog and preserves it after cancellation", () => {
+    const form = QUESTIONNAIRE_FORMS.spmsq;
+    const savedClient: QuestionnaireClient = { ...clientA, latest: { assessmentKey: clientA.clientId,
+      versionId: "00000000-0000-4000-8000-000000000097", version: 1, formVersion: form.version,
+      assessedOn: "2026-10-10", answers: Object.fromEntries(form.questions.map(question => [question.id, { state: "answered", value: question.choices[0].value }])),
+      context: { education_adjustment: "grade_school_or_less" }, authorDisplayName: "合成評估員", createdAt: "2026-10-10T01:00:00Z",
+      contentHash: "a".repeat(64), recordState: "draft", isLatest: true } };
+    vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    render(workspace("spmsq", { clients: [savedClient, clientB] }));
+    const dialog = document.querySelector("dialog") as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => { dialog.open = true; });
+    dialog.close = vi.fn(() => { dialog.open = false; fireEvent(dialog, new Event("close")); });
+    fireEvent.change(screen.getByLabelText("複評日期（選填）"), { target: { value: "2026-11-10" } });
+    expect(screen.getByRole("button", { name: "保存為新版本" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "保存為新版本" }).closest("form")!);
+    expect(fetch).not.toHaveBeenCalled();
+    const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    const client = screen.getByRole("combobox", { name: "個案" });
+    fireEvent.change(client, { target: { value: clientB.clientId } });
+    expect(fireEvent.submit(client.closest("form")!)).toBe(false); expect(dialog.open).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "繼續填寫" }));
+    expect(screen.getByLabelText("複評日期（選填）")).toHaveValue("2026-11-10");
+    expect(client).toHaveValue(clientA.clientId); expect(replace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "清除未送出的送審／補正內容" }));
+    fireEvent.change(client, { target: { value: clientB.clientId } });
+    expect(fireEvent.submit(client.closest("form")!)).toBe(true); expect(dialog.open).toBe(false);
+  });
+  it("allows a clean client change after a matching follow-up submission receipt", async () => {
+    const form = QUESTIONNAIRE_FORMS.spmsq;
+    const savedClient: QuestionnaireClient = { ...clientA, latest: { assessmentKey: clientA.clientId,
+      versionId: "00000000-0000-4000-8000-000000000097", version: 1, formVersion: form.version,
+      assessedOn: "2026-10-10", answers: Object.fromEntries(form.questions.map(question => [question.id, { state: "answered", value: question.choices[0].value }])),
+      context: { education_adjustment: "grade_school_or_less" }, authorDisplayName: "合成評估員", createdAt: "2026-10-10T01:00:00Z",
+      contentHash: "a".repeat(64), recordState: "draft", isLatest: true } };
+    vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const fetch = vi.fn().mockResolvedValue(Response.json({ status: "ok", data: { ...draftReceipt("spmsq", "2026-10-10").data,
+      action: "submit", version: 2, recordState: "submitted" } }));
+    vi.stubGlobal("fetch", fetch); render(workspace("spmsq", { clients: [savedClient, clientB] }));
+    fireEvent.change(screen.getByLabelText("複評日期（選填）"), { target: { value: "2026-11-10" } });
+    fireEvent.click(screen.getByRole("button", { name: "送審" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    await waitFor(() => {
+      const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(false);
+    });
+    const client = screen.getByRole("combobox", { name: "個案" });
+    fireEvent.change(client, { target: { value: clientB.clientId } });
+    expect(fireEvent.submit(client.closest("form")!)).toBe(true);
+    expect(JSON.parse(fetch.mock.calls[0][1].body).followUpDueOn).toBe("2026-11-10");
+  });
+  it("freezes answer edits and their save while a lifecycle write is pending or unknown, preserving only the originating retry", async () => {
+    let rejectFetch!: (reason: Error) => void;
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((_resolve, reject) => { rejectFetch = reject; }))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: { ...draftReceipt("spmsq", "2026-10-10").data,
+        action: "submit", version: 2, recordState: "submitted" } }));
+    vi.stubGlobal("fetch", fetch); render(workspace("spmsq", { clients: [savedClientA(), clientB] }));
+    fireEvent.click(screen.getByRole("button", { name: "送審" }));
+    expect(screen.getByLabelText("評估日期")).toBeDisabled();
+    expect(within(document.getElementById("spmsq-spmsq_01")!).getAllByRole("radio")[0]).toBeDisabled();
+    const save = screen.getByRole("button", { name: "保存為新版本" }); expect(save).toBeDisabled();
+    fireEvent.submit(save.closest("form")!); expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => rejectFetch(new Error("合成連線中斷")));
+    const retry = await screen.findByRole("button", { name: "重試同一次操作" }); expect(retry).toBeEnabled();
+    expect(save).toBeDisabled(); expect(screen.getByLabelText("評估日期")).toBeDisabled();
+    const client = screen.getByRole("combobox", { name: "個案" }); fireEvent.change(client, { target: { value: clientB.clientId } });
+    expect(fireEvent.submit(client.closest("form")!)).toBe(false); expect(client).toHaveValue(clientA.clientId);
+    fireEvent.click(retry); await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(fetch.mock.calls[0][1].headers["idempotency-key"]).toBe(fetch.mock.calls[1][1].headers["idempotency-key"]);
+  });
+  it("freezes lifecycle mutations while an answer save is pending or unknown, allowing the exact answer retry", async () => {
+    let rejectFetch!: (reason: Error) => void;
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((_resolve, reject) => { rejectFetch = reject; }))
+      .mockResolvedValueOnce(Response.json({ status: "ok", data: { ...draftReceipt("spmsq", "2026-10-10").data,
+        action: "revise", version: 2 } }));
+    vi.stubGlobal("fetch", fetch); render(workspace("spmsq", { clients: [savedClientA(), clientB] }));
+    fireEvent.click(screen.getByRole("button", { name: "保存為新版本" }));
+    const submit = screen.getByRole("button", { name: "送審" }); expect(submit).toBeDisabled();
+    expect(screen.getByLabelText("複評日期（選填）")).toBeDisabled(); fireEvent.click(submit);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => rejectFetch(new Error("合成連線中斷")));
+    const retry = await screen.findByRole("button", { name: "重試同一次保存" }); expect(retry).toBeEnabled();
+    expect(submit).toBeDisabled(); expect(screen.getByLabelText("複評日期（選填）")).toBeDisabled();
+    fireEvent.click(retry); await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(fetch.mock.calls[0][1].headers["idempotency-key"]).toBe(fetch.mock.calls[1][1].headers["idempotency-key"]);
   });
 });

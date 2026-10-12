@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ClipboardCheck, FileCheck2, LockKeyhole, UsersRound } from "lucide-react";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
 import { useProtectedCompletionDraft } from "@/lib/navigation/use-protected-completion-draft";
-import { admissionPreparationInputSchema, admissionPreparationReceiptSchema,
+import { admissionPreparationInputSchema, readAdmissionPreparationReceipt,
   type AdmissionPreparationInput, type AdmissionPreparationSnapshot } from "@/lib/jubo-admission-preparation/contract";
 import styles from "./intake.module.css";
 import admissionStyles from "./jubo-admission-preparation.module.css";
@@ -36,10 +36,10 @@ export function JuboAdmissionPreparation({ snapshot }: { snapshot: AdmissionPrep
         body: JSON.stringify(current.body),
       });
       const envelope = await response.json() as { status?: string; data?: unknown; errors?: { message?: string }[] };
-      const receipt = admissionPreparationReceiptSchema.safeParse(envelope.data);
-      if (response.ok && envelope.status === "ok" && receipt.success) {
+      const receipt = readAdmissionPreparationReceipt(envelope.data, current.body);
+      if (response.ok && envelope.status === "ok" && receipt) {
         operation.current = null; setUnknown(false); setDirty(false); setConfirmed(true);
-        setMessage("proposalId" in receipt.data ? "已提交，請另一位主任核對。" : "已保存主任核對結果；尚未正式收案。");
+        setMessage("proposalId" in receipt ? "已提交，請另一位主任核對。" : "已保存主任核對結果；尚未正式收案。");
         router.refresh();
       } else {
         const ambiguous = unknown || response.status >= 500 || response.ok || [408, 429].includes(response.status);

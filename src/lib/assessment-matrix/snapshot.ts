@@ -9,7 +9,7 @@ import { ASSESSMENT_MATRIX_FORMS, ASSESSMENT_MATRIX_PAGE_SIZE, canViewAssessment
 import type { AssessmentMatrixFilters } from "./query";
 import type { AssessmentMatrixSnapshot } from "./types";
 
-const formKeys = ["spmsq", "gds_15", "fall_risk_taipei_115", "nsi_determine", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "mna_sf"] as const;
+const formKeys = ["spmsq", "gds_15", "fall_risk_taipei_115", "nsi_determine", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "mna_sf", "full_mna"] as const;
 const cellSchema = z.union([
   z.object({ state: z.literal("none") }).strict(),
   z.object({ state: z.enum(["draft", "submitted", "signed"]), versionId: z.string().uuid(), version: z.number().int().positive(), assessedOn: z.iso.date() }).strict(),
@@ -20,7 +20,7 @@ const snapshotSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.number().int().min(1).max(25),
   totalClients: z.number().int().nonnegative(),
-  forms: z.array(z.enum(formKeys)).min(1).max(9),
+  forms: z.array(z.enum(formKeys)).min(1).max(10),
   clients: z.array(z.object({
     clientId: z.string().uuid(), clientCode: z.string().min(1),
     displayName: z.string().min(1), serviceStatus: z.enum(["pending", "active", "suspended"]),

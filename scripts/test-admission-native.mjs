@@ -83,6 +83,7 @@ try {
     "admission_day_roster_eligibility.test.sql",
     "client_lifecycle_active_scope.test.sql",
     "approved_staff_routine_care_access.test.sql",
+    "google_aal1_scoped_assessment_reads.test.sql",
     "custom_form_version_lifecycle.test.sql",
     "native_staff_nursing_social_drafts.test.sql",
     "family_portal_read_hardening.test.sql",
@@ -90,6 +91,9 @@ try {
     "jubo_admission_preparation.test.sql",
     "jubo_admission_lock_reauthorization.test.sql",
     "quality_monthly_evaluation_evidence.test.sql",
+    "full_mna_questionnaire_candidate.test.sql",
+    "full_mna_publication_signing.test.sql",
+    "assessment_matrix_snapshot.test.sql",
   ];
   let assertionTotal = 0;
   for (const suiteName of suites) {

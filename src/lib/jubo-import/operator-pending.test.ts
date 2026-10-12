@@ -214,7 +214,9 @@ sourceTest("atomically imports exactly 23 pending basic profiles, reconciles 17 
     expect(matrix.totalClients).toBe(23);
     const selectedMatrix = (matrix.clients as { clientId: string; serviceStatus: string; cells: Record<string, { state: string }> }[]).find(row => row.clientId === selected)!;
     expect(selectedMatrix.serviceStatus).toBe("pending");
-    expect(Object.keys(selectedMatrix.cells)).toHaveLength(9);
+    expect(Object.keys(selectedMatrix.cells)).toHaveLength(10);
+    expect(selectedMatrix.cells.mna_sf.state).toBe("draft");
+    expect(selectedMatrix.cells.full_mna.state).toBe("draft");
     expect(Object.values(selectedMatrix.cells).every(cell => cell.state === "draft")).toBe(true);
     await expect(scopedCall(workspace, [...scope, "fbd60000-0000-4000-8000-000000000001"])).rejects.toThrow("OPERATOR_PENDING_DRAFT_DB_CODE 42501");
     await expect(write({ ...create, client_id: "fbd60000-0000-4000-8000-000000000001" }, 11)).rejects.toThrow("OPERATOR_PENDING_DRAFT_DB_CODE 42501");

@@ -1,5 +1,5 @@
 begin;
-select plan(66);
+select plan(67);
 -- Entirely synthetic Auth metadata; real admission/permission/reauth functions.
 select set_config('test.custom_amr',floor(extract(epoch from now()-interval '2 minutes'))::text,true);
 insert into auth.users(id,aud,role,email,email_confirmed_at,created_at,updated_at) values
@@ -209,7 +209,17 @@ select set_config('test.fresh_factor',floor(extract(epoch from clock_timestamp()
 update auth.mfa_amr_claims set created_at=to_timestamp(current_setting('test.fresh_factor')::bigint),updated_at=to_timestamp(current_setting('test.fresh_factor')::bigint)
  where session_id='d8300000-0000-4000-8000-000000000011' and authentication_method='totp';
 select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{amr}',jsonb_build_array(jsonb_build_object('method','oauth','timestamp',current_setting('test.custom_amr')::bigint),jsonb_build_object('method','totp','timestamp',current_setting('test.fresh_factor')::bigint)))::text,true);
+-- JWT NumericDate must advance after the newly issued challenge. The old
+-- fixture kept transaction-start now() as iat while issuing at clock_timestamp;
+-- once the preceding assertions took over two seconds, real guards correctly
+-- refused that stale token and the later fixture restoration read a NULL factor.
+select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{iat}',
+ to_jsonb(floor(extract(epoch from (select created_at from private.reauth_challenges
+  where id='db500000-0000-4000-8000-000000000001')-interval '3 seconds'))::bigint))::text,true);
 set local role authenticated;
+select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),false,'stale JWT issued before challenge is denied, without weakening the two-second guard');
+select set_config('request.jwt.claims',jsonb_set(current_setting('request.jwt.claims')::jsonb,'{iat}',
+ to_jsonb(current_setting('test.fresh_factor')::bigint))::text,true);
 select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),true,'actual staff Google challenge records fresh AAL2 proof');
 select is(public.record_aal2_reauth('db500000-0000-4000-8000-000000000001',repeat('c',64)),false,'consumed MFA challenge cannot be reused');
 select is(public.has_custom_form_governance_access('d8500000-0000-4000-8000-000000000001','d8600000-0000-4000-8000-000000000001',true),true,'actual newly consumed evidence authorizes forms only');

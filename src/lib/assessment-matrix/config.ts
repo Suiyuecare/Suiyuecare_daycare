@@ -25,6 +25,7 @@ export const ASSESSMENT_MATRIX_FORMS: readonly {
   { key: "eat10_swallowing", label: "吞嚥", permission: "questionnaire_swallowing.read", href: "/app/staff/assessments/swallowing" },
   { key: "bsrs5", label: "BSRS-5", permission: "questionnaire_emotion.read", href: "/app/staff/assessments/bsrs" },
   { key: "mna_sf", label: "MNA-SF", permission: "questionnaire_nutrition.read", href: "/app/staff/professional-care/mna" },
+  { key: "full_mna", label: "MNA 完整版", permission: "questionnaire_nutrition.read", href: "/app/staff/professional-care/mna?variant=full" },
 ];
 
 export function canViewAssessmentMatrix(context: { demo: boolean; scopes: readonly string[] }) {
@@ -34,8 +35,11 @@ export function canViewAssessmentMatrix(context: { demo: boolean; scopes: readon
 
 export function assessmentFormHref(formKey: QuestionnaireFormKey, clientId: string, month?: string, versionId?: string): string | null {
   const form = ASSESSMENT_MATRIX_FORMS.find((entry) => entry.key === formKey);
-  const query = new URLSearchParams({ client: clientId });
+  if (!form) return null;
+  const [path, seedQuery] = form.href.split("?", 2);
+  const query = new URLSearchParams(seedQuery);
+  query.set("client", clientId);
   if (month) query.set("month", month);
   if (versionId) query.set("version", versionId);
-  return form ? `${form.href}?${query}` : null;
+  return `${path}?${query}`;
 }

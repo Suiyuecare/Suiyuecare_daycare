@@ -247,6 +247,7 @@ export function scoreAssessment(
     });
   }
 
+  issues.push(...(definition.validateAnswers?.(normalizedAnswers, context) ?? []));
   const status = issues.some((issue) => issue.category === "invalid")
     ? "invalid"
     : issues.length > 0

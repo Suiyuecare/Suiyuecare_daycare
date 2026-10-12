@@ -2,7 +2,7 @@ begin;
 select plan(54);
 select ok(not has_table_privilege('authenticated','private.questionnaire_form_catalog','select,insert,update,delete'), 'catalogue has no direct browser access');
 select ok(not has_table_privilege('service_role','private.questionnaire_rule_publications','select,insert,update,delete'), 'service role cannot manufacture publication approvals');
-select is((select count(*) from private.questionnaire_form_catalog),9::bigint,'all nine full question catalogues available');
+select is((select count(*) from private.questionnaire_form_catalog),10::bigint,'all ten question catalogues available, including independent full MNA');
 select is((select count(*) from private.questionnaire_rule_publications),0::bigint,'migration invents no clinical rule approvals');
 select ok(not has_function_privilege('authenticated','private.mutate_questionnaire_assessment_draft_v1(uuid,uuid,jsonb,uuid)','execute'),'legacy draft mutator cannot bypass signed state');
 select ok(not exists(select 1 from public.roles r join public.role_permissions rp on rp.role_id=r.id join public.permissions p on p.id=rp.permission_id where r.role_key='care_worker' and p.permission_key like 'questionnaire_%.sign'),'care worker cannot sign professional questionnaire results');

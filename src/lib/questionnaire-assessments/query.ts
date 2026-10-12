@@ -18,10 +18,28 @@ export function parseQuestionnaireSelection(query: Record<string, string | strin
 }
 
 export function questionnaireHistoryHref(path: string, clientId: string, selection: Partial<QuestionnaireSelection> = {}) {
-  const query = new URLSearchParams({ client: clientId });
+  const [pathname, seedQuery] = path.split("?", 2);
+  const query = new URLSearchParams(seedQuery);
+  for (const key of ["client", "version", "month", "new", "history_page"]) query.delete(key);
+  query.set("client", clientId);
   if (selection.versionId) query.set("version", selection.versionId);
   if (selection.month) query.set("month", selection.month);
   if (selection.newAssessment) query.set("new", "1");
   if (selection.historyPage && selection.historyPage > 1) query.set("history_page", String(selection.historyPage));
-  return `${path}?${query}`;
+  return `${pathname}?${query}`;
+}
+
+/** The two MNA instruments never share answers or historical version IDs. */
+export function parseMnaVariant(value: string | string[] | undefined): "mna_sf" | "full_mna" | null {
+  if (value === undefined || value === "sf") return "mna_sf";
+  return value === "full" ? "full_mna" : null;
+}
+
+export function mnaVariantHref(variant: "mna_sf" | "full_mna", clientId: string | null, month?: string | null) {
+  const query = new URLSearchParams();
+  if (variant === "full_mna") query.set("variant", "full");
+  if (clientId) query.set("client", clientId);
+  if (month) query.set("month", month);
+  const suffix = query.toString();
+  return `/app/staff/professional-care/mna${suffix ? `?${suffix}` : ""}`;
 }

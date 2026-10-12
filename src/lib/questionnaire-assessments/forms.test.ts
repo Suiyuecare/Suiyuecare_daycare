@@ -13,6 +13,7 @@ describe("questionnaire form registry", () => {
     ["fall_risk_taipei_115", 12],
     ["nsi_determine", 10],
     ["mna_sf", 6],
+    ["full_mna", 18],
   ] as const)("contains the configured question count for %s", (formKey, expectedCount) => {
     expect(QUESTIONNAIRE_FORMS[formKey].questions).toHaveLength(expectedCount);
   });
