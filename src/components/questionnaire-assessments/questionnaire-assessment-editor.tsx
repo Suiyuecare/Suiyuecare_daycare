@@ -559,8 +559,10 @@ function QuestionnaireEditor({
       {approvedScorePreview.status === "complete" && approvedScorePreview.classification
         ? <span>{approvedScorePreview.classification.label}</span> : null}
       <small>草稿試算，不等於診斷、醫囑或自動處置。</small>
-    </section> : scorePreview ? <p className={styles.readOnly} role="status">
-      計分規則尚待核准；此頁只保存填答草稿，不顯示分數或風險分級。
+    </section> : scorePreview && latest?.recordState !== "signed" ? <p className={styles.readOnly} role="status">
+      {latest?.ruleAvailable
+        ? "此版本的計分規則已核定；分數以簽署後保存的結果為準。"
+        : "計分規則尚待核准；此頁只保存填答草稿，不顯示分數或風險分級。"}
     </p> : null}
 
     <div className={styles.actions}>

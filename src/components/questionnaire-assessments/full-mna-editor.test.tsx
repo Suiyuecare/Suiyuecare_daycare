@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FULL_MNA_PROTEIN_FIELDS } from "@/lib/assessments/full-mna";
+import { FULL_MNA_DEFINITION, FULL_MNA_PROTEIN_FIELDS } from "@/lib/assessments/full-mna";
 import { QUESTIONNAIRE_FORMS } from "@/lib/questionnaire-assessments/forms";
 import { QuestionnaireAssessmentsWorkspace } from "./questionnaire-assessment-editor";
 const refresh = vi.hoisted(() => vi.fn());
@@ -33,6 +33,28 @@ describe("full18 shared questionnaire editor", () => {
     const instructions = screen.getByText(QUESTIONNAIRE_FORMS.full_mna.instructions);
     expect(instructions.closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("待答 18 題・待補 K 子題 3 項")).toBeVisible();
+  });
+  it.each(["submitted", "signed"] as const)("does not mislabel a %s record whose server confirms published rules as unapproved", (state) => {
+    const form = QUESTIONNAIRE_FORMS.full_mna;
+    const latest = { assessmentKey: client.clientId, versionId: "12100000-0000-4000-8000-000000000092", version: 3,
+      formVersion: form.version, assessedOn: "2026-10-12", answers: {
+        ...Object.fromEntries(FULL_MNA_DEFINITION.items.map(q => [q.id, { state: "answered" as const,
+          value: [...q.choices].sort((a, b) => b.points - a.points)[0]!.value }])),
+        protein_intake: { state: "answered" as const, value: "two_yes" },
+      }, context: { height_cm: "160", weight_kg: "64", arm_circumference_cm: "22", calf_circumference_cm: "31",
+        protein_dairy: "yes", protein_legumes_eggs: "yes", protein_meat_fish_poultry: "no" },
+      authorDisplayName: "合成評估員", createdAt: "2026-10-12T00:00:00Z", contentHash: "a".repeat(64),
+      recordState: state, isLatest: true, ruleAvailable: true, signerDisplayName: state === "signed" ? "合成簽署員" : null,
+      signedAt: state === "signed" ? "2026-10-12T00:01:00Z" : null,
+      resultSnapshot: state === "signed" ? { status: "complete" as const, raw: 29.5, adjusted: 29.5,
+        classification: { label: "完整 MNA 24–30 分參考區間" }, unit: "points", incompleteCount: 0 } : null };
+    render(<QuestionnaireAssessmentsWorkspace assessorName="合成評估員" canManage form={form}
+      loadError={false} pageTitle="MNA 營養評估" selectedClientId={client.clientId}
+      snapshot={{ formKey: "full_mna", generatedAt: "2026-10-12T00:00:00Z", matchingTotal: 1, clients: [{ ...client, latest }] }} />);
+    expect(screen.queryByText(/計分規則尚待核准/u)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("量表計分預覽")).not.toBeInTheDocument();
+    if (state === "signed") expect(screen.getByText(/29.5 points/u)).toBeVisible();
+    else expect(screen.getByText(/此版本的計分規則已核定/u)).toBeVisible();
   });
   it("derives K only after all3 answers and changes to missing when one is cleared", () => {
     show(); const protein = within(card("protein_intake"));
