@@ -189,4 +189,3 @@ select is((select count(*) from private.questionnaire_rule_publications where fo
 select is((select count(*) from public.questionnaire_assessment_versions where form_key='full_mna' and record_state='signed'),2::bigint,'only explicit guarded signatures create signed test records');
 select * from finish();
 rollback;
-
