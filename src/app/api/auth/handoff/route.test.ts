@@ -99,6 +99,23 @@ beforeEach(() => {
 });
 
 describe("Daycare Portal SSO exchange", () => {
+  it("identifies an invalid backend credential without logging the provider error or retrying Google", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.adminRpc.mockResolvedValue({ data: null, status: 401, error: {
+      message: "private-provider-error-and-key-material", code: "UNAUTHORIZED_INVALID_API_KEY",
+    } });
+    try {
+      const response = await POST(request());
+      await expectDenied(response);
+      expect(warn).toHaveBeenCalledExactlyOnceWith("[daycare-portal-handoff]", {
+        requestId: response.headers.get("x-request-id"), stage: "ticket_claim_backend_unauthorized",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("private-provider-error-and-key-material");
+      expect(mocks.adminRpc).toHaveBeenCalledTimes(1);
+      expect(mocks.generateLink).not.toHaveBeenCalled();
+      expect(mocks.server).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+  });
   it("reports only a finite form rejection reason before any Auth or database request", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {

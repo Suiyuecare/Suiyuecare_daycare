@@ -16,7 +16,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 type HandoffStage = "configuration" | "form_parse" | "assertion_verification" | "admin_client"
   | "ticket_claim" | "identity_admission" | "auth_identity_readback" | "session_link_generation"
   | "session_client" | "session_exchange" | "session_verification" | "session_binding" | "staff_admission";
-type HandoffFailure = HandoffStage | "ticket_claim_receipt" | `form_${PortalFormPostFailure}`
+type HandoffFailure = HandoffStage | "ticket_claim_receipt" | "ticket_claim_backend_unauthorized" | `form_${PortalFormPostFailure}`
   | `configuration_${PortalHandoffConfigurationFailure}`;
 
 /** A consumed ticket cannot be retried. Portal must issue a fresh one on failure. */
@@ -55,13 +55,13 @@ export async function POST(request: Request) {
     // The database atomically consumes the JTI and resolves only an already
     // active, individually approved Daycare user with this pinned Google sub.
     stage = "ticket_claim";
-    const { data: userId, error: claimError } = await admin.rpc("claim_portal_sso_ticket", {
+    const { data: userId, error: claimError, status: claimStatus } = await admin.rpc("claim_portal_sso_ticket", {
       p_jti_sha256: ticketHash,
       p_google_sub: claims.googleSub,
       p_email: claims.email,
       p_expires_at: new Date(claims.exp * 1000).toISOString(),
     });
-    if (claimError) return denied(stage);
+    if (claimError) return denied(claimStatus === 401 ? "ticket_claim_backend_unauthorized" : stage);
     if (userId === null) {
       // A prior owner-approved first-use invitation still requires one real
       // Daycare Google OAuth activation. This classifier never grants access.
