@@ -31,6 +31,14 @@ export type PortalHandoffConfiguration = {
   secret: string;
 };
 
+export type PortalHandoffConfigurationFailure =
+  | "disabled_mode" | "admin_unconfigured" | "signing_key_unconfigured"
+  | "origin_configuration_invalid" | "request_origin_mismatch";
+
+type ConfigurationResult =
+  | { configuration: PortalHandoffConfiguration; failure: null }
+  | { configuration: null; failure: PortalHandoffConfigurationFailure };
+
 function configuredOrigin(value: string | undefined, allowLocal: boolean) {
   if (!value) return null;
   try {
@@ -45,38 +53,56 @@ function configuredOrigin(value: string | undefined, allowLocal: boolean) {
 }
 
 /** Configuration is server-owned; Host and X-Forwarded-Host cannot select a destination. */
-export function portalHandoffConfiguration(request: Request): PortalHandoffConfiguration | null {
-  if (isDemoMode() || isSyntheticPreviewMode() || !hasSupabaseAdminConfiguration()) return null;
+export function resolvePortalHandoffConfiguration(request: Request): ConfigurationResult {
+  if (isDemoMode() || isSyntheticPreviewMode()) return { configuration: null, failure: "disabled_mode" };
+  if (!hasSupabaseAdminConfiguration()) return { configuration: null, failure: "admin_unconfigured" };
   const secret = env.PORTAL_DAYCARE_HANDOFF_SECRET;
-  if (!secret || Buffer.byteLength(secret, "utf8") < 32) return null;
+  if (!secret || Buffer.byteLength(secret, "utf8") < 32) return { configuration: null, failure: "signing_key_unconfigured" };
   const allowLocal = env.NODE_ENV !== "production";
   const appOrigin = configuredOrigin(env.NEXT_PUBLIC_APP_ORIGIN, allowLocal);
   const supabaseOrigin = configuredOrigin(env.NEXT_PUBLIC_SUPABASE_URL, allowLocal);
-  if (!appOrigin || !supabaseOrigin || new URL(request.url).origin !== appOrigin) return null;
-  return {
+  if (!appOrigin || !supabaseOrigin) return { configuration: null, failure: "origin_configuration_invalid" };
+  if (new URL(request.url).origin !== appOrigin) return { configuration: null, failure: "request_origin_mismatch" };
+  return { configuration: {
     appOrigin,
     supabaseOrigin,
     secure: appOrigin.startsWith("https:"),
     storageKey: `sb-${new URL(supabaseOrigin).hostname.split(".")[0]}-auth-token`,
     secret,
-  };
+  }, failure: null };
 }
 
-/** Only the two exact company Portal origins, each with its expected Fetch Metadata, may POST. */
-export function isPortalFormPost(request: Request) {
+export function portalHandoffConfiguration(request: Request): PortalHandoffConfiguration | null {
+  return resolvePortalHandoffConfiguration(request).configuration;
+}
+
+export type PortalFormPostFailure =
+  | "method" | "path" | "origin_missing" | "origin_null" | "origin_not_allowed"
+  | "fetch_site_mismatch" | "content_type" | "length";
+
+/** Classify using fixed labels only; never return raw request headers or a URL. */
+export function portalFormPostFailure(request: Request): PortalFormPostFailure | null {
   const url = new URL(request.url);
   const fetchSite = request.headers.get("sec-fetch-site");
   const origin = request.headers.get("origin");
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   const contentLength = Number(request.headers.get("content-length") ?? "0");
-  const trustedOrigin = (origin === PORTAL_ORIGIN && (!fetchSite || fetchSite === "same-site"))
-    || (origin === PORTAL_OAUTH_BRIDGE_ORIGIN && (!fetchSite || fetchSite === "cross-site"));
-  return request.method === "POST"
-    && url.pathname === "/api/auth/handoff"
-    && !url.search && !url.hash
-    && trustedOrigin
-    && /^application\/x-www-form-urlencoded(?:\s*;|$)/u.test(contentType)
-    && Number.isFinite(contentLength) && contentLength <= MAX_FORM_BYTES;
+  if (request.method !== "POST") return "method";
+  if (url.pathname !== "/api/auth/handoff" || url.search || url.hash) return "path";
+  if (!origin) return "origin_missing";
+  if (origin === "null") return "origin_null";
+  if (origin !== PORTAL_ORIGIN && origin !== PORTAL_OAUTH_BRIDGE_ORIGIN) return "origin_not_allowed";
+  if (fetchSite && fetchSite !== (origin === PORTAL_ORIGIN ? "same-site" : "cross-site")) {
+    return "fetch_site_mismatch";
+  }
+  if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/u.test(contentType)) return "content_type";
+  if (!Number.isFinite(contentLength) || contentLength > MAX_FORM_BYTES) return "length";
+  return null;
+}
+
+/** Only the two exact company Portal origins, each with its expected Fetch Metadata, may POST. */
+export function isPortalFormPost(request: Request) {
+  return portalFormPostFailure(request) === null;
 }
 
 export async function readPortalHandoffForm(request: Request) {
