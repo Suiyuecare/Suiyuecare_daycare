@@ -99,6 +99,32 @@ beforeEach(() => {
 });
 
 describe("Daycare Portal SSO exchange", () => {
+  it("reports only a finite form rejection reason before any Auth or database request", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const response = await POST(request({ origin: "https://private-untrusted-origin.example.test" }));
+      await expectDenied(response);
+      expect(warn).toHaveBeenCalledExactlyOnceWith("[daycare-portal-handoff]", {
+        requestId: response.headers.get("x-request-id"), stage: "form_origin_not_allowed",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("private-untrusted-origin");
+      expect(mocks.admin).not.toHaveBeenCalled();
+      expect(mocks.server).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+  });
+  it("returns an opaque support ID and only logs a fixed failure stage for a rejected assertion", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const response = await POST(request({ signature: "not-a-signature-private-value" }));
+      await expectDenied(response);
+      expect(response.headers.get("x-request-id")).toMatch(/^[a-f0-9-]{36}$/u);
+      expect(warn).toHaveBeenCalledExactlyOnceWith("[daycare-portal-handoff]", {
+        requestId: response.headers.get("x-request-id"), stage: "assertion_verification",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("not-a-signature-private-value");
+      expect(mocks.admin).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+  });
   it("consumes a signed ticket, mints its own AAL1 session, binds that session, and redirects locally", async () => {
     const response = await POST(request());
     expect(response.status).toBe(303);
@@ -254,7 +280,11 @@ describe("Daycare Portal SSO exchange", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.generateLink.mockRejectedValue(new Error("private-token-and-subject"));
     await expectDenied(await POST(request()));
-    expect(log).not.toHaveBeenCalled(); expect(error).not.toHaveBeenCalled(); expect(warn).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled(); expect(error).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[daycare-portal-handoff]", {
+      requestId: expect.stringMatching(/^[a-f0-9-]{36}$/u), stage: "session_link_generation",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/private-token|approved@|123456789012345678901|never-return-this|syntheticHashedToken/u);
     log.mockRestore(); error.mockRestore(); warn.mockRestore();
   });
 });

@@ -21,6 +21,7 @@ vi.mock("@/lib/env", () => ({
 import {
   isPortalFormPost, portalHandoffConfiguration, portalTicketHash,
   readPortalHandoffForm, safePortalReturnTo, verifyPortalHandoff,
+  resolvePortalHandoffConfiguration, portalFormPostFailure,
 } from "./portal-handoff";
 
 const claims = {
@@ -102,6 +103,71 @@ describe("Portal signed handoff contract", () => {
 });
 
 describe("Portal form and configuration boundary", () => {
+  it("classifies rejected form requests without returning raw header or URL values", () => {
+    const missingOrigin = request(""); missingOrigin.headers.delete("origin");
+    const emptyOrigin = request(""); emptyOrigin.headers.set("origin", "");
+    const oversized = request(""); oversized.headers.set("content-length", "4097");
+    const invalidLength = request(""); invalidLength.headers.set("content-length", "private-invalid-length");
+    const missingContentType = request(""); missingContentType.headers.delete("content-type");
+    const cases = [
+      [new Request(request("").url, { method: "GET", headers: request("").headers }), "method"],
+      [request("", { url: "https://daycare.example.test/private-path" }), "path"],
+      [request("", { url: "https://daycare.example.test/api/auth/handoff?private=private-query-value" }), "path"],
+      [request("", { url: "https://daycare.example.test/api/auth/handoff#private-fragment" }), "path"],
+      [missingOrigin, "origin_missing"], [emptyOrigin, "origin_missing"],
+      [request("", { origin: "null" }), "origin_null"],
+      [request("", { origin: "https://private-origin.example.test" }), "origin_not_allowed"],
+      [request("", { fetchSite: "cross-site" }), "fetch_site_mismatch"],
+      [request("", { origin: "https://suiyuecare-website.vercel.app", fetchSite: "same-site" }), "fetch_site_mismatch"],
+      [request("", { contentType: "application/private-content-type" }), "content_type"],
+      [missingContentType, "content_type"], [oversized, "length"], [invalidLength, "length"],
+    ] as const;
+    for (const [input, reason] of cases) {
+      const failure = portalFormPostFailure(input);
+      expect(failure).toBe(reason);
+      expect(isPortalFormPost(input)).toBe(false);
+      expect(JSON.stringify(failure)).not.toMatch(/private-|https?:|4097/u);
+    }
+  });
+
+  it("preserves the original form gate for every origin, metadata, content type and length combination", () => {
+    for (const origin of [null, "", "null", "https://login.suiyuecare.com", "https://suiyuecare-website.vercel.app", "https://untrusted.example.test"]) {
+      for (const fetchSite of [null, "", "same-site", "cross-site", "same-origin", "none"]) {
+        for (const contentType of [null, "application/x-www-form-urlencoded", "Application/X-WWW-Form-Urlencoded; charset=UTF-8", "application/json", "application/x-www-form-urlencoded-extra"]) {
+          for (const contentLength of [null, "", "0", "4096", "4097", "-1", "NaN", "Infinity"]) {
+            const input = request("");
+            for (const [name, value] of [["origin", origin], ["sec-fetch-site", fetchSite], ["content-type", contentType], ["content-length", contentLength]] as const) {
+              if (value === null) input.headers.delete(name); else input.headers.set(name, value);
+            }
+            const normalizedType = input.headers.get("content-type")?.toLowerCase() ?? "";
+            const normalizedLength = Number(input.headers.get("content-length") ?? "0");
+            const allowedOrigin = (origin === "https://login.suiyuecare.com" && (!fetchSite || fetchSite === "same-site"))
+              || (origin === "https://suiyuecare-website.vercel.app" && (!fetchSite || fetchSite === "cross-site"));
+            const previouslyAllowed = allowedOrigin
+              && /^application\/x-www-form-urlencoded(?:\s*;|$)/u.test(normalizedType)
+              && Number.isFinite(normalizedLength) && normalizedLength <= 4096;
+            expect(isPortalFormPost(input)).toBe(previouslyAllowed);
+            expect(portalFormPostFailure(input) === null).toBe(previouslyAllowed);
+          }
+        }
+      }
+    }
+  });
+
+  it("classifies configuration failures without returning any credential in the failure result", () => {
+    mocks.env.PORTAL_DAYCARE_HANDOFF_SECRET = "short";
+    expect(resolvePortalHandoffConfiguration(request(""))).toEqual({ configuration: null, failure: "signing_key_unconfigured" });
+    mocks.configured = false;
+    expect(resolvePortalHandoffConfiguration(request(""))).toEqual({ configuration: null, failure: "admin_unconfigured" });
+    mocks.demo = true;
+    expect(resolvePortalHandoffConfiguration(request(""))).toEqual({ configuration: null, failure: "disabled_mode" });
+    mocks.demo = false; mocks.configured = true;
+    mocks.env.PORTAL_DAYCARE_HANDOFF_SECRET = "synthetic-dedicated-handoff-secret-at-least-32-bytes";
+    mocks.env.NEXT_PUBLIC_APP_ORIGIN = "https://daycare.example.test/unexpected";
+    expect(resolvePortalHandoffConfiguration(request(""))).toEqual({ configuration: null, failure: "origin_configuration_invalid" });
+    mocks.env.NEXT_PUBLIC_APP_ORIGIN = "https://daycare.example.test";
+    expect(resolvePortalHandoffConfiguration(request("", { url: "https://another.example.test/api/auth/handoff" }))).toEqual({ configuration: null, failure: "request_origin_mismatch" });
+  });
   it("admits only the configured Daycare origin and fixed Portal origin", () => {
     const valid = request("payload=x&signature=y", { fetchSite: "same-site" });
     expect(portalHandoffConfiguration(valid)).toEqual(expect.objectContaining({ appOrigin: "https://daycare.example.test" }));
