@@ -79,24 +79,24 @@ async function authorizeBase() {
   return actor;
 }
 
-async function authorizeAction(actor: TenantContext, action: InsulinAction) {
+function authorizeActionScope(actor: TenantContext, action: InsulinAction) {
   const permission = action === "authorize_late" ? "insulin_administrations.authorize_late"
     : action === "execute" ? "insulin_administrations.execute"
       : "insulin_administrations.verify";
   if (!actor.scopes.includes(permission)) throw new IntegrationError(
     "INSULIN_NOT_AUTHORIZED", "目前角色沒有這項胰島素操作權限。", 403,
   );
+}
+
+async function authorizeAction(actor: TenantContext, action: InsulinAction) {
+  authorizeActionScope(actor, action);
   await requireRecentAal2(actor);
 }
 
-async function execute(input: InsulinMutationInput, actor: TenantContext) {
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) throw databaseFailure(
-    "SERVICE_NOT_CONFIGURED", "正式胰島素資料服務尚未設定。", 503,
-  );
+function rpcArguments(input: InsulinMutationInput, actor: TenantContext) {
   const isReview = input.action === "review";
   const isExecute = input.action === "execute";
-  const { data, error } = await supabase.rpc("mutate_insulin_administration", {
+  return {
     p_expected_organization_id: actor.organizationId,
     p_expected_branch_id: actor.branchId,
     p_action: input.action,
@@ -111,16 +111,76 @@ async function execute(input: InsulinMutationInput, actor: TenantContext) {
     p_site_text: isExecute ? input.siteText : null,
     p_late_reason: input.action === "authorize_late" ? input.lateReason : null,
     p_idempotency_key: input.idempotencyKey,
-  }).maybeSingle();
+  };
+}
+
+async function execute(input: InsulinMutationInput, actor: TenantContext) {
+  const supabase = await createServerSupabaseClient();
+  if (!supabase) throw databaseFailure(
+    "SERVICE_NOT_CONFIGURED", "正式胰島素資料服務尚未設定。", 503,
+  );
+  const { data, error } = await supabase.rpc(
+    "mutate_insulin_administration", rpcArguments(input, actor),
+  ).maybeSingle();
   if (error || !data) throw databaseWriteFailure(error?.code);
   return correlateInsulinReceipt(
     parseInsulinDatabaseReceipt(data), input, actor.organizationId, actor.branchId,
   );
 }
 
+async function lookupExactReceipt(input: InsulinMutationInput, actor: TenantContext) {
+  const supabase = await createServerSupabaseClient();
+  if (!supabase) throw databaseFailure(
+    "SERVICE_NOT_CONFIGURED", "正式胰島素資料服務尚未設定。", 503,
+  );
+  const { data, error } = await supabase.rpc(
+    "insulin_administration_receipt", rpcArguments(input, actor),
+  ).maybeSingle();
+  if (error) throw databaseWriteFailure(error.code);
+  // Absence is never proof that the original request did not commit.
+  if (!data) return null;
+  return correlateInsulinReceipt(
+    parseInsulinDatabaseReceipt(data), input, actor.organizationId, actor.branchId,
+  );
+}
+
+function receiptData(receipt: Awaited<ReturnType<typeof execute>>) {
+  return {
+    organizationId: receipt.organization_id,
+    branchId: receipt.branch_id,
+    operationId: receipt.operation_id,
+    operationKind: receipt.operation_kind,
+    administrationKey: receipt.administration_key,
+    eventId: receipt.event_id,
+    eventSequence: receipt.event_sequence,
+    previousEventId: receipt.previous_event_id,
+    state: receipt.state,
+    medicationPlanId: receipt.medication_plan_id,
+    governanceVersionId: receipt.governance_version_id,
+    scheduledFor: receipt.scheduled_for,
+    executedAt: receipt.executed_at,
+    reviewedAt: receipt.reviewed_at,
+    contentHash: receipt.content_hash,
+    qualificationStatus: receipt.qualification_status,
+    doseRuleStatus: receipt.dose_rule_status,
+    lateEntryRuleStatus: receipt.late_entry_rule_status,
+    completionStatus: receipt.completion_status,
+    offlineStatus: receipt.offline_status,
+    committedAt: receipt.committed_at,
+    replayed: receipt.replayed,
+    persisted: true as const,
+    demo: false as const,
+  };
+}
+
 export async function POST(request: Request) {
   return handleIntegrationRoute(async (requestId) => {
     const action = declaredAction(request);
+    const recoveryHeader = request.headers.get("x-insulin-recovery");
+    if (recoveryHeader && recoveryHeader !== "exact") throw new IntegrationError(
+      "INVALID_INSULIN_OPERATION", "不支援的胰島素回執核對模式。", 400,
+      "x-insulin-recovery",
+    );
     const actor = await authorizeBase();
     await authorizeAction(actor, action);
     const input = parseInsulinMutation(
@@ -129,32 +189,12 @@ export async function POST(request: Request) {
     if (input.action !== action) throw new IntegrationError(
       "INVALID_INSULIN_OPERATION", "操作標頭與胰島素內容不一致。", 400, "action",
     );
+    if (recoveryHeader === "exact") {
+      const existing = await lookupExactReceipt(input, actor);
+      if (existing) return ok(receiptData(existing), 200, requestId);
+      // Absence does not weaken the new append's SQL qualification and governance gates.
+    }
     const receipt = await execute(input, actor);
-    return ok({
-      organizationId: receipt.organization_id,
-      branchId: receipt.branch_id,
-      operationId: receipt.operation_id,
-      operationKind: receipt.operation_kind,
-      administrationKey: receipt.administration_key,
-      eventId: receipt.event_id,
-      eventSequence: receipt.event_sequence,
-      previousEventId: receipt.previous_event_id,
-      state: receipt.state,
-      medicationPlanId: receipt.medication_plan_id,
-      governanceVersionId: receipt.governance_version_id,
-      scheduledFor: receipt.scheduled_for,
-      executedAt: receipt.executed_at,
-      reviewedAt: receipt.reviewed_at,
-      contentHash: receipt.content_hash,
-      qualificationStatus: receipt.qualification_status,
-      doseRuleStatus: receipt.dose_rule_status,
-      lateEntryRuleStatus: receipt.late_entry_rule_status,
-      completionStatus: receipt.completion_status,
-      offlineStatus: receipt.offline_status,
-      committedAt: receipt.committed_at,
-      replayed: receipt.replayed,
-      persisted: true as const,
-      demo: false as const,
-    }, receipt.replayed ? 200 : 201, requestId);
+    return ok(receiptData(receipt), receipt.replayed ? 200 : 201, requestId);
   });
 }

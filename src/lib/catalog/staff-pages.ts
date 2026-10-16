@@ -1157,12 +1157,13 @@ export const staffPages = [
   }),
   staffPage(79, "operations", "evaluations", {
     title: "評鑑管理",
-    description: "依縣市、年度與版本管理評鑑指標及證據。",
+    description: "追蹤內部評鑑準備；正式指標待適用性審核。",
     primaryActions: ["建立評鑑", "上傳證據", "指派負責人", "送出快照"],
     filters: ["縣市", "年度", "版本", "負責人", "狀態"],
     metrics: ["指標數", "已完成", "待補證據", "逾期"],
     columns: ["指標", "縣市／年度", "版本", "負責人", "期限", "證據", "複核", "狀態"],
     acceptance: ["指標不寫死中央版本，送出後形成不可變快照且可追溯每項證據。"],
+    requiredPermissions: ["audit.view"],
     riskLevel: "high",
   }),
 

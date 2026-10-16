@@ -42,7 +42,7 @@ const serviceLabels: Record<"all" | CaseCenterServiceStatus, string> = {
   all: "全部服務狀態",
   serving: "服務中",
   paused: "暫停服務",
-  pending: "尚未生效",
+  pending: "待收案／未生效",
   ended: "服務結束",
 };
 
@@ -96,7 +96,7 @@ function canStartClientWork(client: CaseCenterClient, date: string) {
 
 function clientWorkNote(client: CaseCenterClient, date: string) {
   if (client.lifecycleState === "pending_admission" || !client.admittedOn) {
-    return "尚未收案，請先完成收案。";
+    return "收案日與服務資格待核，暫不可執行正式作業。";
   }
   if (client.lifecycleState === "suspended" || client.serviceStatus === "paused") {
     return "目前暫停服務，不開啟當日照顧。";
@@ -131,7 +131,7 @@ function ClientWorkActions({
   const canStart = canOpenAttendance && canStartClientWork(client, date);
   // These links only carry the selected stable ID. Every destination still
   // rechecks the employee's scope and this client's assignment on the server.
-  const options = previewMode ? [] : continuationPages.filter((entry) =>
+  const options = previewMode || client.lifecycleState === "pending_admission" ? [] : continuationPages.filter((entry) =>
     allowedContinuationPages.includes(entry.number) &&
     (!entry.daily || canStartClientWork(client, date)),
   );
@@ -178,7 +178,7 @@ function ClientWorkActions({
           >{entry.label}</NavigationLink>)}
         </div>
       </details> : null}
-      {!canStart && canViewSummary && (
+      {!canStart && canViewSummary && client.lifecycleState !== "pending_admission" && client.admittedOn && (
         <NavigationLink
           aria-label={`查看 ${client.displayName} 的當日紀錄（${formatDate(date)}）`}
           className="button button--secondary"
@@ -329,9 +329,9 @@ export function CaseCenterWorkspace({
           <p className="metric-card__foot">依 {snapshot.serviceDate} 判定</p>
         </article>
         <article className="metric-card">
-          <div className="metric-card__top"><span>待收案</span></div>
+          <div className="metric-card__top"><span>待收案／未生效</span></div>
           <div className="metric-card__value"><strong>{snapshot.summary.pending}</strong><span>人</span></div>
-          <p className="metric-card__foot">已建檔但尚未開始服務</p>
+          <p className="metric-card__foot">尚不可執行當日服務</p>
         </article>
         <article className="metric-card">
           <div className="metric-card__top"><span>暫停／結束</span></div>

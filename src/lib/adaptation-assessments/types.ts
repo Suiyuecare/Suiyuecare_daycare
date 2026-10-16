@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const ADAPTATION_RECORD_STATES = ["draft", "signed", "corrected"] as const;
 export const ADAPTATION_STATUSES = ["settled", "adjusting", "support_requested"] as const;
 export const ADAPTATION_FOLLOW_UP_STATUSES = ["pending", "completed", "cancelled"] as const;
@@ -16,7 +18,7 @@ export type AdaptationCurrentFollowUpStatus =
 export type AdaptationClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };
@@ -59,7 +61,7 @@ export type AdaptationFollowUpHistoryItem = {
 export type AdaptationAssessmentListItem = {
   clientId: string;
   clientDisplayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
   versionId: string | null;

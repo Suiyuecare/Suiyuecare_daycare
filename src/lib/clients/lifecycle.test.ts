@@ -147,6 +147,11 @@ describe("client lifecycle projection and rules", () => {
       admittedOn: "2026-08-01",
       endedOn: "2026-08-31",
     })).toEqual([]);
+    expect(allowedClientTransitionKinds({
+      status: "pending",
+      admittedOn: null,
+      endedOn: null,
+    })).toEqual([]);
   });
 
   it("drops orphaned rows and never projects actor UUIDs or sensitive client fields", () => {
@@ -206,6 +211,18 @@ describe("client lifecycle projection and rules", () => {
       eventKind: "all",
       effectiveOn: null,
     })).toHaveLength(1);
+  });
+
+  it("counts explicit pending clients without offering an unsupported admit transition", () => {
+    const snapshot = projectClientLifecycleSnapshot({
+      clientRows: [{ ...clientRows[0]!, status: "pending", admitted_on: null, row_version: 1 }],
+      transitionRows: [],
+      currentUserId: "11111111-1111-4111-8111-111111111111",
+      currentUserDisplayName: "目前使用者",
+      demo: false,
+    });
+    expect(snapshot.clients[0]).toMatchObject({ status: "pending", serviceState: "pending_admission" });
+    expect(snapshot.metrics.pendingAdmission).toBe(1);
   });
 
   it("reveals an actor display name only when the server projection was authorized", () => {

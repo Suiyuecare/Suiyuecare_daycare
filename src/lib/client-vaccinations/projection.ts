@@ -1,4 +1,5 @@
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { z } from "zod";
 
 import { clientVaccinationTaipeiDate, isClientVaccinationDate } from "./date";
@@ -20,7 +21,7 @@ const count = z.union([z.number().int().nonnegative().safe(),
 const status = z.enum(["active", "voided"]);
 const evidence = z.enum(["provided", "missing", "not_applicable"]);
 const source = z.enum(["manual_entry", "central_html_import", "legacy_migration"]);
-const serviceStatus = z.enum(["active", "suspended", "transferred", "closed", "deceased"]);
+const serviceStatus = z.enum(CLIENT_LIFECYCLE_STATUSES);
 
 const duplicateMatchSchema = z.object({
   vaccination_key: uuid, record_version_id: uuid, vaccinated_on: date,

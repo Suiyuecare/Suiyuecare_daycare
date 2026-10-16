@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import type { TenantContext } from "@/lib/domain/types";
 
 export const INTAKE_COMPLETENESS_PATH = "/app/intake-completeness";
@@ -9,7 +10,7 @@ export type CheckKey = typeof CHECK_KEYS[number];
 export const CHECK_LABELS: Record<CheckKey, string> = { identity: "身分識別資料", birth_date: "出生日期", address: "居住地址", contact: "可聯繫的關係人", emergency_contact: "緊急聯絡人", consent: "告知同意確認", identity_front: "身分證正面", identity_back: "身分證反面", medication_bag: "藥袋", medication_plan: "用藥計畫", medication_history: "歷史給藥紀錄", health_exam: "體檢資料", weekly: "有效的每週到站設定" };
 export const STATE_LABELS: Record<CheckState, string> = { complete: "已登錄／已覆核", missing: "待補資料", pending: "待確認／處理中", not_applicable: "已確認不適用", denied: "此帳號無查閱權限", unknown: "尚無收案版本可核對", expired: "已超過登錄效期", replacement: "需重新提供", declined: "未同意，請聯絡負責人" };
 const checkSchema = z.object({ key: z.enum(CHECK_KEYS), state: z.enum(STATES) }).strict();
-const rowSchema = z.object({ clientId: z.uuid(), clientCode: z.string().min(1).max(64), displayName: z.string().min(1).max(120), clientStatus: z.enum(["active", "suspended", "closed", "deceased", "transferred"]), profileVersion: z.number().int().nonnegative(), checks: z.array(checkSchema).length(CHECK_KEYS.length) }).strict().refine((row) => new Set(row.checks.map((check) => check.key)).size === CHECK_KEYS.length);
+const rowSchema = z.object({ clientId: z.uuid(), clientCode: z.string().min(1).max(64), displayName: z.string().min(1).max(120), clientStatus: z.enum(CLIENT_LIFECYCLE_STATUSES), profileVersion: z.number().int().nonnegative(), checks: z.array(checkSchema).length(CHECK_KEYS.length) }).strict().refine((row) => new Set(row.checks.map((check) => check.key)).size === CHECK_KEYS.length);
 export const snapshotSchema = z.object({ organizationId: z.uuid(), branchId: z.uuid(), asOf: z.iso.date(), generatedAt: z.iso.datetime({ offset: true }), rows: z.array(rowSchema).max(500) }).strict().refine((snapshot) => new Set(snapshot.rows.map((row) => row.clientId)).size === snapshot.rows.length);
 export type IntakeCompletenessSnapshot = z.infer<typeof snapshotSchema>;
 export type CompletenessRow = IntakeCompletenessSnapshot["rows"][number];

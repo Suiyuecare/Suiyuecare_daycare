@@ -160,6 +160,21 @@ describe("Page 23 client vaccination contracts", () => {
       expectedBranchId: BRANCH, filters, demo: false })).toThrow("CLIENT_VACCINATION_SNAPSHOT_INVALID");
   });
 
+  it("accepts a pending client only as a non-recordable read-only option", () => {
+    const row = source();
+    row.client_options[0]!.service_status = "pending";
+    row.client_options[0]!.can_record = false;
+    const snapshot = projectClientVaccinationSnapshot({ row,
+      expectedOrganizationId: ORG, expectedBranchId: BRANCH, filters, demo: false });
+    expect(snapshot.clientOptions[0]).toMatchObject({
+      serviceStatus: "pending", canRecord: false,
+    });
+    row.client_options[0]!.can_record = true;
+    expect(() => projectClientVaccinationSnapshot({ row,
+      expectedOrganizationId: ORG, expectedBranchId: BRANCH, filters, demo: false }))
+      .toThrow("CLIENT_VACCINATION_SNAPSHOT_INVALID");
+  });
+
   it("accepts manual create but rejects browser-supplied proof and short reasons", () => {
     expect(parseClientVaccinationRecordInput(createBody(), IDEMPOTENCY))
       .toMatchObject({ action: "create", evidenceStatus: "missing",

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
@@ -9,11 +10,16 @@ const mock = vi.hoisted(() => {
   return {
     requireContext: vi.fn(), medication: vi.fn(), tocc: vi.fn(),
     behavior: vi.fn(), abcd: vi.fn(), body: vi.fn(), insulin: vi.fn(), inspection: vi.fn(),
+    questionnaire: vi.fn(), routine: vi.fn(),
     SnapshotError,
   };
 });
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/navigation", () => ({
+  notFound: () => { throw new Error("NOT_FOUND"); },
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
+}));
 vi.mock("@/lib/auth/context", () => ({
   requireTenantContext: mock.requireContext,
   hasRecentAal2: vi.fn().mockResolvedValue(false),
@@ -21,6 +27,11 @@ vi.mock("@/lib/auth/context", () => ({
 vi.mock("@/lib/auth/assessment-draft", () => ({
   canUseAssessmentDraft: vi.fn().mockResolvedValue(false),
   hasRecentBodyAssessmentAal2: vi.fn().mockResolvedValue(false),
+}));
+vi.mock("@/lib/auth/routine-care", () => ({ canUseRoutineCare: mock.routine }));
+vi.mock("@/lib/questionnaire-assessments/snapshot", () => ({
+  loadQuestionnaireSnapshot: mock.questionnaire,
+  QuestionnaireSnapshotError: mock.SnapshotError,
 }));
 vi.mock("@/lib/medications/snapshot", () => ({
   loadMedicationAdministrationSnapshot: mock.medication,
@@ -70,6 +81,18 @@ const selectedQueries = [
   { slug: "staff/assessments/behavior-emotion", query: { client: selectedClient, state: "all" } },
   { slug: "staff/assessments/abcd", query: { client: selectedClient, status: "all" } },
 ] as const;
+const questionnaireRoutes = [
+  { slug: "staff/assessments/spmsq", formKey: "spmsq", instrument: "spmsq" },
+  { slug: "staff/assessments/gds", formKey: "gds_15", instrument: "gds" },
+  { slug: "staff/assessments/fall-risk", formKey: "fall_risk_taipei_115", instrument: "fall_risk" },
+  { slug: "staff/assessments/nsi", formKey: "nsi_determine", instrument: "nsi" },
+  { slug: "staff/assessments/barthel-adl", formKey: "barthel_adl", instrument: "barthel_adl" },
+  { slug: "staff/assessments/iadl", formKey: "lawton_iadl", instrument: "iadl" },
+  { slug: "staff/assessments/swallowing", formKey: "eat10_swallowing", instrument: "swallowing" },
+  { slug: "staff/assessments/bsrs", formKey: "bsrs5", instrument: "bsrs" },
+  { slug: "staff/professional-care/mna", formKey: "mna_sf", instrument: "mna" },
+] as const;
+const questionnaireClientId = "c1600000-0000-4000-8000-000000000001";
 
 async function view(slug: string, query: Record<string, string | string[]> = {}) {
   return StaffCatalogPage({
@@ -85,7 +108,53 @@ beforeEach(() => {
     demo: false, userId: "staff", branchId: "wanhua", assuranceLevel: "aal1",
     scopes: ["clients.read", "medications.read", "health.read",
       "body_assessments.read", "behavior_events.read", "abcd_assessments.read",
+      "questionnaire_cognition.read", "questionnaire_emotion.read", "questionnaire_fall.read",
+      "questionnaire_nutrition.read", "questionnaire_adl.read", "questionnaire_swallowing.read",
       "insulin_administrations.read", "client_reports.read"],
+  });
+  mock.routine.mockResolvedValue(true);
+});
+
+describe("shared questionnaire page load classification and paper entry", () => {
+  for (const route of questionnaireRoutes) {
+    it(`${route.slug}: invalid filters never query questionnaire data`, async () => {
+      render(await view(route.slug, { externalInstrument: route.instrument }));
+      expect(screen.getByRole("alert")).toHaveTextContent("篩選條件無效");
+      expect(screen.getByRole("link", { name: "清除篩選" }).getAttribute("href"))
+        .toBe(`/app/${route.slug}`);
+      expect(mock.questionnaire).not.toHaveBeenCalled();
+    });
+
+    it(`${route.slug}: a snapshot failure stays a retryable error, not an empty roster`, async () => {
+      mock.questionnaire.mockRejectedValueOnce(new mock.SnapshotError("PRIVATE_SQL_OR_PHI"));
+      render(await view(route.slug));
+      expect(screen.getByRole("alert")).toHaveTextContent("暫時無法載入");
+      expect(screen.getByRole("link", { name: "重新載入" })).toBeTruthy();
+      expect(document.body.textContent).not.toContain("PRIVATE_SQL_OR_PHI");
+      expect(mock.questionnaire).toHaveBeenCalledWith(expect.anything(), route.formKey, null);
+    });
+
+    it(`${route.slug}: selected client can reach the separate paper-result route`, async () => {
+      mock.questionnaire.mockResolvedValueOnce({
+        formKey: route.formKey,
+        generatedAt: "2026-10-08T00:00:00Z",
+        matchingTotal: 1,
+        clients: [{
+          clientId: questionnaireClientId, displayName: "合成測試個案",
+          serviceStatus: "active", latest: null,
+        }],
+      });
+      render(await view(route.slug, { client: questionnaireClientId }));
+      expect(screen.getByRole("link", { name: "有紙本結果？登錄" }).getAttribute("href"))
+        .toBe(`/app/staff/assessments/external-results?client=${questionnaireClientId}&externalInstrument=${route.instrument}#external-result-entry`);
+      expect(mock.questionnaire).toHaveBeenCalledWith(expect.anything(), route.formKey, questionnaireClientId);
+    });
+  }
+
+  it("denies a questionnaire before any roster lookup when its read scope is absent", async () => {
+    mock.requireContext.mockResolvedValueOnce({ demo: false, scopes: ["clients.read"] });
+    render(await view(questionnaireRoutes[0].slug));
+    expect(mock.questionnaire).not.toHaveBeenCalled();
   });
 });
 

@@ -103,7 +103,7 @@ export function ClientServicePlanWorkspace({ page, snapshot, filters, loadError,
         <div className="metric-card__value"><strong>{item.value}</strong><span>條</span></div>
         <p className="metric-card__foot">完整符合集合</p></article>)}</section>
     <form action={basePath} className={styles.filters} method="get"><label><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client">
-      <option value="">全部授權個案</option>{snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName}</option>)}</select></label>
+      <option value="">全部授權個案</option>{snapshot.clients.map((item) => <option key={item.clientId} value={item.clientId}>{item.displayName}{item.serviceStatus === "pending" ? " · 待收案" : ""}</option>)}</select></label>
       <label><span>狀態</span><select defaultValue={filters.status} name="status"><option value="all">全部</option>
         <option value="draft">草稿</option><option value="approved">已核准</option><option value="signed">已簽署</option><option value="voided">已作廢</option>
         <option value="needs_mapping">舊格式待映射</option><option value="authorization_outdated">核定來源已變更</option><option value="review_due">到期檢討</option></select></label>

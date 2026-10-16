@@ -1,3 +1,5 @@
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
+
 export const CHEWING_RULE_VERSION =
   "chewing-manual-observations-candidate-v1" as const;
 
@@ -19,9 +21,7 @@ export const CHEWING_OBSERVATION_LABELS = {
   chewing_observation_06: "人工觀察：餐食質地或進食協助需求需專業覆核",
 } as const satisfies Record<(typeof CHEWING_ITEM_IDS)[number], string>;
 
-export const CLIENT_SERVICE_STATUSES = [
-  "active", "suspended", "transferred", "closed", "deceased",
-] as const;
+export const CLIENT_SERVICE_STATUSES = CLIENT_LIFECYCLE_STATUSES;
 export const CHEWING_PREVIEW_STATUSES = [
   "candidate_complete", "incomplete",
 ] as const;

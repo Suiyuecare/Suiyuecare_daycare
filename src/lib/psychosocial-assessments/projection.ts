@@ -1,3 +1,4 @@
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { z } from "zod";
 
@@ -49,7 +50,7 @@ const historySchema = z.object({
 const itemSchema = z.object({
   client_id: uuid,
   client_display_name: z.string().trim().min(1).max(160),
-  service_status: z.enum(CLIENT_SERVICE_STATUSES),
+  service_status: z.enum(CLIENT_LIFECYCLE_STATUSES),
   admitted_on: date.nullable(),
   ended_on: date.nullable(),
   version_id: uuid.nullable(),
@@ -78,7 +79,7 @@ const itemSchema = z.object({
 const clientOptionSchema = z.object({
   client_id: uuid,
   display_name: z.string().trim().min(1).max(160),
-  service_status: z.enum(CLIENT_SERVICE_STATUSES),
+  service_status: z.enum(CLIENT_LIFECYCLE_STATUSES),
   admitted_on: date.nullable(),
   ended_on: date.nullable(),
 }).strict();

@@ -78,6 +78,13 @@ describe("manual nursing contracts", () => {
   it("accepts a complete immutable draft-to-sign chain", () => {
     expect(projectNursingAssessmentSnapshot(signedSnapshot(), id, id).clients[0]!.versions).toHaveLength(2);
   });
+  it("parses a pending-admission client in the read-only snapshot", () => {
+    const snapshot = { ...demo, demo: false, clientTotal: 1,
+      clients: [{ ...demo.clients[0]!, serviceStatus: "pending", versions: [],
+        versionsTotal: 0, versionsTruncated: false }] };
+    expect(projectNursingAssessmentSnapshot(snapshot, id, id).clients[0]?.serviceStatus)
+      .toBe("pending");
+  });
   it("rejects missing predecessor in an allegedly complete version list", () => {
     const snapshot = signedSnapshot(); snapshot.clients[0]!.versions.pop(); snapshot.clients[0]!.versionsTotal = 1;
     expect(() => projectNursingAssessmentSnapshot(snapshot, id, id)).toThrow();

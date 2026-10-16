@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const SOCIAL_WORK_RECORD_STATES = ["draft", "signed", "corrected"] as const;
 export const SOCIAL_WORK_FOLLOW_UP_STATUSES = ["pending", "completed", "cancelled"] as const;
 
@@ -7,7 +9,7 @@ export type SocialWorkFollowUpStatus = (typeof SOCIAL_WORK_FOLLOW_UP_STATUSES)[n
 export type SocialWorkClientOption = {
   clientId: string;
   displayName: string;
-  clientStatus: "active" | "suspended" | "transferred" | "closed" | "deceased";
+  clientStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };

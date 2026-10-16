@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const PSYCHOSOCIAL_RECORD_STATES = ["draft", "signed", "corrected"] as const;
 export const PSYCHOSOCIAL_DOMAIN_STATES = ["provided", "missing", "not_applicable"] as const;
 export const PSYCHOSOCIAL_DOMAIN_KEYS = [
@@ -29,7 +31,7 @@ export type PsychosocialDimensions = Record<
 export type PsychosocialClientOption = {
   clientId: string;
   displayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
 };
@@ -62,7 +64,7 @@ export type PsychosocialVersionHistoryItem = {
 export type PsychosocialAssessmentListItem = {
   clientId: string;
   clientDisplayName: string;
-  serviceStatus: ClientServiceStatus;
+  serviceStatus: ClientLifecycleStatus;
   admittedOn: string | null;
   endedOn: string | null;
   versionId: string | null;

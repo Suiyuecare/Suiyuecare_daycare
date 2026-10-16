@@ -154,7 +154,7 @@ export function SocialWorkRecordsWorkspace({
       <form className={`filter-bar ${styles.filters}`} method="get">
         <label className="field field--compact"><span>起日</span><input defaultValue={filters.dateFrom ?? ""} name="from" type="date" /></label>
         <label className="field field--compact"><span>迄日</span><input defaultValue={filters.dateTo ?? ""} name="to" type="date" /></label>
-        <label className="field field--compact"><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部指派個案</option>{snapshot.clientOptions.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}</option>)}</select></label>
+        <label className="field field--compact"><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部指派個案</option>{snapshot.clientOptions.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}{client.clientStatus === "pending" ? " · 待收案" : ""}</option>)}</select></label>
         <label className="field field--compact"><span>服務類型</span><select defaultValue={filters.serviceType ?? ""} name="type"><option value="">全部類型</option>{snapshot.serviceTypeOptions.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
         <label className="field field--compact"><span>作者</span><select defaultValue={filters.authorUserId ?? ""} name="author"><option value="">全部作者</option>{snapshot.authorOptions.map((author) => <option key={author.userId} value={author.userId}>{author.displayName}</option>)}</select></label>
         <button className="button button--secondary" type="submit">套用篩選</button>

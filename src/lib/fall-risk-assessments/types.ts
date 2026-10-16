@@ -1,3 +1,5 @@
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
+
 export const FALL_RISK_RULE_VERSION =
   "fall-risk-manual-factors-candidate-v1" as const;
 
@@ -15,9 +17,7 @@ export const FALL_RISK_FACTOR_LABELS = {
   fall_factor_06: "人工觀察：安全指令理解與遵循情形",
 } as const satisfies Record<(typeof FALL_RISK_ITEM_IDS)[number], string>;
 
-export const CLIENT_SERVICE_STATUSES = [
-  "active", "suspended", "transferred", "closed", "deceased",
-] as const;
+export const CLIENT_SERVICE_STATUSES = CLIENT_LIFECYCLE_STATUSES;
 export const FALL_RISK_PREVIEW_STATUSES = [
   "candidate_complete", "incomplete",
 ] as const;

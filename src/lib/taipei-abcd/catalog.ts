@@ -3,6 +3,7 @@
 export const TAIPEI_ABCD_TEMPLATE = Object.freeze({
   key: "taipei.daycare.abcd.115.114-11.draft-v1", usageYear: 115,
   sourceRevision: "114.11", sourceSha256: "64bb716b19362580295fe8ee2e452d32e82d6f3c67773d5956f66c7e17d3c481",
+  sourcePageCount: 15,
   publicationStatus: "pending_approval", serviceType: "daycare_only",
 } as const);
 export type TaipeiForm = "A" | "B" | "C";

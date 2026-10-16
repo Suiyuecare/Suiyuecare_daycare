@@ -136,6 +136,18 @@ describe("Page 42 query contract", () => {
 });
 
 describe("Page 42 strict projection", () => {
+  it("accepts pending-admission status in read-only source rows", () => {
+    const row = validRow();
+    row.payload.items[0]!.service_status = "pending";
+    row.payload.client_options[0]!.service_status = "pending";
+    const snapshot = projectProfessionalServiceSummary({
+      row, expectedOrganizationId: organizationId,
+      expectedBranchId: branchId, demo: false,
+    });
+    expect(snapshot.items[0]?.serviceStatus).toBe("pending");
+    expect(snapshot.clientOptions[0]?.serviceStatus).toBe("pending");
+  });
+
   it("projects the scoped source and preserves count evidence", () => {
     const snapshot = projectProfessionalServiceSummary({
       row: validRow(), expectedOrganizationId: organizationId,

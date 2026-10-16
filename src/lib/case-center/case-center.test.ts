@@ -193,6 +193,24 @@ describe("case-center projection", () => {
     });
   });
 
+  it("treats explicit pending roster rows as waiting, never serving, and keeps filters consistent", () => {
+    const imported = client(9, { status: "pending", admitted_on: null, ended_on: null });
+    const projection = project({
+      clients: [imported],
+      filters: filters({ lifecycle: "pending_admission", service: "pending" }),
+    });
+    expect(projection).toMatchObject({
+      total: 1,
+      summary: { serving: 0, paused: 0, pending: 1, ended: 0 },
+    });
+    expect(projection.clients[0]).toMatchObject({
+      lifecycleStatus: "pending",
+      lifecycleState: "pending_admission",
+      serviceStatus: "pending",
+    });
+    expect(project({ clients: [imported], filters: filters({ service: "serving" }) }).total).toBe(0);
+  });
+
   it("paginates 24 per page, reports exact totals, and clamps overflow", () => {
     const clients = Array.from({ length: 53 }, (_, index) => client(index + 1));
     const second = project({ filters: filters({ page: 2 }), clients });

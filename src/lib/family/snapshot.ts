@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { isDemoMode } from "@/lib/env";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -40,7 +41,7 @@ const clientSummaryRowSchema = z.object({
   client_id: uuid,
   branch_id: uuid,
   display_name: clean(160),
-  client_status: z.enum(["active", "suspended", "transferred", "closed", "deceased"]),
+  client_status: z.enum(CLIENT_LIFECYCLE_STATUSES),
   admitted_on: date.nullable(),
   updated_at: timestamp,
 }).strict();

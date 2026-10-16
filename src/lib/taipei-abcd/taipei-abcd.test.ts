@@ -19,6 +19,23 @@ describe("Taipei official-source draft input", () => {
     const keys = Object.values(TAIPEI_SECTIONS).flatMap(s => s.flatMap(x => x.fields.map(f => f.key)));
     expect(new Set(keys).size).toBe(keys.length); expect(keys.length).toBeGreaterThan(400);
   });
+  it("keeps the supplied 15-page source crosswalk limited to daytime A, B and C", () => {
+    expect(TAIPEI_ABCD_TEMPLATE.sourcePageCount).toBe(15);
+    expect(Object.keys(TAIPEI_SECTIONS)).toEqual(["A", "B", "C"]);
+    const pageMap = Object.fromEntries(Object.values(TAIPEI_SECTIONS).flatMap(sections => sections.map(section => [section.code, section.sourcePages])));
+    expect(pageMap).toEqual({
+      ...Object.fromEntries(Array.from({ length: 22 }, (_, i) => [`A${i}`, [1]])), A22: [2], A23: [2], A24: [2],
+      B0: [3], B1: [3], B2: [3], B3: [3], B4: [3, 4], B5: [4], B6: [4], B7: [4], B8: [4], B9: [5], B10: [5],
+      B11: [6, 7], B12: [7, 8], B13: [8], B14: [8], B15: [8], B16: [8], B17: [8, 9], B18: [9], B19: [9],
+      B_PROBLEMS: [10, 11], B_PLAN: [12], C1: [13], C2: [14], C3: [14],
+    });
+    expect(Object.values(TAIPEI_SECTIONS).flat().every(section =>
+      section.sourcePages.length > 0 && section.sourcePages.every(page => page >= 1 && page <= 14))).toBe(true);
+    expect(taipeiFields("A")).toHaveLength(80);
+    expect(taipeiFields("B")).toHaveLength(431);
+    expect(taipeiFields("C")).toHaveLength(3);
+    expect(() => parseTaipeiIdentity(new URLSearchParams({ client: key, form: "D", year: "115", month: "0" }))).toThrow();
+  });
   it("database and application lock identical field kinds/options/bounds", () => {
     const sql = readFileSync("supabase/migrations/20260913175206_taipei_abcd_intake_drafts.sql", "utf8");
     const match = sql.match(/select '(\{"A":.+\})'::jsonb;/u); expect(match).not.toBeNull();

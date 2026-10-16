@@ -43,6 +43,7 @@ function formatTimestamp(value: string) {
 
 function serviceStatus(value: MnaAssessmentListItem["serviceStatus"]) {
   return {
+    pending: "待收案",
     active: "服務中", suspended: "暫停", transferred: "已轉出",
     closed: "已結案", deceased: "已死亡",
   }[value];

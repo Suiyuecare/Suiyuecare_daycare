@@ -15,7 +15,7 @@ const answerSchema = z.discriminatedUnion("state", [
 ]);
 
 const snapshotSchema = z.object({
-  formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf"]),
+  formKey: z.enum(["spmsq", "gds_15", "barthel_adl", "lawton_iadl", "eat10_swallowing", "bsrs5", "fall_risk_taipei_115", "nsi_determine", "mna_sf", "ad8"]),
   generatedAt: z.string().datetime({ offset: true }),
   matchingTotal: z.number().int().nonnegative(),
   clients: z.array(z.object({

@@ -59,6 +59,11 @@ insert into public.clients(id,organization_id,branch_id,client_code,display_name
 select pg_temp.sid(60,n),pg_temp.sid(30),pg_temp.sid(40),'D-'||n,'合成個案'||n,
  case when n=5 then 'suspended'::public.client_status else 'active'::public.client_status end,
  case when n=3 then null when n=4 then date '2026-09-16' else date '2026-01-01' end from generate_series(1,8)n;
+-- A branch-isolation fixture must itself be a valid passenger in that branch;
+-- a cross-branch published passenger is now rejected at the database boundary.
+insert into public.clients(id,organization_id,branch_id,client_code,display_name,status,admitted_on)
+values(pg_temp.sid(60,9),pg_temp.sid(30),pg_temp.sid(40,2),
+  'D-9','合成另一分支個案','active','2026-01-01');
 insert into public.client_assignments(organization_id,branch_id,client_id,assignee_user_id,assignment_kind,starts_at)
 values(pg_temp.sid(30),pg_temp.sid(40),pg_temp.sid(60),pg_temp.sid(10,2),'care',now()-interval '1 year');
 create function pg_temp.day(n integer,weekday integer) returns jsonb language sql as $$
@@ -136,7 +141,7 @@ reset role;
 select pg_temp.trip(2,1,array[1,2]);
 select pg_temp.trip(3,1,array[1]);
 select pg_temp.trip(4,1,array[1],'pickup','publish','2026-09-16');
-select pg_temp.trip(5,1,array[1],'pickup','publish','2026-09-15',2);
+select pg_temp.trip(5,1,array[9],'pickup','publish','2026-09-15',2);
 select pg_temp.trip(6,1,array[6]);
 select pg_temp.trip(7,1,array[2],'dropoff');
 set local role authenticated;

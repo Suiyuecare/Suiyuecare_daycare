@@ -29,8 +29,12 @@ const input = {
 const actor = {
   userId: record.actorId, organizationId: "d8500000-0000-4000-8000-000000000001",
   branchId: "d8600000-0000-4000-8000-000000000001",
-  scopes: ["care_records.read", "care_records.write"], demo: false, assuranceLevel: "aal1",
+  scopes: ["clients.read", "care_records.read", "care_records.write",
+    "questionnaire_adl.read", "questionnaire_adl.manage"], demo: false, assuranceLevel: "aal1",
 };
+const read = (instrumentKey = "barthel_adl", selectedClientId = clientId) => new Request(
+  `https://example.invalid/api/external-assessment-results?clientId=${selectedClientId}&instrumentKey=${instrumentKey}`,
+);
 const post = (body: unknown = { clientId, input }, idempotencyKey = key) => new Request(
   "https://example.invalid/api/external-assessment-results", {
     method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(body),
@@ -75,16 +79,45 @@ describe("external assessment result API", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
-  it.each([{ ...actor, demo: true }, { ...actor, scopes: ["care_records.read"] }])("denies read-only or demo actors", async (context) => {
+  it.each([
+    { ...actor, demo: true },
+    { ...actor, scopes: ["clients.read", "care_records.read", "questionnaire_adl.read"] },
+    { ...actor, scopes: ["clients.read", "care_records.read", "care_records.write"] },
+  ])("denies read-only, instrument-unentitled, or demo actors", async (context) => {
     mocks.authorize.mockResolvedValue(context);
     expect((await POST(post())).status).toBe(403);
     expect(mocks.db).not.toHaveBeenCalled();
   });
 
-  it("requires a strict single-client read query", async () => {
-    expect((await GET(new Request(`https://example.invalid/api/external-assessment-results?clientId=${clientId}&other=x`))).status).toBe(400);
-    expect((await GET(new Request(`https://example.invalid/api/external-assessment-results?clientId=${clientId}&clientId=${key}`))).status).toBe(400);
+  it("requires exactly one client and instrument in read queries", async () => {
+    expect((await GET(new Request(`https://example.invalid/api/external-assessment-results?clientId=${clientId}`))).status).toBe(400);
+    expect((await GET(new Request(`https://example.invalid/api/external-assessment-results?clientId=${clientId}&instrumentKey=barthel_adl&other=x`))).status).toBe(400);
+    expect((await GET(new Request(`https://example.invalid/api/external-assessment-results?clientId=${clientId}&instrumentKey=barthel_adl&instrumentKey=iadl`))).status).toBe(400);
+    expect((await GET(read("unknown"))).status).toBe(400);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("reads only the requested instrument and denies a different instrument before database access", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: {
+      clientId, records: [record], total: 1, hasMore: false, generatedAt: "2026-09-25T00:00:00Z",
+    }, error: null });
+    expect((await GET(read())).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("read_external_assessment_results", {
+      p_org: actor.organizationId, p_branch: actor.branchId, p_client: clientId, p_instrument: "barthel_adl",
+    });
+    mocks.rpc.mockClear();
+    expect((await GET(read("gds"))).status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a malformed database snapshot includes another instrument", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: {
+      clientId, records: [{ ...record, instrumentKey: "gds" }], total: 1,
+      hasMore: false, generatedAt: "2026-09-25T00:00:00Z",
+    }, error: null });
+    const response = await GET(read());
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("外部報告結果");
   });
 
   it("does not claim persistence when the database receipt is malformed", async () => {

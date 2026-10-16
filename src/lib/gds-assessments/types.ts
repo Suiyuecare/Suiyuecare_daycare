@@ -1,3 +1,5 @@
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
+
 export const GDS_RULE_VERSION = "gds-15-strict-complete-v1" as const;
 
 export const GDS_ITEM_IDS = [
@@ -40,9 +42,7 @@ export const GDS_SCORED_NO_ITEM_IDS = [
   "gds_01", "gds_05", "gds_07", "gds_11", "gds_13",
 ] as const;
 
-export const CLIENT_SERVICE_STATUSES = [
-  "active", "suspended", "transferred", "closed", "deceased",
-] as const;
+export const CLIENT_SERVICE_STATUSES = CLIENT_LIFECYCLE_STATUSES;
 export const GDS_PREVIEW_STATUSES = [
   "candidate_complete", "incomplete",
 ] as const;

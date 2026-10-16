@@ -28,6 +28,23 @@ describe("family loader does not promote identity or legacy care metadata to pub
     expect(await loadFamilyPortalSnapshot(org, branch)).toBeNull();
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
   });
+  it("ignores a governed pending admission without hiding an active authorized client", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: [
+      client,
+      { ...client, client_id: "84200000-0000-4000-8000-000000000002",
+        client_status: "pending", admitted_on: null },
+    ], error: null }).mockResolvedValueOnce({ data: [], error: null });
+    expect(await loadFamilyPortalSnapshot(org, branch)).toMatchObject({
+      state: "ready", authorizedClients: [{ clientId: client.client_id }],
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+  });
+  it("keeps a pending-only family relationship outside the portal", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: [{ ...client,
+      client_status: "pending", admitted_on: null }], error: null });
+    expect(await loadFamilyPortalSnapshot(org, branch)).toBeNull();
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
   it("does not choose or query care automatically when multiple clients are available", async () => {
     mocks.rpc.mockResolvedValueOnce({ data: [client, { ...client, client_id: "84200000-0000-4000-8000-000000000002" }], error: null });
     expect(await loadFamilyPortalSnapshot(org, branch)).toMatchObject({ state: "selection_required" });

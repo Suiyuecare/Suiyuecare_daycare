@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { fetchWithTimeout } from "@/lib/api/client-fetch";
-import { TAIPEI_ABCD_TEMPLATE, TAIPEI_SECTIONS, taipeiFields, type TaipeiField, type TaipeiForm } from "@/lib/taipei-abcd/catalog";
+import { TAIPEI_ABCD_TEMPLATE, TAIPEI_SECTIONS, taipeiFields, type TaipeiField, type TaipeiForm, type TaipeiSection } from "@/lib/taipei-abcd/catalog";
 import { parseTaipeiAnswers, validateTaipeiSnapshot } from "@/lib/taipei-abcd/parser";
 import { taipeiDraftTotals, taipeiProgress } from "@/lib/taipei-abcd/progress";
 import type { TaipeiAbcdPrefill, TaipeiAnswer, TaipeiAnswers, TaipeiDraft, TaipeiDraftMutation, TaipeiDraftSnapshot, TaipeiMonthlySources } from "@/lib/taipei-abcd/types";
@@ -40,6 +40,36 @@ function AnswerInput({ field, answer, disabled, onChange, invalid = false, error
   </div>;
 }
 
+function TaipeiFieldSection({ section, initiallyOpen, answers, disabled, invalidField, errorId, onChange }: {
+  section: TaipeiSection; initiallyOpen: boolean; answers: TaipeiAnswers; disabled: boolean; invalidField: string | null;
+  errorId: string; onChange: (key: string, next: TaipeiAnswer) => void;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [isOpen, setIsOpen] = useState(initiallyOpen);
+  // A closed section needs only its summary. Once opened, keep its controls
+  // mounted so collapsing never discards the user's in-progress input or focus.
+  const [hasOpened, setHasOpened] = useState(initiallyOpen);
+  const containsInvalid = invalidField !== null && section.fields.some(field => field.key === invalidField);
+  useEffect(() => {
+    if (!containsInvalid || !detailsRef.current) return;
+    detailsRef.current.open = true;
+    setIsOpen(true);
+    setHasOpened(true);
+  }, [containsInvalid, invalidField]);
+  useEffect(() => {
+    if (!containsInvalid || !hasOpened || !detailsRef.current) return;
+    const field = [...detailsRef.current.querySelectorAll<HTMLElement>("[data-taipei-field]")]
+      .find(node => node.dataset.taipeiField === invalidField);
+    field?.querySelector<HTMLElement>("select")?.focus();
+  }, [containsInvalid, hasOpened, invalidField]);
+  return <details ref={detailsRef} open={isOpen} onToggle={event => { const next = event.currentTarget.open; setIsOpen(next); if (next) setHasOpened(true); }}>
+    <summary>{section.code} · {section.title}</summary><div className={styles.sectionBody}>
+      <p className={styles.muted}>原表第 {section.sourcePages.join("、")} 頁{section.help ? ` · ${section.help}` : ""}</p>
+      {hasOpened && <div className={styles.fields}>{section.fields.map(field => <AnswerInput key={field.key} field={field} answer={answers[field.key] ?? missing} disabled={disabled} invalid={invalidField === field.key} errorId={errorId} onChange={next => onChange(field.key, next)} />)}</div>}
+    </div>
+  </details>;
+}
+
 function MonthlySources({ sources, saved = false }: { sources: TaipeiMonthlySources | null; saved?: boolean }) {
   if (!sources) return <p>尚未載入實際紀錄。到站安排或核定計畫不算已執行。</p>;
   return <div>
@@ -71,7 +101,7 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
     onUnknown?.(writeUnknownRef.current || value);
   }, [onUnknown]);
   const [reviewDirty, setReviewDirty] = useState(false);
-  const [invalidField, setInvalidField] = useState<string | null>(null); const editorRef = useRef<HTMLElement>(null); const errorId = useId();
+  const [invalidField, setInvalidField] = useState<string | null>(null); const errorId = useId();
   const pending = useRef<TaipeiDraftMutation | null>(null); const requestGeneration = useRef(0); const inFlight = useRef(false);
   const effectiveMonth = form === "C" ? month : 0; const identity = `${organizationId}/${branchId}/${clientId}/${form}/${effectiveMonth}`;
   useEffect(() => {
@@ -92,12 +122,6 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
   useEffect(() => { onBusy?.(saving); return () => onBusy?.(false); }, [saving, onBusy]);
   useEffect(() => { onUnknown?.(writeUnknown || reviewUnknown); }, [writeUnknown, reviewUnknown, onUnknown]);
   useEffect(() => () => onUnknown?.(false), [onUnknown]);
-  useEffect(() => {
-    if (!invalidField || !editorRef.current) return;
-    const field = [...editorRef.current.querySelectorAll<HTMLElement>("[data-taipei-field]")].find((node) => node.dataset.taipeiField === invalidField);
-    const section = field?.closest("details"); if (section) section.open = true;
-    field?.querySelector<HTMLElement>("select")?.focus();
-  }, [invalidField]);
   const disabled = readOnly || demo || loading || saving || !snapshot?.canEdit;
   const holdUnknown = writeUnknown || reviewUnknown;
   const editDisabled = disabled || holdUnknown;
@@ -156,7 +180,7 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
     finally { inFlight.current = false; if (generation === requestGeneration.current) setSaving(false); }
   }
   const suggestions = prefill.filter(p => taipeiFields(form).some(f => f.key === p.fieldKey && f.prefillAllowed) && (!answers[p.fieldKey] || answers[p.fieldKey].state === "missing"));
-  return <section ref={editorRef} className={styles.workspace} aria-label="臺北市 A B C 收案表單" key={identity}>
+  return <section className={styles.workspace} aria-label="臺北市 A B C 收案表單" key={identity}>
     <h3>補齊個案資料與照顧評估</h3>
     <div className={styles.notice}><p>115 年度臺北市表單 · 原稿 114.11 修訂。這裡保存逐欄草稿，不代表官方表單已發布、評估已完成或任何人已簽署。</p><p>D 表是小規模多機能臨時住宿紀錄，本機構純日照範圍不適用，不需填寫。</p></div>
     <div className={styles.tabs} role="group" aria-label="選擇表別">{(["A", "B", "C"] as const).map(x => <button type="button" key={x} aria-pressed={form === x} onClick={() => changeForm(x)} disabled={saving || holdUnknown}>{x} 表 · {x === "A" ? "基本資料" : x === "B" ? "需求與照顧計畫" : "當月執行"}</button>)}</div>
@@ -173,10 +197,9 @@ function TaipeiAbcdEditor({ clientId, organizationId, branchId, usageYear = 115,
         {snapshot?.latest && <section aria-label="C 表已保存版本來源"><h4>已保存第 {snapshot.latest.version} 版的來源</h4><MonthlySources sources={snapshot.latest.sourceSnapshot} saved /></section>}
         {snapshot?.latest ? <details><summary>查看目前最新來源（不屬於已保存版本）</summary><MonthlySources sources={snapshot.currentSources} /></details> : <section aria-label="C 表目前最新來源"><h4>目前最新來源（尚未保存）</h4><MonthlySources sources={snapshot?.currentSources ?? null} /></section>}
       </>}
-      {TAIPEI_SECTIONS[form].map((section, index) => <details key={section.code} open={index === 0}><summary>{section.code} · {section.title}</summary><div className={styles.sectionBody}>
-        <p className={styles.muted}>原表第 {section.sourcePages.join("、")} 頁{section.help ? ` · ${section.help}` : ""}</p>
-        <div className={styles.fields}>{section.fields.map(field => <AnswerInput key={field.key} field={field} answer={answers[field.key] ?? missing} disabled={editDisabled} invalid={invalidField === field.key} errorId={errorId} onChange={next => changeAnswer(field.key, next)} />)}</div>
-      </div></details>)}
+      {TAIPEI_SECTIONS[form].map((section, index) => <TaipeiFieldSection key={section.code} section={section}
+        initiallyOpen={index === 0 || section.code === "A1"} answers={answers} disabled={editDisabled}
+        invalidField={invalidField} errorId={errorId} onChange={changeAnswer} />)}
       {form === "B" && <div className={styles.notice}><p>草稿核對小計：營養 {totals.nutrition ?? "未填齊"}／14；SPPB {totals.sppb ?? "未填齊"}／12；跌倒因子 {totals.fallFactors ?? "未填齊"}／12；SPMSQ 錯誤 {totals.spmsqErrors ?? "未填齊"}／10。</p><p>小計不會產生診斷或照顧決策；未核對／不適用不當作 0 分。</p></div>}
       <div className={styles.toolbar}><button className={styles.primary} type="button" disabled={disabled || reviewUnknown} onClick={save}>{saving ? "儲存中……" : writeUnknown ? "重試同一次儲存" : `儲存 ${form} 表草稿`}</button><span>{dirty ? "尚有未存內容" : "僅保存草稿，不代替簽署"}</span></div>
       {snapshot && !demo && <TaipeiAbcdReview key={`${identity}/${snapshot.latest?.id ?? "new"}`} snapshot={snapshot} unsavedAnswers={dirty} disabled={readOnly || loading || saving || writeUnknown} onBusy={setSaving} onDirty={setReviewDirty} onUnknown={reviewUnknownChanged} onChanged={refreshReview} />}

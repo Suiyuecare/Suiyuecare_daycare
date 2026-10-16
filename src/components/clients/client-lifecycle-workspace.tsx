@@ -155,11 +155,17 @@ export function ClientLifecycleWorkspace({
 
       {selectedClientId ? <section className="panel"><div className="panel__body">
         {selectedClient ? <><h2>目前處理：{selectedClient.displayName}（{selectedClient.clientCode}）</h2><p>服務狀態：{statusLabels[selectedClient.serviceState]}{selectedClient.admittedOn ? ` · 收案日 ${formatDate(selectedClient.admittedOn)}` : " · 尚無正式收案日"}</p>
-          <p>確認評估、應備文件與開始服務日後，才建立收案異動。儲存不會自動建立出勤、給藥、派車或申報。</p>
+          <p>{selectedClient.status === "pending"
+            ? "收案日與服務資格待核；目前僅能核對資料，正式收案流程尚未開放。不可建立出勤、給藥、派車或申報。"
+            : "確認評估、應備文件與開始服務日後，才建立收案異動。儲存不會自動建立出勤、給藥、派車或申報。"}</p>
           {canOpenIntake ? <Link className="button button--secondary" href={`/app/client-intake?client=${selectedClient.id}&step=weekly`}>回此個案的每週安排與文件</Link> : null}</> : <p role="alert">找不到所選個案或目前無權限。已停止帶入，不會改選其他個案；請回個案中心重新選擇。</p>}
       </div></section> : null}
 
-      <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>{snapshot.demo ? "目前為合成展示資料，異動功能保持唯讀。" : "正式收案可由已核准 Google 帳號依個案管理權限完成；暫停、恢復、轉出、結案與死亡仍需最近 15 分鐘雙因素驗證。每次異動都重新驗證分支、個案、合法狀態與版本，既有歷程不得修改或刪除。"}</span></div>
+      <div className="callout core-care-callout"><ShieldCheck aria-hidden="true" /><span>{snapshot.demo
+        ? "目前為合成展示資料，異動功能保持唯讀。"
+        : selectedClient?.status === "pending"
+          ? "此個案尚待收案與資格核對，不能在這裡直接轉成在案或執行服務；待正式收案流程通過驗收後才開放。"
+          : "正式收案可由已核准 Google 帳號依個案管理權限完成；暫停、恢復、轉出、結案與死亡仍需最近 15 分鐘雙因素驗證。每次異動都重新驗證分支、個案、合法狀態與版本，既有歷程不得修改或刪除。"}</span></div>
 
       {selectedClientId ? <p>分支整體摘要（以下五項不隨單一個案篩選）：</p> : null}
       <section aria-label="分支個案異動摘要（不隨個案篩選）" className="metric-grid">

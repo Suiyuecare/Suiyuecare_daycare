@@ -99,6 +99,8 @@ const tests = [
   "intake_completeness_report.test.sql",
   "custom_form_draft_authoring.test.sql",
   "store_overview_attendance_summary.test.sql",
+  "jubo_pending_intake_gate.test.sql",
+  "jubo_pending_director_drafts_candidate.test.sql",
 ];
 const intakeTables = [
   "client_weekly_versions", "client_weekly_exceptions", "client_weekly_operations",
@@ -346,6 +348,85 @@ try {
   );`).trim());
   if (Object.values(activationCounts).some((count) => count !== 1)) throw new Error("Concurrent Google activation created duplicate authorization or audit records.");
   console.log("Native activation concurrency: two OAuth sessions -> two safe true results, one grant/profile/membership/role and one activation audit.");
+
+  // Reuse only the synthetic director fixture, before its rollback-only pgTAP
+  // assertions. These real sessions never receive a production user or URL.
+  const directorSource = await readFile(join(root, "supabase/tests/jubo_pending_director_drafts_candidate.test.sql"), "utf8");
+  const directorFixtureStart = directorSource.indexOf("select set_config('test.director_amr'");
+  const directorFixtureEnd = directorSource.indexOf("create function pg_temp.login");
+  if (directorFixtureStart < 0 || directorFixtureEnd <= directorFixtureStart) {
+    throw new Error("Synthetic JUBO director fixture markers missing.");
+  }
+  sql(`begin;${directorSource.slice(directorFixtureStart, directorFixtureEnd)}commit;`);
+  const directorAmr = Number(sql(`select extract(epoch from created_at)::bigint
+    from auth.mfa_amr_claims where session_id='bb120000-0000-4000-8000-000000000001'
+    and authentication_method='oauth';`).trim());
+  if (!Number.isInteger(directorAmr)) throw new Error("Synthetic JUBO director AMR fixture missing.");
+  const directorClaims = JSON.stringify({
+    sub: "bb100000-0000-4000-8000-000000000001",
+    session_id: "bb120000-0000-4000-8000-000000000001",
+    role: "authenticated",
+    aud: "authenticated",
+    aal: "aal1",
+    is_anonymous: false,
+    email: "synthetic-director@example.invalid",
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 1800,
+    amr: [{ method: "oauth", timestamp: directorAmr }],
+  });
+  const quoteSql = (value) => `'${String(value).replaceAll("'", "''")}'`;
+  const draftClient = "bb240000-0000-4000-8000-000000000001";
+  const draftActor = "bb100000-0000-4000-8000-000000000001";
+  const draftKeyLock = (key) => `hashtextextended(${quoteSql(`jubo-director-draft:${draftActor}:${key}`)},0)`;
+  const draftSave = (key, expectedRevision, applicationName) => `begin;
+    set local application_name=${quoteSql(applicationName)};
+    select set_config('request.jwt.claims',${quoteSql(directorClaims)},true);
+    set local role authenticated;
+    select 'NATIVE_JUBO_DRAFT='||public.save_jubo_pending_director_draft(
+      'bb140000-0000-4000-8000-000000000001',
+      'bb150000-0000-4000-8000-000000000001',
+      '${draftClient}','local_supplement','intake_local',${expectedRevision},
+      '{"contactPreference":"phone","visitPlanningNote":"Synthetic native concurrency"}'::jsonb,
+      ${quoteSql(key)}::uuid)::text;
+    commit;`;
+  const draftReceipt = (result) => JSON.parse(result.stdout.split("\n")
+    .find((line) => line.startsWith("NATIVE_JUBO_DRAFT="))
+    ?.slice("NATIVE_JUBO_DRAFT=".length) ?? "null");
+  const draftCount = () => Number(sql(`select count(*) from private.jubo_pending_director_draft_revisions
+    where client_id='${draftClient}' and draft_kind='local_supplement' and form_key='intake_local';`).trim());
+  const duplicateDraftKey = "bc260000-0000-4000-8000-000000000001";
+  const duplicateDraftHolder = await holdAdvisoryLock(draftKeyLock(duplicateDraftKey));
+  const duplicateDraftNames = ["native_document_jubo_duplicate_a", "native_document_jubo_duplicate_b"];
+  const duplicateDrafts = duplicateDraftNames.map((name) => concurrentSql(draftSave(duplicateDraftKey, 0, name)));
+  try { await waitForAdvisoryWaiters(duplicateDraftHolder.pid, duplicateDraftNames); }
+  finally { await duplicateDraftHolder.release(); }
+  const duplicateDraftResults = await Promise.all(duplicateDrafts);
+  const duplicateDraftReceipts = duplicateDraftResults.map(draftReceipt);
+  if (duplicateDraftResults.some((result) => result.status !== 0)
+    || duplicateDraftReceipts.some((receipt) => !receipt || receipt.revision !== 1 || receipt.formalRecord !== false)
+    || duplicateDraftReceipts.filter((receipt) => receipt.replayed === true).length !== 1
+    || duplicateDraftReceipts[0].draftId !== duplicateDraftReceipts[1].draftId
+    || draftCount() !== 1) {
+    throw new Error("Concurrent JUBO director same-key writes did not share one immutable draft receipt.");
+  }
+  const delayedDraftKey = "bc260000-0000-4000-8000-000000000002";
+  const winningDraftKey = "bc260000-0000-4000-8000-000000000003";
+  const delayedHolder = await holdAdvisoryLock(draftKeyLock(delayedDraftKey));
+  const delayedName = "native_document_jubo_stale_waiter";
+  const delayedDraft = concurrentSql(draftSave(delayedDraftKey, 1, delayedName));
+  let winningDraft;
+  try {
+    await waitForAdvisoryWaiters(delayedHolder.pid, [delayedName]);
+    winningDraft = await concurrentSql(draftSave(winningDraftKey, 1, "native_document_jubo_revision_winner"));
+  } finally { await delayedHolder.release(); }
+  const staleDraft = await delayedDraft;
+  if (winningDraft.status !== 0 || draftReceipt(winningDraft)?.revision !== 2
+    || staleDraft.status === 0 || !staleDraft.stderr.includes("40001")
+    || draftReceipt(staleDraft) !== null || draftCount() !== 2
+    || sql(`select status::text from public.clients where id='${draftClient}';`).trim() !== "pending") {
+    throw new Error("Concurrent JUBO director revision race did not keep one winner and reject the stale write.");
+  }
+  console.log("Native JUBO director concurrency: observed same-key dual wait -> one immutable draft/shared receipt; delayed stale revision -> one revision-two commit/one SQLSTATE 40001; client stayed pending.");
   console.log("Native engine verified; hosted Supabase Auth, Storage service, migration ownership, and production data remain separate deployment gates.");
 } finally {
   if (started) run(join(binaries, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);

@@ -78,6 +78,29 @@ describe("social-work record client write boundary", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not offer a pending-admission client for a formal service draft", () => {
+    const pendingClient = { ...formal.clientOptions[0]!, clientId: "29700000-0000-4000-8000-000000000099",
+      displayName: "待收案測試個案", clientStatus: "pending" as const };
+    render(<NewSocialWorkRecordForm canManage snapshot={{ ...formal,
+      clientOptions: [...formal.clientOptions, pendingClient] }} />);
+    fireEvent.click(screen.getByText("新增服務草稿", { selector: "summary" }));
+    const select = screen.getByLabelText("個案") as HTMLSelectElement;
+    expect(select.options.length).toBe(formal.clientOptions.length + 1);
+    expect(screen.queryByRole("option", { name: pendingClient.displayName })).toBeNull();
+  });
+
+  it("disables a formal service draft when only pending clients are visible", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NewSocialWorkRecordForm canManage snapshot={{ ...formal, clientOptions: [
+      { ...formal.clientOptions[0]!, clientStatus: "pending" },
+    ] }} />);
+    expect(screen.getByRole("button", { name: "新增服務草稿（尚無已收案個案）" }))
+      .toHaveProperty("disabled", true);
+    expect(screen.queryByLabelText("個案")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("reuses the same idempotency key after an unknown network result", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
     vi.stubGlobal("fetch", fetchMock);

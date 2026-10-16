@@ -44,6 +44,7 @@ function formatTimestamp(value: string) {
 
 function serviceStatusText(value: NsiNutritionScreeningListItem["serviceStatus"]) {
   return {
+    pending: "待收案",
     active: "服務中",
     suspended: "暫停",
     transferred: "已轉出",

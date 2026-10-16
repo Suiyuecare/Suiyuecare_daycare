@@ -24,4 +24,13 @@ describe("lifecycle handoff page boundaries", () => {
     expect(screen.getAllByRole("link", { name: "清除篩選" }).every((link) => link.getAttribute("href") === `?client=${id}`)).toBe(true);
     expect(screen.getByRole("link", { name: "回此個案的每週安排與文件" }).getAttribute("href")).toBe(`/app/client-intake?client=${id}&step=weekly`);
   });
+  it("keeps a pending roster read-only until admission and eligibility are verified", () => {
+    const demo = buildDemoClientLifecycle();
+    const pending = { ...demo.clients[0]!, status: "pending" as const,
+      serviceState: "pending_admission" as const, admittedOn: null, endedOn: null };
+    render(<ClientLifecycleWorkspace {...props} snapshot={{ ...demo, demo: false, clients: [pending] }} selectedClientId={pending.id} />);
+    expect(screen.getByText(/正式收案流程尚未開放/)).toBeTruthy();
+    expect(screen.getByText(/不能在這裡直接轉成在案或執行服務/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "建立個案異動" })).toHaveProperty("disabled", true);
+  });
 });

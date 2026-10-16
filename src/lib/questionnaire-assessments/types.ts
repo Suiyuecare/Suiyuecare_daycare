@@ -10,7 +10,8 @@ export type QuestionnaireFormKey =
   | "bsrs5"
   | "fall_risk_taipei_115"
   | "nsi_determine"
-  | "mna_sf";
+  | "mna_sf"
+  | "ad8";
 
 export interface QuestionnaireFormDefinition {
   readonly key: QuestionnaireFormKey;
@@ -19,6 +20,7 @@ export interface QuestionnaireFormDefinition {
   readonly instructions: string;
   readonly sourceLabel: string;
   readonly sourceUrl?: string;
+  readonly candidateNotice?: string;
   readonly scoreVersionId?: AssessmentVersionId;
   readonly allowQualitativeNotes?: boolean;
   readonly contextFields?: readonly {

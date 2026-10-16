@@ -1,3 +1,5 @@
+import type { ClientLifecycleStatus } from "@/lib/clients/types";
+
 export const CLIENT_SERVICE_PLAN_ACTIONS = [
   "create_draft", "revise_draft", "approve", "sign", "void",
 ] as const;
@@ -181,7 +183,7 @@ export type ClientServicePlanClientOption = {
   clientId: string;
   displayName: string;
   clientCode: string;
-  serviceStatus: "active" | "suspended" | "transferred" | "closed" | "deceased";
+  serviceStatus: ClientLifecycleStatus;
   canManage: boolean;
 };
 

@@ -48,10 +48,11 @@ const executeBody = {
   doseUnit: "U", siteCode: "LEFT_ARM", siteText: "左上臂",
 };
 
-function request(operation = "execute") {
+function request(operation = "execute", recovery = false) {
   return new Request("https://example.invalid/api/insulin-administrations", {
     method: "POST", headers: { "content-type": "application/json",
-      "idempotency-key": key, "x-insulin-operation": operation }, body: "{}",
+      "idempotency-key": key, "x-insulin-operation": operation,
+      ...(recovery ? { "x-insulin-recovery": "exact" } : {}) }, body: "{}",
   });
 }
 function receipt(overrides: Record<string, unknown> = {}) {
@@ -161,5 +162,49 @@ describe("Page 5 insulin administration API", () => {
     const response = await POST(request());
     expect(response.status).toBe(409);
     expect((await response.json()).errors[0].code).toBe("INSULIN_SAVE_RESULT_UNKNOWN");
+  });
+
+  it("reads an exact committed receipt after fresh reauth on recovery", async () => {
+    stubs.maybeSingle.mockResolvedValue({ data: receipt({ replayed: true }), error: null });
+    const response = await POST(request("execute", true));
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      operationId: "05600000-0000-4000-8000-000000000291", replayed: true, persisted: true,
+    });
+    expect(stubs.rpc).toHaveBeenCalledOnce();
+    expect(stubs.rpc).toHaveBeenCalledWith("insulin_administration_receipt",
+      expect.objectContaining({ p_expected_organization_id: organizationId,
+        p_expected_branch_id: branchId, p_idempotency_key: key, p_action: "execute" }));
+    expect(stubs.requireRecentAal2).toHaveBeenCalledOnce();
+  });
+
+  it("blocks receipt lookup and a new write when recent reauth expires", async () => {
+    stubs.requireRecentAal2.mockRejectedValue(Object.assign(new Error("expired"), {
+      code: "RECENT_AAL2_REQUIRED", httpStatus: 403,
+    }));
+    expect((await POST(request("execute", true))).status).toBe(403);
+    expect(stubs.readJsonObject).not.toHaveBeenCalled();
+    expect(stubs.rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps an absent receipt behind the normal new-write SQL gates", async () => {
+    stubs.maybeSingle.mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: "42501" } });
+    expect((await POST(request("execute", true))).status).toBe(403);
+    expect(stubs.rpc.mock.calls.map((call) => call[0])).toEqual([
+      "insulin_administration_receipt", "mutate_insulin_administration",
+    ]);
+  });
+
+  it("keeps changed-key payload and lost action permission fail closed", async () => {
+    stubs.maybeSingle.mockResolvedValue({ data: null, error: { code: "23505" } });
+    expect((await POST(request("execute", true))).status).toBe(409);
+    expect(stubs.rpc).toHaveBeenCalledOnce();
+    vi.clearAllMocks();
+    stubs.authorizeStaffRequest.mockResolvedValue({ ...actor,
+      scopes: actor.scopes.filter((scope) => scope !== "insulin_administrations.execute") });
+    expect((await POST(request("execute", true))).status).toBe(403);
+    expect(stubs.readJsonObject).not.toHaveBeenCalled();
+    expect(stubs.rpc).not.toHaveBeenCalled();
   });
 });

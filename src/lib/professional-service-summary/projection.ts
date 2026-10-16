@@ -1,4 +1,5 @@
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { z } from "zod";
 
 import {
@@ -29,9 +30,7 @@ const timestamp = z.string().refine(
 const text = (max: number) => z.string().trim().min(1).max(max)
   .refine((value) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value));
 const hash = z.string().regex(/^[a-f0-9]{64}$/u);
-const serviceStatus = z.enum([
-  "active", "suspended", "transferred", "closed", "deceased",
-]);
+const serviceStatus = z.enum(CLIENT_LIFECYCLE_STATUSES);
 const summaryStatus = z.enum([
   "completed", "pending", "overdue", "not_configured",
 ]);

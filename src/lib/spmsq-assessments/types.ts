@@ -1,3 +1,5 @@
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
+
 export const SPMSQ_RULE_VERSION =
   "spmsq-pfeiffer-10-education-adjusted-v1" as const;
 
@@ -71,9 +73,7 @@ export const SPMSQ_QUESTION_SOURCE =
 export const SPMSQ_QUESTION_SOURCE_URL =
   "https://www.mil.mohw.gov.tw/public/dept_down/ufile/55b2bc21d3117046071942f0740047b5.pdf";
 
-export const CLIENT_SERVICE_STATUSES = [
-  "active", "suspended", "transferred", "closed", "deceased",
-] as const;
+export const CLIENT_SERVICE_STATUSES = CLIENT_LIFECYCLE_STATUSES;
 export const SPMSQ_PREVIEW_STATUSES = [
   "candidate_complete", "incomplete",
 ] as const;

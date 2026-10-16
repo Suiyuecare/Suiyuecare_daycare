@@ -1,6 +1,6 @@
 begin;
 
-select plan(34);
+select plan(40);
 
 -- 1
 select ok(
@@ -498,6 +498,57 @@ select ok(exists(
     and metadata->>'connection_policy_status' = 'not_configured'
     and not metadata ? 'client_id' and not metadata ? 'metric_code'
 ), 'snapshot audit stores counts and policy state without client or measurement values');
+
+-- The source feed remains append-only, but an active client card without
+-- admission cannot acquire a device or be matched to a measurement.
+insert into public.clients(id,organization_id,branch_id,client_code,display_name,status)
+values('65050000-0000-4000-8000-000000000003',
+  '65020000-0000-4000-8000-000000000001',
+  '65030000-0000-4000-8000-000000000001','EHD-PENDING','合成待收案','active');
+select ok((select count(*)=3 from pg_trigger where not tgisinternal
+  and tgname in('external_health_device_service_day_guard',
+    'external_health_measurement_match_day_guard',
+    'external_health_measurement_service_day_guard')),
+  'device assignment, correction and source pairing each have a database guard');
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub":"65010000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2","session_id":"65061000-0000-4000-8000-000000000001"}',true);
+select throws_ok($$select * from public.append_external_health_device_state(
+  '65020000-0000-4000-8000-000000000001','65030000-0000-4000-8000-000000000001',
+  current_setting('test.ehd_device')::uuid,'assign_device',2,
+  '65050000-0000-4000-8000-000000000003','待收案不可交付設備',
+  '65070000-0000-4000-8000-000000000099')$$,
+  '23514','external health device client is not service eligible',
+  'pending-admission client cannot receive an active device assignment');
+select throws_ok($$select * from public.correct_external_health_measurement_match(
+  '65020000-0000-4000-8000-000000000001','65030000-0000-4000-8000-000000000001',
+  current_setting('test.ehd_m2')::uuid,0,'matched',
+  '65050000-0000-4000-8000-000000000003','待收案不可配對量測',
+  '65080000-0000-4000-8000-000000000099')$$,
+  '23514','external health measurement client is not service eligible',
+  'pending-admission client cannot receive a manual measurement match');
+select lives_ok($$select * from public.transition_client(
+  '65020000-0000-4000-8000-000000000001','65030000-0000-4000-8000-000000000001',
+  '65050000-0000-4000-8000-000000000001','suspend',
+  (now() at time zone 'Asia/Taipei')::date,'合成設備量測服務日暫停',null,1,
+  '65090000-0000-4000-8000-000000000001')$$,
+  'a real lifecycle transition suspends the assigned client for the service day');
+
+reset role; set local role service_role;
+select set_config('test.ehd_m3',(select measurement_id::text
+  from public.ingest_external_health_measurement(
+    '65020000-0000-4000-8000-000000000001','65030000-0000-4000-8000-000000000001',
+    'test-provider','DEV-001','BP-01','blood_pressure_monitor',
+    'M-003','systolic_bp',125,'mmHg',
+    clock_timestamp()+interval '3 seconds',clock_timestamp()+interval '4 seconds',repeat('e',64)
+  )),true);
+reset role;
+select ok((select source_client_id is null and source_client_display_name is null
+  from public.external_health_measurements where id=current_setting('test.ehd_m3')::uuid),
+  'new source reading is retained but unpaired after service-day suspension');
+select ok((select source_client_id='65050000-0000-4000-8000-000000000001'
+  from public.external_health_measurements where id=current_setting('test.ehd_m2')::uuid),
+  'previously valid historical measurement remains unchanged');
 
 select * from finish();
 rollback;

@@ -1,6 +1,6 @@
 begin;
 
-select plan(37);
+select plan(41);
 
 select ok(to_regclass('private.transport_policy_versions') is not null
   and to_regclass('public.transport_trip_plan_versions') is not null
@@ -379,6 +379,53 @@ select ok((select count(*)=4
 select ok((select count(*)>=3 from public.audit_events
   where table_name in('transport_trip_plan_versions','transport_trip_plan_decisions',
     'transport_trip_plan_snapshot')),'writes and reads leave audit evidence');
+select ok(not private.transport_passengers_service_eligible(
+    '47020000-0000-4000-8000-000000000001',
+    '47030000-0000-4000-8000-000000000001',current_date,'{}'::jsonb)
+  and not private.transport_passengers_service_eligible(
+    '47020000-0000-4000-8000-000000000001',
+    '47030000-0000-4000-8000-000000000001',current_date,null),
+  'non-array or absent passengers fail closed without a JSON length exception');
+
+-- A formal client card may exist before admission. It can be scheduled as a
+-- draft but neither publish nor override may turn it into executable transport.
+insert into public.clients(id,organization_id,branch_id,client_code,display_name,status)
+values('47050000-0000-4000-8000-000000000004',
+  '47020000-0000-4000-8000-000000000001',
+  '47030000-0000-4000-8000-000000000001','SYN-PENDING','合成待收案','active');
+set local role authenticated;
+select set_config('request.jwt.claims',jsonb_build_object('sub','47010000-0000-4000-8000-000000000001',
+  'aal','aal2','session_id','47061000-0000-4000-8000-000000000001')::text,true);
+create temporary table pending_draft as select * from public.mutate_transport_trip_plan(
+  '47020000-0000-4000-8000-000000000001','47030000-0000-4000-8000-000000000001',
+  'save_trip',jsonb_build_object('mode','create','trip_key',null,'previous_version_id',null,
+  'expected_version',0,'expected_content_hash',null,'direction','pickup','service_date',current_date+1,
+  'starts_at',((current_date+1)::text||' 10:00+08')::timestamptz,
+  'ends_at',((current_date+1)::text||' 11:00+08')::timestamptz,'vehicle_code','VAN-B',
+  'driver_membership_id','47040000-0000-4000-8000-000000000003','pickup_label','合成集合點',
+  'dropoff_label','合成日照中心','passengers',jsonb_build_array(jsonb_build_object(
+    'client_id','47050000-0000-4000-8000-000000000004','pickup_label','合成住址',
+    'dropoff_label','合成中心')),'revision_reason','收案前預排交通草稿'),
+  '47080000-0000-4000-8000-000000000100');
+select ok((select status='draft_ready' and conflict_count=0 from pending_draft),
+  'pending-admission client may remain in an explicit transport draft');
+
+reset role; set local role authenticated;
+select set_config('request.jwt.claims',jsonb_build_object('sub','47010000-0000-4000-8000-000000000002',
+  'aal','aal2','session_id','47061000-0000-4000-8000-000000000002')::text,true);
+select throws_ok($$select * from pending_draft draft cross join lateral
+  public.mutate_transport_trip_plan('47020000-0000-4000-8000-000000000001',
+  '47030000-0000-4000-8000-000000000001','decide_trip',jsonb_build_object(
+  'decision','publish','trip_version_id',draft.trip_version_id,'expected_trip_key',draft.trip_key,
+  'expected_version',draft.version,'expected_content_hash',draft.content_hash,
+  'expected_conflict_count',draft.conflict_count,'expected_rule_version_id',draft.rule_version_id,
+  'reason','收案前不可發布此趟次'),'47080000-0000-4000-8000-000000000101')$$,
+  '23514','transport passenger is not service eligible',
+  'pending-admission draft cannot be published, including by an authorized reviewer');
+reset role;
+select ok((select count(*)=0 from public.transport_trip_plan_decisions
+  where trip_version_id=(select trip_version_id from pending_draft)),
+  'failed publication leaves no formal transport decision');
 
 select * from finish();
 rollback;

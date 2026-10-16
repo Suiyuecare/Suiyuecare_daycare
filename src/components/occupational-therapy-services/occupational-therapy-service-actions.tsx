@@ -249,7 +249,7 @@ function ActionForm({
           <span>指派個案</span>
           <select name="clientId" required>
             <option value="">請選擇精確個案</option>
-            {snapshot.clientOptions.map((client) => <option
+            {snapshot.clientOptions.filter((client) => client.serviceStatus !== "pending").map((client) => <option
               key={client.clientId}
               value={client.clientId}
             >{client.displayName}</option>)}
@@ -318,6 +318,11 @@ export function OccupationalTherapyServiceCreateAction(props: {
   if (props.snapshot.demo) {
     return <button className="button button--primary" disabled type="button">
       新增服務草稿（展示唯讀）
+    </button>;
+  }
+  if (props.canManage && !props.snapshot.clientOptions.some((client) => client.serviceStatus !== "pending")) {
+    return <button className="button button--primary" disabled type="button">
+      新增服務草稿（尚無已收案個案）
     </button>;
   }
   return <ActionForm action="create_draft" record={null} {...props} />;

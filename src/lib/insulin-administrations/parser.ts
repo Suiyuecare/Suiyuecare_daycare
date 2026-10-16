@@ -8,6 +8,7 @@ import {
   type InsulinMutationInput,
   type InsulinOperationResult,
 } from "./types";
+import { INSULIN_INJECTION_SITES } from "./site-catalog";
 
 const uuid = z.uuid().transform((value) => value.toLowerCase());
 const timestamp = z.string().refine((value) =>
@@ -141,6 +142,10 @@ export function parseInsulinMutation(
   if (body.action === "execute") {
     const parsed = executeSchema.safeParse(body);
     if (!parsed.success) invalid("劑量、單位、部位、排程或版本鏈未通過驗證。");
+    const site = INSULIN_INJECTION_SITES.find((option) => option.code === parsed.data.siteCode);
+    if (!site || parsed.data.siteText !== site.label) invalid(
+      "施打部位代碼與文字不一致，請重新選擇部位。", "siteCode",
+    );
     const chainIsPresent = parsed.data.administrationKey !== null &&
       parsed.data.previousEventId !== null && parsed.data.expectedSequence === 1;
     const chainIsAbsent = parsed.data.administrationKey === null &&

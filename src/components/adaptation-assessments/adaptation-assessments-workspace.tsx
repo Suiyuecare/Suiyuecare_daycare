@@ -43,6 +43,7 @@ function formatDate(value: string | null) {
 
 function serviceStatusText(value: AdaptationAssessmentListItem["serviceStatus"]) {
   return {
+    pending: "待收案",
     active: "服務中",
     suspended: "暫停服務",
     transferred: "已轉出",
@@ -185,7 +186,7 @@ export function AdaptationAssessmentsWorkspace({
         <p>{snapshot.matchingTotal} 位符合條件・快照 {formatTimestamp(snapshot.generatedAt)}・<AdaptationAssessmentFreshness demo={snapshot.demo} staleAfter={snapshot.staleAfter} /></p>
       </div></div>
       <form className={`filter-bar ${styles.filters}`} method="get">
-        <label className="field field--compact"><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部指派個案</option>{snapshot.clientOptions.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}</option>)}</select></label>
+        <label className="field field--compact"><span>個案</span><select defaultValue={filters.clientId ?? ""} name="client"><option value="">全部指派個案</option>{snapshot.clientOptions.map((client) => <option key={client.clientId} value={client.clientId}>{client.displayName}{client.serviceStatus === "pending" ? " · 待收案" : ""}</option>)}</select></label>
         <label className="field field--compact"><span>目前服務狀態</span><select defaultValue={filters.serviceStatus ?? ""} name="service"><option value="">全部狀態</option><option value="active">服務中</option><option value="suspended">暫停服務</option><option value="transferred">已轉出</option><option value="closed">已結案</option><option value="deceased">死亡結案</option></select></label>
         <label className="field field--compact"><span>評估狀態</span><select defaultValue={filters.assessmentPresence} name="assessment"><option value="all">全部</option><option value="assessed">已有評估</option><option value="not_assessed">尚未評估</option></select></label>
         <label className="field field--compact"><span>複評期限</span><select defaultValue={filters.reassessmentStatus} name="reassessment"><option value="all">全部</option><option value="due">今日以前到期</option><option value="upcoming">尚未到期</option></select></label>

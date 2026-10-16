@@ -201,7 +201,7 @@ function SocialWorkActionForm({
           {action === "create_draft" ? (
             <label><span>個案</span><select defaultValue="" name="clientId" required>
               <option value="">請選擇</option>
-              {snapshot.clientOptions.map((client) => (
+              {snapshot.clientOptions.filter((client) => client.clientStatus !== "pending").map((client) => (
                 <option key={client.clientId} value={client.clientId}>{client.displayName}</option>
               ))}
             </select></label>
@@ -263,6 +263,9 @@ export function NewSocialWorkRecordForm({
 }) {
   if (snapshot.demo) {
     return <button className="button button--primary" disabled type="button">新增服務草稿（展示唯讀）</button>;
+  }
+  if (canManage && !snapshot.clientOptions.some((client) => client.clientStatus !== "pending")) {
+    return <button className="button button--primary" disabled type="button">新增服務草稿（尚無已收案個案）</button>;
   }
   return <SocialWorkActionForm action="create_draft" canManage={canManage}
     canSign={false} hasRecentAal2={false} snapshot={snapshot} />;

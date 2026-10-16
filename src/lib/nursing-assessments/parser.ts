@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IntegrationError } from "@/lib/integrations/errors";
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { NURSING_FORM_VERSION, type NursingRequest, type NursingReceipt } from "./types";
 
 const uuid = z.uuid().transform((value) => value.toLowerCase());
@@ -110,7 +111,7 @@ export function parseNursingReceipt(value: unknown, expected: {
 export const nursingSnapshotSchema = z.object({
   organizationId: uuid, branchId: uuid, generatedAt: timestamp, staleAfter: timestamp,
   clients: z.array(z.object({ clientId: uuid, displayName: text(120),
-    serviceStatus: z.enum(["active", "suspended", "transferred", "closed", "deceased"]),
+    serviceStatus: z.enum(CLIENT_LIFECYCLE_STATUSES),
     versions: z.array(nursingVersionSchema).max(50), versionsTotal: z.number().int().nonnegative(),
     versionsTruncated: z.boolean() }).strict()).max(100),
   clientTotal: z.number().int().nonnegative(), clientsTruncated: z.boolean(),

@@ -1,6 +1,6 @@
 begin;
 
-select plan(62);
+select plan(67);
 
 select ok(to_regclass('public.transport_execution_streams') is not null
   and to_regclass('public.transport_execution_events') is not null
@@ -763,6 +763,69 @@ select ok((select count(*)>=317 from public.audit_events where table_name in(
   'public.transport_execution_streams','public.transport_execution_events',
   'private.transport_execution_operations','transport_execution_snapshot')),
   'writes and reads leave complete audit evidence');
+
+-- A post-publication lifecycle change removes a not-started trip from the
+-- actionable queue, but must not erase trips with real execution evidence.
+set local role authenticated;
+select set_config('request.jwt.claims',jsonb_build_object(
+  'sub','48010000-0000-4000-8000-000000000001','aal','aal2',
+  'session_id','48061000-0000-4000-8000-000000000001')::text,true);
+select lives_ok($$select * from public.transition_client(
+  '48020000-0000-4000-8000-000000000001','48030000-0000-4000-8000-000000000001',
+  '48050000-0000-4000-8000-000000000003','suspend',
+  (select service_date from page48_clock),'合成測試：服務日暫停',null,1,
+  '48099000-0000-4000-8000-000000000001')$$,
+  'lifecycle suspension changes the passenger service-day eligibility');
+reset role;
+select ok((select count(*)=2
+  and count(*) filter(where trip_key='48081000-0000-4000-8000-000000000003')=0
+  and count(*) filter(where trip_key='48081000-0000-4000-8000-000000000002')=1
+  from private.transport_execution_projection(
+    '48020000-0000-4000-8000-000000000001',
+    '48030000-0000-4000-8000-000000000001')),
+  'ineligible unstarted trip leaves the execution queue while begun history remains');
+
+set local role authenticated;
+select set_config('request.jwt.claims',jsonb_build_object(
+  'sub','48010000-0000-4000-8000-000000000003','aal','aal2',
+  'session_id','48061000-0000-4000-8000-000000000003')::text,true);
+select throws_ok($$select * from public.mutate_transport_execution(
+  '48020000-0000-4000-8000-000000000001','48030000-0000-4000-8000-000000000001',
+  jsonb_build_object('event_type','trip_started','plan_version_id','48080000-0000-4000-8000-000000000003',
+  'expected_trip_key','48081000-0000-4000-8000-000000000003',
+  'expected_plan_content_hash',repeat('c',64),'expected_sequence',0,
+  'occurred_at',(select actual_at from page48_clock),'client_id',null,'note',null,
+  'resolves_pairing',false),'48090000-0000-4000-8000-000000000098')$$,
+  '42501','published passenger scope is no longer valid',
+  'normal execution RPC cannot start a trip after service-day suspension');
+
+reset role;
+select throws_ok($$insert into public.transport_execution_streams(
+  organization_id,branch_id,trip_key,plan_version_id,plan_content_hash,
+  plan_decision,service_date,started_by,started_by_display_name,
+  started_session_id,content_hash)
+  select plan.organization_id,plan.branch_id,plan.trip_key,plan.id,plan.content_hash,
+    'publish',plan.service_date,'48010000-0000-4000-8000-000000000003',
+    '合成駕駛甲','48061000-0000-4000-8000-000000000003',repeat('f',64)
+  from public.transport_trip_plan_versions plan
+  where plan.id='48080000-0000-4000-8000-000000000003'$$,
+  '23514','transport passenger is not service eligible',
+  'low-level stream insert cannot bypass admission/lifecycle guard');
+
+select throws_ok($$insert into public.transport_execution_events(
+  organization_id,branch_id,stream_id,plan_version_id,trip_key,service_date,
+  sequence,event_type,client_id,occurred_at,actor_user_id,actor_display_name,
+  actor_session_id,content_hash)
+  select stream.organization_id,stream.branch_id,stream.id,stream.plan_version_id,
+    stream.trip_key,stream.service_date,303,'passenger_boarded',
+    '48050000-0000-4000-8000-000000000003',
+    (select actual_at from page48_clock),
+    '48010000-0000-4000-8000-000000000004','合成駕駛乙',
+    '48061000-0000-4000-8000-000000000004',repeat('f',64)
+  from public.transport_execution_streams stream
+  where stream.plan_version_id='48080000-0000-4000-8000-000000000002'$$,
+  '23514','transport passenger is not service eligible',
+  'low-level boarding insert cannot bypass service-day guard');
 
 select * from finish();
 rollback;

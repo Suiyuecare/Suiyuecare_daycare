@@ -1,4 +1,5 @@
 import { isStrictOffsetDateTime } from "@/lib/integrations/datetime";
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
 import { z } from "zod";
 
 import {
@@ -56,7 +57,7 @@ const plan = version.extend({ client_display_name: clean(120), client_code: clea
   stream_operational_status: operationalStatus,
   history: z.array(version).max(5), history_total: count }).strict();
 const client = z.object({ client_id: uuid, display_name: clean(120), client_code: clean(160),
-  service_status: z.enum(["active", "suspended", "transferred", "closed", "deceased"]),
+  service_status: z.enum(CLIENT_LIFECYCLE_STATUSES),
   can_manage: z.boolean() }).strict();
 const staff = z.object({ user_id: uuid, display_name: clean(120),
   qualification_status: z.literal("active_membership_only") }).strict();
@@ -245,7 +246,8 @@ export function projectClientServicePlanSnapshot(input: {
       executableTotal: row.executable_total },
     clients: row.clients.map((item) => ({ clientId: item.client_id,
       displayName: item.display_name, clientCode: item.client_code,
-      serviceStatus: item.service_status, canManage: item.can_manage })),
+      serviceStatus: item.service_status,
+      canManage: item.can_manage && item.service_status !== "pending" })),
     clientTotal: row.client_total, clientsTruncated: row.clients_truncated,
     staff: row.staff.map((item) => ({ userId: item.user_id, displayName: item.display_name,
       qualificationStatus: item.qualification_status })), staffTotal: row.staff_total,

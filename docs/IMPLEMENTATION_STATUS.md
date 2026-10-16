@@ -7,7 +7,7 @@
 目前是可執行的 R0／R1 工程基線與首批垂直切片，**不是可直接取代既有系統的正式版本**。
 
 - 11 模組、89 頁皆有穩定路由與 catalog 驗收條文。
-- 成熟度為 `dedicated=71`、`partial=8`、`shared workspace=10`、`verified=0`。
+- 成熟度為 `dedicated=71`、`partial=9`、`shared workspace=9`、`verified=0`。#79 僅有內部評鑑準備草稿；正式指標、附件與送件仍未開放。
 - `dedicated` 只表示已有專用 UI、API、資料投影與本機測試；正式 Supabase、真實 MFA、跨分支角色矩陣、雙連線競態、50 人壓測、第三方滲透與部署驗收尚未通過，因此沒有任何頁面標記為 `verified`。
 
 逐頁狀態、現有證據與不得推論事項以 [R0_PAGE_ACCEPTANCE_MATRIX.md](./R0_PAGE_ACCEPTANCE_MATRIX.md) 為唯一明細。

@@ -1,3 +1,5 @@
+import { CLIENT_LIFECYCLE_STATUSES } from "@/lib/clients/types";
+
 export const NSI_NUTRITION_RULE_VERSION =
   "nsi-manual-nutrition-observations-candidate-v1" as const;
 
@@ -19,9 +21,7 @@ export const NSI_NUTRITION_OBSERVATION_LABELS = {
   nutrition_observation_06: "人工觀察：營養相關健康或用藥資訊需專業覆核",
 } as const satisfies Record<(typeof NSI_NUTRITION_ITEM_IDS)[number], string>;
 
-export const CLIENT_SERVICE_STATUSES = [
-  "active", "suspended", "transferred", "closed", "deceased",
-] as const;
+export const CLIENT_SERVICE_STATUSES = CLIENT_LIFECYCLE_STATUSES;
 export const NSI_NUTRITION_PREVIEW_STATUSES = [
   "candidate_complete", "incomplete",
 ] as const;
