@@ -48,6 +48,14 @@ const vitalSetSchema = z
   })
   .strict();
 
+const firstVitalArrivalSchema = z.object({
+  client_id: z.uuid(),
+  service_date: z.iso.date(),
+  values: vitalValuesSchema,
+  arrival_check_in: z.literal(true),
+  idempotency_key: z.string().optional(),
+}).strict();
+
 export type VitalKind =
   | "blood_pressure_systolic"
   | "blood_pressure_diastolic"
@@ -69,6 +77,23 @@ export interface VitalSetInput {
   contentHash: string;
 }
 
+/** Immediate, explicitly requested arrival. No client-supplied time or
+ * offline/backfill field is accepted; the database chooses one timestamp. */
+export function parseFirstVitalArrival(value: unknown, headerIdempotencyKey?: string | null) {
+  const parsed = firstVitalArrivalSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new IntegrationError("INVALID_VITAL_ARRIVAL", issue?.message || "即時量測欄位格式錯誤。", 400,
+      issue?.path.length ? issue.path.join(".") : undefined);
+  }
+  return {
+    clientId: parsed.data.client_id,
+    serviceDate: parsed.data.service_date,
+    values: parsed.data.values,
+    idempotencyKey: assertIdempotencyKey(headerIdempotencyKey ?? parsed.data.idempotency_key),
+  };
+}
+
 export interface VitalMeasurementRow {
   measurementKind: VitalKind;
   numericValue: number;
@@ -87,6 +112,11 @@ const definitions: ReadonlyArray<{
   { inputKey: "temperature", kind: "temperature", unit: "°C" },
   { inputKey: "oxygen_saturation", kind: "oxygen_saturation", unit: "%" },
 ];
+
+export function vitalMeasurementKinds(values: VitalSetInput["values"]): VitalKind[] {
+  return definitions.filter((definition) => values[definition.inputKey] != null)
+    .map((definition) => definition.kind).sort();
+}
 
 export function parseVitalSet(
   value: unknown,

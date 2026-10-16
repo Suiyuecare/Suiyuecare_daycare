@@ -10,7 +10,7 @@ import { TodayWorkList } from "./today-work-list";
 import { DashboardWorkspace } from "./dashboard-workspace";
 
 vi.mock("@/components/app/navigation-link", () => ({
-  NavigationLink: ({ loadingLabel, onClick, ...props }: ComponentProps<"a"> & { loadingLabel: string }) => <a {...props} data-loading-label={loadingLabel}
+  NavigationLink: ({ loadingLabel, onClick, prefetch, ...props }: ComponentProps<"a"> & { loadingLabel: string; prefetch?: boolean }) => <a {...props} data-loading-label={loadingLabel} data-prefetch={prefetch === undefined ? undefined : String(prefetch)}
     onClick={(event) => { onClick?.(event); event.preventDefault(); }} />,
 }));
 vi.mock("./dashboard-auto-refresh", () => ({ DashboardAutoRefresh: () => <button>立即更新</button> }));
@@ -18,8 +18,145 @@ afterEach(cleanup);
 const date = "2026-09-10";
 const snapshot = buildDemoDailySnapshot(date);
 const rows = buildTodayWorkRows(snapshot);
+const caregiverWrites = { vitals: true, diary: true, attendance: true, medication: true };
 
 describe("TodayWorkList", () => {
+  it("shows actual assigned-client transport events without inferring a missed ride", () => {
+    const person = rows[1]!;
+    const { rerender } = render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "boarded", dropoffStatus: "scheduled_unreported" }] }} />);
+    expect(screen.getByText("去程 已上車・回程 未回報")).toBeInTheDocument();
+    expect(screen.queryByText(/未搭車/u)).not.toBeInTheDocument();
+    rerender(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "exception", dropoffStatus: "alighted" }] }} />);
+    expect(screen.getByText("去程 有異常待核對・回程 已下車")).toBeInTheDocument();
+    rerender(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "not_scheduled", dropoffStatus: "not_scheduled" }] }} />);
+    expect(screen.getByText("去程 未安排・回程 未安排")).toBeInTheDocument();
+    rerender(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode transport={{ status: "unavailable", serviceDate: date, generatedAt: null, rows: [] }} />);
+    expect(screen.getByText("暫時無法確認")).toBeInTheDocument();
+    expect(screen.queryByText("去程 未安排・回程 未安排")).not.toBeInTheDocument();
+  });
+
+  it("does not show transport status on non-care-worker cards", () => {
+    const person = rows[1]!;
+    render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      transport={{ status: "ready", serviceDate: date, generatedAt: "2026-09-10T01:00:00+00:00",
+        rows: [{ clientId: person.id, pickupStatus: "boarded", dropoffStatus: "alighted" }] }} />);
+    expect(screen.queryByText("接送回報")).not.toBeInTheDocument();
+  });
+
+  it("gives a care worker one person-first entry with only the daily actions they can open", () => {
+    const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} caregiverMode canViewMedication caregiverWrites={caregiverWrites} />);
+    expect(screen.queryByRole("group", { name: "篩選待處理工作" })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("全部在案：6 位");
+    const card = container.querySelectorAll(".today-client")[1] as HTMLElement;
+    const name = within(card).getByRole("heading", { level: 3 }).textContent ?? "";
+    fireEvent.click(within(card).getByLabelText(new RegExp(`${name}.*開啟照顧工作`)));
+    expect(within(card).getByRole("link", { name: `${name}（${rows[1]!.code}）：生命徵象` })).toHaveAttribute("href", expect.stringContaining(`client=${rows[1]!.id}`));
+    expect(within(card).getByRole("link", { name: /：生命徵象$/ })).toHaveAttribute("data-prefetch", "false");
+    expect(within(card).getByRole("link", { name: /：用藥$/ })).toHaveAttribute("href", expect.stringContaining(`client=${rows[1]!.id}`));
+    expect(within(card).getByRole("link", { name: /：喝水、如廁、活動$/ })).toHaveAttribute("href", expect.stringContaining(`client=${rows[1]!.id}`));
+    expect(within(card).getByRole("link", { name: /：注意事項$/ })).toHaveAttribute("href", expect.stringContaining("#client-care-reminder"));
+    expect(within(card).getByRole("link", { name: /：無法量測？$|：簽到待核對$|：簽退$/ })).toHaveAttribute("data-today-client-id", rows[1]!.id);
+    expect(within(card).queryByText("照顧安排")).not.toBeInTheDocument();
+  });
+
+  it("never offers medication as a shortcut when its page is not authorized", () => {
+    const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} caregiverMode caregiverWrites={caregiverWrites} />);
+    fireEvent.click(within(container.querySelectorAll(".today-client")[1] as HTMLElement).getByText("開始照顧"));
+    expect(screen.queryByRole("link", { name: /：用藥$/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps a checked-in person visible for sign-out after measurement and diary are complete", () => {
+    const done = { ...rows[0]!, attendance: "已簽到", measurements: "已有量測", diary: "已簽署", tasks: [] };
+    const { container } = render(<TodayWorkList rows={[done]} serviceDate={date} access={snapshot.sourceAccess} caregiverMode caregiverWrites={caregiverWrites} />);
+    expect(screen.getByRole("heading", { level: 3, name: done.name })).toBeInTheDocument();
+    fireEvent.click(within(container.querySelector(".today-client") as HTMLElement).getByText("開始照顧"));
+    expect(screen.getByRole("link", { name: /：簽退$/ })).toHaveAttribute("href", expect.stringContaining(`client=${done.id}`));
+  });
+
+  it("routes an existing vital without attendance to review, not an impossible no-vital path", () => {
+    const person = { ...rows[1]!, attendance: "尚無出勤", measurements: "已有量測", hasEffectiveVital: true };
+    const { container } = render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode caregiverWrites={caregiverWrites} />);
+    const card = container.querySelector(".today-client") as HTMLElement;
+    fireEvent.click(within(card).getByText("開始照顧"));
+    expect(within(card).getByRole("link", { name: /：簽到待核對$/ })).toHaveAttribute("href",
+      expect.stringContaining(`client=${person.id}`));
+    expect(within(card).queryByRole("link", { name: /：無法量測？$/ })).not.toBeInTheDocument();
+  });
+
+  it("shows only an attendance path when an authorized checked-in person is missing from the roster", () => {
+    const roster: CareRosterSnapshot = { status: "empty", manager: false, assignments: [], staffOptions: [], demo: true };
+    const person = snapshot.clients[1]!;
+    const daily = { ...snapshot, clients: [person] };
+    const { container } = render(<TodayWorkList rows={buildTodayWorkRows(daily, roster, true)} serviceDate={date}
+      access={daily.sourceAccess} roster={roster} caregiverMode canViewMedication caregiverWrites={caregiverWrites} />);
+    expect(screen.getByText("已簽到・分工待主管核對；可先確認簽退。")).toBeInTheDocument();
+    fireEvent.click(within(container.querySelector(".today-client") as HTMLElement).getByText("確認簽退"));
+    const links = within(container.querySelector(".today-client") as HTMLElement).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAccessibleName(`${person.displayName}（${person.clientCode}）：簽退`);
+    expect(links[0]).toHaveAttribute("href", `/app/staff/service-management/attendance?date=${date}&client=${person.clientId}`);
+  });
+
+  it("labels a read-only care worker's destinations as viewing, not recording or signing out", () => {
+    const person = rows[1]!;
+    const { container } = render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode canViewMedication />);
+    const card = container.querySelector(".today-client") as HTMLElement;
+    fireEvent.click(within(card).getByText("查看紀錄"));
+    expect(within(card).getByRole("link", { name: /：查看生命徵象$/ })).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: /：查看用藥$/ })).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: /：查看照顧紀錄$/ })).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: /：查看出勤$/ })).toBeInTheDocument();
+    expect(within(card).queryByRole("link", { name: /：簽退$/ })).not.toBeInTheDocument();
+  });
+
+  it("does not invite a new care action after the person's attendance has ended", () => {
+    const person = { ...rows[1]!, attendance: "已簽退" };
+    const { container } = render(<TodayWorkList rows={[person]} serviceDate={date} access={snapshot.sourceAccess}
+      caregiverMode canViewMedication caregiverWrites={caregiverWrites} />);
+    const card = container.querySelector(".today-client") as HTMLElement;
+    fireEvent.click(within(card).getByText("查看紀錄"));
+    expect(within(card).getByRole("link", { name: /：查看用藥$/ })).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: /：查看出勤$/ })).toBeInTheDocument();
+    expect(within(card).queryByRole("link", { name: /：簽退$/ })).not.toBeInTheDocument();
+  });
+
+  it("explains an empty roster without claiming the employee has no authorized clients", () => {
+    const roster: CareRosterSnapshot = { status: "empty", manager: false, assignments: [], staffOptions: [], demo: true };
+    const daily = { ...snapshot, clients: [snapshot.clients[4]!] };
+    render(<TodayWorkList rows={buildTodayWorkRows(daily, roster, true)} serviceDate={date}
+      access={daily.sourceAccess} roster={roster} caregiverMode />);
+    expect(screen.getByRole("heading", { name: "今日尚未安排分工" })).toBeInTheDocument();
+    expect(screen.queryByText("目前沒有可查閱的在案個案")).not.toBeInTheDocument();
+  });
+
+  it("does not present a history-only client as someone to care for today", () => {
+    const { container } = render(<TodayWorkList rows={[{ ...rows[0]!, serviceEligible: false }]} serviceDate={date} access={snapshot.sourceAccess} caregiverMode />);
+    expect(container.querySelector(".today-client")).toBeNull();
+    expect(screen.queryByText("開始照顧")).not.toBeInTheDocument();
+  });
+
+  it("does not offer write-oriented work when today's service is unconfirmed", () => {
+    render(<TodayWorkList rows={[{ ...rows[0]!, careExpected: false }]} serviceDate={date} access={snapshot.sourceAccess} caregiverMode canViewMedication />);
+    expect(screen.getByText("今日照顧安排待確認，請先向主管核對。")).toBeInTheDocument();
+    expect(screen.queryByText("開始照顧")).not.toBeInTheDocument();
+  });
+
+  it("shows a permission message instead of opening an empty action panel", () => {
+    const restricted = { ...snapshot.sourceAccess, attendance: false, measurements: false, careDiaries: false };
+    render(<TodayWorkList rows={[rows[0]!]} serviceDate={date} access={restricted} caregiverMode />);
+    expect(screen.getByText("目前沒有可執行工作，請聯絡主管確認權限。")).toBeInTheDocument();
+    expect(screen.queryByText("開始照顧")).not.toBeInTheDocument();
+  });
+
   it("keeps search ahead of collapsed mobile filters and preserves the selected scope", () => {
     const { container } = render(<TodayWorkList rows={rows} serviceDate={date} access={snapshot.sourceAccess} />);
     const search = screen.getByRole("searchbox", { name: "搜尋今日個案姓名或代碼" });
@@ -248,6 +385,30 @@ describe("TodayWorkList", () => {
     expect(screen.getByRole("status")).toHaveTextContent("尚無量測：1 位（搜尋結果）");
     expect(screen.getByRole("link", { name: /黃O生.*前往量測/ })).toBeVisible();
     storageWrite.mockRestore();
+  });
+
+  it("returns a care worker to the original person even when its work panel remounts closed", async () => {
+    window.history.replaceState({ __NA: true }, "", `/app/staff/workspace/dashboard?date=${date}`);
+    const getClientRects = vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (this: Element) {
+      return this.matches("summary[data-today-client-id]") ? ([{}] as unknown as DOMRectList) : ([] as unknown as DOMRectList);
+    });
+    try {
+      const props = { rows, serviceDate: date, access: snapshot.sourceAccess, caregiverMode: true,
+        caregiverWrites, resumeScopeKey: "actor-caregiver-return:branch-a" };
+      const first = render(<div className="main-stage"><TodayWorkList {...props} /></div>);
+      const card = first.container.querySelectorAll(".today-client")[1] as HTMLElement;
+      fireEvent.click(within(card).getByText("開始照顧"));
+      const scroller = first.container.querySelector(".main-stage") as HTMLElement;
+      scroller.scrollTop = 240;
+      fireEvent.click(within(card).getByRole("link", { name: /：生命徵象$/ }));
+      first.unmount();
+
+      const returned = render(<div className="main-stage"><TodayWorkList {...props} /></div>);
+      const summary = returned.container.querySelector(`summary[data-today-client-id="${rows[1]!.id}"]`) as HTMLElement;
+      expect(summary).toHaveAttribute("data-today-client-id", rows[1]!.id);
+      await waitFor(() => expect(summary).toHaveFocus());
+      expect((returned.container.querySelector(".main-stage") as HTMLElement).scrollTop).toBe(240);
+    } finally { getClientRects.mockRestore(); }
   });
 
   it("clamps restored pagination when the reauthorized list shrinks", async () => {

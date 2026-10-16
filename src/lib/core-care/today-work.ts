@@ -5,27 +5,36 @@ export type WorkFilter = "pending" | "all" | "attendance" | "measurements" | "di
 export type WorkTask = Exclude<WorkFilter, "pending" | "all">;
 export type TodayWorkRow = {
   id: string; code: string; name: string;
+  serviceEligible: boolean; careExpected: boolean; unrosteredCheckedIn: boolean;
   attendance: string; measurements: string; diary: string;
+  /** Actual authorized same-day vital, independent of roster-task completion. */
+  hasEffectiveVital?: boolean;
   tasks: WorkTask[]; nextPage: 46 | 3 | 6 | null; nextLabel: string;
   plannedShifts?: CareRosterAssignment[];
 };
 
 /** Review queue, not a schedule, diagnosis, or proof of completed service. */
-export function buildTodayWorkRows(snapshot: DailyCareSnapshot, roster?: CareRosterSnapshot): TodayWorkRow[] {
+export function buildTodayWorkRows(snapshot: DailyCareSnapshot, roster?: CareRosterSnapshot, includeUnrosteredCheckedIn = false): TodayWorkRow[] {
   const snapshotAccess = snapshot.sourceAccess;
   if (!snapshotAccess.clients) return [];
   const planned = roster?.status === "ready" || roster?.status === "empty"
     ? roster.assignments.filter((row) => row.state === "scheduled" && row.isServiceEligible === true && row.serviceEligibility === "eligible") : null;
-  return snapshot.clients.filter((client) => !planned || planned.some((row) => row.clientId === client.clientId)).map((client): TodayWorkRow => {
+  const isUnrosteredCheckedIn = (client: DailyCareSnapshot["clients"][number]) => Boolean(includeUnrosteredCheckedIn && planned
+    && !planned.some((row) => row.clientId === client.clientId)
+    && client.applicability?.eligible !== false
+    && snapshotAccess.attendance && client.sourceAccess?.attendance !== false
+    && client.attendance?.status === "present" && !client.attendance.checkedOutAt);
+  return snapshot.clients.filter((client) => !planned || planned.some((row) => row.clientId === client.clientId) || isUnrosteredCheckedIn(client)).map((client): TodayWorkRow => {
     const access = { ...snapshotAccess,
       attendance: snapshotAccess.attendance && client.sourceAccess?.attendance !== false,
       measurements: snapshotAccess.measurements && client.sourceAccess?.measurements !== false,
       careDiaries: snapshotAccess.careDiaries && client.sourceAccess?.careDiaries !== false,
     };
-    const plannedShifts = planned?.filter((row) => row.clientId === client.clientId).map((slot) => ({ ...slot,
+    const assignedShifts = planned?.filter((row) => row.clientId === client.clientId);
+    const plannedShifts = assignedShifts?.length ? assignedShifts.map((slot) => ({ ...slot,
       tasks: slot.tasks.map((task) => (task.kind === "care_diary" ? access.careDiaries : access.measurements)
         ? task : { ...task, status: "restricted" as const, evidenceAt: null }),
-    }));
+    })) : undefined;
     const attendance = access.attendance ? client.attendance : null;
     const vital = access.measurements ? client.vitalSigns : null;
     const diary = access.careDiaries ? client.careDiary : null;
@@ -42,7 +51,10 @@ export function buildTodayWorkRows(snapshot: DailyCareSnapshot, roster?: CareRos
       : first === "attendance" ? 46 : first === "measurements" ? 3
         : access.attendance ? 46 : access.measurements ? 3 : access.careDiaries ? 6 : null;
     return {
-      id: client.clientId, code: client.clientCode, name: client.displayName, tasks, nextPage,
+      id: client.clientId, code: client.clientCode, name: client.displayName,
+      serviceEligible: client.applicability?.eligible !== false, careExpected: client.applicability?.care === "expected",
+      hasEffectiveVital: Boolean(vital),
+      unrosteredCheckedIn: isUnrosteredCheckedIn(client), tasks, nextPage,
       ...(plannedShifts ? { plannedShifts } : {}),
       nextLabel: first === "attention" ? "查看需留意紀錄" : first === "attendance" ? "確認出勤"
         : first === "measurements" ? "前往量測" : first === "diary" ? "接續照顧日誌" : "查看紀錄",

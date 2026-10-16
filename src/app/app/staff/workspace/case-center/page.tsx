@@ -42,6 +42,7 @@ export default async function CaseCenterPage({
 
   return (
     <CaseCenterWorkspace
+      caregiverMode={context.roles.length === 1 && context.roles[0] === "care_worker"}
       canOpenIntake={context.demo || ["clients.read", "clients.demographics.read"].every((scope) => context.scopes.includes(scope))}
       canCreateIntake={!context.demo && ["clients.read", "clients.demographics.read", "clients.manage", "clients.view_all"].every((scope) => context.scopes.includes(scope))}
       allowedDailyPages={staffPages.filter((entry) => [46, 3, 6].includes(entry.number) && canAccessCatalogPage(context, entry)).map((entry) => entry.number)}

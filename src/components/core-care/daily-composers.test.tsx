@@ -22,6 +22,51 @@ const selectedClientId = clients[1]!.id;
 const date = "2026-09-10";
 
 describe("care diary shift continuation", () => {
+  it("lets a caregiver record observations without repeating the same item in free text", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} caregiverMode />);
+    fireEvent.click(screen.getByRole("button", { name: "新增照顧紀錄" }));
+    const dialog = screen.getByRole("dialog", { name: "記錄照顧" });
+    const form = dialog.querySelector("form")!;
+    expect(within(dialog).getByText("先存草稿，確認並簽署後才完成；異常標記僅供人工確認。")).toBeVisible();
+    const observation = within(dialog).getByRole("group", { name: "本次觀察（選填）" });
+    expect(within(dialog).queryByLabelText("照顧項目 *")).not.toBeInTheDocument();
+    expect((form.elements.namedItem("care_item") as HTMLInputElement).value).toBe("日常照顧觀察");
+    expect(within(dialog).getByText("本次照顧個案")).toBeVisible();
+    expect(within(dialog).getByText("合成個案乙（SYN-02）")).toBeVisible();
+    expect((form.elements.namedItem("client_id") as HTMLSelectElement).value).toBe(selectedClientId);
+    expect(within(dialog).getByLabelText("班別 *")).toHaveValue("morning");
+    expect(within(dialog).getByLabelText("發生日期與時間 *")).toBeRequired();
+    fireEvent.change(within(observation).getByRole("spinbutton"), { target: { value: "120" } });
+    fireEvent.submit(form); await within(dialog).findByRole("alert");
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(body.data).toMatchObject({ shift: "morning", care_item: "日常照顧觀察", observations: {
+      water: { state: "observed", value: 120 }, toileting: { state: "unknown" },
+      activity: { state: "unknown" }, meal: { state: "unknown" },
+    } });
+  });
+  it("keeps a selected caregiver case locked even if another authorized option is injected locally", () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} caregiverMode />);
+    fireEvent.click(screen.getByRole("button", { name: "新增照顧紀錄" }));
+    const dialog = screen.getByRole("dialog", { name: "記錄照顧" });
+    const form = dialog.querySelector("form")!;
+    const hiddenClient = form.elements.namedItem("client_id") as HTMLSelectElement;
+    hiddenClient.add(new Option("合成個案甲", clients[0]!.id));
+    hiddenClient.value = clients[0]!.id;
+    fireEvent.submit(form);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("請重新選擇目前授權的個案");
+  });
+  it("does not create an empty caregiver diary draft", () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift="morning" enabled demo={false} caregiverMode />);
+    fireEvent.click(screen.getByRole("button", { name: "新增照顧紀錄" }));
+    const dialog = screen.getByRole("dialog", { name: "記錄照顧" });
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("請選一項觀察");
+  });
   it.each(["morning", "afternoon", "full_day"] as const)("uses selected %s in the actual draft payload", async (shift) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 })); vi.stubGlobal("fetch", fetchMock);
     render(<CareDiaryComposer clients={clients} serviceDate={date} selectedClientId={selectedClientId} selectedShift={shift} enabled demo={false} />);
@@ -151,7 +196,7 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
     const { dialog, form } = open(spec);
-    expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);
+    expect((form.elements.namedItem("client_id") as HTMLInputElement | HTMLSelectElement).value).toBe(selectedClientId);
     fireEvent.submit(form);
     await within(dialog).findByRole("alert");
     expect(fetchMock.mock.calls[0]![0]).toBe(spec.endpoint);
@@ -188,7 +233,7 @@ describe.each(specs)("$kind selected-client composer safeguards", (spec) => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "放棄本次輸入" }));
     expect(dialog).not.toHaveAttribute("open");
     fireEvent.click(screen.getByRole("button", { name: spec.trigger }));
-    expect(within(dialog).getByLabelText("個案 *")).toHaveValue(selectedClientId);
+    expect((dialog.querySelector("form")!.elements.namedItem("client_id") as HTMLInputElement | HTMLSelectElement).value).toBe(selectedClientId);
     expect(field).toHaveValue(spec.kind === "vitals" ? null : "");
   });
   it("freezes the same body and key after an uncertain result, even on attempted edits", async () => {
@@ -314,10 +359,12 @@ describe.each(specs.filter((spec) => spec.kind !== "attendance"))("$kind forged 
     vi.stubGlobal("fetch", fetchMock);
     mount(spec.kind);
     const { dialog, form } = open(spec);
-    const select = within(dialog).getByLabelText("個案 *") as HTMLSelectElement;
-    const option = new Option("合成未授權個案", "a9999999-9999-4999-8999-999999999999");
-    select.add(option);
-    select.value = option.value;
+    const field = form.elements.namedItem("client_id") as HTMLInputElement | HTMLSelectElement;
+    const forgedClient = "a9999999-9999-4999-8999-999999999999";
+    if (field instanceof HTMLSelectElement) {
+      field.add(new Option("合成未授權個案", forgedClient));
+    }
+    field.value = forgedClient;
     fireEvent.submit(form);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(within(dialog).getByRole("alert")).toHaveTextContent("請重新選擇目前授權的個案");
